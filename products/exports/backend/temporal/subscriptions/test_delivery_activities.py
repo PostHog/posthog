@@ -36,7 +36,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 

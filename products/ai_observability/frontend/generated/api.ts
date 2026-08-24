@@ -1276,7 +1276,7 @@ export const llmAnalyticsEvaluationReportsRunsList = async (
     )
 }
 
-export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmAnalyticsModelsRetrieveParams) => {
+export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params?: LlmAnalyticsModelsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -1293,11 +1293,11 @@ export const getLlmAnalyticsModelsRetrieveUrl = (projectId: string, params: LlmA
 }
 
 /**
- * List available models for a provider.
+ * List available models, for one provider or for every supported provider.
  */
 export const llmAnalyticsModelsRetrieve = async (
     projectId: string,
-    params: LlmAnalyticsModelsRetrieveParams,
+    params?: LlmAnalyticsModelsRetrieveParams,
     options?: RequestInit
 ): Promise<LLMModelsListResponseApi> => {
     return apiMutator<LLMModelsListResponseApi>(getLlmAnalyticsModelsRetrieveUrl(projectId, params), {

@@ -1,8 +1,14 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  TASK_DRAG_TYPE,
+  TASK_IDS_DRAG_TYPE,
+} from "@posthog/ui/features/sidebar/taskDrag";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,11 +16,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The row's status comes from live session/workspace state and a per-task tRPC
 // query, none of which a unit test has. Stubbed at the module boundary, as
 // ChannelSidebar.test.tsx does for the same reason.
-const mocks = vi.hoisted(() => ({ status: null as TaskStatusInput | null }));
+const mocks = vi.hoisted(() => ({
+  status: null as TaskStatusInput | null,
+  currentUserId: 999 as number | undefined,
+}));
+vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
   useChannelTaskStatus: () => mocks.status,
 }));
-// The row menu's spaces list and filing mutation are tRPC-backed.
+// The row menu's spaces list and filing mutation are tRPC-backed. The
+// handoff dialog's channels lookup rides the same mock.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [{ id: "channel-1", name: "code" }] }),
 }));
@@ -24,14 +37,23 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+// The handoff dialog is tested on its own; here it only opens.
+vi.mock(
+  "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
+  () => ({
+    HandoffTaskDialog: () => null,
+  }),
+);
 
 import { usePendingCanvasDeleteStore } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelItemPreviewCardProvider } from "./ChannelItemHoverCard";
 import { ChannelItemRow } from "./ChannelItemRow";
 
 const actions = {
   open: () => {},
   togglePin: () => {},
+  setPinned: () => {},
   archive: () => {},
   remove: () => {},
 };
@@ -54,6 +76,8 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorName: null,
     authorUuid: "user-uuid",
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...overrides,
   };
@@ -79,7 +103,12 @@ function renderRow(model: ChannelItemModel) {
 
 beforeEach(() => {
   mocks.status = null;
+  useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useTaskSelectionStore.setState({
+    selectedTaskIds: [],
+    lastClickedId: null,
+  });
 });
 
 describe("ChannelItemRow", () => {
@@ -269,12 +298,30 @@ describe("ChannelItemRow", () => {
 
       fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
 
-      expect(setData).toHaveBeenCalledWith("text/x-task-id", "task-1");
+      expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
       expect(dataTransfer.effectAllowed).toBe("copyMove");
     },
   );
 
-  it("does not make canvases draggable into the Command Center", () => {
+  it("drags every selected task into the Command Center", () => {
+    useTaskSelectionStore.setState({
+      selectedTaskIds: ["task-2", "task-1"],
+    });
+    renderRow(item());
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "none" };
+
+    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+    expect(setData).toHaveBeenCalledWith(TASK_DRAG_TYPE, "task-1");
+    expect(setData).toHaveBeenCalledWith(
+      TASK_IDS_DRAG_TYPE,
+      JSON.stringify(["task-1", "task-2"]),
+    );
+    expect(dataTransfer.effectAllowed).toBe("copyMove");
+  });
+
+  it("makes canvases draggable into the Command Center", () => {
     renderRow(
       item({
         key: "canvas:canvas-1",
@@ -282,8 +329,13 @@ describe("ChannelItemRow", () => {
         id: "canvas-1",
       }),
     );
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "none" };
 
-    expect(screen.getByRole("button")).not.toHaveAttribute("draggable", "true");
+    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+    expect(setData).toHaveBeenCalledWith(CANVAS_DRAG_TYPE, "canvas-1");
+    expect(dataTransfer.effectAllowed).toBe("copy");
   });
 
   // The hover card and right-click render the same item list from one
@@ -291,7 +343,7 @@ describe("ChannelItemRow", () => {
   const MENU_ITEMS = [
     "Pin",
     "Rename",
-    "Add to Command Center",
+    "Add to Command Center…",
     "File to…",
     "Archive",
   ];
@@ -337,6 +389,42 @@ describe("ChannelItemRow", () => {
     }
   });
 
+  it("offers Hand off… only to the task's owner", async () => {
+    // The API 404s a non-owner's handoff, so the menu must not offer it to one.
+    const ownerItem = item({
+      authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
+      task: {
+        id: "task-1",
+        task_number: 1,
+        slug: "task-1",
+        title: "Investigate signup drop-off",
+        description: "",
+        created_at: "2026-07-16T12:00:00.000Z",
+        updated_at: "2026-07-16T12:00:00.000Z",
+        origin_product: "user_created",
+        created_by: { id: 999, uuid: "u-1", email: "owner@example.com" },
+        channel: "channel-1",
+      },
+    });
+
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={ownerItem} />,
+    );
+    await openCard();
+    expect(screen.getByRole("button", { name: "Hand off…" })).not.toBeNull();
+
+    cleanup();
+
+    mocks.currentUserId = 7;
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={ownerItem} />,
+    );
+    await userEvent.hover(screen.getByText("Investigate signup drop-off"));
+    await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 });
+    expect(screen.queryByRole("button", { name: "Hand off…" })).toBeNull();
+    mocks.currentUserId = 999;
+  });
+
   it("disables Add to Command Center when there is nowhere to put the task", async () => {
     renderWithMenu({ onAddToCommandCenter: undefined });
 
@@ -345,7 +433,7 @@ describe("ChannelItemRow", () => {
     // Quill keeps a disabled button focusable, so the state is aria-disabled
     // rather than the native attribute.
     expect(
-      screen.getByRole("button", { name: "Add to Command Center" }),
+      screen.getByRole("button", { name: "Add to Command Center…" }),
     ).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -382,7 +470,12 @@ describe("ChannelItemRow", () => {
       title: "Web analytics overview",
     });
     renderInList(
-      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        onAddToCommandCenter={() => {}}
+      />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));
@@ -391,9 +484,11 @@ describe("ChannelItemRow", () => {
       await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
     ).not.toBeNull();
     expect(screen.getByRole("button", { name: "Delete…" })).not.toBeNull();
-    // A canvas can't be archived, filed to a space, or given a command-centre
-    // cell, so those items aren't drawn at all rather than drawn dead.
-    for (const absent of ["Archive", "File to…", "Add to Command Center"]) {
+    expect(
+      screen.getByRole("button", { name: "Add to Command Center…" }),
+    ).not.toBeNull();
+    // A canvas can't be archived or filed to another space.
+    for (const absent of ["Archive", "File to…"]) {
       expect(screen.queryByRole("button", { name: absent })).toBeNull();
     }
   });
@@ -426,5 +521,53 @@ describe("ChannelItemRow", () => {
     );
 
     expect(remove).toHaveBeenCalledWith(canvas);
+  });
+
+  it("shows the metadata fields the appearance settings ask for, in that order", () => {
+    useSidebarStore.setState({
+      listItemMetadataFields: ["branch", "repository"],
+    });
+    renderRow(
+      item({
+        authorName: "Ada Lovelace",
+        repository: { key: "posthog/code", label: "PostHog/code" },
+        branch: "posthog/session-list",
+      }),
+    );
+
+    // Order is the segment builder's job and is tested there; a row's job is
+    // to show what the settings asked for.
+    expect(screen.getByText("posthog/session-list")).toBeInTheDocument();
+    expect(screen.getByText("PostHog/code")).toBeInTheDocument();
+  });
+
+  // A session carries its creator as a user, not a name, so reading the name
+  // alone left every session row without one.
+  it("names the creator of a session, which carries a user rather than a name", () => {
+    useSidebarStore.setState({ listItemMetadataFields: ["creator"] });
+    renderRow(
+      item({
+        authorUser: {
+          id: 1,
+          uuid: "user-uuid",
+          first_name: "Ada",
+          last_name: "Lovelace",
+          email: "ada@example.com",
+        },
+      }),
+    );
+
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+  });
+
+  it("leaves a row single-line when no metadata fields are chosen", () => {
+    renderRow(
+      item({
+        authorName: "Ada Lovelace",
+        repository: { key: "posthog/code", label: "PostHog/code" },
+      }),
+    );
+
+    expect(screen.queryByText(/PostHog\/code/)).not.toBeInTheDocument();
   });
 });

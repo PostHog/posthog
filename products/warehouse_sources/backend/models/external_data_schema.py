@@ -194,6 +194,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # ignored by version-migration tooling — only the user changes it. Not available for
     # webhook-sync schemas (webhook payload versions are configured per source at the vendor).
     api_version = models.CharField(max_length=128, null=True, blank=True)
+    # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
+    # because it has to outlive a reset, and clearing that blob is what a reset is for.
+    history_start = models.DateTimeField(null=True, blank=True)
     # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
     sync_type_config = models.JSONField(
         default=dict,
@@ -958,6 +961,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if save:
             self.save(skip_activity_log=True)
 
+    def clear_xmin_state(self, save: bool = True) -> None:
+        # Drops the cursor so the next run takes the backfill path and re-reads the whole table,
+        # upserting by primary key. Use it to repair a schema whose backfill missed rows.
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
+
+        if save:
+            self.save(skip_activity_log=True)
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = timezone.now()
@@ -1193,6 +1206,31 @@ def update_sync_type_config_keys(
         return config
 
 
+def save_repartition_checkpoint_if_claimed(
+    schema: ExternalDataSchema, *, claim_token: str, checkpoint: dict[str, Any]
+) -> bool:
+    """Write a rewrite checkpoint only while `claim_token` still owns the schema. Returns whether it did.
+
+    Checking the claim before calling `set_repartition_rewrite` is not enough: that saves the whole
+    `sync_type_config` column from an in-memory copy, so a worker superseded between the check and the
+    save writes back its own stale `repartition_claim` and un-fences itself. Re-reading the claim under
+    the row lock, in the same transaction as the write, closes that window — the same reason
+    `update_sync_type_config_keys` exists.
+    """
+    claimed = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal claimed
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        config["repartition_rewrite"] = checkpoint
+        claimed = True
+
+    update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return claimed
+
+
 def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
     """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
 
@@ -1363,7 +1401,10 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
-            if s.table_id is None:
+            # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
+            # disabled, because soft-deleting it would silently discard the user's selection (e.g.
+            # a scope-gated table the source stopped offering before its first successful sync).
+            if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:

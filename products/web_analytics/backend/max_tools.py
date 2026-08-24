@@ -18,9 +18,9 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dags.common.owners import JobOwners
 from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.job_owners import JobOwners
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
 from posthog.queries.property_values import get_person_property_values_for_key

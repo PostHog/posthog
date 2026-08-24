@@ -82,7 +82,7 @@ if TYPE_CHECKING:
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
-    from products.product_analytics.backend.models.insight_variable import InsightVariable
+    from products.product_analytics.backend.facade.models import InsightVariable
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),

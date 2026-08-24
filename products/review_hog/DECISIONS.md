@@ -198,6 +198,66 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-08-21 — label trigger moves onto the GitHub App webhook (additive handler, no second inlet)
+
+- **What.** The `reviewhog` label add reaches ReviewHog as a `pull_request` handler registered in core's
+  unified GitHub App fan-out (`posthog/urls.py:GITHUB_WEBHOOK_HANDLERS`), alongside the tasks backstop
+  and Loops. The handler reuses the trigger endpoint's gates (allowlist → team → run user → busy-guard)
+  through a shared plain function, plus two webhook-only gates: the payload's `installation.id` must map
+  to the configured team's GitHub integration, and the sender must be a human or the Stamphog App bot (the
+  Action's allowed-labeler policy; other bots are ignored and logged, the Action's comment-and-strip is
+  not ported). Same `start_review_pr_workflow(trigger_source="label")`.
+- **Why now.** Stage 5 rejected "Path B" (webhook) because it diverged from Stamphog's CI model; Stamphog
+  is hosted and webhook-driven since #70407, so that reason is gone. The Action costs a CI run per
+  label, carries a secret in Actions, and only works in repos that ship the workflow file. ReviewHog
+  already publishes through the PostHog GitHub App installation token, so that App's inlet is the
+  right one — **not** a standalone endpoint like Stamphog's (a different App, hence a different secret).
+- **Constraints.** Core's dispatcher owns verification, parsing, and per-handler delivery dedup — the
+  handler does none of that. It has no retry either, and GitHub does not redeliver on its own, so the
+  handler hands off to a retried Celery task that starts the workflow (Stamphog's shape) rather than
+  starting it in-request; until that hand-off is in, the Action's curl retries are the only durability.
+  `USE_EXISTING` on the deterministic workflow id makes Action + webhook firing together harmless, so
+  the Action stays during rollout and is removed in a follow-up.
+- **Scope fence.** `synchronize` / comment signals, when they come, **extend this handler module**:
+  `synchronize` in the same `pull_request` bucket, comments registered under their own event types
+  (`issue_comment`, `pull_request_review_comment` — the dispatcher routes strictly by `X-GitHub-Event`),
+  all sharing the gates. They do not open a second inlet, and `signal-with-start` / per-PR Schedules
+  wait for the loop workflow itself (nest-then-promote, see "Triggers — GitHub events → turns").
+
+### ✅ BUILT 2026-08-19 — "Use an existing skill": adopt a team skill as a review skill by copy (grilled 2026-08-19; ADR `adr/0002`)
+
+Users with an existing team skill had no path into ReviewHog short of running the "Create your own" authoring
+agent — the ask was a picker beside those buttons that reuses what the team already has. Design settled by a
+grilled Q&A (copy-vs-reference was the root call, recorded with its consequences in
+[ADR 0002](./adr/0002-adopt-existing-skills-by-copy.md)): **adopt = duplicate the source under the kind's
+prefix + activate, verbatim** (no agent adaptation; the picker's body preview does the judgment work, and the
+fixed output schema means a foreign body can never break the pipeline format). Mechanics, all existing
+endpoints — the skills product's `duplicate` (strips `seeded_by`, adopter becomes author, so author-only
+visibility and the sync's seeded-rows-only reconcile hold untouched) then the kind's config PATCH
+(perspectives `enabled`, single-active kinds `active`, swapping the current selection; the confirm step names
+the swap). Two client calls over a new atomic endpoint on purpose: the one partial-failure mode (copied but
+not switched on) is harmless — the card exists, a toast says to flip it.
+
+- **Picker scope:** one searchable list, two groups — teammates' same-kind `review-hog-*` customs first
+  (adoptable precisely because the config surface hides them: the fork makes them yours), then every other
+  team skill (cross-kind review skills included — a validation bar adopted as resolution criteria is
+  legitimate). Community store deliberately out of scope (phase 2, own trust surface).
+- **Naming:** confirm step with the prefix fixed and an editable slug, prefilled from the source name (any
+  review-hog kind prefix stripped so cross-kind adoption doesn't double-prefix), client-side mirror of the
+  name rules for inline errors; the server stays authoritative on conflicts.
+- **Component layering:** the generic piece (`SkillPicker` — controlled groups, client-side search, lazy body
+  preview) lives in `frontend/src/lib/components/SkillPicker/` per the no-cross-product-component-imports
+  rule (the grill's products/skills pick adjusted to the sanctioned shared layer); ReviewHog's
+  `AdoptSkillModal` owns the groups, the confirm step, and the adopt orchestration in
+  `reviewHogSettingsLogic`.
+- **Skills-product fix along the way:** `duplicate_skill` now derives `category` from the new name exactly
+  like the create paths (was deliberately empty), so adopted skills group under the Skills page's Code review
+  tab like agent-authored ones — also fixes the manual duplicate-into-prefix path.
+- Tests: jest — adopt orchestration per kind (duplicate name + activation body), copy-failure keeps the modal
+  open with no activation fired, activation-failure still reloads the kind's cards, picker grouping, slug
+  prefill/validation (pure); BE — duplicate category derivation parameterized (new-name prefix wins, source
+  category never copied).
+
 ### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
 
 The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
@@ -2059,6 +2119,8 @@ is unrouted — `webhooks.py:78-143`): **label add → start the loop**; **`sync
 `start_workflow`; in A each is a `signal-with-start`. Two non-negotiables from the existing handler: **dedupe on
 `X-GitHub-Delivery`** + **hand off fast (200/202) to Temporal**, and the **fork guard** (`head.repo == base repo`,
 `webhooks.py:127-133`) before reviewing — and certainly before _implementing_ — on an attacker-influenced head ref.
+_(2026-08-21: the label-add signal lands as a handler in the unified dispatcher; the other two signals extend that
+handler when the loop exists, per the scope fence in the "✅ DECIDED 2026-08-21" entry.)_
 Publish/fetch move off the static `GITHUB_TOKEN` onto the team's installation token (`first_for_team_repository` +
 `get_access_token`, `posthog/models/integration.py:2504-2519`, `github_integration_base.py:1433`) — or the
 maintainer's service-user + project key — when multi-tenant identity is needed; a PR-_review_ POST helper
@@ -2285,7 +2347,8 @@ Modal sandbox + Postgres + DB-synced LLMA skills) — it **cannot** run on a Git
 does. So the label trigger is a **thin GitHub Action** that calls a **PostHog endpoint**, which starts the Temporal
 workflow; the workflow fetches + publishes **server-side** via the GitHub App installation token. Rejected:
 **Path B** (label → the existing `webhooks/github/pr` dispatcher → Temporal, no CI — diverges from the team's
-Stamphog model) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
+Stamphog model; _superseded 2026-08-21, Stamphog is hosted now — see "✅ DECIDED 2026-08-21 — label trigger moves
+onto the GitHub App webhook"_) and **Path C** (re-platform ReviewHog as a standalone CI script — discards the whole Temporal
 pipeline just built + hardened).
 
 ```text

@@ -164,6 +164,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
+    '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
@@ -225,7 +226,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
-    '/community-skills': ['CommunitySkills', 'communitySkills'],
+    '/skills/community': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
     '/stamphog': ['Stamphog', 'stamphog'],
     '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
@@ -414,6 +415,8 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/community-skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
@@ -689,6 +692,14 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
+    Experiments: {
+        projectBased: true,
+        name: 'Experiments',
+        activityScope: ActivityScope.EXPERIMENT,
+        description:
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
+        iconType: 'experiment',
+    },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -1438,7 +1449,7 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
-    communitySkills: (): string => '/community-skills',
+    communitySkills: (): string => '/skills/community',
     stamphog: (): string => '/stamphog',
     stamphogRuns: (): string => '/stamphog/runs',
     stamphogDigests: (): string => '/stamphog/digests',
@@ -1808,6 +1819,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
             'var(--color-product-product-tours-light)',
             'var(--color-product-product-tours-dark)',
         ] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: `Survey`,
@@ -1980,7 +1992,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
         flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },

@@ -16,6 +16,7 @@ their data results.
 """
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -203,6 +204,14 @@ class ChannelDTO:
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
+    system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ProvisionedChannelsDTO:
+    channels: list[ChannelDTO]
+    personal_created: bool
+    general_created: bool
 
 
 @dataclass(frozen=True)
@@ -286,8 +295,6 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
-    target_scope: str | None = None
-    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -375,6 +382,10 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+
+
+class TaskAnalysisError(Exception):
+    """A task analysis could not be created or recorded; ``message`` is safe to surface."""
 
 
 @dataclass(frozen=True)
@@ -622,6 +633,20 @@ class CreatedTaskDTO:
 
 
 @dataclass(frozen=True)
+class WorkflowTaskDTO:
+    """Outcome of a workflow's "Create AI task" action.
+
+    ``created`` is False when the request replayed an already-used idempotency key and the
+    ids belong to the previously created task. ``run_id`` is ``None`` only for a replayed
+    task whose run has since been deleted.
+    """
+
+    task_id: UUID
+    run_id: UUID | None
+    created: bool
+
+
+@dataclass(frozen=True)
 class CodeInviteRedeemResult:
     """Outcome of attempting to redeem a PostHog Desktop invite.
 
@@ -632,6 +657,11 @@ class CodeInviteRedeemResult:
     """
 
     outcome: str
+
+
+@dataclass(frozen=True)
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
 
 
 @dataclass(frozen=True)
@@ -724,6 +754,38 @@ class WarmTaskDTO:
 
     task_id: UUID
     run_id: UUID
+
+
+@dataclass(frozen=True)
+class TaskRunPeerDTO:
+    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
+
+    run_id: str
+    task_id: str
+    task_title: str
+    created_by_email: str | None
+    runtime: str
+    model: str | None
+    repository: str | None
+    stage: str | None
+    status: str
+    sendable: bool
+    updated_at: str | None
+
+
+PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
+
+
+@dataclass(frozen=True)
+class PeerMessageSendResultDTO:
+    """Synchronous result of a peer-message send. ``result`` is the public contract:
+    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
+    happens later inside the workflow), ``target_finished`` means the target's
+    workflow is gone, ``rejected`` covers throttles and validation failures."""
+
+    result: PeerSendResultKind
+    detail: str
+    message_id: str | None = None
 
 
 @dataclass(frozen=True)

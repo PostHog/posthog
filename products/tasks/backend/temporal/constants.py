@@ -31,6 +31,11 @@ MAX_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours
 # window so the sandbox survives the follow-up cadence).
 LOOP_RUN_IDLE_TIMEOUT_SECONDS = 2 * 60  # 2 minutes
 
+# Workflow-fired runs share the loop shape: unattended, and a workflow trigger can fan
+# out many runs, so an idle sandbox per fire is pure cost. Set only on the initial run;
+# a human-driven resume run omits it and keeps the normal come-and-go window.
+WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS = 2 * 60  # 2 minutes
+
 # When a loop run's workflow dies without terminalizing (sandbox killed, worker crash),
 # the run row is stuck non-terminal and would block every future fire under SKIP forever.
 # A live run keeps bumping `updated_at` within its inactivity window, so a non-terminal

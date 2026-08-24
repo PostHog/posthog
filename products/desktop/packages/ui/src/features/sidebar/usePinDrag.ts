@@ -1,4 +1,5 @@
 import { usePinDragStore } from "@posthog/ui/features/sidebar/pinDragStore";
+import { takeConsumedTaskDrop } from "@posthog/ui/features/sidebar/taskDrag";
 import {
   getPinDropAction,
   isPointInsideRect,
@@ -18,7 +19,12 @@ import {
 const OFFSCREEN = -10_000;
 
 export interface PinDrag<T> {
-  item: T;
+  /**
+   * Everything the drop applies to, grabbed item first. Non-empty by
+   * construction: the grabbed item is prepended rather than looked up, so a
+   * selection the list can't fully resolve still drops what was grabbed.
+   */
+  items: [T, ...T[]];
   /** Where the drag started, which decides whether a drop pins or unpins. */
   sourcePinned: boolean;
   overPinned: boolean;
@@ -56,10 +62,21 @@ export interface PinDragApi<T> {
  */
 export function usePinDrag<T>({
   isPinned,
-  togglePin,
+  setPinned,
+  getDragSiblings,
 }: {
   isPinned: (item: T) => boolean;
-  togglePin: (item: T) => void;
+  /**
+   * Applies the drop to everything it covers, in one call. A batch rather than
+   * a toggle per item: pinning is a scoped mutation, so N calls cost N
+   * round trips in sequence, and only a batch can report a partial failure.
+   */
+  setPinned: (items: T[], pinned: boolean) => void;
+  /**
+   * The items dragged alongside the grabbed one, excluding it. Absent, or
+   * returning nothing, keeps the drag single-item.
+   */
+  getDragSiblings?: (item: T) => T[];
 }): PinDragApi<T> {
   const [drag, setDrag] = useState<PinDrag<T> | null>(null);
   // Native drag handlers need the live drag synchronously; a render behind is a
@@ -67,6 +84,8 @@ export function usePinDrag<T>({
   const dragRef = useRef<PinDrag<T> | null>(null);
   const pinnedZoneRef = useRef<HTMLDivElement | null>(null);
   const pointerOffsetRef = useRef({ x: 0, y: 0 });
+  /** Whether the pointer was released this drag, as opposed to Escape. */
+  const droppedRef = useRef(false);
   const previewX = useMotionValue(OFFSCREEN);
   const previewY = useMotionValue(OFFSCREEN);
 
@@ -82,6 +101,28 @@ export function usePinDrag<T>({
     previewY.set(OFFSCREEN);
   }, [previewX, previewY, write]);
 
+  // A drop states what it wants rather than toggling: toggling every dragged
+  // item would unpin the ones already pinned, so whatever is already there is
+  // left out of the batch.
+  const applyDrop = useCallback(
+    (drag: PinDrag<T>) => {
+      const action = getPinDropAction(drag.sourcePinned, drag.overPinned);
+      if (action === null) return;
+      const changing = drag.items.filter((item) => isPinned(item) !== action);
+      if (changing.length > 0) setPinned(changing, action);
+    },
+    [isPinned, setPinned],
+  );
+
+  // The listeners below register once for the life of the hook. Re-registering
+  // tears the effect down, and its cleanup reports the drag as over while it is
+  // still under the pointer. `applyDrop` closes over callers' inline callbacks,
+  // so it changes identity every render and can't be a dep.
+  const applyDropRef = useRef(applyDrop);
+  useEffect(() => {
+    applyDropRef.current = applyDrop;
+  }, [applyDrop]);
+
   const overPinnedAt = useCallback(
     (x: number, y: number) =>
       isPointInsideRect(
@@ -95,6 +136,14 @@ export function usePinDrag<T>({
     const followPointer = (event: globalThis.DragEvent) => {
       const current = dragRef.current;
       if (!current) return;
+      // Every dragover, before anything else: the preview card promises an
+      // unpin wherever the pointer leaves the run, and only a `preventDefault`
+      // here makes the surface under it somewhere the drag can be released. A
+      // more specific target still sets its own `dropEffect` afterwards.
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = current.sourcePinned ? "move" : "copy";
+      }
       previewX.set(event.clientX - pointerOffsetRef.current.x);
       previewY.set(event.clientY - pointerOffsetRef.current.y);
       const overPinned = overPinnedAt(event.clientX, event.clientY);
@@ -103,6 +152,16 @@ export function usePinDrag<T>({
       if (current.sourcePinned && !overPinned) playTrashSound();
       write({ ...current, overPinned });
     };
+    // Only records that a release happened. What to do about it is decided on
+    // `dragend`, once every target has had its turn.
+    //
+    // Capture, and only capture. The main pane attaches a file-drop handler
+    // that calls `preventDefault` and `stopPropagation` on every drop before
+    // finding no files, so a bubble-phase listener never sees a release there
+    // and `defaultPrevented` says nothing about whether anything took it.
+    const noteDrop = () => {
+      if (dragRef.current) droppedRef.current = true;
+    };
     // A drag whose source leaves the DOM dies without a `dragend`, and the
     // lists poll. Once it is dead the pointer works again, which is the signal.
     const endStrandedDrag = () => {
@@ -110,17 +169,31 @@ export function usePinDrag<T>({
     };
     // Capture, so a drop target that stops propagation can't freeze the card.
     window.addEventListener("dragover", followPointer, true);
-    window.addEventListener("dragend", endStrandedDrag, true);
+    window.addEventListener("drop", noteDrop, true);
     window.addEventListener("mouseup", endStrandedDrag, true);
     return () => {
       window.removeEventListener("dragover", followPointer, true);
-      window.removeEventListener("dragend", endStrandedDrag, true);
+      window.removeEventListener("drop", noteDrop, true);
       window.removeEventListener("mouseup", endStrandedDrag, true);
       // The store outlives the hook. Unmounting mid-drag would strand the flag
       // true, and every hover card in the sidebar reads it.
       usePinDragStore.getState().setDragging(false);
     };
   }, [clear, overPinnedAt, previewX, previewY, write]);
+
+  // Every drag ends here, and by now the release and any target that took it
+  // have both been and gone. A release nothing claimed is the one that does
+  // what the preview card promised. Escape fires no drop at all, so a cancelled
+  // drag leaves the pin where it was.
+  const onItemDragEnd = useCallback(() => {
+    const current = dragRef.current;
+    const dropped = droppedRef.current;
+    const consumed = takeConsumedTaskDrop();
+    droppedRef.current = false;
+    if (!current) return;
+    if (dropped && !consumed) applyDropRef.current(current);
+    clear();
+  }, [clear]);
 
   const onItemDragStart = useCallback(
     (item: T, event: DragEvent) => {
@@ -133,6 +206,8 @@ export function usePinDrag<T>({
       event.dataTransfer.setDragImage(ghost, 0, 0);
       window.requestAnimationFrame(() => ghost.remove());
 
+      droppedRef.current = false;
+      takeConsumedTaskDrop();
       pointerOffsetRef.current = {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
@@ -140,13 +215,13 @@ export function usePinDrag<T>({
       previewX.set(rect.left);
       previewY.set(rect.top);
       write({
-        item,
+        items: [item, ...(getDragSiblings?.(item) ?? [])],
         sourcePinned: isPinned(item),
         overPinned: overPinnedAt(event.clientX, event.clientY),
         previewWidth: rect.width,
       });
     },
-    [isPinned, overPinnedAt, previewX, previewY, write],
+    [getDragSiblings, isPinned, overPinnedAt, previewX, previewY, write],
   );
 
   const onListDragOver = useCallback((event: DragEvent) => {
@@ -161,12 +236,10 @@ export function usePinDrag<T>({
       const current = dragRef.current;
       if (!current) return;
       event.preventDefault();
-      if (getPinDropAction(current.sourcePinned, current.overPinned) !== null) {
-        togglePin(current.item);
-      }
+      applyDrop(current);
       clear();
     },
-    [clear, togglePin],
+    [applyDrop, clear],
   );
 
   return {
@@ -174,9 +247,7 @@ export function usePinDrag<T>({
     pinnedZoneRef,
     listProps: { onDragOver: onListDragOver, onDrop: onListDrop },
     onItemDragStart,
-    // Reached by a cancelled drag, and by a drop the list didn't take (a
-    // Command Center tile). A drop the list took has already cleared.
-    onItemDragEnd: clear,
+    onItemDragEnd,
     previewX,
     previewY,
   };

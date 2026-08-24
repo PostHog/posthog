@@ -29,6 +29,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -1971,21 +1972,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default_marks_exempt", {"enabled": True}, True),
-            ("explicit_false_wins", {"enabled": True, "auto_pause_exempt": False}, False),
+            ("no_output", SignalScoutConfig.PauseReason.NO_OUTPUT, {"enabled": True}, False),
+            ("ignored", SignalScoutConfig.PauseReason.IGNORED, {"enabled": True}, False),
+            ("repeated_failures", SignalScoutConfig.PauseReason.REPEATED_FAILURES, {"enabled": True}, False),
+            (
+                "explicit_true_wins",
+                SignalScoutConfig.PauseReason.IGNORED,
+                {"enabled": True, "auto_pause_exempt": True},
+                True,
+            ),
         ]
     )
-    def test_re_enabling_an_inactivity_paused_scout_marks_it_exempt(
-        self, _name: str, payload: dict, expected_exempt: bool
+    def test_re_enabling_a_system_paused_scout_does_not_mark_it_exempt(
+        self, _name: str, pause_reason: SignalScoutConfig.PauseReason, payload: dict, expected_exempt: bool
     ) -> None:
-        # A re-enable is a human overruling the sweep, and the sweep must not overrule them back:
-        # the same quiet fortnight would re-qualify the scout as soon as its grace window lapses.
+        # A resume re-anchors the cold-start grace, which already keeps the sweep from
+        # re-judging the scout soon; minting the exemption here would remove it from the
+        # sweep's jurisdiction forever on every revert. Exemption stays an explicit choice.
         config = SignalScoutConfig.objects.create(
             team=self.team,
             skill_name="signals-scout-foo",
             enabled=False,
             status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+            pause_reason=pause_reason,
         )
 
         response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
@@ -2017,24 +2026,6 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
         assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
         assert call.kwargs["properties"]["reverted_within_24h"] is True
-
-    def test_re_enabling_a_breaker_paused_scout_does_not_mark_it_exempt(self) -> None:
-        # The exemption belongs to the inactivity sweep; a re-enable after repeated failures says
-        # nothing about whether the scout's silence is wanted.
-        config = SignalScoutConfig.objects.create(
-            team=self.team,
-            skill_name="signals-scout-foo",
-            enabled=False,
-            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-        )
-
-        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        assert config.status == SignalScoutConfig.Status.ACTIVE
-        assert config.auto_pause_exempt is False
 
     def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
         # Exempting takes the scout out of the sweep, so nothing else would ever clear the
@@ -2123,7 +2114,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        # A partial update skips the `thread_reports` default, so the flag reaches the reader
+        # through the response only and the stored destination keeps the shape it was sent in.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "thread_reports": False},
+            "webhook": None,
+        }
         config.refresh_from_db()
         assert config.output_destinations == destination
 
@@ -2857,6 +2853,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 
 _QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
@@ -2897,6 +2894,18 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_over_quota_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with patch(_QUOTA, return_value=True), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
+
+    def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
+            patch(_START) as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
