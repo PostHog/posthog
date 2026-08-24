@@ -26467,6 +26467,28 @@ export namespace Schemas {
       index?: number;
     }
 
+    /**
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits
+     */
+    export type DesktopAccessReasonEnum = typeof DesktopAccessReasonEnum[keyof typeof DesktopAccessReasonEnum];
+
+
+    export const DesktopAccessReasonEnum = {
+      StartupPlan: 'startup_plan',
+      PrepaidCredits: 'prepaid_credits',
+    } as const;
+
+    export interface DesktopAccessResponse {
+      /** Whether the selected project can use PostHog Desktop. */
+      allowed: boolean;
+      /** Why Desktop access is blocked, or null when access is allowed.
+       *
+       * * `startup_plan` - startup_plan
+       * * `prepaid_credits` - prepaid_credits */
+      reason: DesktopAccessReasonEnum | null;
+    }
+
     export interface DesktopBetaTermsAcceptanceDTO {
       /** Whether the organization has accepted the PostHog Desktop beta terms. */
       readonly is_desktop_beta_terms_accepted: boolean;
@@ -45605,6 +45627,13 @@ export namespace Schemas {
        * * `oauth_access_token` - oauth_access_token
        * * `oauth_refresh_token` - oauth_refresh_token */
       type: LeakedKeyReportResponseTypeEnum | null;
+    }
+
+    export interface LegacyDesktopAccessResponse {
+      /** Whether the user has legacy PostHog Desktop access. */
+      has_access: boolean;
+      /** Whether the independent Loops feature is enabled. */
+      has_loops_access: boolean;
     }
 
     export interface LegalDocumentCreator {
@@ -81060,6 +81089,11 @@ export namespace Schemas {
       type?: string;
       /** Machine-readable error code */
       code?: string;
+      /** Why PostHog Desktop access was denied, when applicable.
+       *
+       * * `startup_plan` - startup_plan
+       * * `prepaid_credits` - prepaid_credits */
+      reason?: DesktopAccessReasonEnum;
       /** Request field associated with the error */
       attr?: string;
       /** Artifact ids that could not be resolved for the run */
