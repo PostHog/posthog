@@ -27,8 +27,11 @@ ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 _MAX_ASSET_ERROR_LENGTH = 2000
 # Locally rendered assets live on a localhost URL that Slack and Microsoft cannot fetch, so the
 # message links a public placeholder instead of an image that would render broken. Keep this on a
-# domain we control, because a third-party placeholder can be retired without warning.
-DEBUG_PLACEHOLDER_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
+# domain we control, because a third-party placeholder can be retired without warning. This is the
+# square app icon the repo already ships, served from the repository itself.
+DEBUG_PLACEHOLDER_IMAGE_URL = (
+    "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
+)
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
