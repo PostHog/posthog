@@ -606,18 +606,4 @@ export const SETUP_COMMAND_SUGGESTIONS: readonly SetupCommandSuggestion[] = [
     command: "pre-commit install --install-hooks",
     note: "Builds each hook's environment now, so the first commit in a session is not a five-minute wait.",
   },
-  {
-    id: "prisma",
-    group: "project",
-    label: "Prisma client",
-    command: "npx prisma generate",
-    note: "Generates the client from schema.prisma, which most Node code will not typecheck without.",
-  },
-  {
-    id: "codegen",
-    group: "project",
-    label: "Build the workspace",
-    command: "pnpm build",
-    note: "Bakes the first build, so generated files and type outputs already exist. Change it to your build command.",
-  },
 ];
