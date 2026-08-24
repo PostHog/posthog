@@ -994,8 +994,6 @@ export const productUrls = {
             search?: string
             tab?: string
             msg?: string
-            // Only string values are valid query params. An object (e.g. the filters array)
-            // would stringify to "[object Object]" and corrupt the URL, so reject it at compile time.
             [key: string]: string | undefined
         }
     ): string => {
