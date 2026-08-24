@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.15.1 — 2026-08-24
+
+### Patch changes
+
+- [4c7c1c85604](https://github.com/PostHog/posthog/commit/4c7c1c8560431add076127c3d6bc53ca253aa116) Keep release resolution optional when Info.plist values cannot be resolved — Thanks @marandaneto!
+
 ## 0.15.0 — 2026-08-24
 
 ### Minor changes
