@@ -25,6 +25,7 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { isContentEmpty } from "@posthog/ui/features/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { isTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useState } from "react";
@@ -40,8 +41,11 @@ import { useState } from "react";
 export function ChannelsFab({ channelId }: { channelId?: string }) {
   const channelsLayout = useChannelsLayout();
   const [modalOpen, setModalOpen] = useState(false);
-  const hasDraft = useDraftStore(
-    (s) => !isContentEmpty(s.drafts["task-input"]),
+  const hasDraft = useDraftStore((state) =>
+    Object.entries(state.drafts).some(
+      ([sessionId, draft]) =>
+        isTaskInputSessionId(sessionId) && !isContentEmpty(draft),
+    ),
   );
 
   const newTask = () => {
