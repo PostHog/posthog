@@ -18,6 +18,7 @@
     'posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag',
     'posthog.tasks.calculate_cohort.insert_cohort_from_filters',
     'posthog.tasks.calculate_cohort.insert_cohort_from_query',
+    'posthog.tasks.calculate_cohort.publish_cohort_backfill_run_gauges',
     'posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task',
     'posthog.tasks.comment_slack_sync.backfill_comment_slack_thread',
     'posthog.tasks.comment_slack_sync.ingest_slack_discussion_reply',
