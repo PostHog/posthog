@@ -64,6 +64,9 @@ class FundingStatusUnavailable(Exception):
     pass
 
 
+_FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+
+
 @frozen
 class OrganizationFundingStatus:
     startup_program_label: StartupProgramLabel | None
@@ -448,6 +451,8 @@ class BillingManager:
             logger.warning("funding_status_cache_read_failed", exc_info=True)
             cached_status = None
 
+        if cached_status == _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE:
+            raise FundingStatusUnavailable("Could not resolve organization funding status")
         if cached_status is not None:
             return _parse_funding_status(cached_status)
 
@@ -460,9 +465,13 @@ class BillingManager:
             handle_billing_service_error(response, valid_codes=(200,))
             raw_status = response.json()
             funding_status = _parse_funding_status(raw_status)
-        except FundingStatusUnavailable:
-            raise
         except Exception as error:
+            try:
+                cache.set(cache_key, _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE, timeout=5)
+            except Exception:
+                logger.warning("funding_status_failure_cache_write_failed", exc_info=True)
+            if isinstance(error, FundingStatusUnavailable):
+                raise
             raise FundingStatusUnavailable("Could not resolve organization funding status") from error
 
         try:

@@ -39,6 +39,7 @@ from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.access import DesktopAccessResolutionError
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -10267,6 +10268,75 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.json()["code"], "code_access_required")
         self.assertEqual(response.json()["reason"], "startup_plan")
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "permission_response",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "pi_permission_response",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "req-1", "type": "permission_response", "optionId": "allow"}},
+                status.HTTP_200_OK,
+            ),
+            (
+                "mcp_response",
+                Task.Runtime.ACP,
+                "mcp_response",
+                {
+                    "requestId": "relay-1",
+                    "server": "playwright",
+                    "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+                },
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            (
+                "pi_prompt",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "req-1", "type": "prompt", "message": "continue"}},
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        ]
+    )
+    @patch(
+        "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+        side_effect=DesktopAccessResolutionError("unavailable"),
+    )
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_access_resolution_failure_only_allows_permission_responses(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        method: str,
+        params: dict[str, Any],
+        expected_status: int,
+        mock_post: MagicMock,
+        _mock_access: MagicMock,
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {"accepted": True}})
+        task = self.create_task(runtime=runtime)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "req-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            mock_post.assert_called_once()
+        else:
+            self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+            mock_post.assert_not_called()
 
     @parameterized.expand(
         [

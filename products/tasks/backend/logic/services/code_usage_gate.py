@@ -194,7 +194,11 @@ def _task_bound_internal_run(request: Request, task_id: str | UUID | None) -> bo
 
 
 def code_access_required_response(
-    request: Request, organization: "Organization", *, task_id: str | UUID | None = None
+    request: Request,
+    organization: "Organization",
+    *,
+    task_id: str | UUID | None = None,
+    fail_open_on_resolution_error: bool = False,
 ) -> Response | None:
     if _task_bound_internal_run(request, task_id):
         return None
@@ -202,7 +206,12 @@ def code_access_required_response(
     try:
         decision = get_desktop_access_decision(cast("User", request.user), organization)
     except DesktopAccessResolutionError:
-        logger.warning("desktop_access_resolution_failed", extra={"organization_id": organization.id})
+        logger.warning(
+            "desktop_access_resolution_failed",
+            extra={"organization_id": organization.id, "fail_open": fail_open_on_resolution_error},
+        )
+        if fail_open_on_resolution_error:
+            return None
         return Response(
             TaskRunErrorResponseSerializer(
                 {

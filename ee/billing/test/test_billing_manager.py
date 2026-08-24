@@ -247,12 +247,20 @@ class TestBillingManager(BaseTest):
 
     @patch("ee.billing.billing_manager.cache")
     @patch("ee.billing.billing_manager.requests.get", side_effect=requests.Timeout)
-    def test_get_funding_status_wraps_billing_failure(self, _mock_get: MagicMock, mock_cache: MagicMock) -> None:
-        mock_cache.get.return_value = None
+    def test_get_funding_status_caches_billing_failure(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        cached_values: list[object | None] = [None]
+        mock_cache.get.side_effect = lambda _key: cached_values[-1]
+        mock_cache.set.side_effect = lambda _key, value, timeout: cached_values.append(value)
 
         manager = BillingManager(MagicMock(), self.user)
-        with patch.object(manager, "get_auth_headers", return_value={}), self.assertRaises(FundingStatusUnavailable):
-            manager.get_funding_status(self.organization)
+        with patch.object(manager, "get_auth_headers", return_value={}):
+            with self.assertRaises(FundingStatusUnavailable):
+                manager.get_funding_status(self.organization)
+            with self.assertRaises(FundingStatusUnavailable):
+                manager.get_funding_status(self.organization)
+
+        mock_get.assert_called_once()
+        assert mock_cache.set.call_args.kwargs["timeout"] == 5
 
     @patch(
         "ee.billing.billing_manager.requests.patch",
