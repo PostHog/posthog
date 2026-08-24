@@ -8,10 +8,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 export type OrgConsent =
-  | { status: "loading" }
-  | { status: "error"; retry: () => void }
+  | { status: "loading"; organizationId?: string }
+  | { status: "error"; organizationId?: string; retry: () => void }
   | {
       status: "resolved";
+      organizationId: string;
       needsAiConsent: boolean;
       needsBetaTerms: boolean;
       satisfied: boolean;
@@ -58,15 +59,18 @@ export function useOrgConsent(enabled = true): OrgConsent {
   const reportableError = [currentUserQuery.error, betaTermsQuery.error].some(
     (error) => error != null && !isNotAuthenticatedError(error),
   );
-  if (reportableError) return { status: "error", retry };
+  if (reportableError) {
+    return { status: "error", organizationId: organization?.id, retry };
+  }
   if (!organization || betaTermsQuery.data === undefined) {
-    return { status: "loading" };
+    return { status: "loading", organizationId: organization?.id };
   }
 
   const needsAiConsent = organization.is_ai_data_processing_approved !== true;
   const needsBetaTerms = !betaTermsQuery.data;
   return {
     status: "resolved",
+    organizationId: organization.id,
     needsAiConsent,
     needsBetaTerms,
     satisfied: !needsAiConsent && !needsBetaTerms,

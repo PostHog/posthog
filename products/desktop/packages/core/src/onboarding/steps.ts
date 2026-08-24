@@ -34,19 +34,12 @@ export function computeActiveSteps(options: {
   hasGithubIntegration: boolean | undefined;
   /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
   projectCount: number | undefined;
-  consentSatisfied: boolean | undefined;
-  currentStep: OnboardingStep;
+  consentRequired: boolean | undefined;
 }): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
     if (step === "project-select" && options.projectCount === 1) return false;
     if (step === "invite-code" && options.hasCodeAccess === true) return false;
-    if (
-      step === "consent" &&
-      options.consentSatisfied === true &&
-      options.currentStep !== "consent"
-    ) {
-      return false;
-    }
+    if (step === "consent" && options.consentRequired === false) return false;
     if (step === "import-config" && !options.hasImportableConfig) return false;
     if (step === "install-cli" && options.hasGithubIntegration === true) {
       return false;

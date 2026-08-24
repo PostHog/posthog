@@ -27,6 +27,10 @@ import { useActiveRepoStore } from "@posthog/ui/shell/activeRepoStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ConsentRequirement,
+  sampleConsentRequirement,
+} from "./consentRequirement";
 import { useHasImportableConfig } from "./useHasImportableConfig";
 
 export type { DetectedRepo };
@@ -153,6 +157,24 @@ export function useOnboardingFlow() {
   const consent = useOrgConsent(hasCodeAccess === true);
   const consentSatisfied =
     consent.status === "resolved" ? consent.satisfied : undefined;
+  const [consentRequirement, setConsentRequirement] =
+    useState<ConsentRequirement>();
+
+  useEffect(() => {
+    if (consent.status !== "resolved") return;
+    setConsentRequirement((current) =>
+      sampleConsentRequirement(
+        current,
+        consent.organizationId,
+        consent.satisfied,
+      ),
+    );
+  }, [consent]);
+
+  const consentRequired =
+    consentRequirement?.organizationId === consent.organizationId
+      ? consentRequirement?.required
+      : undefined;
 
   const activeSteps = useMemo(
     () =>
@@ -161,16 +183,14 @@ export function useOnboardingFlow() {
         hasImportableConfig,
         hasGithubIntegration,
         projectCount,
-        consentSatisfied,
-        currentStep,
+        consentRequired,
       }),
     [
       hasCodeAccess,
       hasImportableConfig,
       hasGithubIntegration,
       projectCount,
-      consentSatisfied,
-      currentStep,
+      consentRequired,
     ],
   );
 

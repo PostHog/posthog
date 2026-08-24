@@ -16,8 +16,7 @@ const allSteps = {
   hasImportableConfig: true,
   hasGithubIntegration: undefined,
   projectCount: 2,
-  consentSatisfied: false,
-  currentStep: "welcome" as OnboardingStep,
+  consentRequired: true,
 };
 
 describe("computeActiveSteps", () => {
@@ -68,23 +67,16 @@ describe("computeActiveSteps", () => {
     expect(computeActiveSteps(allSteps)).toContain("install-cli");
   });
 
-  it("keeps consent after invite-code until confirmed away from the step", () => {
+  it("includes consent from the sampled requirement", () => {
     expect(ONBOARDING_STEPS.indexOf("consent")).toBe(
       ONBOARDING_STEPS.indexOf("invite-code") + 1,
     );
     expect(
-      computeActiveSteps({ ...allSteps, consentSatisfied: undefined }),
+      computeActiveSteps({ ...allSteps, consentRequired: undefined }),
     ).toContain("consent");
     expect(
-      computeActiveSteps({ ...allSteps, consentSatisfied: true }),
+      computeActiveSteps({ ...allSteps, consentRequired: false }),
     ).not.toContain("consent");
-    expect(
-      computeActiveSteps({
-        ...allSteps,
-        consentSatisfied: true,
-        currentStep: "consent",
-      }),
-    ).toContain("consent");
   });
 });
 
@@ -94,8 +86,7 @@ describe("nearestActiveStep", () => {
     hasImportableConfig: false,
     hasGithubIntegration: undefined,
     projectCount: 2,
-    consentSatisfied: false,
-    currentStep: "welcome",
+    consentRequired: true,
   });
 
   it("returns the step itself while it is still active", () => {
@@ -134,8 +125,7 @@ describe("step navigation", () => {
     hasImportableConfig: true,
     hasGithubIntegration: undefined,
     projectCount: 2,
-    consentSatisfied: false,
-    currentStep: "welcome",
+    consentRequired: true,
   });
 
   it("identifies first and last steps", () => {

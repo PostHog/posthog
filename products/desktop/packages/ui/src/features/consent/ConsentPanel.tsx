@@ -1,4 +1,4 @@
-import { WarningCircle } from "@phosphor-icons/react";
+import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import { Button, Text } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -99,6 +99,18 @@ export function ConsentPanel({
         </Text>
       </div>
 
+      {consent.satisfied && (
+        <div className="flex gap-3 rounded-lg border border-success/40 bg-success/10 p-4 text-foreground text-sm">
+          <CheckCircle className="mt-0.5 shrink-0 text-success" size={18} />
+          <div>
+            <p className="font-semibold">Organization consent complete</p>
+            <p className="mt-1 text-muted-foreground">
+              Your organization has accepted the required terms.
+            </p>
+          </div>
+        </div>
+      )}
+
       {consent.needsAiConsent && (
         <section className="flex flex-col gap-2 rounded-lg border border-border bg-surface-primary p-4">
           <h2 className="font-semibold text-base text-foreground">
@@ -149,7 +161,7 @@ export function ConsentPanel({
         </div>
       </div>
 
-      {isAdmin ? (
+      {consent.satisfied ? null : isAdmin ? (
         <Button
           variant="primary"
           size="lg"

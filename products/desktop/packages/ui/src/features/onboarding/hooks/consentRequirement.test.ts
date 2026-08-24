@@ -1,0 +1,19 @@
+import { describe, expect, it } from "vitest";
+import { sampleConsentRequirement } from "./consentRequirement";
+
+describe("sampleConsentRequirement", () => {
+  it("keeps a required consent step after the organization accepts", () => {
+    const initial = sampleConsentRequirement(undefined, "org-1", false);
+
+    expect(sampleConsentRequirement(initial, "org-1", true)).toBe(initial);
+    expect(initial.required).toBe(true);
+  });
+
+  it("samples consent again when the organization changes", () => {
+    const initial = sampleConsentRequirement(undefined, "org-1", true);
+    const switched = sampleConsentRequirement(initial, "org-2", false);
+
+    expect(initial.required).toBe(false);
+    expect(switched).toEqual({ organizationId: "org-2", required: true });
+  });
+});

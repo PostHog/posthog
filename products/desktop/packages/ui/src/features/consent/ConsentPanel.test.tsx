@@ -39,6 +39,7 @@ function renderPanel(
       <ConsentPanel
         consent={{
           status: "resolved",
+          organizationId: "org-id",
           needsAiConsent,
           needsBetaTerms,
           satisfied: !needsAiConsent && !needsBetaTerms,
@@ -68,6 +69,17 @@ describe("ConsentPanel", () => {
       expect(acceptBetaTerms).toHaveBeenCalledExactlyOnceWith("org-id"),
     );
     expect(approveAiDataProcessing).not.toHaveBeenCalled();
+  });
+
+  it("shows completion after the requirements are accepted", () => {
+    renderPanel(false, false);
+
+    expect(
+      screen.getByText("Organization consent complete"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Accept and continue" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps partial failure recoverable after addressing both writes", async () => {
