@@ -30,6 +30,10 @@ function renderPanel(
   needsAiConsent: boolean,
   needsBetaTerms: boolean,
   isAdmin = true,
+  requirements?: {
+    needsAiConsent: boolean;
+    needsBetaTerms: boolean;
+  },
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -44,6 +48,7 @@ function renderPanel(
           needsBetaTerms,
           satisfied: !needsAiConsent && !needsBetaTerms,
         }}
+        requirements={requirements}
         isAdmin={isAdmin}
       />
     </QueryClientProvider>,
@@ -89,15 +94,13 @@ describe("ConsentPanel", () => {
     expect(details[0]).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("shows completion after the requirements are accepted", () => {
-    renderPanel(false, false);
+  it("keeps each decision visible and marks it accepted", () => {
+    renderPanel(false, false, true, {
+      needsAiConsent: true,
+      needsBetaTerms: true,
+    });
 
-    expect(
-      screen.getByText("Organization consent complete"),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Accept beta terms" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Accepted" })).toHaveLength(2);
   });
 
   it("keeps one failed decision recoverable without retrying the other", async () => {

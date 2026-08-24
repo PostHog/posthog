@@ -80,6 +80,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     handleCloudRepoChange,
     hasGithubIntegration,
     consentSatisfied,
+    consentRequirement,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -388,6 +389,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
               <ConsentStep
                 onNext={handleNext}
                 onBack={handleBack}
+                requirements={consentRequirement}
                 onSubmittingChange={setConsentSubmitting}
               />
             </motion.div>

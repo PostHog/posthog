@@ -166,7 +166,8 @@ export function useOnboardingFlow() {
       sampleConsentRequirement(
         current,
         consent.organizationId,
-        consent.satisfied,
+        consent.needsAiConsent,
+        consent.needsBetaTerms,
       ),
     );
   }, [consent]);
@@ -174,6 +175,10 @@ export function useOnboardingFlow() {
   const consentRequired =
     consentRequirement?.organizationId === consent.organizationId
       ? consentRequirement?.required
+      : undefined;
+  const sampledConsentRequirement =
+    consentRequirement?.organizationId === consent.organizationId
+      ? consentRequirement
       : undefined;
 
   const activeSteps = useMemo(
@@ -244,5 +249,6 @@ export function useOnboardingFlow() {
     handleCloudRepoChange,
     hasGithubIntegration,
     consentSatisfied,
+    consentRequirement: sampledConsentRequirement,
   };
 }

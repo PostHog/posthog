@@ -1,6 +1,5 @@
 import { CheckCircle } from "@phosphor-icons/react";
 import {
-  Badge,
   Button,
   Collapsible,
   CollapsibleContent,
@@ -20,12 +19,17 @@ import { desktopBetaTermsKeys, type OrgConsent } from "./useOrgConsent";
 
 interface ConsentPanelProps {
   consent: Extract<OrgConsent, { status: "resolved" }>;
+  requirements?: {
+    needsAiConsent: boolean;
+    needsBetaTerms: boolean;
+  };
   isAdmin: boolean;
   onSubmittingChange?: (isSubmitting: boolean) => void;
 }
 
 export function ConsentPanel({
   consent,
+  requirements,
   isAdmin,
   onSubmittingChange,
 }: ConsentPanelProps) {
@@ -38,6 +42,8 @@ export function ConsentPanel({
   const [submitting, setSubmitting] = useState<"ai" | "beta" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const organization = currentUser?.organization;
+  const showAiConsent = requirements?.needsAiConsent ?? consent.needsAiConsent;
+  const showBetaTerms = requirements?.needsBetaTerms ?? consent.needsBetaTerms;
 
   const accept = async (kind: "ai" | "beta"): Promise<void> => {
     if (!organization || submitting) return;
@@ -79,22 +85,12 @@ export function ConsentPanel({
         </h1>
         <Text size="sm" variant="muted">
           {organization?.name
-            ? `${organization.name} needs to review the items below.`
-            : "Your organization needs to review the items below."}
+            ? `Review the required items for ${organization.name}.`
+            : "Review the required items for your organization."}
         </Text>
       </div>
 
-      {consent.satisfied && (
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-primary px-4 py-3">
-          <CheckCircle className="shrink-0 text-success-foreground" size={20} />
-          <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-            <Text weight="semibold">Organization consent complete</Text>
-            <Badge variant="completed">Accepted</Badge>
-          </div>
-        </div>
-      )}
-
-      {consent.needsAiConsent && (
+      {showAiConsent && (
         <ConsentDecision
           title="PostHog AI needs your approval"
           summary={
@@ -109,6 +105,7 @@ export function ConsentPanel({
           }
           actionLabel="Approve AI data processing"
           adminHelp="Ask an organization admin to approve AI data processing."
+          accepted={!consent.needsAiConsent}
           isAdmin={isAdmin}
           isLoading={submitting === "ai"}
           isDisabled={submitting !== null || !organization}
@@ -139,12 +136,13 @@ export function ConsentPanel({
         </ConsentDecision>
       )}
 
-      {consent.needsBetaTerms && (
+      {showBetaTerms && (
         <ConsentDecision
           title="PostHog Desktop beta terms"
           summary="Accept the additional data-processing terms for the PostHog Desktop beta."
           actionLabel="Accept beta terms"
           adminHelp="Ask an organization admin to accept the Desktop beta terms."
+          accepted={!consent.needsBetaTerms}
           isAdmin={isAdmin}
           isLoading={submitting === "beta"}
           isDisabled={submitting !== null || !organization}
@@ -191,6 +189,7 @@ interface ConsentDecisionProps {
   summary: ReactNode;
   actionLabel: string;
   adminHelp: string;
+  accepted: boolean;
   isAdmin: boolean;
   isLoading: boolean;
   isDisabled: boolean;
@@ -203,6 +202,7 @@ function ConsentDecision({
   summary,
   actionLabel,
   adminHelp,
+  accepted,
   isAdmin,
   isLoading,
   isDisabled,
@@ -210,7 +210,10 @@ function ConsentDecision({
   children,
 }: ConsentDecisionProps) {
   return (
-    <section className="rounded-lg border border-border bg-surface-primary px-4 py-4">
+    <section
+      className="rounded-lg border border-border bg-surface-primary px-4 py-4 transition-colors data-[accepted=true]:border-success-foreground/25"
+      data-accepted={accepted}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h2 className="font-semibold text-base text-foreground">{title}</h2>
@@ -218,7 +221,17 @@ function ConsentDecision({
             {summary}
           </Text>
         </div>
-        {isAdmin && (
+        {accepted ? (
+          <Button
+            variant="outline"
+            size="lg"
+            className="h-9 shrink-0 px-3 text-sm text-success-foreground"
+            disabled
+          >
+            <CheckCircle size={16} />
+            Accepted
+          </Button>
+        ) : isAdmin ? (
           <Button
             variant="primary"
             size="lg"
@@ -229,18 +242,18 @@ function ConsentDecision({
           >
             {actionLabel}
           </Button>
-        )}
+        ) : null}
       </div>
-      {!isAdmin && (
+      {!accepted && !isAdmin && (
         <Text className="mt-3" size="sm" variant="muted">
           {adminHelp}
         </Text>
       )}
-      <Collapsible className="mt-2">
-        <CollapsibleTrigger className="px-0 text-muted-foreground">
+      <Collapsible className="mt-3 border-border border-t pt-2">
+        <CollapsibleTrigger className="-ml-2 h-7 rounded-md px-2 text-muted-foreground hover:bg-fill-hover hover:text-foreground">
           Details
         </CollapsibleTrigger>
-        <CollapsibleContent className="pt-2 text-sm leading-relaxed">
+        <CollapsibleContent className="mt-1 ml-1 border-border border-l py-1 pl-3 text-sm leading-relaxed">
           {children}
         </CollapsibleContent>
       </Collapsible>

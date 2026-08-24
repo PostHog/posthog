@@ -1,13 +1,21 @@
 export interface ConsentRequirement {
   organizationId: string;
   required: boolean;
+  needsAiConsent: boolean;
+  needsBetaTerms: boolean;
 }
 
 export function sampleConsentRequirement(
   current: ConsentRequirement | undefined,
   organizationId: string,
-  consentSatisfied: boolean,
+  needsAiConsent: boolean,
+  needsBetaTerms: boolean,
 ): ConsentRequirement {
   if (current?.organizationId === organizationId) return current;
-  return { organizationId, required: !consentSatisfied };
+  return {
+    organizationId,
+    required: needsAiConsent || needsBetaTerms,
+    needsAiConsent,
+    needsBetaTerms,
+  };
 }
