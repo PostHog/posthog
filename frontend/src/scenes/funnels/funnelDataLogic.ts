@@ -213,7 +213,7 @@ function applyQueryStepCustomNames(
             return step
         }
 
-        const customName = node.custom_name?.trim() || null
+        const customName = node.custom_name || null
         // Nested rows are breakdown or compare variants of the same step, so they take the parent's
         // name. Their own `order` can hold a breakdown rank, which is not a series index.
         const nested = step.nested_breakdown?.map((row) =>
