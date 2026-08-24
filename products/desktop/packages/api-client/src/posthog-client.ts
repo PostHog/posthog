@@ -2865,7 +2865,7 @@ export class PostHogAPIClient {
    * few seconds; callers fire it without awaiting. Resolves false when no session was started,
    * which is the normal path while the spaces rollout has not reached this user.
    */
-  async startOnboardingSession(): Promise<boolean> {
+  async startOnboardingSession(): Promise<string | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
     const response = await this.api.fetcher.fetch({
@@ -2873,7 +2873,9 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
     });
-    return response.ok;
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
   }
 
   async updateTaskChannelRepositories(

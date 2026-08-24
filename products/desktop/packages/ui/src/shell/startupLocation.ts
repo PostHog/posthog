@@ -59,6 +59,24 @@ async function consumePrimedProvision(
   return client.provisionDefaultTaskChannels();
 }
 
+/**
+ * The session normally lands well before the loading screen goes away, so waiting for it buys
+ * opening straight into it rather than into an empty feed. The cap is what stops a slow or hung
+ * scrape holding the app shut: past it the feed opens, and the session shows up there instead.
+ */
+const SESSION_WAIT_MS = 15_000;
+
+async function startedSessionTaskId(
+  client: StartupLocationClient,
+): Promise<string | null> {
+  return Promise.race([
+    client.startOnboardingSession().catch(() => null),
+    new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), SESSION_WAIT_MS),
+    ),
+  ]);
+}
+
 export async function resolveStartupLocation(
   identity: string,
   client: StartupLocationClient,
@@ -95,14 +113,15 @@ export async function resolveStartupLocation(
   // flags decide this rather than the absence of one.
   const isFirstRun =
     provisioned.personal_created || provisioned.general_created;
-  if (provisioned.personal_created) {
-    // personal_created is true exactly once per person per team, which is what keeps a
-    // relaunch from opening a second session. Deliberately not awaited: it reads the
-    // company's homepage, and this call is what blocks the app opening.
-    void client.startOnboardingSession().catch(() => {});
-  }
+  // personal_created is true exactly once per person per team, which is what keeps a
+  // relaunch from opening a second session.
+  const sessionTaskId = provisioned.personal_created
+    ? await startedSessionTaskId(client)
+    : null;
   return {
-    href: `/spaces/${general.id}`,
+    href: sessionTaskId
+      ? `/spaces/${general.id}/tasks/${sessionTaskId}`
+      : `/spaces/${general.id}`,
     firstRun: isFirstRun ? { generalChannelId: general.id } : null,
   };
 }
