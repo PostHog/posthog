@@ -234,7 +234,6 @@ export class HogFunctionInvocationPipeline {
                     this.deps.cdpUsageReporter?.reportBillableInvocation({
                         teamId: item.teamId,
                         recordId: `event:${eventUuid}`,
-                        kind: 'destination',
                     })
                 }
             }

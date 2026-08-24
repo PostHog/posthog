@@ -61,8 +61,8 @@ describe('UsageRecordBatch', () => {
             isTeamEnabled: () => true,
             isUsageKeyEnabled: (_teamId, usageKey) => usageKey === 'logs_bytes',
         })
-        b.add(1, 'logs_bytes', 'logs:1', undefined, 42, 'bytes')
-        b.add(1, 'logs_records', 'logs:2', undefined, 3, 'records')
+        b.add(1, 'logs_bytes', 'logs:1', 42, 'bytes')
+        b.add(1, 'logs_records', 'logs:2', 3, 'records')
         await b.flush()
 
         expect(ingested[0]).toEqual([expect.objectContaining({ usageKey: 'logs_bytes', quantity: 42, unit: 'bytes' })])

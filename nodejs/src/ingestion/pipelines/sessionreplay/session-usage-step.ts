@@ -18,15 +18,9 @@ export function createRecordSessionUsageStep<T extends SessionUsageInput>(
     return function recordSessionUsage(value): Promise<PipelineResult<Recordable<T>>> {
         if (value.isNewSession) {
             const snapshotSource = value.parsedMessage.snapshot_source || 'web'
-            const dimensions = {
-                snapshot_source: snapshotSource,
-                ...(value.parsedMessage.snapshot_library
-                    ? { snapshot_library: value.parsedMessage.snapshot_library }
-                    : {}),
-            }
-            usageBatch?.add(value.team.teamId, 'session_replay_recordings', value.headers.session_id, dimensions)
+            usageBatch?.add(value.team.teamId, 'session_replay_recordings', value.headers.session_id)
             if (snapshotSource === 'mobile') {
-                usageBatch?.add(value.team.teamId, 'mobile_replay_recordings', value.headers.session_id, dimensions)
+                usageBatch?.add(value.team.teamId, 'mobile_replay_recordings', value.headers.session_id)
             }
         }
         return Promise.resolve(ok(value))

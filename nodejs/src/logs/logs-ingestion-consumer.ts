@@ -1039,19 +1039,11 @@ export class LogsIngestionConsumer {
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
             // the same team from colliding and collapsing one flush's quantity away.
             const flushId = new UUID7().toString()
-            this.deps.usageBatch?.add(
-                teamId,
-                `${source}_bytes`,
-                flushId,
-                this.appSource === 'logs' ? { retention_days: String(stats.retentionDays) } : undefined,
-                stats.bytesAllowed,
-                'bytes'
-            )
+            this.deps.usageBatch?.add(teamId, `${source}_bytes`, flushId, stats.bytesAllowed, 'bytes')
             this.deps.usageBatch?.add(
                 teamId,
                 source === 'apm' ? 'apm_spans' : 'logs_records',
                 flushId,
-                undefined,
                 stats.recordsAllowed,
                 'records'
             )

@@ -184,11 +184,9 @@ mod tests {
             producer_id: "feature-flags".to_string(),
             team_id: 42,
             usage_key: "feature_flag_requests".to_string(),
-            mode: usage_ingestion_proto::usage_ingestion::v1::BillingUsageMode::Delta as i32,
             unit: "request".to_string(),
             quantity: 10,
             timestamp_ms: 1_718_409_600_000,
-            dimensions: Default::default(),
         }
     }
 
