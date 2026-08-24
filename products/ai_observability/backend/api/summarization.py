@@ -439,8 +439,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             return text
 
         text = format_event_text_repr(event=entity_data["event"], options=options)
-        # format_event_text_repr does not read max_length, so an event large enough to blow the
-        # context window on its own has to be bounded here, the way api/text_repr.py bounds it.
+        # format_event_text_repr ignores max_length, so bound it here as api/text_repr.py does.
         if len(text) > MAX_TEXT_REPR_CHARS:
             text, _ = reduce_by_uniform_sampling(text, MAX_TEXT_REPR_CHARS)
         return text

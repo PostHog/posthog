@@ -23,7 +23,6 @@ from products.ai_observability.backend.summarization.llm.schema import (
     SummaryBullet,
 )
 
-# Small enough to keep the fixtures cheap while still forcing the sampler to run.
 TEST_TEXT_REPR_BUDGET = 4000
 
 
