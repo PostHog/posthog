@@ -80157,6 +80157,11 @@ export namespace Schemas {
          * @minimum 1
          */
       tokens?: number;
+      /**
+         * Sum of tool-output sizes across the wasted span.
+         * @minimum 1
+         */
+      output_bytes?: number;
     }
 
     export interface TaskArtifact {
@@ -93066,11 +93071,21 @@ export namespace Schemas {
     category_key?: string;
     page?: number;
     page_size?: number;
+    /**
+     * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
+     */
+    search?: string;
     };
 
     export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number;
     page_size?: number;
+    /**
+     * Case-insensitive substring match on the recipient email address.
+     * @maxLength 512
+     */
+    search?: string;
     };
 
     export type MessagingTemplatesListParams = {

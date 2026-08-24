@@ -95,6 +95,10 @@ interface RepositoriesFieldProps {
   integrationId: number | null;
   onChange: (repositories: string[], integrationId: number | null) => void;
   disabled?: boolean;
+  /** Caps the list, e.g. an image spec that builds for one repository. */
+  max?: number;
+  /** Why no more can be added, shown on the disabled add button. */
+  maxReason?: string;
 }
 
 export function RepositoriesField({
@@ -102,10 +106,12 @@ export function RepositoriesField({
   integrationId,
   onChange,
   disabled = false,
+  max = MAX_REPOSITORIES,
+  maxReason,
 }: RepositoriesFieldProps) {
   const { hasGithubIntegration } = useIntegrationSelectors();
 
-  const atLimit = selected.length >= MAX_REPOSITORIES;
+  const atLimit = selected.length >= max;
 
   const addRepository = (
     repository: string,
@@ -124,7 +130,7 @@ export function RepositoriesField({
   const addDisabledReason = !hasGithubIntegration
     ? "Connect GitHub in settings to add repositories"
     : atLimit
-      ? `You can add up to ${MAX_REPOSITORIES} repositories`
+      ? (maxReason ?? `You can add up to ${max} repositories`)
       : null;
 
   return (
