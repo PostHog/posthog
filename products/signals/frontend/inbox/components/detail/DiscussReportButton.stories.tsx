@@ -15,9 +15,11 @@ export default meta
 type Story = StoryObj<typeof DiscussReportButton>
 
 // The popover is closed until the trigger is pressed, so each story opens it — otherwise every
-// snapshot is of the same small button and the thing under review never renders.
+// snapshot is of the same small button and the thing under review never renders. `findByText`
+// rather than `getByText`: the trigger mounts a kea logic chain reaching organization and user
+// state, so on a slow runner the play function can reach an empty canvas and fail the story.
 const openPopover: Story['play'] = async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByText('Ask AI'))
+    await userEvent.click(await within(canvasElement).findByText('Ask AI'))
     await waitFor(() => {
         if (!document.querySelector('.Popover')) {
             throw new Error('popover not open yet')
