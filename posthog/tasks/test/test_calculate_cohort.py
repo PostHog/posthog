@@ -1365,10 +1365,13 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     def test_calculate_cohort_ch_retries_when_a_deploy_cancels_the_recalculation_query(self) -> None:
         # The reason 394 got an importable class: a deploy cancelling the in-flight recalculation
-        # query has to be retried rather than killing the task outright. errors_calculating must
-        # stay at 0 while attempts remain - charged per attempt instead of per failed run, a single
-        # bad deploy would push the cohort most of the way to the MAX_ERRORS_CALCULATING cutoff
-        # that drops it from recalculation for good.
+        # query has to be retried rather than killing the task outright, and a pending retry has to
+        # leave the cohort looking exactly like a running one. errors_calculating must stay at 0 -
+        # charged per attempt instead of per failed run, a single bad deploy would push the cohort
+        # most of the way to the MAX_ERRORS_CALCULATING cutoff that drops it from recalculation for
+        # good. is_calculating must stay set, because with the counter deliberately unstamped it is
+        # the only thing keeping the cohort out of the scheduler's candidate queryset during the
+        # backoff - a superseding calculation would bump pending_version and no-op the retry.
         cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True, pending_version=1)
 
         with (
@@ -1383,6 +1386,7 @@ class TestCohortCalculationTasks(APIBaseTest):
             self._run_calculate_cohort_ch(cohort.id)
 
         cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNone(cohort.last_error_at)
 
