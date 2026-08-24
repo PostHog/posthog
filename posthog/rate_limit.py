@@ -11,7 +11,9 @@ from django.conf import settings
 from django.urls import resolve
 from django.utils import timezone
 
+from django_redis.exceptions import ConnectionInterrupted
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
@@ -41,6 +43,12 @@ RATE_LIMIT_BYPASSED_COUNTER = Counter(
     "rate_limit_bypassed_total",
     "Requests that should be dropped by rate-limiting but allowed by configuration.",
     labelnames=[LABEL_TEAM_ID, LABEL_PATH, LABEL_ROUTE],
+)
+
+RATE_LIMIT_CACHE_ERROR_COUNTER = Counter(
+    "rate_limit_cache_error_total",
+    "Redis errors while reading the per-team query rate limit. The request fails open.",
+    labelnames=["scope"],
 )
 
 
@@ -168,20 +176,32 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except Exception:
             return None
 
-    def load_team_rate_limit(self, team_id):
+    def load_team_rate_limit(self, team_id) -> bool:
         # try loading from cache
         rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
-        cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
+        try:
+            cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
+        except (RedisError, ConnectionInterrupted):
+            # Redis is unreachable (e.g. a node returns BusyLoadingError while it restarts).
+            # Fail open without capturing an exception per request, which floods error tracking
+            # with infrastructure noise. Count the failures instead so it stays observable.
+            RATE_LIMIT_CACHE_ERROR_COUNTER.labels(scope=self.scope).inc()
+            return False
+
         if cached_rate_limit is not None:
             self.rate = cached_rate_limit
         else:
             team = Team.objects.get(id=team_id)
             if not team or not team.api_query_rate_limit:
-                return
+                return True
             self.rate = team.api_query_rate_limit
-            self.cache.set(rate_limit_cache_key, self.rate)
+            try:
+                self.cache.set(rate_limit_cache_key, self.rate)
+            except (RedisError, ConnectionInterrupted):
+                RATE_LIMIT_CACHE_ERROR_COUNTER.labels(scope=self.scope).inc()
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
+        return True
 
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
@@ -194,7 +214,8 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         try:
             team_id = self.safely_get_team_id_from_view(view)
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
-                self.load_team_rate_limit(team_id)
+                if not self.load_team_rate_limit(team_id):
+                    return True
 
             request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
             if request_would_be_allowed:
