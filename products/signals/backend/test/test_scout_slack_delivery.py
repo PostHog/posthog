@@ -451,6 +451,141 @@ class TestScoutSlackDelivery(BaseTest):
 
         fake_client.chat_postMessage.assert_not_called()
 
+    def test_task_skips_report_suppressed_during_render(self) -> None:
+        # The task's pre-render status check passes, but chart rendering can hold the worker for the
+        # render budget. A report suppressed in that window must not be posted with its freshly minted
+        # image URLs — post_scout_report_to_slack re-reads the status after building the blocks.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+
+        def _suppress_mid_render(report_arg, run_arg, *, delivery_id=None, render_budget=None):
+            SignalReport.objects.filter(id=report_arg.id).update(status=SignalReport.Status.SUPPRESSED)
+            return [{"type": "header", "text": {"type": "plain_text", "text": "x"}}], "x"
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=_suppress_mid_render,
+            ),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        fake_client.chat_postMessage.assert_not_called()
+
+    def test_task_rebuilds_report_whose_content_changed_during_render(self) -> None:
+        # An edit that changes content during the render window leaves the report deliverable but the
+        # built blocks stale. Not every edit path enqueues a replacement (the inbox PATCH doesn't), so
+        # the delivery must rebuild from the current report and post that, never drop it or post stale.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000900"}
+        builds = {"n": 0}
+
+        def _build(report_arg, run_arg, *, delivery_id=None, render_budget=None):
+            builds["n"] += 1
+            if builds["n"] == 1:
+                # A real edit save() bumps updated_at (auto_now); QuerySet.update() would not.
+                edited = SignalReport.objects.get(id=report_arg.id)
+                edited.title = "Checkout failures (edited)"
+                edited.save()
+                return [{"type": "header", "text": {"type": "plain_text", "text": "stale"}}], "stale"
+            return [{"type": "header", "text": {"type": "plain_text", "text": "fresh"}}], "fresh"
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=_build,
+            ),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        # Rebuilt once, and the posted message carries the rebuilt (fresh) blocks, not the stale ones.
+        assert builds["n"] == 2
+        posted = fake_client.chat_postMessage.call_args_list[0].kwargs
+        assert posted["blocks"][0]["text"]["text"] == "fresh"
+
+    def test_task_skips_report_suppressed_during_rebuild(self) -> None:
+        # A content edit triggers a rebuild, and the report is then suppressed during that second
+        # render. The status recheck runs after every build, so the now-undeliverable report (and its
+        # freshly minted image URLs) is skipped rather than posted.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        builds = {"n": 0}
+
+        def _build(report_arg, run_arg, *, delivery_id=None, render_budget=None):
+            builds["n"] += 1
+            if builds["n"] == 1:
+                # Bump updated_at so the first build is treated as stale and a rebuild is triggered.
+                edited = SignalReport.objects.get(id=report_arg.id)
+                edited.title = "Checkout failures (edited)"
+                edited.save()
+            else:
+                # The report is suppressed while the rebuild renders.
+                SignalReport.objects.filter(id=report_arg.id).update(status=SignalReport.Status.SUPPRESSED)
+            return [{"type": "header", "text": {"type": "plain_text", "text": "x"}}], "x"
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=_build,
+            ),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        assert builds["n"] == 2
+        fake_client.chat_postMessage.assert_not_called()
+
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()
         error = SlackApiError(

@@ -13,10 +13,11 @@ SLACK_SECTION_TEXT_MAX_LEN = 2900
 # are escaped before conversion, so any literal angle bracket here was produced by the converter.
 _SLACK_ANGLE_TOKEN_RE = re.compile(r"<([^<>|]*)(\|[^<>]*)?>")
 
-# A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack has no
-# chart to render and degrades it badly either way: the mrkdwn converter emits a `<chart:id|label>`
-# token that `_defang_unsafe_slack_tokens` escapes into visible `&lt;…&gt;`, and the excerpt path
-# shows the raw `[label](chart:id)` syntax. So the link is reduced to its label first.
+# A summary places a chart inline with a markdown link targeting `chart:<chart_id>`. Slack cannot
+# place an image mid-sentence and degrades the link badly either way: the mrkdwn converter emits a
+# `<chart:id|label>` token that `_defang_unsafe_slack_tokens` escapes into visible `&lt;…&gt;`, and
+# the excerpt path shows the raw `[label](chart:id)` syntax. So the link is reduced to its label
+# first; report delivery renders the charts as image blocks after the prose instead.
 #
 # The shapes matched are the ones the inbox's markdown parse resolves and therefore draws a chart
 # for: any target rather than the id charset (a typo is just as unrenderable), all three CommonMark

@@ -13,6 +13,11 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.scout_harness.slack_charts import (
+    ChartRenderBudget,
+    build_scout_report_chart_blocks,
+    new_chart_render_budget,
+)
 from products.signals.backend.slack_formatting import (
     SLACK_SECTION_TEXT_MAX_LEN,
     chunk_slack_mrkdwn,
@@ -43,6 +48,10 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 )
 
 ScoutSlackOutputType = Literal["finding", "report"]
+
+# A report only reaches Slack while it is surfaced. Checked both before enqueue and again just
+# before posting, since chart rendering can hold the worker long enough for the report to change.
+DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
 # Bound on the note snapshot a note-only edit carries through the Celery payload. Slack shows at
 # most SLACK_SECTION_TEXT_MAX_LEN characters after conversion, so anything past this headroom is
@@ -264,7 +273,13 @@ def _report_link_block(report: SignalReport) -> dict:
     }
 
 
-def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
+def build_scout_report_slack_message(
+    report: SignalReport,
+    run: SignalScoutRun,
+    *,
+    delivery_id: str | None = None,
+    render_budget: ChartRenderBudget | None = None,
+) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
     header = _report_header(report)
     blocks: list[dict] = [
@@ -275,11 +290,15 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
         {"type": "header", "text": {"type": "plain_text", "text": header}},
     ]
 
+    # Chart links in the prose still reduce to their label; the charts themselves follow the prose
+    # as image blocks, the way the inbox places charts the summary doesn't reference inline.
     summary_text = strip_chart_references((report.summary or "").strip())
     rendered_summary = truncate_slack_section(markdown_to_slack_mrkdwn(summary_text))
     if rendered_summary:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
+    # `render_budget` shares one render allowance across a delivery's initial build and any rebuild.
+    blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
     blocks.append(_report_link_block(report))
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(header[:200])}"
     return blocks, fallback
@@ -328,12 +347,18 @@ class ScoutReportThreadMessages:
     reply_blocks: list[list[dict]]
 
 
-def build_scout_report_thread_slack_messages(report: SignalReport, run: SignalScoutRun) -> ScoutReportThreadMessages:
+def build_scout_report_thread_slack_messages(
+    report: SignalReport,
+    run: SignalScoutRun,
+    *,
+    delivery_id: str | None = None,
+    render_budget: ChartRenderBudget | None = None,
+) -> ScoutReportThreadMessages:
     """Render a report as a channel lead plus one reply per remaining summary chunk.
 
-    The lead carries the scout name, the report title, the first summary chunk, and the report link.
-    Every later chunk becomes a threaded reply, so a long summary keeps its full tail in the channel
-    instead of being clipped at the section cap."""
+    The lead carries the scout name, the report title, the first summary chunk, the charts, and the
+    report link. Every later chunk becomes a threaded reply, so a long summary keeps its full tail
+    in the channel instead of being clipped at the section cap."""
     scout_name = _prettify_scout_name(run.skill_name)
     header = _report_header(report)
     lead_blocks: list[dict] = [
@@ -347,6 +372,9 @@ def build_scout_report_thread_slack_messages(report: SignalReport, run: SignalSc
     chunks = _report_summary_chunks(report)
     if chunks:
         lead_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}})
+    # Charts ride the lead rather than a reply: the lead is the message the channel sees, and the
+    # replies only carry the summary's tail for anyone who opens the thread.
+    lead_blocks.extend(build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, budget=render_budget))
     lead_blocks.append(_report_link_block(report))
 
     reply_blocks = [[{"type": "section", "text": {"type": "mrkdwn", "text": chunk}}] for chunk in chunks[1:]]
@@ -444,20 +472,61 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
+
     # Threading applies to a full report only: a note edit is short and posts as a single update.
     threaded = thread_reports and edit_note is None
-    reply_blocks: list[list[dict]] = []
-    if edit_note is not None:
-        blocks, fallback = build_scout_report_note_slack_message(report, run, edit_note)
-    elif threaded:
-        thread_messages = build_scout_report_thread_slack_messages(report, run)
-        blocks, fallback, reply_blocks = (
-            thread_messages.lead_blocks,
-            thread_messages.fallback,
-            thread_messages.reply_blocks,
+
+    # Shared across the initial build and any rebuild so both draw from one render allowance, rather
+    # than the rebuild getting a fresh one (which would let one delivery spend two budgets).
+    render_budget = new_chart_render_budget()
+
+    def _build_report_message() -> tuple[list[dict], str, list[list[dict]]]:
+        # A note-only edit renders the passed-in note; every other delivery renders live report content.
+        if edit_note is not None:
+            note_blocks, note_fallback = build_scout_report_note_slack_message(report, run, edit_note)
+            return note_blocks, note_fallback, []
+        if threaded:
+            thread_messages = build_scout_report_thread_slack_messages(
+                report, run, delivery_id=delivery_id, render_budget=render_budget
+            )
+            return thread_messages.lead_blocks, thread_messages.fallback, thread_messages.reply_blocks
+        report_blocks, report_fallback = build_scout_report_slack_message(
+            report, run, delivery_id=delivery_id, render_budget=render_budget
         )
-    else:
-        blocks, fallback = build_scout_report_slack_message(report, run)
+        return report_blocks, report_fallback, []
+
+    # Building the message renders the report's charts, which can hold the worker for the render
+    # budget. Re-read the report after every build and before posting, since an edit in that window
+    # can unsurface it (must not post at all) or change its content (the built blocks no longer match
+    # the report). On a content change, rebuild from the current report and re-check again — not
+    # every edit path enqueues a replacement delivery (the inbox PATCH,
+    # `SignalReportViewSet.partial_update`, doesn't), so dropping the message would lose it. The
+    # loop is bounded to one rebuild: a further edit racing the rebuild is ordinary last-writer
+    # timing, and unchanged charts are reused from the render cache, so a rebuild only re-renders
+    # charts the edit actually changed. A note-only message renders the passed-in note, not live
+    # content, so it has no revision to guard and never rebuilds.
+    blocks: list[dict] = []
+    fallback = ""
+    reply_blocks: list[list[dict]] = []
+    for _ in range(2):
+        content_revision = None if edit_note is not None else report.updated_at
+        blocks, fallback, reply_blocks = _build_report_message()
+        try:
+            report.refresh_from_db()
+        except SignalReport.DoesNotExist:
+            logger.info("signals_scout.slack_delivery_report_deleted_after_render", report_id=str(report.id))
+            return
+        if report.status not in DELIVERABLE_REPORT_STATUSES:
+            logger.info(
+                "signals_scout.slack_delivery_report_not_surfaced_after_render",
+                report_id=str(report.id),
+                report_status=report.status,
+            )
+            return
+        if content_revision is None or report.updated_at == content_revision:
+            break
+        logger.info("signals_scout.slack_delivery_report_rebuilt_after_content_change", report_id=str(report.id))
+
     client = SlackIntegration(integration).client
     try:
         response = client.chat_postMessage(

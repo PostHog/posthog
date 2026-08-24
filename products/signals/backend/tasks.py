@@ -34,6 +34,7 @@ from products.signals.backend.report_generation.repo_activity import (
 )
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
+    DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
     post_scout_emission_to_slack,
@@ -70,7 +71,6 @@ _OUT_OF_PERIOD_SYNC_ERROR = "billing: refund period no longer creditable at sync
 _SCOUT_SLACK_MAX_RETRIES = 5
 _SCOUT_SLACK_RETRY_BASE_SECONDS = 60
 _SCOUT_SLACK_RETRY_MAX_SECONDS = 3600
-_SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES = frozenset((SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT))
 
 
 @shared_task(
@@ -150,7 +150,7 @@ def deliver_scout_slack_output(
             if report is None or run is None:
                 logger.warning("signals_scout.slack_delivery_output_missing", **context)
                 return
-            if report.status not in _SCOUT_SLACK_DELIVERABLE_REPORT_STATUSES:
+            if report.status not in DELIVERABLE_REPORT_STATUSES:
                 logger.info(
                     "signals_scout.slack_delivery_report_not_surfaced",
                     **context,
