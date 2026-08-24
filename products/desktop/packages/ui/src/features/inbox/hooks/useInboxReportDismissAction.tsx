@@ -1,5 +1,11 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
-import { Button } from "@posthog/quill";
+import {
+  Button,
+  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { isDismissalReasonSnooze } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
 import {
@@ -7,7 +13,6 @@ import {
   type DismissReportDialogResult,
 } from "@posthog/ui/features/inbox/components/DismissReportDialog";
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
-import { Spinner, Tooltip } from "@radix-ui/themes";
 import { type ReactElement, useCallback, useMemo, useState } from "react";
 
 const EMPTY_REPORTS: SignalReport[] = [];
@@ -47,17 +52,23 @@ export function useInboxReportDismissAction(report: SignalReport): {
   );
 
   const actionButton = (
-    <Tooltip content="Archive this report">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-label="Archive this report"
-        disabled={isPending}
-        onClick={() => setOpen(true)}
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-xs"
+            className="h-7 w-7"
+            aria-label="Archive this report"
+            disabled={isPending}
+            onClick={() => setOpen(true)}
+          />
+        }
       >
-        {isPending ? <Spinner size="1" /> : <ArchiveIcon size={12} />}
-      </Button>
+        {isPending ? <Spinner /> : <ArchiveIcon size={12} />}
+      </TooltipTrigger>
+      <TooltipContent>Archive</TooltipContent>
     </Tooltip>
   );
 

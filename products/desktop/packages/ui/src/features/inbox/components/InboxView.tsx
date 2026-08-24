@@ -24,9 +24,9 @@ export function InboxView() {
         <EnvelopeSimpleIcon size={12} className="shrink-0 text-gray-10" />
         <Text
           className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Inbox"
+          title="Self-driving"
         >
-          Inbox
+          Self-driving
         </Text>
       </Flex>
     ),
@@ -54,13 +54,9 @@ export function InboxView() {
   const reportsInboxEnabled = useReportsInboxEnabled();
 
   if (reportsInboxEnabled && !isDetailView) {
-    return (
-      <Flex direction="column" className="h-full min-h-0">
-        <div className="min-h-0 flex-1 overflow-auto">
-          <ReportsInboxView />
-        </div>
-      </Flex>
-    );
+    // The view owns its height so its page header stays pinned while the
+    // sections scroll — the same shape ActivityView has.
+    return <ReportsInboxView />;
   }
 
   // With channel reports on, spaces replace the inbox as the home for reports.

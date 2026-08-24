@@ -165,7 +165,7 @@ describe("NavRail", () => {
   it.each([
     ["/", "Home"],
     ["/activity", "Activity"],
-    ["/inbox/pulls/$reportId", "Inbox"],
+    ["/inbox/pulls/$reportId", "Self-driving"],
     ["/command-center", "Command Center"],
     ["/spaces", "Spaces"],
     ["/spaces/$channelId/loops", "Spaces"],
@@ -185,7 +185,7 @@ describe("NavRail", () => {
     it("opens a destination in a new tab on Cmd-click", () => {
       render(<NavRail />);
 
-      fireEvent.click(screen.getByLabelText("Inbox"), { metaKey: true });
+      fireEvent.click(screen.getByLabelText("Self-driving"), { metaKey: true });
 
       expect(mocks.openBrowserTab).toHaveBeenCalledWith("/inbox");
       expect(mocks.navigateToInbox).not.toHaveBeenCalled();
@@ -333,7 +333,7 @@ describe("NavRail", () => {
       });
       render(<NavRail />);
 
-      await user.click(screen.getByLabelText("Inbox"));
+      await user.click(screen.getByLabelText("Self-driving"));
 
       expect(mocks.navigate).toHaveBeenCalledWith({ href: "/inbox/pulls/42" });
       expect(mocks.navigateToInbox).not.toHaveBeenCalled();
@@ -365,7 +365,7 @@ describe("NavRail", () => {
       rememberVisits({ inbox: { href: "/inbox/pulls/42" } });
       render(<NavRail />);
 
-      await user.click(screen.getByLabelText("Inbox"));
+      await user.click(screen.getByLabelText("Self-driving"));
 
       expect(mocks.navigateToInbox).toHaveBeenCalledOnce();
       expect(mocks.navigate).not.toHaveBeenCalled();
@@ -401,7 +401,7 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Command Center")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Inbox")).toBeInTheDocument();
+    expect(screen.getByLabelText("Self-driving")).toBeInTheDocument();
   });
 
   it("keeps the column's own destinations when everything else is hidden", () => {
@@ -436,7 +436,7 @@ describe("NavRail", () => {
       "Home",
       "Spaces",
       "Command Center",
-      "Inbox",
+      "Self-driving",
       "Activity",
     ]);
   });
