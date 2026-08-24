@@ -192,7 +192,9 @@ def reset_clickhouse_tables():
 
 def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
     output = "\n".join(
-        stream.decode() if isinstance(stream, bytes) else stream for stream in (error.stdout, error.stderr) if stream
+        stream.decode(errors="replace") if isinstance(stream, bytes) else stream
+        for stream in (error.stdout, error.stderr)
+        if stream
     )
     return output or str(error)
 
