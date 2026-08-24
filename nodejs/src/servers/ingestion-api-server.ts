@@ -72,7 +72,6 @@ import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
 import { WorkerIngestServer } from '../ingestion/api/grpc-server'
-import { GrpcBatchContext, GrpcStreamIngestDriver } from '../ingestion/api/grpc-stream-ingest-driver'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
@@ -100,6 +99,7 @@ import {
     RedisPool,
 } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
+import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
