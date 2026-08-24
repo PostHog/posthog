@@ -74,6 +74,7 @@ from posthog.hogql.database.schema.document_embeddings import (
 from posthog.hogql.database.schema.duckdb_table_functions import GenerateSeriesTable, RangeTable
 from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
     ErrorTrackingFingerprintIssueStateTable,
+    ErrorTrackingRecentIssueStateTable,
     RawErrorTrackingFingerprintIssueStateTable,
 )
 from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
@@ -423,6 +424,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "error_tracking_recent_issue_state": TableNode(
+                        name="error_tracking_recent_issue_state",
+                        table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
                     ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()

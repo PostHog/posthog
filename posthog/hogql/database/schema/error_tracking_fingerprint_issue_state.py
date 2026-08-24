@@ -5,6 +5,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
@@ -13,12 +14,15 @@ from posthog.hogql.database.models import (
     LazyTableToAdd,
     StringDatabaseField,
     Table,
+    TableNode,
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
 
 # Key used to pass pending fingerprint-issue-state updates through HogQLContext.data_to_ingest.
 PENDING_UPDATES_HOGQL_CONTEXT_KEY = "error_tracking_fingerprints"
+RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY = "error_tracking_recent_issue_state"
+RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME = "__ph_error_tracking_recent_issue_state"
 
 ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -252,6 +256,84 @@ def _pending_update_select(row: dict[str, Any]):
     return ast.SelectQuery(
         select=[ast.Alias(alias=col, expr=column_exprs[col]) for col in _ISSUE_STATE_COLUMNS],
     )
+
+
+RECENT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
+    "issue_id": UUIDDatabaseField(name="issue_id", nullable=False),
+    "issue_status": StringDatabaseField(name="issue_status", nullable=False),
+    "issue_name": StringDatabaseField(name="issue_name", nullable=True),
+    "issue_description": StringDatabaseField(name="issue_description", nullable=True),
+    "assigned_user_id": IntegerDatabaseField(name="assigned_user_id", nullable=True),
+    "assigned_role_id": UUIDDatabaseField(name="assigned_role_id", nullable=True),
+    "state_updated_at": DateTimeDatabaseField(name="state_updated_at", nullable=False),
+    "is_present": BooleanDatabaseField(name="is_present", nullable=False),
+}
+
+RECENT_ISSUE_STATE_STRUCTURE = [
+    ("issue_id", "UUID"),
+    ("issue_status", "String"),
+    ("issue_name", "Nullable(String)"),
+    ("issue_description", "Nullable(String)"),
+    ("assigned_user_id", "Nullable(Int64)"),
+    ("assigned_role_id", "Nullable(UUID)"),
+    ("state_updated_at", "DateTime64(6, 'UTC')"),
+    ("is_present", "UInt8"),
+]
+
+
+class _RecentIssueStateExternalTable(DANGEROUS_NoTeamIdCheckTable):
+    fields: dict[str, FieldOrTable] = RECENT_ISSUE_STATE_FIELDS
+
+    def to_printed_clickhouse(self, context):
+        return RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME
+
+    def to_printed_hogql(self):
+        return RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME
+
+
+class ErrorTrackingRecentIssueStateTable(LazyTable):
+    fields: dict[str, FieldOrTable] = RECENT_ISSUE_STATE_FIELDS
+
+    def lazy_select(
+        self,
+        table_to_add: LazyTableToAdd,
+        context: HogQLContext,
+        node: SelectQuery,
+    ):
+        from posthog.hogql import ast
+
+        database = context.database
+        if database is None:
+            raise ResolutionError("Database is not set")
+
+        rows = context.data_to_ingest.get(RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY) or []
+        if RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME not in context.external_tables:
+            context.external_tables[RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME] = {
+                "name": RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME,
+                "structure": RECENT_ISSUE_STATE_STRUCTURE,
+                "data": rows,
+            }
+            database.tables.add_child(
+                TableNode(
+                    name=RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME,
+                    table=_RecentIssueStateExternalTable(name=RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME),
+                    hidden=True,
+                ),
+                table_conflict_mode="override",
+                children_conflict_mode="override",
+            )
+
+        fields = list(table_to_add.fields_accessed)
+        return ast.SelectQuery(
+            select=[ast.Alias(alias=field, expr=ast.Field(chain=[field])) for field in fields],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME])),
+        )
+
+    def to_printed_clickhouse(self, context):
+        return RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME
+
+    def to_printed_hogql(self):
+        return "error_tracking_recent_issue_state"
 
 
 class RawErrorTrackingFingerprintIssueStateTable(Table):

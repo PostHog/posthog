@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
@@ -34,10 +35,18 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.schema.error_tracking_fingerprint_issue_state import (
+    RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME,
+    RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY,
+)
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -52,7 +61,10 @@ from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlat
     ErrorTrackingIssueCorrelationQueryRunner,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import (
+    ErrorTrackingQueryRunner,
+    RecentErrorTrackingIssueState,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
@@ -611,6 +623,217 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         results = self._calculate(status="all")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_status_overrides_display_and_filtering(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now(),
+        )
+
+        results = self._calculate()["results"]
+        issue = next(result for result in results if result["id"] == self.issue_id_one)
+        self.assertEqual(issue["status"], ErrorTrackingIssue.Status.RESOLVED)
+        self.assertNotIn(self.issue_id_one, {result["id"] for result in self._calculate(status="active")["results"]})
+        self.assertEqual(
+            [result["id"] for result in self._calculate(status="resolved")["results"]],
+            [self.issue_id_one],
+        )
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_user_assignment_overrides_clickhouse(self):
+        ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id_one, user=self.user, team=self.team)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+
+        results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
+        self.assertEqual([result["id"] for result in results], [self.issue_id_one])
+        self.assertEqual(results[0]["assignee"], {"id": self.user.pk, "type": "user"})
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_role_assignment_overrides_clickhouse(self):
+        role = Role.objects.create(name="Overlay role", organization=self.organization)
+        ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id_one, role=role, team=self.team)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+
+        results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
+        self.assertEqual([result["id"] for result in results], [self.issue_id_one])
+        self.assertEqual(results[0]["assignee"], {"id": str(role.id), "type": "role"})
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_unassignment_overrides_clickhouse(self):
+        assignment = ErrorTrackingIssueAssignment.objects.create(
+            issue_id=self.issue_id_one,
+            user=self.user,
+            team=self.team,
+        )
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+        assignment.delete()
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+
+        issue = next(result for result in self._calculate()["results"] if result["id"] == self.issue_id_one)
+        self.assertIsNone(issue["assignee"])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_null_description_overrides_clickhouse(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(description="stale description")
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(description=None, state_updated_at=now())
+
+        issue = next(result for result in self._calculate()["results"] if result["id"] == self.issue_id_one)
+        self.assertIsNone(issue["description"])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_state_older_than_overlay_window_does_not_override_clickhouse(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now() - timedelta(seconds=61),
+        )
+
+        issue = next(result for result in self._calculate()["results"] if result["id"] == self.issue_id_one)
+        self.assertEqual(issue["status"], ErrorTrackingIssue.Status.ACTIVE)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_cache_watermark_remains_after_overlay_window_expires(self):
+        state_updated_at = now() - timedelta(seconds=61)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=state_updated_at)
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+        )
+
+        self.assertEqual(runner.get_cache_payload()["error_tracking_state_updated_at"], state_updated_at.isoformat())
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_cache_payload_changes_when_state_watermark_advances(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+        )
+        initial_payload = runner.get_cache_payload()
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+
+        self.assertNotEqual(initial_payload, runner.get_cache_payload())
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_issue_lookup_is_team_scoped(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team, state_updated_at=now())
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="all"),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+        )
+
+        recent_issue_ids = {state.issue_id for state in runner._recent_issue_states()}
+        self.assertEqual(recent_issue_ids, {UUID(self.issue_id_one)})
+        self.assertNotIn(other_issue.id, recent_issue_ids)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_issue_level_overlay_applies_to_more_than_fifty_fingerprints(self):
+        issue_id = "01936e83-5c2d-78f5-9237-13a5cbe7a190"
+        issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=ErrorTrackingIssue.Status.ACTIVE)
+        fingerprints = [f"many_fingerprints_{index}" for index in range(51)]
+        ErrorTrackingIssueFingerprintV2.objects.bulk_create(
+            [
+                ErrorTrackingIssueFingerprintV2(team=self.team, issue=issue, fingerprint=fingerprint)
+                for fingerprint in fingerprints
+            ]
+        )
+        for fingerprint in fingerprints:
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={"$exception_fingerprint": fingerprint},
+            )
+        sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+        flush_persons_and_events()
+        ErrorTrackingIssue.objects.filter(id=issue_id).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now(),
+        )
+
+        result = self._calculate(issueId=issue_id, withAggregations=True)["results"][0]
+        self.assertEqual(result["status"], ErrorTrackingIssue.Status.RESOLVED)
+        self.assertEqual(result["aggregations"]["occurrences"], 51)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_no_recent_state_uses_query_without_external_overlay(self):
+        response = self._calculate()
+
+        self.assertNotIn("error_tracking_recent_issue_state", response["hogql"])
+
+    def test_recent_state_external_table_preserves_schema_and_values(self):
+        issue_id = UUID(self.issue_id_one)
+        role_id = UUID("01936e83-f5c0-7e18-a166-20af1de09255")
+        state_updated_at = datetime(2025, 1, 2, 3, 4, 5, 678901, tzinfo=UTC)
+        state = RecentErrorTrackingIssueState(
+            issue_id=issue_id,
+            issue_status=ErrorTrackingIssue.Status.RESOLVED,
+            issue_name=None,
+            issue_description=None,
+            assigned_user_id=42,
+            assigned_role_id=role_id,
+            state_updated_at=state_updated_at,
+        )
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        context.data_to_ingest[RECENT_ISSUE_STATE_HOGQL_CONTEXT_KEY] = [state.as_external_row()]
+        sql, _ = prepare_and_print_ast(
+            parse_select(
+                "SELECT recent_issue_state.issue_id, recent_issue_state.issue_status, recent_issue_state.issue_name, "
+                "recent_issue_state.issue_description, recent_issue_state.assigned_user_id, "
+                "recent_issue_state.assigned_role_id, recent_issue_state.state_updated_at, "
+                "recent_issue_state.is_present FROM posthog.error_tracking_recent_issue_state AS recent_issue_state"
+            ),
+            context,
+            dialect="clickhouse",
+        )
+
+        table = context.external_tables[RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME]
+        self.assertIn(RECENT_ISSUE_STATE_EXTERNAL_TABLE_NAME, sql)
+        self.assertEqual(
+            table["structure"],
+            [
+                ("issue_id", "UUID"),
+                ("issue_status", "String"),
+                ("issue_name", "Nullable(String)"),
+                ("issue_description", "Nullable(String)"),
+                ("assigned_user_id", "Nullable(Int64)"),
+                ("assigned_role_id", "Nullable(UUID)"),
+                ("state_updated_at", "DateTime64(6, 'UTC')"),
+                ("is_present", "UInt8"),
+            ],
+        )
+        self.assertEqual(
+            table["data"],
+            [
+                {
+                    "issue_id": issue_id,
+                    "issue_status": ErrorTrackingIssue.Status.RESOLVED,
+                    "issue_name": None,
+                    "issue_description": None,
+                    "assigned_user_id": 42,
+                    "assigned_role_id": role_id,
+                    "state_updated_at": state_updated_at,
+                    "is_present": 1,
+                }
+            ],
+        )
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
