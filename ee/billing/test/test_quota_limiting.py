@@ -926,6 +926,7 @@ class TestQuotaLimiting(BaseTest):
             }
 
     @freeze_time("2021-01-25T12:00:00Z")
+    @freeze_time("2021-01-25T12:00:00Z")
     def test_org_quota_limited_until_grants_grace_period_when_limit_drops_under_stable_usage(self):
         # A plan flip to the free tier (e.g. a lapsed subscription) collapses `limit` while
         # usage is unchanged. Without limit_decreased_from, a zero-trust-score org (the default
@@ -949,6 +950,17 @@ class TestQuotaLimiting(BaseTest):
         }
         # The marker is one-shot: consumed once acted on, so it does not keep re-granting grace.
         assert "limit_decreased_from" not in self.organization.usage["events"]
+
+        # A later quota check runs with the marker already consumed and the org still over its
+        # new limit. The active suspension must survive unchanged - the grace lasts its full two
+        # days, not just until the next 15-minute quota tick.
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+
+        assert result == {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": expected_suspended_until,
+        }
+        assert self.organization.usage["events"]["quota_limiting_suspended_until"] == expected_suspended_until
 
     @freeze_time("2021-01-25T12:00:00Z")
     def test_org_quota_limited_until_limits_immediately_when_already_over_previous_limit(self):

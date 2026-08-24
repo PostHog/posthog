@@ -553,6 +553,40 @@ def org_quota_limited_until(
     if resource == QuotaResource.FEATURE_FLAG_REQUESTS:
         minimum_grace_period = FEATURE_FLAGS_GRACE_PERIOD_DAYS
 
+    # An active plan-transition suspension must survive later quota checks until it expires.
+    # 1c grants that suspension to an org that would otherwise be limited immediately (no or
+    # low trust), and it consumes limit_decreased_from at the same time. Without this branch the
+    # next check no longer sees the transition, falls into the immediate-limit branch below, and
+    # collapses the two-day window to a single quota tick. Return the suspension unchanged rather
+    # than extending it. Trust scores 7/10/15 keep their own period-aware handling in branch 3.
+    if (
+        quota_limiting_suspended_until
+        and today_end.timestamp() <= quota_limiting_suspended_until
+        and resource not in GRACE_PERIOD_EXEMPT_RESOURCES
+        and trust_score not in [7, 10, 15]
+        and minimum_grace_period == 0
+    ):
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "suspension not expired",
+                "current_usage": usage + todays_usage,
+                **refund_offset_properties,
+                "resource": resource.value,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
+            },
+        )
+        update_organization_usage_fields(
+            organization,
+            resource,
+            {"quota_limited_until": None, "quota_limiting_suspended_until": quota_limiting_suspended_until},
+        )
+        return {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": quota_limiting_suspended_until,
+        }
+
     # Now we check the trust score
     # These trust score levels are defined in billing::customer::TrustScores.
     # Please keep the logic and levels in sync with what is defined in billing.
