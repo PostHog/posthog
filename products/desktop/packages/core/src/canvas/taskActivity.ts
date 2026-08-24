@@ -29,8 +29,6 @@ export interface TaskActivityItem {
   messageId: string | null;
   commentId?: string | null;
   commentTarget?: CommentTarget | null;
-  targetScope: "desktop_canvas" | null;
-  targetId: string | null;
   isUnread: boolean;
 }
 
@@ -57,8 +55,6 @@ export function toTaskActivityItems(
             itemId: row.latest_comment_item_id,
           }
         : null,
-    targetScope: row.target_scope ?? null,
-    targetId: row.target_id ?? null,
     isUnread: row.is_unread,
   }));
 }

@@ -4488,6 +4488,7 @@ export const TaxonomicFilterGroupTypeApi = {
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
     DataWarehouseSourceTables: 'data_warehouse_source_tables',
+    DataWarehouseMaterializedViews: 'data_warehouse_materialized_views',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -4531,6 +4532,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Replay: 'replay',
     ReplaySavedFilters: 'replay_saved_filters',
     RevenueAnalyticsProperties: 'revenue_analytics_properties',
+    AccountFields: 'account_fields',
     AccountCustomProperties: 'account_custom_properties',
     Resources: 'resources',
     ErrorTrackingProperties: 'error_tracking_properties',
@@ -5175,6 +5177,10 @@ export interface ExperimentMeanMetricApi {
 export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentFunnelMetricApi {
+    /** How to attribute the breakdown value across funnel steps. */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
     breakdownFilter?: BreakdownFilterApi | null
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
@@ -7364,6 +7370,28 @@ export interface AccountsTableAccountIdFilterApi {
     kind?: 'account_id'
 }
 
+export type AccountsTableAccountFieldOperatorApi =
+    (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
+
+export const AccountsTableAccountFieldOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface AccountsTableAccountFieldFilterApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+    operator: AccountsTableAccountFieldOperatorApi
+    values?: string[] | null
+}
+
 export type AccountsTableCustomPropertyOperatorApi =
     (typeof AccountsTableCustomPropertyOperatorApi)[keyof typeof AccountsTableCustomPropertyOperatorApi]
 
@@ -7499,6 +7527,7 @@ export interface AccountsTableQueryApi {
               | AccountsTableAssignedToFilterApi
               | AccountsTableUnassignedFilterApi
               | AccountsTableAccountIdFilterApi
+              | AccountsTableAccountFieldFilterApi
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null

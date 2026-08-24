@@ -12,6 +12,7 @@ import typing
 from enum import StrEnum
 
 from django.db import models
+from django.utils.functional import Promise
 
 __all__ = [
     "DIRECT_ENGINE_BY_SOURCE_TYPE",
@@ -1366,6 +1367,16 @@ class ExternalDataSourceType(models.TextChoices):
     AIRWALLEX = "Airwallex", "Airwallex"
     POLYMARKET = "Polymarket", "Polymarket"
     KALSHI = "Kalshi", "Kalshi"
+    CAPTERRA = "Capterra", "Capterra"
+    GOOGLEPOSTMASTERTOOLS = "GooglePostmasterTools", "GooglePostmasterTools"
+    GROWI = "Growi", "Growi"
+    CLARIFY = "Clarify", "Clarify"
+    DATOCMS = "DatoCMS", "DatoCMS"
+
+
+def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(ExternalDataSourceType.choices)
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

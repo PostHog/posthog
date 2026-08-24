@@ -130,7 +130,7 @@ def test_the_route_serves_a_signed_directory():
 
     assert response.status_code == 200
     assert response["Content-Type"] == CONTENT_TYPE
-    assert response["Cache-Control"] == "no-store"
+    assert response["Cache-Control"] == "public, max-age=60"
     assert response["Content-Digest"].startswith("sha-256=:")
     assert response["Signature-Input"].startswith('sig1=("@authority";req "content-digest")')
     assert response["Signature"].startswith("sig1=:")
@@ -227,6 +227,24 @@ def test_startup_validation_reports_invalid_configuration() -> None:
         "configured_key_count": 1,
         "setting": "WEB_BOT_AUTH_PRIVATE_KEYS",
     }
+
+
+def test_startup_validation_reports_unexpected_loader_errors() -> None:
+    with (
+        patch(
+            "posthog.web_bot_auth_keys.load_web_bot_auth_private_key_configuration",
+            side_effect=RuntimeError("loader failed"),
+        ),
+        patch("posthog.exceptions_capture.capture_exception") as capture_exception,
+        patch("posthog.utils.safe_cache_add", return_value=True),
+    ):
+        validation_thread = validate_web_bot_auth_private_keys_in_background((PEM,))
+        validation_thread.join(timeout=2)
+
+    capture_exception.assert_called_once()
+    captured_error = capture_exception.call_args.args[0]
+    assert isinstance(captured_error, WebBotAuthPrivateKeyConfigurationError)
+    assert str(captured_error) == "WEB_BOT_AUTH_PRIVATE_KEYS could not be validated (RuntimeError)"
 
 
 @pytest.mark.parametrize("region", ["EU", "DEV", None])

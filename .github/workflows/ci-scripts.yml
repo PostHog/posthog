@@ -95,6 +95,7 @@ jobs:
                       .github/scripts/assign-reviewers.test.js
                       .github/scripts/post-ci-sections.test.mjs
                       .github/scripts/weekly-flaky-report.test.mjs
+                      .github/scripts/weekly-slow-tests-report.test.mjs
                       .github/scripts/patch-cli-npm-installer.test.mjs
                       .github/scripts/turbo-discover-cascade.test.js
                       .github/scripts/selected-django-shards.test.js

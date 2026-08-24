@@ -151,6 +151,12 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `reviewhog`
+  label) **only** for these runs. A human author reads their own refusal and decides what comes next.
+  A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
+  In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
+  The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
+  what the reviewer prompt was told about its own invocation.
 
 ## Trust boundaries
 
@@ -195,10 +201,10 @@ tells the reviewer that every author owns the code they touched. `pr_provenance`
 is computed in the sandbox from the checkout.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
-refusal costs a ReviewHog handoff and a trigger-label strip over what is a race with CI. It can't
-reuse `Pipeline._only_pending_migration_check`: that method disqualifies on any failing gate other
-than the deny-list, and a migrations deny always drags the tier gate to T2-never with it, so it
-answers False for every PR it exists to catch.
+refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
+race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on
+any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
+T2-never with it, so it answers False for every PR it exists to catch.
 
 ## Temporal specifics
 

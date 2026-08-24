@@ -93,6 +93,7 @@ export const getStorybookAppContext = (): AppContext => ({
         activity_log: 'viewer',
         customer_analytics: 'manager',
         llm_analytics: 'manager',
+        evaluation: 'manager',
         llm_playground: 'manager',
         mcp_analytics: 'manager',
         tagger: 'manager',

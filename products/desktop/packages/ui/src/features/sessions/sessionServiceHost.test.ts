@@ -160,7 +160,7 @@ const mockAuth = vi.hoisted(() => ({
     },
     currentOrgId: "org-1",
     currentProjectId: 123,
-    hasCodeAccess: true,
+    desktopAccess: { projectId: 123, status: "allowed", reason: null },
     needsScopeReauth: false,
   })),
   getAuthenticatedClient: vi.fn<() => Promise<Record<string, unknown> | null>>(
@@ -404,6 +404,7 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
   return {
     collapseSupersededToolCallUpdates: actual.collapseSupersededToolCallUpdates,
     convertStoredEntriesToEvents: mockConvertStoredEntriesToEvents,
+    dropEventsCoveredByTail: actual.dropEventsCoveredByTail,
     createUserPromptEvent: vi.fn((prompt, ts) => ({
       type: "acp_message",
       ts,
@@ -524,7 +525,7 @@ describe("SessionService", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 123,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 123, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
     mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({
@@ -693,7 +694,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: "org-2",
         currentProjectId: 456,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 456, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       const second = service.getCloudAttachmentPreviewUrl(
@@ -904,7 +905,7 @@ describe("SessionService", () => {
         },
         currentOrgId: "org-1",
         currentProjectId: 123,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 123, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
@@ -964,7 +965,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: null,
         currentProjectId: null,
-        hasCodeAccess: null,
+        desktopAccess: { projectId: null, status: "unchecked", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue(null);
@@ -1000,7 +1001,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: null,
+          desktopAccess: { projectId: null, status: "unchecked", reason: null },
           needsScopeReauth: false,
         });
 
@@ -1033,7 +1034,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: true,
+          desktopAccess: { projectId: 123, status: "allowed", reason: null },
           needsScopeReauth: false,
         });
 
@@ -4305,7 +4306,7 @@ describe("SessionService", () => {
         expect(mockSessionStoreSetters.updateSession).toHaveBeenCalledWith(
           "run-123",
           expect.objectContaining({
-            events: [],
+            events: existingSession.events,
             isCloud: true,
             logUrl: "https://logs.example.com/run-123",
             processedLineCount: 14,
@@ -4397,7 +4398,7 @@ describe("SessionService", () => {
       expect(mockSessionStoreSetters.appendEvents).not.toHaveBeenCalled();
     });
 
-    it("queues a pending cloud log gap when stale fetches can't fill it, without appending", async () => {
+    it("queues a pending cloud log gap when stale fetches can't fill it, keeping the live tail", async () => {
       const service = getSessionService();
       let sessionState = createMockSession({
         taskRunId: "run-123",
@@ -4425,7 +4426,8 @@ describe("SessionService", () => {
           sessionState = {
             ...sessionState,
             events: [...sessionState.events, ...events],
-            processedLineCount,
+            processedLineCount:
+              processedLineCount ?? sessionState.processedLineCount,
           };
         },
       );
@@ -4503,13 +4505,9 @@ describe("SessionService", () => {
       await vi.waitFor(() => {
         expect(mockTrpcLogs.readLocalLogs.query).toHaveBeenCalledTimes(2);
       });
-      // Stale fetches can't fill the gap; we must NOT append the snapshot's
-      // tail slice (positions [expectedCount-N, expectedCount]) on top of an
-      // events array that's still at processedLineCount=5 — that path used
-      // to corrupt the array with duplicates/gaps and ratchet
-      // processedLineCount past entries we don't actually have, leading to
-      // unbounded growth on long-running cloud runs.
-      expect(mockSessionStoreSetters.appendEvents).not.toHaveBeenCalled();
+      expect(mockSessionStoreSetters.appendEvents).toHaveBeenCalledTimes(2);
+      expect(sessionState.processedLineCount).toBe(5);
+      expect(sessionState.events).toHaveLength(4);
     });
 
     const setupReconcileLoopTest = (logContent: string) => {
@@ -4580,26 +4578,27 @@ describe("SessionService", () => {
       });
     });
 
-    it("breaks the reconcile loop after a repeated stable deficiency", async () => {
+    it("breaks the reconcile loop once the deficit stops shrinking", async () => {
       const { subscribeOptions } = setupReconcileLoopTest(
         Array.from({ length: 8 }, () => validLine).join("\n"),
       );
 
-      subscribeOptions.onData({
-        kind: "logs",
-        taskId: "task-123",
-        runId: "run-123",
-        totalEntryCount: 14,
-        newEntries: [newEntry],
-      });
-      await vi.waitFor(() => {
-        expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledTimes(1);
-      });
-
-      expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
-        "run-123",
-        expect.objectContaining({ processedLineCount: 14 }),
-      );
+      for (let pass = 1; pass <= 3; pass += 1) {
+        subscribeOptions.onData({
+          kind: "logs",
+          taskId: "task-123",
+          runId: "run-123",
+          totalEntryCount: 14,
+          newEntries: [newEntry],
+        });
+        await vi.waitFor(() => {
+          expect(mockTrpcLogs.fetchS3Logs.query).toHaveBeenCalledTimes(pass);
+        });
+        expect(mockSessionStoreSetters.updateSession).not.toHaveBeenCalledWith(
+          "run-123",
+          expect.objectContaining({ processedLineCount: 14 }),
+        );
+      }
 
       subscribeOptions.onData({
         kind: "logs",
@@ -6922,7 +6921,7 @@ describe("SessionService", () => {
         },
         currentOrgId: "org-1",
         currentProjectId: 123,
-        hasCodeAccess: true,
+        desktopAccess: { projectId: 123, status: "allowed", reason: null },
         needsScopeReauth: false,
       });
       mockBuildAuthenticatedClient.mockReturnValue({
@@ -7197,7 +7196,7 @@ describe("SessionService", () => {
         orgProjectsMap: {},
         currentOrgId: null,
         currentProjectId: 123,
-        hasCodeAccess: null,
+        desktopAccess: { projectId: null, status: "unchecked", reason: null },
         needsScopeReauth: false,
       });
 
@@ -7296,7 +7295,7 @@ describe("SessionService", () => {
           orgProjectsMap: {},
           currentOrgId: null,
           currentProjectId: 123,
-          hasCodeAccess: null,
+          desktopAccess: { projectId: null, status: "unchecked", reason: null },
           needsScopeReauth: false,
         });
 

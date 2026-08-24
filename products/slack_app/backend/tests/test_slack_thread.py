@@ -559,3 +559,59 @@ class TestDeletedTriggerMessage(SimpleTestCase):
         assert self._handler().start_status_stream(first_markdown_text="thinking") is None
 
         mock_client.chat_startStream.assert_not_called()
+
+
+class TestForkMenuOnReplies(SimpleTestCase):
+    """Where the fork menu attaches, on the plain-post path."""
+
+    def _handler(self) -> SlackThreadHandler:
+        context = SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+        return SlackThreadHandler(context, RunFooter(model="claude-opus-5"))
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_non_streamed_answer_hangs_the_menu_off_the_answer_not_the_footer(
+        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+    ) -> None:
+        # Hanging it off the answer's section buys both things the footer alone cannot
+        # give: no extra line, and a footer that stays muted. A context block rejects
+        # interactive elements, so a footer carrying the menu would have to be a section
+        # and would render at body weight.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert len(blocks) == 2
+        # The menu hangs off the answer, so it costs no line…
+        assert blocks[0]["accessory"]["type"] == "overflow"
+        # …and the footer stays a context block, which is the only muted text Block Kit has.
+        assert blocks[1]["type"] == "context"
+
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_forking_enabled", return_value=False)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_outside_the_rollout_the_footer_closes_the_message(
+        self, mock_get_client, mock_get_integration, _flag, _home, _forking
+    ) -> None:
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
+
+        self._handler().post_thread_message("the answer", with_footer=True)
+
+        blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
+        assert blocks[-1]["type"] == "context"
+        assert "accessory" not in blocks[0]

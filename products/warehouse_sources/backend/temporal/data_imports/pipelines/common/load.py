@@ -111,7 +111,6 @@ async def notify_revenue_analytics_that_sync_has_completed(
 
     try:
 
-        @database_sync_to_async_pool
         def _check_and_notify():
             if (
                 schema.name == STRIPE_CHARGE_RESOURCE_NAME
@@ -133,7 +132,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                 schema.team.revenue_analytics_config.notified_first_sync = True
                 schema.team.revenue_analytics_config.save()
 
-        await _check_and_notify()
+        await database_sync_to_async_pool(retry_on_operational_error(_check_and_notify))()
     except Exception as e:
         # Silently fail, we don't want this to crash the pipeline
         # Sending an email is not critical to the pipeline

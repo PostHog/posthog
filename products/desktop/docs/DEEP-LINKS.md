@@ -98,11 +98,11 @@ An **https** bridge also exists for links sent outside the app (e.g. comment Sla
 
 ### `posthog-code://inbox/<reportId>`
 
-Open a report in Inbox. When `posthog-desktop-report-canvases` is enabled and the report has a generated canvas, open that canvas instead.
+Open a specific inbox report.
 
 | Segment | Required | Description |
 |---|---|---|
-| `<reportId>` | Yes | Report ID |
+| `<reportId>` | Yes | Inbox report ID |
 
 ```
 posthog-code://inbox/report_abc123

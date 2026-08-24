@@ -1,14 +1,10 @@
 import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
-import { REPORT_CANVAS_INBOX_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import { useReportSpace } from "@posthog/ui/features/canvas/hooks/useReportSpace";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
-  navigateToChannelDashboard,
   navigateToInboxDismissedDetail,
   navigateToInboxPullRequestDetail,
   navigateToInboxReportDetail,
@@ -34,11 +30,6 @@ export function useOpenInboxReport() {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
   const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
-  const reportCanvasesEnabled = useFeatureFlag(
-    REPORT_CANVAS_INBOX_FLAG,
-    import.meta.env.DEV,
-  );
-  const { reportSpaceId } = useReportSpace(reportCanvasesEnabled);
 
   return useCallback(
     async (reportId: string) => {
@@ -62,18 +53,6 @@ export function useOpenInboxReport() {
           return;
         }
 
-        if (
-          reportCanvasesEnabled &&
-          reportSpaceId &&
-          report.canvas_session?.generation_status === "ready"
-        ) {
-          navigateToChannelDashboard(
-            reportSpaceId,
-            report.canvas_session.canvas_id,
-          );
-          return;
-        }
-
         resetFilters();
         seedInboxReportDetailCache(queryClient, report);
         if (report.status === "suppressed") {
@@ -89,6 +68,6 @@ export function useOpenInboxReport() {
         toast.error("Failed to open report");
       }
     },
-    [client, queryClient, reportCanvasesEnabled, reportSpaceId, resetFilters],
+    [client, queryClient, resetFilters],
   );
 }

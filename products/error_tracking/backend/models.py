@@ -34,7 +34,12 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
-        return self.annotate(first_seen=models.Min("fingerprints__first_seen"))
+        first_seen = (
+            ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=models.OuterRef("pk"))
+            .order_by("first_seen")
+            .values("first_seen")[:1]
+        )
+        return self.annotate(first_seen=models.Subquery(first_seen))
 
 
 class ErrorTrackingIssueMergeResult(StrEnum):

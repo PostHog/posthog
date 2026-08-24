@@ -51,7 +51,7 @@ const SurveyCreateSchema = SurveysCreateBody.omit({
         'Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the user wants structured answers. Questions can include inline translations on each question.'
     ),
     conditions: SurveysCreateBody.shape['conditions'].describe(
-        'Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms.'
+        'Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. To target people, groups, or cohorts by properties, use targeting_flag_filters instead. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms.'
     ),
     start_date: SurveysCreateBody.shape['start_date'].describe(
         'Setting this launches the survey immediately. Leave unset unless the user explicitly asks to launch now.'
@@ -60,7 +60,7 @@ const SurveyCreateSchema = SurveysCreateBody.omit({
         'Feature flag ID linked to this survey. Use only when the user explicitly wants the survey linked to a feature flag. Resolve the flag ID first, preferably with SQL in v2.'
     ),
     targeting_flag_filters: SurveysCreateBody.shape['targeting_flag_filters'].describe(
-        'User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset of users. Do not use this for external_survey forms.'
+        'Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms.'
     ),
     enable_iframe_embedding: SurveysCreateBody.shape['enable_iframe_embedding'].describe(
         'Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks for iframe embedding.'
@@ -251,7 +251,10 @@ const SurveyUpdateSchema = SurveysPartialUpdateParams.omit({ project_id: true })
             "Complete replacement question list. Existing question IDs are tied to response data and must be preserved. Before sending this field, fetch the survey first, modify the existing question objects in place, keep every unchanged or edited question's id, and include the complete intended ordered question list. New questions should omit id. Do not regenerate existing questions from scratch."
         ),
         conditions: SurveysPartialUpdateBody.shape['conditions'].describe(
-            'Complete replacement display and targeting conditions object. Do not provide this field unless changing display targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
+            'Complete replacement display conditions object. Do not provide this field unless changing display targeting. Use targeting_flag_filters for person, group, or cohort property targeting. Preserve existing URL, selector, event, device, wait-period, and linked flag variant conditions unless explicitly changing them.'
+        ),
+        targeting_flag_filters: SurveysPartialUpdateBody.shape['targeting_flag_filters'].describe(
+            "Update an in-app survey's person, group, or cohort property targeting. Pass rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Complete replacement: fetch the survey first, start from targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this for external_survey forms."
         ),
         translations: SurveysPartialUpdateBody.shape['translations'].describe(
             'Complete replacement survey-level translations object. Do not provide this field unless changing translations. Preserve existing language keys and translated fields that should remain. Use null only when the user explicitly asks to remove survey-level translations.'

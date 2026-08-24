@@ -845,6 +845,9 @@ def test_inbox_carve_out_rereviews_a_selfdriving_pr_past_every_gate(team, repo_c
         "task_run_id": str(dto.run_id),
         "acting_user_id": 777,
     }
+    # Stamped at creation, so a later review_mode change can't rewrite what the reviewer is told.
+    # The repo is in LABEL mode here, so this also pins the precedence at the stamping site.
+    assert run.output["review_trigger"] == "self_driving"
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
     # Fork-safety feeds the lookup the base repo and GitHub's head ref (matched against the run's
     # server-stamped branch); the config's team scopes it.

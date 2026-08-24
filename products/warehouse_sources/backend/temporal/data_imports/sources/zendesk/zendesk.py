@@ -1,5 +1,6 @@
 import re
 import base64
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -63,6 +64,22 @@ def zendesk_incremental_window(start_param: str, cursor_path: str) -> Incrementa
         "initial_value": ZENDESK_EPOCH_START,
         "convert": to_zendesk_iso8601,
     }
+
+
+def _fanout_incremental_config(config: ZendeskEndpointConfig) -> Callable[[str], IncrementalConfig | None]:
+    """Build the child's request window, or report that the endpoint has none.
+
+    A plain list endpoint without a start param is a config error (`get_declarative_resource`
+    raises). A fan-out child is different: the parent bounds which rows it requests, so a child
+    endpoint that takes no time filter still merges rather than replaces.
+    """
+
+    def _factory(cursor_path: str) -> IncrementalConfig | None:
+        if config.incremental_start_param is None:
+            return None
+        return zendesk_incremental_window(config.incremental_start_param, cursor_path)
+
+    return _factory
 
 
 def paginator_for(config: ZendeskEndpointConfig) -> BasePaginator:
@@ -504,6 +521,7 @@ def zendesk_fanout_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
             incremental_field=incremental_field_name,
+            incremental_config_factory=_fanout_incremental_config(config),
             page_size_param="page[size]",
             parent_endpoint_extra={
                 "paginator": JSONLinkPaginator(next_url_path="links.next"),

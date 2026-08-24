@@ -5,6 +5,7 @@ import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/fron
 
 import {
     LogsFilterPreviewPoint,
+    OTHER_BREAKDOWN_COLOR,
     TOP_SERVICES_LIMIT,
     buildSparklineSeries,
     formatBytes,
@@ -47,9 +48,12 @@ describe('buildSparklineSeries', () => {
         const data = buildSparklineSeries([point(T1, 'api', 3), point(T1, 'worker', 1), point(T2, 'api', 5)], 'count')
 
         expect(data.series).toEqual([
-            expect.objectContaining({ name: 'api', values: [3, 5] }),
-            expect.objectContaining({ name: 'worker', values: [1, 0] }),
+            expect.objectContaining({ label: 'api', data: [3, 5] }),
+            expect.objectContaining({ label: 'worker', data: [1, 0] }),
         ])
+        // Raw bucket times, not display strings: the chart's time axis needs unique ISO labels to
+        // format ticks and the tooltip header itself.
+        expect(data.labels).toEqual([T1, T2])
         expect(data.total).toEqual(9)
         expect(data.chartMax).toEqual(5)
         expect(data.bucketSeconds).toEqual(1800)
@@ -64,8 +68,8 @@ describe('buildSparklineSeries', () => {
         const data = buildSparklineSeries(points, 'count')
 
         expect(data.series).toHaveLength(13)
-        expect(data.series.map((s) => s.name)).toEqual(Array.from({ length: 13 }, (_, i) => `svc-${i}`))
-        expect(data.series.reduce((sum, s) => sum + s.values[0], 0)).toEqual(data.total)
+        expect(data.series.map((s) => s.label)).toEqual(Array.from({ length: 13 }, (_, i) => `svc-${i}`))
+        expect(data.series.reduce((sum, s) => sum + s.data[0], 0)).toEqual(data.total)
     })
 
     it('labels the collapsed bucket and pins it last even when it outweighs every service', () => {
@@ -78,9 +82,9 @@ describe('buildSparklineSeries', () => {
 
         const data = buildSparklineSeries(points, 'count')
 
-        expect(data.series.map((s) => s.name)).toEqual(['api', OTHER_BREAKDOWN_LABEL])
+        expect(data.series.map((s) => s.label)).toEqual(['api', OTHER_BREAKDOWN_LABEL])
         expect(data.series[1]).toEqual(
-            expect.objectContaining({ name: OTHER_BREAKDOWN_LABEL, color: 'muted', values: [900, 900] })
+            expect.objectContaining({ label: OTHER_BREAKDOWN_LABEL, color: OTHER_BREAKDOWN_COLOR, data: [900, 900] })
         )
         expect(data.total).toEqual(1810)
     })
@@ -99,13 +103,13 @@ describe('buildSparklineSeries', () => {
             // resolve to inherited values instead of a bucket and throw on `.set`.
             const data = buildSparklineSeries([point(T1, service, 2), point(T2, service, 3)], 'count')
 
-            expect(data.series).toEqual([expect.objectContaining({ name: service, values: [2, 3] })])
+            expect(data.series).toEqual([expect.objectContaining({ label: service, data: [2, 3] })])
             expect(data.total).toEqual(5)
         }
     )
 
     it('labels a blank service as unknown', () => {
-        expect(buildSparklineSeries([point(T1, '', 1)], 'count').series[0].name).toEqual('unknown')
+        expect(buildSparklineSeries([point(T1, '', 1)], 'count').series[0].label).toEqual('unknown')
     })
 
     it('returns an empty shape for no data', () => {

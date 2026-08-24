@@ -9,7 +9,7 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 from parameterized import parameterized
 
-from products.stamphog.backend.facade.enums import AudienceReason
+from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import (
@@ -26,6 +26,7 @@ from products.stamphog.backend.logic.github_client import (
     StamphogGitHubError,
     _build_app_jwt,
 )
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -136,6 +137,68 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         context = json.loads(invocation.context_json)
         assert context["reviews"] == reviews
         assert context["review_threads"] == review_threads
+
+    def test_review_trigger_reaches_the_sandbox_context(self) -> None:
+        # The reviewer cannot derive why it was asked; dropping the key silently returns it to a
+        # prompt that reads a requested review and an automatic one the same way.
+        def context_for(**kwargs: object) -> dict:
+            invocation = build_reviewer_invocation(
+                pr={"number": 1},
+                files=[],
+                reviews=[],
+                discussion=[],
+                review_threads=[],
+                check_runs=[],
+                pr_reactions=[],
+                author_pr_numbers=[],
+                author_team_slugs=[],
+                base_sha="base",
+                head_sha="head",
+                repo="owner/repo",
+                engine_dir="/engine",
+                context_path="/ctx.json",
+                **kwargs,  # type: ignore[arg-type]
+            )
+            return json.loads(invocation.context_json)
+
+        assert context_for(review_trigger="label")["review_trigger"] == "label"
+        # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
+        assert context_for()["review_trigger"] == ""
+        assert context_for()["self_driving_review"] is False
+
+
+class ReviewTriggerTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Inbox provenance outranks the repo mode, so a self-driving PR in an ALL-mode repo is
+            # still reported as self-driving rather than as an ambient review.
+            ("inbox_beats_all_mode", True, ReviewMode.ALL, ReviewTrigger.SELF_DRIVING),
+            ("inbox_beats_label_mode", True, ReviewMode.LABEL, ReviewTrigger.SELF_DRIVING),
+            ("label_mode_is_a_request", False, ReviewMode.LABEL, ReviewTrigger.LABEL),
+            ("all_mode_is_ambient", False, ReviewMode.ALL, ReviewTrigger.ALL),
+        ]
+    )
+    def test_precedence(self, _name: str, has_inbox: bool, mode: ReviewMode, expected: ReviewTrigger) -> None:
+        assert derive_review_trigger(has_inbox_review=has_inbox, review_mode=mode) == expected
+
+    def test_a_stamped_trigger_survives_a_mode_change(self) -> None:
+        # The reviewer reads this as fact. An admin switching the repo to LABEL while the run sat in
+        # the queue must not make it claim a request label the PR never carried.
+        stamped = {"review_trigger": ReviewTrigger.ALL.value}
+        assert trigger_for_run(output=stamped, review_mode=ReviewMode.LABEL) == "all"
+
+    @parameterized.expand(
+        [
+            ("no_output", None, ReviewMode.ALL, "all"),
+            ("empty_output", {}, ReviewMode.LABEL, "label"),
+            ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+        ]
+    )
+    def test_an_unstamped_run_derives_live(
+        self, _name: str, output: dict | None, mode: ReviewMode, expected: str
+    ) -> None:
+        # Runs queued before the stamp existed still have to answer, or their reviewer loses the slot.
+        assert trigger_for_run(output=output, review_mode=mode) == expected
 
 
 class DigestCapTests(SimpleTestCase):

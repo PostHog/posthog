@@ -273,6 +273,43 @@
             "required": ["kind", "field"],
             "type": "object"
         },
+        "AccountsTableAccountFieldFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "field": {
+                    "$ref": "#/definitions/AccountsTableAccountField"
+                },
+                "kind": {
+                    "const": "account_field",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableAccountFieldOperator"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "field", "operator"],
+            "type": "object"
+        },
+        "AccountsTableAccountFieldOperator": {
+            "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "is_set",
+                "is_not_set",
+                "is_date_exact",
+                "is_date_before",
+                "is_date_after"
+            ],
+            "type": "string"
+        },
         "AccountsTableAccountIdFilter": {
             "additionalProperties": false,
             "properties": {
@@ -504,6 +541,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountsTableAccountIdFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldFilter"
                 },
                 {
                     "$ref": "#/definitions/AccountsTableCustomPropertyFilter"
@@ -1699,6 +1739,9 @@
                     "$ref": "#/definitions/MCPToolCategoriesQuery"
                 },
                 {
+                    "$ref": "#/definitions/MCPToolCategoryMapQuery"
+                },
+                {
                     "$ref": "#/definitions/MCPToolDescriptionsQuery"
                 },
                 {
@@ -2764,6 +2807,16 @@
                     "const": "FunnelsActorsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
+                },
                 "source": {
                     "$ref": "#/definitions/AssistantFunnelsQuery",
                     "description": "The source funnel insight query whose step (or trends point) we are drilling into."
@@ -3468,6 +3521,16 @@
                     "const": "InsightActorsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
+                },
                 "source": {
                     "$ref": "#/definitions/AssistantLifecycleQuery",
                     "description": "The source lifecycle insight query whose bucket we are drilling into."
@@ -3774,6 +3837,16 @@
                 "kind": {
                     "const": "InsightActorsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
                 },
                 "source": {
                     "$ref": "#/definitions/AssistantPathsQuery",
@@ -4221,6 +4294,16 @@
                     "const": "InsightActorsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
+                },
                 "source": {
                     "$ref": "#/definitions/AssistantRetentionQuery",
                     "description": "The source retention insight query whose cohort we are drilling into."
@@ -4471,6 +4554,16 @@
                 "kind": {
                     "const": "InsightActorsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
                 },
                 "series": {
                     "$ref": "#/definitions/integer",
@@ -4998,6 +5091,16 @@
                 "kind": {
                     "const": "InsightActorsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
                 },
                 "series": {
                     "$ref": "#/definitions/integer",
@@ -9767,6 +9870,106 @@
                 "results": {
                     "items": {
                         "$ref": "#/definitions/MCPToolCategoryCountItem"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMCPToolCategoryMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPToolCategoryMapItem"
                     },
                     "type": "array"
                 },
@@ -23231,6 +23434,15 @@
         "ExperimentFunnelMetric": {
             "additionalProperties": false,
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "default": "first_touch",
+                    "description": "How to attribute the breakdown value across funnel steps."
+                },
+                "breakdownAttributionValue": {
+                    "description": "When breakdownAttributionType is `step`, the 0-indexed step to attribute from.",
+                    "type": "integer"
+                },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter"
                 },
@@ -23310,6 +23522,15 @@
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
             "properties": {
+                "breakdownAttributionType": {
+                    "$ref": "#/definitions/BreakdownAttributionType",
+                    "default": "first_touch",
+                    "description": "How to attribute the breakdown value across funnel steps."
+                },
+                "breakdownAttributionValue": {
+                    "description": "When breakdownAttributionType is `step`, the 0-indexed step to attribute from.",
+                    "type": "integer"
+                },
                 "funnel_order_type": {
                     "$ref": "#/definitions/StepOrderValue"
                 },
@@ -25978,7 +26199,12 @@
                 "Profound",
                 "Airwallex",
                 "Polymarket",
-                "Kalshi"
+                "Kalshi",
+                "Capterra",
+                "GooglePostmasterTools",
+                "Growi",
+                "Clarify",
+                "DatoCMS"
             ],
             "type": "string"
         },
@@ -31538,6 +31764,114 @@
             "required": ["category"],
             "type": "object"
         },
+        "MCPToolCategoryMapItem": {
+            "additionalProperties": false,
+            "description": "One tool paired with one $mcp_tool_category it was called under.",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "tool": {
+                    "type": "string"
+                }
+            },
+            "required": ["tool", "category"],
+            "type": "object"
+        },
+        "MCPToolCategoryMapQuery": {
+            "additionalProperties": false,
+            "description": "Which categories each tool was called under. The intent clustering snapshot is precomputed and stores tool names without categories, so this is what lets that tab scope by category. A tool recategorised mid-window appears once per category, rather than one row silently winning.",
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "kind": {
+                    "const": "MCPToolCategoryMapQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/MCPToolCategoryMapQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "MCPToolCategoryMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MCPToolCategoryMapItem"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "MCPToolDailyStatItem": {
             "additionalProperties": false,
             "description": "One day of activity for a single MCP tool.",
@@ -36511,6 +36845,7 @@
                 "MCPToolQualityDailyStatsQuery",
                 "MCPToolCategoryCountsQuery",
                 "MCPToolCategoriesQuery",
+                "MCPToolCategoryMapQuery",
                 "MCPToolDescriptionsQuery",
                 "MCPToolSampleIntentsQuery",
                 "MCPToolNeighborsQuery",
@@ -38193,6 +38528,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "account",
                 "account_custom_property",
                 "flag",
                 "log",
@@ -46217,6 +46553,71 @@
                         },
                         "results": {
                             "items": {
+                                "$ref": "#/definitions/MCPToolCategoryMapItem"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
                                 "$ref": "#/definitions/MCPToolDescriptionItem"
                             },
                             "type": "array"
@@ -46730,6 +47131,9 @@
                 },
                 {
                     "$ref": "#/definitions/MCPToolCategoriesQuery"
+                },
+                {
+                    "$ref": "#/definitions/MCPToolCategoryMapQuery"
                 },
                 {
                     "$ref": "#/definitions/MCPToolDescriptionsQuery"
@@ -50964,6 +51368,7 @@
                 "cohorts_with_all",
                 "data_warehouse",
                 "data_warehouse_source_tables",
+                "data_warehouse_materialized_views",
                 "data_warehouse_properties",
                 "data_warehouse_person_properties",
                 "elements",
@@ -51007,6 +51412,7 @@
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
+                "account_fields",
                 "account_custom_properties",
                 "resources",
                 "error_tracking_properties",

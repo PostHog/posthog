@@ -45,7 +45,7 @@ export function buildInboxDeeplink(
 /**
  * Build a canonical deep link to a loop's detail page
  * (`<scheme>://loop/<loopId>`). The inbound side lives in the `loop` handler
- * (`LoopLinkService`), which routes to `/code/loops/<loopId>`.
+ * (`LoopLinkService`), which routes to `/loops/<loopId>`.
  */
 export function buildLoopDeeplink(
   loopId: string,

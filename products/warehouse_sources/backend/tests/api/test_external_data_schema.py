@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.conf import settings
+from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
 
 import psycopg
@@ -37,6 +38,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.views.external_data_schema import schema_display_status
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     WebhookCreationResult,
@@ -3965,3 +3967,16 @@ class TestFanoutParentSelection(APIBaseTest):
                     stack.enter_context(p)
                 response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_schemas/{parent.id}")
             assert response.status_code == 204
+
+
+class TestSchemaDisplayStatus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (ExternalDataSchema.Status.BILLING_LIMIT_REACHED, "Billing limits"),
+            (ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, "Billing limits too low"),
+            (ExternalDataSchema.Status.RUNNING, ExternalDataSchema.Status.RUNNING),
+            (None, None),
+        ]
+    )
+    def test_maps_billing_statuses_to_labels(self, raw_status, expected):
+        assert schema_display_status(ExternalDataSchema(status=raw_status)) == expected

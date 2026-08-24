@@ -34,7 +34,7 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
@@ -623,31 +623,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
-
-    def test_report_includes_its_canvas_session(self):
-        report = self._create_report()
-        canvas_id = uuid.uuid4()
-        discussion_task_id = uuid.uuid4()
-        SignalReportCanvas.objects.create(
-            team=self.team,
-            report=report,
-            canvas_id=canvas_id,
-            discussion_task_id=discussion_task_id,
-            generation_status=SignalReportCanvas.GenerationStatus.GENERATING,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["canvas_session"] == {
-            "canvas_id": str(canvas_id),
-            "discussion_task_id": str(discussion_task_id),
-            "generation_task_id": None,
-            "generation_status": "generating",
-            "collaboration_mode": "managed",
-            "failure_reason": "",
-            "updated_at": response.json()["canvas_session"]["updated_at"],
-        }
 
     def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
         report = self._create_report()
