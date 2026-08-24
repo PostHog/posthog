@@ -22,7 +22,7 @@ from products.data_catalog.backend.logic.metrics import (
 )
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.models.rbac.access_control import AccessControl
 

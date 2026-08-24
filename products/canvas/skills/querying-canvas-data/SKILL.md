@@ -3,9 +3,10 @@ name: querying-canvas-data
 description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
   capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
-  second, inline HogQL last), per-insight-type result shapes, date-range wiring, and event capture
-  from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
-  needs to send analytics events.
+  second, inline HogQL last), verifiability (insight-backed metrics link their saved insight in
+  PostHog; ad-hoc queries expose the exact query that ran), per-insight-type result shapes,
+  progressive per-query loading, date-range wiring, and event capture from a canvas. Use whenever a
+  canvas shows metrics, charts, tables, or any PostHog data, or needs to send analytics events.
 ---
 
 # Querying canvas data
@@ -38,6 +39,35 @@ Whatever tier you use, **declare it in the project's `capabilities`** before pub
 `captureEvents`, and `inlineQueries: true` for any `ph.query` use. The host rejects undeclared
 calls at runtime, and validation fails on undeclared literals.
 
+## Verifiability — every claim must be checkable in PostHog
+
+A number a viewer cannot verify is a number they cannot trust. Every data-backed figure a canvas
+shows — a KPI, a chart, a table, a stated conclusion — must carry the verification affordance for
+its tier:
+
+1. **Insight-backed metrics link the real insight in PostHog.** For a metric loaded from a saved
+   insight (the preferred tier), render a "View in PostHog" affordance that calls
+   `ph.openExternal(insightUrl)` from a click. Mint the URL at authoring time with the
+   `generate-app-url` MCP tool (path template `/insights/{id}` with the insight's short id) and
+   bake the returned URL into the source verbatim — never hand-build one. `ph.openExternal` only
+   opens `https://*.posthog.com` URLs and only from a user gesture, so wire it to a button or
+   link, never to load or render. Do not also bake the insight's saved query text into the
+   source: canvas source is readable by every canvas viewer, while access to the insight itself
+   is enforced by PostHog — the link is where a viewer inspects the query, with their own
+   permissions applied.
+2. **Ad-hoc queries disclose the exact query that ran, viewable in place.** For a figure computed
+   by `ph.query` (a typed node or inline HogQL), show the query behind it — the HogQL text, or
+   the typed query node pretty-printed as JSON — in a modal or a collapsed disclosure attached to
+   the card (a Quill `Dialog` or `Collapsible` in a React canvas, a `<details>` element in an
+   HTML one). Render it from the same constant or builder you pass to `ph.query`, so the
+   displayed query can never drift from the executed one. This discloses nothing beyond what the
+   viewer already runs: `ph.query` executes as the signed-in viewer.
+
+These are not optional polish: a canvas that presents PostHog data without them is incomplete.
+Keep the affordances compact — a small link icon per insight-backed card, a "View query"
+disclosure per ad-hoc card, or one shared modal listing every ad-hoc query the canvas runs, each
+labeled with the figure it backs.
+
 For a status board, set `refresh` to the cache lifetime in seconds. Use a whole number from 30 to
 86400 (one day); values outside that range, or fractional ones, fail at runtime:
 
@@ -53,12 +83,34 @@ await ph.query(queryNode, {}, { refresh: 30 })
   `days: string[]` (ISO), `labels: string[]`, `count` (sum), `aggregated_value` (single-value
   total), `label`, and optional `compare_label: "current" | "previous"`. A KPI total is
   `results[0].count` (or `.aggregated_value`); a line chart plots `results[0].data` over
-  `results[0].days`. With a compare period, find the prior series by `compare_label === "previous"`
+  `results[0].days`. `count` sums the per-interval values, which double-counts a unique-users
+  series (`math: "dau"`) for anyone active on several days — for a period-unique KPI, set
+  `trendsFilter: { display: "BoldNumber" }` on the query and read `aggregated_value` instead.
+  With a compare period, find the prior series by `compare_label === "previous"`
   — never by index. `columns` is empty here.
 - **SQL results**: `{ columns: string[], results: rows[][] }` — each row an array of cell values in
   `columns` order.
 
-Load data in `useEffect` with `useState`, show a loading state, and aggregate in the query; never
+## Load progressively — render each section when its own data lands
+
+PostHog queries can take several seconds each, and a board usually runs several. Never gate
+rendering on all of them:
+
+- Fire independent queries concurrently on mount; never chain unrelated queries with sequential
+  `await`s. The host caps a canvas at 8 in-flight data requests and rejects the ninth ("Canvas
+  data request exceeds runtime limits") rather than queuing it — a board that needs more than 8
+  consolidates them (one query returning every row, sliced client-side) or throttles the overflow
+  behind a small concurrency limiter, still with one state per section.
+- Give every query its own `{ loading, error, data }` state and let each card, chart, or table
+  swap its skeleton for data the moment its own result arrives. One shared `loading` flag or a
+  single `Promise.all` across independent queries makes the fastest metric wait for the slowest —
+  the canvas must fill in progressively, not appear all at once.
+- Render the static chrome (heading, date picker, card frames with skeletons inside) immediately;
+  only the value inside each section waits for its query.
+- Defer queries the first paint doesn't need: content behind a tab, a collapsed section, or a
+  drill-down runs its query when the user reveals it, not on mount.
+
+Load data in `useEffect` with `useState`, and aggregate in the query; never
 fetch raw event dumps. Treat a rejected query and an empty result as different states: `.catch`
 must set an error state that renders visibly (message + retry), never fall through to zeros, an
 empty chart, or a "no data" message — a swallowed error makes real breakage (a missing table, an
@@ -164,6 +216,17 @@ const entries = await ph.state.list({ scope: 'shared' }) // [{ scope, key, value
   last-write-wins, so re-read (or trust your own write) rather than merging.
 - 256 keys per scope. Store big data in PostHog (insights, the warehouse) and reference it.
 - State is team-visible application data — never secrets, never viewer PII.
+
+When a user asks about a canvas's current progress or settings, do not infer them from source alone.
+Call `canvas-state-retrieve` with the canvas id after reading its source. It returns shared state plus
+the authenticated user's own user-scoped state for canvases in public channels or their personal
+channel. Use `canvas-state-set` when the user asks to change those values; read first, preserve
+unrelated keys, and use the scope the canvas source expects.
+
+Canvas discussions use the generic comment tools. Read them with `comments-list` filtered to
+`scope=desktop_canvas`, the canvas id as `item_id`, and its `discussion_task_id` as `task_id`. Create
+a root comment or reply with `comments-create`, using the same scope and ids (put the task id in
+`item_context.taskId`). The same public-channel and personal-channel visibility rules apply.
 
 ## PostHog writes — ph.actions
 

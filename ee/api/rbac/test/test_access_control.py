@@ -20,12 +20,13 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSource
 
 from ee.api.rbac.access_control_settings import _display_model, resources_with_object_access_controls
@@ -2365,6 +2366,20 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         # A bare number doesn't read as an object, so the label matches the ticket page's own title
         assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(ticket.id), "Ticket: 66184")]
+
+    def test_object_search_labels_an_evaluation_by_name(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Helpful evaluator",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+        )
+
+        res = self.client.get("/api/projects/@current/access_control_object_search?resource=evaluation&search=Helpful")
+
+        assert res.status_code == status.HTTP_200_OK
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(evaluation.id), "Helpful evaluator")]
 
     def test_object_search_finds_objects_whose_deleted_flag_is_null(self):
         # SessionRecording.deleted has no default, so rows carry NULL, which filter(deleted=False)

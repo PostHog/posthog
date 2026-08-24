@@ -112,6 +112,11 @@ export const NEW_WORKFLOW: HogFlow = {
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
 export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
 
+// Trigger types whose runs have no person attached: a synced warehouse row, a materialized view
+// row, and a Slack poster are all things no PostHog person is attached to. Keep in sync with the
+// backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
+export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'slack-message'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -358,7 +363,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -494,6 +511,9 @@ export interface workflowLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -744,9 +764,23 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -996,9 +1030,23 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1095,6 +1143,9 @@ export interface workflowLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1152,7 +1203,19 @@ export interface workflowLogicActions {
                         }
                       | {
                             config: {
-                                delay_duration: string
+                                delay_duration?: string | undefined
+                                delay_until?:
+                                    | {
+                                          bytecode?: any
+                                          bytecode_error?: string | undefined
+                                          expression: string
+                                          fallback_timezone?: string | null | undefined
+                                          offset?: string | undefined
+                                          timezone?: string | null | undefined
+                                          use_person_timezone?: boolean | undefined
+                                      }
+                                    | undefined
+                                max_delay_duration?: string | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1288,6 +1351,9 @@ export interface workflowLogicActions {
                                                         | 'posthog_business_hours'
                                                         | 'posthog_ticket_tags'
                                                         | 'string'
+                                                        | 'task_mcp_installations'
+                                                        | 'task_model'
+                                                        | 'task_repository'
                                                 }[]
                                               | undefined
                                           name: string
@@ -1538,9 +1604,23 @@ export interface workflowLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'slack-message'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       key_property?: string | undefined
                                       table_name: string
                                       type: 'data-warehouse-table'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
+                                      key_property?: string | undefined
+                                      table_name: string
+                                      type: 'data-warehouse-view'
                                   }
                                 | {
                                       inputs: Record<
@@ -1790,9 +1870,23 @@ export interface workflowLogicActions {
                             filters: {
                                 properties?: any[] | undefined
                             }
+                            type: 'slack-message'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
                             key_property?: string | undefined
                             table_name: string
                             type: 'data-warehouse-table'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            key_property?: string | undefined
+                            table_name: string
+                            type: 'data-warehouse-view'
                         }
                       | {
                             inputs: Record<
@@ -1889,6 +1983,9 @@ export interface workflowLogicActions {
                                 | 'posthog_business_hours'
                                 | 'posthog_ticket_tags'
                                 | 'string'
+                                | 'task_mcp_installations'
+                                | 'task_model'
+                                | 'task_repository'
                         }[]
                       | null
                       | undefined
@@ -1913,9 +2010,6 @@ export interface workflowLogicActions {
                       name?: string | undefined
                       percentage: number
                   }[]
-              }
-            | {
-                  delay_duration: string
               }
             | {
                   reason?: string | undefined
@@ -1954,6 +2048,12 @@ export interface workflowLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -1979,6 +2079,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2047,6 +2162,9 @@ export interface workflowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -2062,6 +2180,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2261,9 +2387,6 @@ export interface workflowLogicActions {
                   }[]
               }
             | {
-                  delay_duration: string
-              }
-            | {
                   reason?: string | undefined
               }
             | {
@@ -2300,6 +2423,12 @@ export interface workflowLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -2325,6 +2454,21 @@ export interface workflowLogicActions {
                         }[]
                       | undefined
                   max_wait_duration: string
+              }
+            | {
+                  delay_duration?: string | undefined
+                  delay_until?:
+                      | {
+                            bytecode?: any
+                            bytecode_error?: string | undefined
+                            expression: string
+                            fallback_timezone?: string | null | undefined
+                            offset?: string | undefined
+                            timezone?: string | null | undefined
+                            use_person_timezone?: boolean | undefined
+                        }
+                      | undefined
+                  max_delay_duration?: string | undefined
               }
             | {
                   inputs: Record<
@@ -2393,6 +2537,9 @@ export interface workflowLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -2408,6 +2555,14 @@ export interface workflowLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -2662,9 +2817,23 @@ export interface workflowLogicMeta {
                                 filters: {
                                     properties?: any[] | undefined
                                 }
+                                type: 'slack-message'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
                                 key_property?: string | undefined
                                 table_name: string
                                 type: 'data-warehouse-table'
+                            }
+                          | {
+                                filters: {
+                                    properties?: any[] | undefined
+                                }
+                                key_property?: string | undefined
+                                table_name: string
+                                type: 'data-warehouse-view'
                             }
                           | {
                                 inputs: Record<
@@ -3255,11 +3424,12 @@ export const workflowLogic = kea<workflowLogicType>([
                 scheduleStartsAt: string | null,
                 saveAttemptedActionIds: string[] | null
             ): Record<string, HogFlowActionValidationResult | null> => {
-                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
-                // step types make no sense without a person, so we block them at save time.
+                // Warehouse- and Slack-triggered workflows are person-less ("row-scoped").
+                // Person-dependent step types make no sense without a person, so we block them at
+                // save time.
                 const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
                 const isRowScopedTrigger =
-                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+                    triggerAction?.type === 'trigger' && ROW_SCOPED_TRIGGER_TYPES.has(triggerAction.config?.type)
 
                 return workflow.actions.reduce(
                     (acc, action) => {
@@ -3448,7 +3618,8 @@ export const workflowLogic = kea<workflowLogicType>([
         // for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean =>
+                ROW_SCOPED_TRIGGER_TYPES.has(triggerAction?.config?.type ?? ''),
         ],
 
         workflowSanitized: [
