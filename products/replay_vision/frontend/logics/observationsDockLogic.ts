@@ -24,7 +24,6 @@ export interface observationsDockLogicValues {
     summaryDockAutoExpand: boolean // visionDockPreferenceLogic
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
-    summaryDockAutoExpand: boolean // visionDockPreferenceLogic
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
@@ -74,9 +73,6 @@ export interface observationsDockLogicActions {
     setDockOpen: (open: boolean) => {
         open: boolean
     }
-    setSummaryDockAutoExpand: (autoExpand: boolean) => {
-        autoExpand: boolean
-    } // visionDockPreferenceLogic
     setScannerPickerOpen: (open: boolean) => {
         open: boolean
     }
