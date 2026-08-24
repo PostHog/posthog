@@ -24,6 +24,12 @@ from products.notebooks.backend.analytics import (
     GENUI_RUN_COMPLETED_EVENT,
     capture_genui_lifecycle,
 )
+from products.notebooks.backend.facade.contracts import (
+    GenUIConflictError,
+    GenUIError,
+    GenUIInputInspection,
+    GenUIRateLimitError,
+)
 from products.notebooks.backend.genui_snapshot_store import (
     GenUISnapshotStoreError,
     build_snapshot_key,
@@ -58,32 +64,6 @@ GENERATION_TIMEOUT = timedelta(minutes=30)
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ACTIVE_LIFECYCLES = [NotebookGenUI.LifecycleStatus.GENERATING, NotebookGenUI.LifecycleStatus.BUILDING]
-
-
-class GenUIError(Exception):
-    def __init__(self, detail: str, code: str) -> None:
-        self.detail = detail
-        self.code = code
-        super().__init__(detail)
-
-
-class GenUIRateLimitError(GenUIError):
-    pass
-
-
-class GenUIConflictError(GenUIError):
-    pass
-
-
-@frozen
-class GenUIInputInspection:
-    states: list[dict[str, object]]
-    schemas: list[dict[str, object]]
-    frames: dict[str, object]
-    schema_hash: str
-    snapshot_hash: str
-    snapshot_metadata: dict[str, object]
-    ready: bool
 
 
 @frozen

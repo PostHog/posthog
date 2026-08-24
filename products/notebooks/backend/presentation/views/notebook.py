@@ -60,7 +60,7 @@ from products.notebooks.backend.analytics import (
     notebook_node_count,
 )
 from products.notebooks.backend.collab import submit_steps
-from products.notebooks.backend.genui import (
+from products.notebooks.backend.facade.genui import (
     GenUIConflictError,
     GenUIError,
     GenUIInputInspection,

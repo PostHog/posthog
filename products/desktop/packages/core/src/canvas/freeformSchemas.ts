@@ -286,7 +286,6 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "query",
       "loadInsight",
       "capture",
-      "readFrame",
       "run",
       "stateGet",
       "stateSet",

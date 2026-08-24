@@ -37,15 +37,6 @@ export function assertCanvasCapability(
         throw new Error("Event capture is not allowed by this canvas");
       }
       return;
-    case "readFrame":
-      if (
-        !capabilities.notebook?.frames.includes(
-          (payload as { name?: string })?.name ?? "",
-        )
-      ) {
-        throw new Error("Notebook frame is not allowed by this canvas");
-      }
-      return;
     case "stateGet":
     case "stateSet":
     case "stateList": {

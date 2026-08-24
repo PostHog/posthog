@@ -2,8 +2,6 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from products.notebooks.backend.models import NotebookGenUI
-
 
 class GenUIEnsureRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
@@ -74,7 +72,16 @@ class GenUIInputStateSerializer(serializers.Serializer):
 class GenUIStatusSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="Stable notebook node identifier.")
     lifecycle_status = serializers.ChoiceField(
-        choices=NotebookGenUI.LifecycleStatus.choices,
+        choices=[
+            "awaiting_inputs",
+            "awaiting_generation",
+            "generating",
+            "building",
+            "ready",
+            "stale",
+            "incompatible",
+            "failed",
+        ],
         help_text="Current snapshot, generation, build, stale, or failure lifecycle state.",
     )
     staleness_reason = serializers.ChoiceField(
