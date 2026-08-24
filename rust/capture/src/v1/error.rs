@@ -149,7 +149,7 @@ impl Error {
             Self::RequestDecodingError(_) => "Failed to decode request body.".to_string(),
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
-            Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
+            Self::BillingLimitExceeded => "Billing limit reached. Events are being dropped. Check your billing settings to resume ingestion.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
                 .canonical_reason()
