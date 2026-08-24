@@ -216,6 +216,31 @@ class TestExperimentService(APIBaseTest):
         )
         assert context_names == {"marketing-site"}
 
+    def test_create_experiment_in_child_environment_applies_root_team_defaults(self):
+        # Defaults are stored against the project root team, so reading them off the environment
+        # finds none and produces the untagged flag (or 400) the creation form promised contexts for.
+        self.team.default_evaluation_contexts_enabled = True
+        self.team.save()
+        ctx = EvaluationContext.objects.create(name="production", team=self.team)
+        TeamDefaultEvaluationContext.objects.create(team=self.team, evaluation_context=ctx)
+        child = Team.objects.create(
+            organization=self.organization,
+            name="child env",
+            parent_team=self.team,
+            require_evaluation_contexts=True,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            experiment = ExperimentService(team=child, user=self.user).create_experiment(
+                name="Child Env Experiment",
+                feature_flag_key="child-env-flag",
+            )
+
+        context_names = set(
+            experiment.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
+        )
+        assert context_names == {"production"}
+
     def test_create_experiment_with_empty_evaluation_contexts_suppresses_defaults(self):
         self.team.default_evaluation_contexts_enabled = True
         self.team.save()
@@ -2523,12 +2548,18 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("source_with_contexts", ["marketing-site"], {"marketing-site"}),
+            ("source_with_contexts", ["marketing-site"], False, {"marketing-site"}),
             # A context-less source must stay context-less, not pick up the target team's defaults.
-            ("source_without_contexts", [], set()),
+            ("source_without_contexts", [], False, set()),
+            # ...unless the target requires contexts, where the explicit [] fails flag validation and
+            # neither duplicate nor copy accepts contexts to supply instead. Every experiment flag
+            # created while experiments were exempt has none, so the fallback keeps them clonable.
+            ("source_without_contexts_target_requires", [], True, {"production"}),
         ]
     )
-    def test_duplicate_experiment_inherits_evaluation_contexts(self, name, source_contexts, expected_contexts):
+    def test_duplicate_experiment_inherits_evaluation_contexts(
+        self, name, source_contexts, target_requires_contexts, expected_contexts
+    ):
         self.team.default_evaluation_contexts_enabled = True
         self.team.save()
         default_ctx = EvaluationContext.objects.create(name="production", team=self.team)
@@ -2542,13 +2573,17 @@ class TestExperimentService(APIBaseTest):
                 feature_flag_config={"evaluation_contexts": source_contexts},
             )
 
+            # Set after the source exists: the requirement would reject creating it context-less.
+            if target_requires_contexts:
+                self.team.require_evaluation_contexts = True
+                self.team.save()
+
             dup = service.duplicate_experiment(source, feature_flag_key=f"dup-contexts-target-{name}")
 
         assert dup.feature_flag.id != source.feature_flag.id
         context_names = set(
             dup.feature_flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True)
         )
-        # The source's contexts, not the team defaults.
         assert context_names == expected_contexts
 
     # ------------------------------------------------------------------

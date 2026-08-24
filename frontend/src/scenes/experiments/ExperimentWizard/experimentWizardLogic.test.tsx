@@ -293,6 +293,93 @@ describe('experimentWizardLogic', () => {
         })
     })
 
+    describe('evaluation contexts field', () => {
+        let logic: ReturnType<typeof experimentWizardLogic.build>
+        let createLogic: ReturnType<typeof createExperimentLogic.build>
+
+        const CONTEXTS_LABEL = 'Evaluation contexts'
+
+        beforeEach(async () => {
+            localStorage.clear()
+            sessionStorage.clear()
+            useMocks(apiMocks)
+            initKeaTests()
+
+            featureFlagsLogic.mount()
+            experimentsLogic.mount()
+
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.FLAG_EVALUATION_TAGS]: true })
+            // Wait out the fetch mounting started, so its response can't overwrite the injected list.
+            await expectLogic(defaultEvaluationContextsLogic).toDispatchActions([
+                'loadDefaultEvaluationContextsSuccess',
+            ])
+            defaultEvaluationContextsLogic.actions.loadDefaultEvaluationContextsSuccess({
+                default_evaluation_contexts: [],
+                available_contexts: ['main-app', 'marketing-site'],
+                hidden_contexts: [],
+                enabled: true,
+            })
+        })
+
+        afterEach(() => {
+            cleanup()
+            logic?.unmount()
+            createLogic?.unmount()
+            experimentsLogic.unmount()
+            featureFlagsLogic.unmount()
+        })
+
+        it('shows the field for a new flag and hides it for a linked one', async () => {
+            const { rerender } = render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            expect(screen.getByText(CONTEXTS_LABEL)).toBeInTheDocument()
+
+            // A linked flag keeps its own contexts, edited from the flag page.
+            logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
+            rerender(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            await waitFor(() => {
+                expect(screen.queryByText(CONTEXTS_LABEL)).not.toBeInTheDocument()
+            })
+        })
+
+        it('picking a context lands in the flag config sent on save', async () => {
+            const { container } = render(
+                <BindLogic logic={experimentWizardLogic} props={{}}>
+                    <AboutStep />
+                </BindLogic>
+            )
+
+            const input = container.querySelector<HTMLInputElement>(
+                'input[data-attr="experiment-wizard-evaluation-contexts"]'
+            )!
+            await userEvent.click(input)
+
+            const option = await screen.findByText('marketing-site')
+            await userEvent.click(option.closest('button')!)
+
+            await expectLogic(createLogic).toMatchValues({
+                experiment: partial({
+                    feature_flag_config: partial({ evaluation_contexts: ['marketing-site'] }),
+                }),
+            })
+        })
+    })
+
     describe('step navigation', () => {
         let logic: ReturnType<typeof experimentWizardLogic.build>
         let createLogic: ReturnType<typeof createExperimentLogic.build>
@@ -499,6 +586,28 @@ describe('experimentWizardLogic', () => {
         it('shows no errors on initial load (before step departure)', async () => {
             await expectLogic(logic).toMatchValues({
                 stepValidationErrors: { about: [], variants: [], analytics: [] },
+            })
+        })
+
+        it('a session restored to a later step reveals the earlier steps errors', async () => {
+            logic.actions.setStep('variants')
+            await expectLogic(logic).toMatchValues({ currentStep: 'variants' })
+
+            logic.unmount()
+            createLogic.unmount()
+
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            // The about step was left behind before the reload, so Save must not stay enabled on a
+            // payload the backend rejects.
+            await expectLogic(logic).toMatchValues({
+                currentStep: 'variants',
+                stepValidationErrors: partial({
+                    about: expect.arrayContaining(['Name is required']),
+                }),
             })
         })
 

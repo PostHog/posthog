@@ -398,11 +398,16 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
     "product_tours",
 )
 
-# Creation contexts whose forms have no field to pick evaluation contexts, so a team
-# requiring them (with no default contexts configured) could never auto-create these
-# flags otherwise. Default contexts are still applied when configured (see
-# apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
-# Experiments are not exempt: their creation form has a context selector, so the
+# Creation contexts exempted from the requirement because their forms have no field to pick
+# evaluation contexts, so a team requiring them (with no default contexts configured) could
+# never auto-create these flags otherwise. Default contexts are still applied when configured
+# (see apply_default_evaluation_contexts) - this exemption only covers the no-defaults gap.
+#
+# The list is narrower than that rule: "product_tours" also creates flags from a form with no
+# context field and is not exempt, so those teams already get a 400 there. Giving product tours
+# a context selector is the fix, rather than widening this list.
+#
+# Experiments are deliberately not exempt: their creation form has a context selector, so the
 # requirement is satisfiable there.
 EVALUATION_CONTEXT_EXEMPT_CREATION_CONTEXTS = (
     "surveys",

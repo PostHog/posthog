@@ -603,11 +603,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
         """Whether the request carries a genuine ``feature_flag`` config object (write intent), as
         opposed to nothing, a read-only echo of the linked flag (non-null ``id``), or a bare stub
-        with no config keys."""
+        with no config keys.
+
+        The config keys are derived from ``ExperimentFeatureFlagInputSerializer`` (the same idiom
+        ``_StrictFieldsMixin`` uses for its unknown-key check) so a field added there can't be
+        dropped here before validation."""
         return (
             isinstance(feature_flag_input, dict)
             and feature_flag_input.get("id") is None
-            and any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity"))
+            and any(key in feature_flag_input for key in ExperimentFeatureFlagInputSerializer().fields)
         )
 
     def _deprecated_parameters_as_feature_flag_config(self) -> dict | None:

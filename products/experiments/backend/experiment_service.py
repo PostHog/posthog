@@ -1273,7 +1273,10 @@ class ExperimentService:
         if config.get("evaluation_contexts") is not None:
             feature_flag_data["evaluation_contexts"] = config["evaluation_contexts"]
         else:
-            apply_default_evaluation_contexts(feature_flag_data, self.team, self.user)
+            # Defaults are stored against the project root team (the team and project routers that
+            # read and write them resolve it the same way), so a child environment would otherwise
+            # find none and create an untagged flag the creation form promised contexts for.
+            apply_default_evaluation_contexts(feature_flag_data, self.team.parent_team or self.team, self.user)
 
         feature_flag = create_flag(
             feature_flag_data,
@@ -3340,7 +3343,10 @@ class ExperimentService:
         if source_groups and source_groups[0].get("rollout_percentage") is not None:
             clone_filters["groups"] = [{"properties": [], "rollout_percentage": source_groups[0]["rollout_percentage"]}]
         # Inherit the source flag's evaluation contexts, so a clone evaluates where the original did
-        # instead of falling back to the target team's defaults.
+        # instead of falling back to the target team's defaults. On a cross-project copy the names
+        # are get-or-created in the target, so copying an experiment can introduce a context the
+        # target project had never defined — deliberate, since the clone evaluating somewhere the
+        # original didn't is the worse surprise.
         source_flag = source_experiment.feature_flag
         if "flag_evaluation_contexts" in getattr(source_flag, "_prefetched_objects_cache", {}):
             source_evaluation_contexts = [
@@ -3355,8 +3361,16 @@ class ExperimentService:
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
             # would substitute the target team's flags_persistence_default, changing SDK behavior.
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
-            # Always explicit, including []: a context-less source must not pick up the target's defaults.
-            "evaluation_contexts": source_evaluation_contexts,
+            # Explicit, including []: a context-less source must not pick up the target's defaults.
+            # The exception is a target that requires contexts, where an explicit [] makes the clone
+            # unsatisfiable — nothing in the duplicate or copy input accepts contexts, so the whole
+            # back catalogue of flags created while experiments were exempt would be un-clonable.
+            # There, fall back to the create path's defaults.
+            **(
+                {"evaluation_contexts": source_evaluation_contexts}
+                if source_evaluation_contexts or not target.require_evaluation_contexts
+                else {}
+            ),
         }
 
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)

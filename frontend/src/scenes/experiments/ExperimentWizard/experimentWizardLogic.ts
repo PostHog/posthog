@@ -554,6 +554,12 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         afterMount: () => {
             actions.reportExperimentWizardStarted(values.showGuide)
             actions.loadFeatureFlagsForAutocomplete()
+            // A restored session opens on the step it was left on, so every step before it was
+            // already visited. Without this their required-field errors stay suppressed and Save
+            // posts a request the backend rejects.
+            for (const step of WIZARD_STEPS.slice(0, WIZARD_STEPS.indexOf(values.currentStep))) {
+                actions.markStepDeparted(step)
+            }
             // Re-validate the feature flag key if one is already set.
             // variantsPanelLogic unmounts when leaving the form, so validation
             // state is lost and needs to be re-checked on remount.
