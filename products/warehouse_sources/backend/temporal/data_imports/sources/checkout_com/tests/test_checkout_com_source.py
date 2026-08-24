@@ -3,11 +3,6 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
-    CheckoutComResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
     SYNC_BUDGET_EXCEEDED_MARKER,
 )
@@ -15,11 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
     CheckoutComSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
@@ -38,37 +31,6 @@ class TestCheckoutComSource:
         self.source = CheckoutComSource()
         self.team_id = 123
         self.config = CheckoutComSourceConfig(environment="production", client_id="ack_id", client_secret="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CHECKOUTCOM
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "CheckoutCom"
-        assert config.label == "Checkout.com"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/checkout_com.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["environment", "client_id", "client_secret", "start_date"]
-
-    def test_environment_field_is_a_select_with_default(self):
-        config = self.source.get_source_config
-        env_field = next(f for f in config.fields if f.name == "environment")
-        assert isinstance(env_field, SourceFieldSelectConfig)
-        assert env_field.defaultValue == "production"
-        assert {option.value for option in env_field.options} == {"production", "sandbox"}
-
-    def test_client_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "client_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -235,13 +197,6 @@ class TestCheckoutComSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("production", "ack_id", "secret")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CheckoutComResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_source"

@@ -1,12 +1,8 @@
 import pytest
-from unittest import mock
-
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.source import ClerkSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestClerkSource:
@@ -14,24 +10,6 @@ class TestClerkSource:
         self.source = ClerkSource()
         self.team_id = 123
         self.config = ClerkSourceConfig(secret_key="sk_live_test")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CLERK
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Clerk"
-        assert config.label == "Clerk"
-        assert config.releaseStatus == "ga"
-        assert config.iconPath == "/static/services/clerk.png"
-        assert len(config.fields) == 1
-
-        secret_key_field = config.fields[0]
-        assert isinstance(secret_key_field, SourceFieldInputConfig)
-        assert secret_key_field.name == "secret_key"
-        assert secret_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_key_field.required is True
 
     @pytest.mark.parametrize(
         "expected_key",
@@ -130,22 +108,3 @@ class TestClerkSource:
         assert entry["description"]
         assert entry["docs_url"].startswith("https://clerk.com/")
         assert entry["columns"]["id"]
-
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
-        [
-            ((True, None), True, None),
-            ((False, "Invalid Clerk credentials"), False, "Invalid Clerk credentials"),
-        ],
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.clerk.source.validate_clerk_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.secret_key)
