@@ -27,7 +27,12 @@ import {
 } from './ingestion-otel-metrics'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
-import { type LogRecord, type LogRecordsTransform, bufferHandling, processLogMessageBuffer } from './log-record-avro'
+import {
+    type LogRecord,
+    type LogRecordsTransform,
+    bufferProcessingMode,
+    processLogMessageBuffer,
+} from './log-record-avro'
 import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
@@ -497,9 +502,9 @@ export class LogsIngestionConsumer {
         // so a batch that would have passed through pays both, and one already decoded for a visitor
         // pays the encode. The counter prices each.
         if (this.isPatternMaskingEnabledForTeam(message.teamId)) {
-            const handlingWithoutMasking = bufferHandling(logsSettings, stages.length, Boolean(onRecordsDecoded))
-            if (handlingWithoutMasking !== 'decode_and_reencode') {
-                logsPatternForcedDecodeCounter.inc({ from: handlingWithoutMasking })
+            const modeWithoutMasking = bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded))
+            if (modeWithoutMasking !== 'decode_and_reencode') {
+                logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
             }
             stages.push(this.patternMaskingStage)
         }
