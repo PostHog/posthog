@@ -16,7 +16,9 @@ MINT_SETTINGS = {
     "WIZARD_GATEWAY_URL": "https://ai-gateway.us.posthog.com",
     "WIZARD_GATEWAY_MINT_KEY": "phs_wizard_secret",
     "WIZARD_GATEWAY_CLIENT_IDS": ["wizard-client-id"],
-    "WIZARD_GATEWAY_TOKEN_CAP_USD": "50",
+    # Deliberately not _DEFAULT_CAP_USD: equal values would make the
+    # honored-setting and fell-back-to-default assertions indistinguishable.
+    "WIZARD_GATEWAY_TOKEN_CAP_USD": "25",
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
 }
 
@@ -41,13 +43,13 @@ class TestMintWizardGatewayToken:
             yield
 
     def test_posts_pinned_attribution_and_bearer(self):
-        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "50"}
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "25"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             assert mint_wizard_gateway_token(obo="org_1", user="user_1") == minted
 
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
         assert post.call_args.kwargs["json"] == {
-            "cap_usd": "50.000000",
+            "cap_usd": "25.000000",
             "ttl_seconds": 86400,
             "product": "wizard",
             "obo": "org_1",
@@ -147,7 +149,7 @@ class TestMintWizardGatewayToken:
                 return_value=_Response(201, minted),
             ) as post:
                 mint_wizard_gateway_token(obo="org_1", user="user_1")
-        assert post.call_args.kwargs["json"]["cap_usd"] == "50.000000"
+        assert post.call_args.kwargs["json"]["cap_usd"] == "10.000000"
 
     @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD="12.5")
     def test_in_contract_cap_is_sent_as_fixed_point(self):

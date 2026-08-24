@@ -30,7 +30,7 @@ _MAX_TTL_SECONDS = 86400
 
 # The gateway 400s a cap that is non-positive, over 6dp, or above its top-up
 # ceiling, so a bad knob falls back locally instead of 503ing every mint.
-_DEFAULT_CAP_USD = Decimal("50")
+_DEFAULT_CAP_USD = Decimal("10")
 _MAX_CAP_USD = Decimal("10000")
 _CAP_QUANTUM = Decimal("0.000001")
 
