@@ -10,6 +10,7 @@ from posthog.llm.wizard_gateway_token import (
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_product_node,
 )
 
 MINT_SETTINGS = {
@@ -149,7 +150,7 @@ class TestMintWizardGatewayToken:
                 return_value=_Response(201, minted),
             ) as post:
                 mint_wizard_gateway_token(obo="org_1", user="user_1")
-        assert post.call_args.kwargs["json"]["cap_usd"] == "10.000000"
+        assert post.call_args.kwargs["json"]["cap_usd"] == "20.000000"
 
     @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD="12.5")
     def test_in_contract_cap_is_sent_as_fixed_point(self):
@@ -181,3 +182,22 @@ class TestWizardGatewayConfigured:
         blank: dict = {**MINT_SETTINGS, missing: [] if missing == "WIZARD_GATEWAY_CLIENT_IDS" else ""}
         with override_settings(**blank):
             assert wizard_gateway_configured() is False
+
+
+class TestWizardProductNode:
+    @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration", "audit"])
+    def test_a_configured_program_gets_its_own_node(self):
+        assert wizard_product_node("audit") == "wizard:audit"
+
+    @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration"])
+    def test_an_unknown_program_degrades_to_the_parent(self):
+        # Not rejected: the parent node carries a budget, an invented one would
+        # carry none, and gateway budgets skip a node with no budget row.
+        assert wizard_product_node("../../etc") == "wizard"
+        assert wizard_product_node("not-a-program") == "wizard"
+        assert wizard_product_node("") == "wizard"
+        assert wizard_product_node(None) == "wizard"
+
+    @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=[])
+    def test_no_configured_programs_pins_the_parent(self):
+        assert wizard_product_node("audit") == "wizard"

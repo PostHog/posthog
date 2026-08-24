@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.wizard_gateway_token import wizard_product_node
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
@@ -1048,7 +1049,7 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
     def get_rate(self):
         if settings.DEBUG:
             return "1000/day"
-        return "120/day"
+        return "5/day"
 
     def get_cache_key(self, request, view):
         # request.user is anonymous here: the viewset authenticates sessions only and
@@ -1067,6 +1068,13 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
                 ident = f"user:{user.pk}"
         if ident is None:
             ident = f"ip:{get_trusted_client_ip(request) or 'unknown'}"
+        # Bucket per program, on the resolved node rather than the raw field: keying
+        # on what the caller sent would hand out a fresh quota per invented name.
+        try:
+            program = request.data.get("program") if isinstance(request.data, dict) else None
+        except Exception:
+            program = None
+        ident = f"{ident}|{wizard_product_node(program)}"
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 

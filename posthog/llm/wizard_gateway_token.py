@@ -30,9 +30,26 @@ _MAX_TTL_SECONDS = 86400
 
 # The gateway 400s a cap that is non-positive, over 6dp, or above its top-up
 # ceiling, so a bad knob falls back locally instead of 503ing every mint.
-_DEFAULT_CAP_USD = Decimal("10")
+_DEFAULT_CAP_USD = Decimal("20")
 _MAX_CAP_USD = Decimal("10000")
 _CAP_QUANTUM = Decimal("0.000001")
+
+WIZARD_PRODUCT = "wizard"
+
+
+def wizard_product_node(program: str | None) -> str:
+    """The product node to pin for a run: `wizard:<program>`, or bare `wizard`.
+
+    An unrecognized program degrades to the parent instead of being pinned as
+    sent. Gateway budgets match a node value exactly and skip a value with no
+    budget row, so pinning a caller-supplied program would let a caller name an
+    unbudgeted node and spend without a ceiling. Degrading also keeps a program
+    the CLI ships before this list knows it running, under the parent's budget.
+    """
+    if program and program in set(settings.WIZARD_GATEWAY_PROGRAM_IDS):
+        return f"{WIZARD_PRODUCT}:{program}"
+    return WIZARD_PRODUCT
+
 
 WIZARD_GATEWAY_MINTS = Counter(
     "posthog_wizard_gateway_token_mints_total",
@@ -56,7 +73,7 @@ def wizard_gateway_base_url() -> str:
     return settings.WIZARD_GATEWAY_URL.rstrip("/").removesuffix("/v1")
 
 
-def mint_wizard_gateway_token(*, obo: str, user: str) -> dict[str, Any]:
+def mint_wizard_gateway_token(*, obo: str, user: str, product: str = WIZARD_PRODUCT) -> dict[str, Any]:
     """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
     WizardGatewayMintError on any refusal or transport failure; the bearer never
     appears in logs or exception text.
@@ -65,7 +82,7 @@ def mint_wizard_gateway_token(*, obo: str, user: str) -> dict[str, Any]:
     body = {
         "cap_usd": _cap_usd(),
         "ttl_seconds": _ttl_seconds(),
-        "product": "wizard",
+        "product": product,
         "obo": obo,
         "user": user,
     }

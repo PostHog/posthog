@@ -36,6 +36,7 @@ from posthog.llm.wizard_gateway_token import (
     mint_wizard_gateway_token,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_product_node,
 )
 from posthog.models import Team, User
 from posthog.models.project import Project
@@ -473,8 +474,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_rolled_out").inc()
             raise exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization.")
 
+        # The caller names its program; the resolver decides what gets pinned, so a
+        # program outside the configured set spends under the parent node.
+        product = wizard_product_node(request.data.get("program") if isinstance(request.data, dict) else None)
         try:
-            minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id)
+            minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
         except WizardGatewayMintError as e:
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="mint_failed").inc()
             capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
