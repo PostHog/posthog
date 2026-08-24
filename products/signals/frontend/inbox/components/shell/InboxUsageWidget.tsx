@@ -21,7 +21,8 @@ const FILL_CLASS: Record<InboxUsageStatus, string> = {
     limit: 'bg-danger',
 }
 
-const CARD_CLASS = 'flex flex-col gap-2 rounded border border-primary bg-surface-primary px-2.5 py-2'
+// No frame of its own: the Usage settings section is already a card.
+const CARD_CLASS = 'flex flex-col gap-2'
 
 /** A single status-coloured fill over a neutral track. Width is runtime-derived, hence inline. */
 function UsageBar({ percentage, status }: { percentage: number; status: InboxUsageStatus }): JSX.Element {

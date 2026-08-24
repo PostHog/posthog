@@ -319,7 +319,7 @@ export function SelfDrivingSection(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
+        <div className="-mx-2.5 flex flex-col">
             <div className="flex items-start gap-2 px-2.5 py-2">
                 <span className="flex size-7 shrink-0 items-center justify-center rounded bg-surface-secondary text-default [&_svg]:size-4">
                     <IconRocket />

@@ -2,16 +2,7 @@ import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
 import { IconArrowUpRight, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSkeleton,
-    LemonSwitch,
-    LemonTag,
-    Link,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -107,43 +98,6 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
     return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
 }
 
-function StatusDot({
-    status,
-    tool,
-    toolOff,
-}: {
-    status: AgentRosterStatus
-    tool?: SourceToolStatus
-    toolOff: boolean
-}): JSX.Element {
-    let className = 'bg-border-bold'
-    let title = 'Standby'
-    if (toolOff) {
-        title = `${tool?.toolName} is off, so this source has nothing to read`
-    } else if (status === 'sync_failed') {
-        className = 'bg-danger'
-        title = 'Sync failed'
-    } else if (status === 'syncing') {
-        className = 'bg-accent'
-        title = 'Syncing'
-    } else if (status === 'watching') {
-        // A hollow dot means watching but nothing has arrived, so the two read apart at a glance.
-        className = tool?.dataStatus === 'none' ? 'border border-success' : 'bg-success'
-        title =
-            tool?.dataStatus === 'none'
-                ? 'Watching, no data in the last 30 days'
-                : tool?.dataStatus === 'recent'
-                  ? 'Watching, receiving data'
-                  : 'Watching'
-    }
-    return (
-        <Tooltip title={title}>
-            <span className={`size-2 shrink-0 rounded-full ${className}`} />
-        </Tooltip>
-    )
-}
-
-/** Only the states worth interrupting a scan for. Everything healthy shows no tag at all. */
 function notableTag(
     status: AgentRosterStatus,
     armed: boolean,
@@ -473,7 +427,6 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                <StatusDot status={status} tool={tool} toolOff={toolOff} />
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -821,7 +774,7 @@ export function AgentsRoster(): JSX.Element {
             {visibleGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-muted">{group.label}</span>
-                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary bg-surface-primary">
+                    <div className="-mx-2 divide-y divide-primary">
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
                             // Steering needs a persisted row to write to, so optimistic `new_`
@@ -896,7 +849,7 @@ export function AgentsRosterSkeleton(): JSX.Element {
             {AGENT_ROSTER_GROUPS.map((group) => (
                 <div key={group.label} className="flex flex-col gap-1">
                     <LemonSkeleton className="h-3 w-24" />
-                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary bg-surface-primary">
+                    <div className="-mx-2 divide-y divide-primary">
                         {group.agents.map((agent) => (
                             <AgentRowSkeleton key={agent.source} />
                         ))}

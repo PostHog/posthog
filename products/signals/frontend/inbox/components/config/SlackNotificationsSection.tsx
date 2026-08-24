@@ -40,7 +40,7 @@ function ConnectSlackPrompt(): JSX.Element {
     return (
         <Link
             to={urls.settings('environment-integrations', 'integration-slack')}
-            className="group flex items-center justify-between gap-3 rounded border bg-bg-light px-3 py-2.5 no-underline transition-colors hover:border-primary-3000 hover:bg-bg-3000"
+            className="group -mx-2 flex items-center justify-between gap-3 rounded px-2 py-2.5 no-underline transition-colors hover:bg-surface-secondary"
         >
             <SlackCardHeader
                 title="Connect a Slack workspace"
@@ -76,7 +76,7 @@ function TeamChannelCard({ integration }: { integration: IntegrationType }): JSX
     }
 
     return (
-        <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
+        <div className="flex flex-col gap-3 border-b border-primary py-2.5 first:pt-0 last:border-b-0 last:pb-0">
             <div className="flex items-start justify-between gap-4">
                 <SlackCardHeader
                     title="Notify the whole team"
@@ -172,7 +172,7 @@ function PerUserChannelCard({ integrations }: { integrations: IntegrationType[] 
     const showPickers = slackPickersExpanded || selectedIntegrationId !== null || !!channel
 
     return (
-        <div className="flex flex-col gap-3 rounded border bg-bg-light px-3 py-2.5">
+        <div className="flex flex-col gap-3 border-b border-primary py-2.5 first:pt-0 last:border-b-0 last:pb-0">
             <div className="flex items-start justify-between gap-4">
                 <SlackCardHeader
                     title="Notify me directly"
