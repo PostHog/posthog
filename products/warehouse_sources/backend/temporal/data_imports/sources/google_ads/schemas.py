@@ -555,6 +555,10 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.date",
             "segments.device",
         ],
+        "should_sync_default": False,
+        "description": "This table has one row for each keyword, ad network, click type, device, and day. It can load a very large number of rows for active campaigns. Enable it only when you know you need it.",
+        "extra_where": "metrics.impressions > 0",
+        "partition_keys": ["segments.date", "campaign.id", "ad_group.id"],
         "field_names": [
             "ad_group_criterion.criterion_id",
             "ad_group.id",
@@ -814,7 +818,11 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "customer.id",
             "segments.date",
         ],
+        "should_sync_default": False,
         "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "description": "This table has one row for each search term, campaign, ad group, customer, and day. It can load hundreds of millions of rows for active campaigns. Enable it only when you know you need it.",
+        "extra_where": "metrics.impressions > 0",
+        "partition_keys": ["segments.date", "campaign.id", "ad_group.id"],
         "field_names": [
             "search_term_view.search_term",
             "search_term_view.status",
