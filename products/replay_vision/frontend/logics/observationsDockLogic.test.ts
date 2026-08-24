@@ -87,6 +87,7 @@ describe('observationsDockLogic', () => {
         preferences = visionDockPreferenceLogic()
         preferences.mount()
         preferences.actions.setSummaryDockAutoExpand(true)
+        preferences.actions.setPreferredSummarizerId(null)
         logic = observationsDockLogic({ sessionId: 'sess-1' })
         logic.mount()
     })
@@ -198,36 +199,41 @@ describe('observationsDockLogic', () => {
         nextRecording.unmount()
     })
 
-    // The button reads as "which summarizer did that use?" precisely because the answer depends on the
-    // team's scanner list. A team that wrote a summarizer prompt gets it; anything ambiguous falls back
-    // to the built-in one rather than picking one of their prompts for them.
-    const routingCases = [
-        { shape: 'no scanners', scanners: [], runsOwnScanner: false },
-        { shape: 'one summarizer', scanners: [scanner('s1', 'summarizer')], runsOwnScanner: true },
-        {
-            shape: 'one summarizer next to other types',
-            scanners: [scanner('s1', 'summarizer'), scanner('m1', 'monitor')],
-            runsOwnScanner: true,
-        },
-        {
-            shape: 'two summarizers',
-            scanners: [scanner('s1', 'summarizer'), scanner('s2', 'summarizer')],
-            runsOwnScanner: false,
-        },
-        { shape: 'no summarizer, other types only', scanners: [scanner('m1', 'monitor')], runsOwnScanner: false },
-    ]
-
-    test.each(routingCases)('summarize with $shape runs own scanner: $runsOwnScanner', async (routingCase) => {
-        scannerResults = routingCase.scanners
+    const loadScanners = async (scanners: ReplayScannerApi[]): Promise<void> => {
+        scannerResults = scanners
         // The mock holds the scanner fetch open, and its release hook only exists once the handler runs.
         await new Promise((resolve) => setTimeout(resolve, 0))
         releaseScanners()
         await expectLogic(visionScannersListLogic).toDispatchActions(['loadScannersSuccess'])
+    }
+
+    // Which scanner it resolves to is settled by `resolveSummarizer` and tested there. What only this
+    // level shows is that the two answers reach two different endpoints: a scanner runs through
+    // `observe`, and the built-in prompt through `inline_scan`.
+    test.each([
+        { shape: 'a summarizer of their own', scanners: [scanner('s1', 'summarizer')], runsOwnScanner: true },
+        { shape: 'no summarizer', scanners: [scanner('m1', 'monitor')], runsOwnScanner: false },
+    ])('summarize with $shape runs own scanner: $runsOwnScanner', async (routingCase) => {
+        await loadScanners(routingCase.scanners)
 
         logic.actions.summarize()
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(observeCalls).toBe(routingCase.runsOwnScanner ? 1 : 0)
         expect(inlineScanCalls).toBe(routingCase.runsOwnScanner ? 0 : 1)
+    })
+
+    it('keeps the summarizer picked from the dropdown on the next recording', async () => {
+        // Picking from the dropdown has to outlive the recording it was picked on, or a team with
+        // several summarizers re-picks on every recording and the button never settles on their choice.
+        await loadScanners([scanner('s1', 'summarizer'), scanner('s2', 'summarizer')])
+        await expectLogic(logic).toMatchValues({ defaultSummarizer: null })
+
+        logic.actions.summarizeWith('s2')
+
+        const nextRecording = observationsDockLogic({ sessionId: 'sess-2' })
+        nextRecording.mount()
+        await expectLogic(nextRecording).toMatchValues({ defaultSummarizer: expect.objectContaining({ id: 's2' }) })
+        nextRecording.unmount()
     })
 })

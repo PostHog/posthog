@@ -11,7 +11,12 @@ import { isSummarizerScanner } from '../replay_scanners/types'
 import { ObservationSeekbarMark, isSummaryObservation, observationSeekbarMarks } from '../utils/observation'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
-import { SUMMARIZE_RECORDING_CONFIG, summarizeOutcomeMessage } from './summarizeRecording'
+import {
+    BUILT_IN_SUMMARIZER,
+    SUMMARIZE_RECORDING_CONFIG,
+    resolveSummarizer,
+    summarizeOutcomeMessage,
+} from './summarizeRecording'
 import { visionDockPreferenceLogic } from './visionDockPreferenceLogic'
 import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
@@ -25,7 +30,9 @@ export interface observationsDockLogicValues {
     summaryDockAutoExpand: boolean // visionDockPreferenceLogic
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
+    preferredSummarizerId: string | null // visionDockPreferenceLogic
     defaultSummarizer: ReplayScannerApi | null
+    summarizerScanners: ReplayScannerApi[]
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
@@ -84,6 +91,12 @@ export interface observationsDockLogicActions {
     summarize: () => {
         value: true
     }
+    summarizeWith: (scannerId: string | null) => {
+        scannerId: string | null
+    }
+    setPreferredSummarizerId: (scannerId: string | null) => {
+        scannerId: string | null
+    } // visionDockPreferenceLogic
     summarizeFailure: () => {
         value: true
     }
@@ -99,7 +112,11 @@ export interface observationsDockLogicMeta {
         hasObservationsInFlight: (observations: ReplayObservationApi[]) => boolean
         seekbarMarks: (observations: ReplayObservationApi[]) => ObservationSeekbarMark[]
         filteredScanners: (scanners: ReplayScannerApi[], scannerSearch: string) => ReplayScannerApi[]
-        defaultSummarizer: (scanners: ReplayScannerApi[]) => ReplayScannerApi | null
+        summarizerScanners: (scanners: ReplayScannerApi[]) => ReplayScannerApi[]
+        defaultSummarizer: (
+            scanners: ReplayScannerApi[],
+            preferredSummarizerId: string | null
+        ) => ReplayScannerApi | null
     }
 }
 
@@ -121,9 +138,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             visionScannersListLogic,
             ['scanners', 'scannersLoading'],
             visionDockPreferenceLogic,
-            ['summaryDockAutoExpand'],
+            ['summaryDockAutoExpand', 'preferredSummarizerId'],
         ],
-        actions: [visionDockPreferenceLogic, ['setSummaryDockAutoExpand']],
+        actions: [visionDockPreferenceLogic, ['setSummaryDockAutoExpand', 'setPreferredSummarizerId']],
     })),
 
     actions({
@@ -140,6 +157,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
         summarize: true,
+        summarizeWith: (scannerId: string | null) => ({ scannerId }),
         summarizeSuccess: true,
         summarizeFailure: true,
     }),
@@ -171,6 +189,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             false,
             {
                 summarize: () => true,
+                summarizeWith: () => true,
                 summarizeSuccess: () => false,
                 summarizeFailure: () => false,
                 // `summarize` hands off to `observe` when the team has its own summarizer, so the
@@ -233,15 +252,15 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             (s) => [s.observations],
             (observations: ReplayObservationApi[]): ObservationSeekbarMark[] => observationSeekbarMarks(observations),
         ],
-        // The summarize button runs this instead of its built-in prompt. Only an unambiguous single
-        // scanner counts: with several, picking one for the user would silently favor one prompt over
-        // another, so the button says it used the built-in one and the sidebar picker stays the way in.
-        defaultSummarizer: [
+        summarizerScanners: [
             (s) => [s.scanners],
-            (scanners: ReplayScannerApi[]): ReplayScannerApi | null => {
-                const summarizers = scanners.filter(isSummarizerScanner)
-                return summarizers.length === 1 ? summarizers[0] : null
-            },
+            (scanners: ReplayScannerApi[]): ReplayScannerApi[] => scanners.filter(isSummarizerScanner),
+        ],
+        // What the button runs, and names. Null means the built-in prompt.
+        defaultSummarizer: [
+            (s) => [s.scanners, s.preferredSummarizerId],
+            (scanners: ReplayScannerApi[], preferredSummarizerId: string | null): ReplayScannerApi | null =>
+                resolveSummarizer(scanners, preferredSummarizerId),
         ],
         filteredScanners: [
             (s) => [s.scanners, s.scannerSearch],
@@ -281,6 +300,86 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             metricCount(metric)
             const detail = error instanceof ApiError && error.detail ? `: ${error.detail}` : ''
             lemonToast.error(`${message}${detail}`)
+        }
+        // Run a summary, through one of the team's own scanners or the built-in prompt. A named scanner
+        // is just `observe`, which already owns its double-click guard and its already-run check.
+        const runSummary = async (scannerId: string | null): Promise<void> => {
+            if (scannerId) {
+                actions.observe(scannerId)
+                return
+            }
+            // A cache flag for the same reason `observe` uses one: the reducer has already flipped
+            // `summarizing` by the time this runs.
+            if (cache.summarizeInFlight) {
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.summarizeFailure()
+                return
+            }
+            cache.summarizeInFlight = true
+            try {
+                const response = await visionScannersInlineScanCreate(String(teamId), {
+                    ...SUMMARIZE_RECORDING_CONFIG,
+                    session_ids: [props.sessionId],
+                })
+                // One session in, so one result out. The inline scanner is shared per project, so a
+                // recording somebody already summarized comes back settled instead of started.
+                const outcome = response.results?.[0]?.scan_outcome
+                if (outcome === 'already_scanned') {
+                    // A row settled server-side, but the inline scanner is shared and RBAC-scoped, so
+                    // the row may not be readable here, and the reload can also fail. Confirm the row
+                    // is in hand before naming it, and leave a way to re-read when it stays hidden.
+                    actions.summarizeFailure()
+                    actions.setDockOpen(true)
+                    const tryAgain = { label: 'Try again', action: () => actions.loadObservations() }
+                    try {
+                        const reloaded = await visionObservationsList(String(teamId), {
+                            session_id: props.sessionId,
+                        })
+                        const results = reloaded.results ?? []
+                        actions.loadObservationsSuccess(results)
+                        if (response.scan_id && results.some((o) => o.scanner_id === response.scan_id)) {
+                            // The row is readable below. A failed or ineligible one still shows its retry
+                            // control there, so the user has a way to run the summary again.
+                            lemonToast.info('This recording already has a result below.')
+                        } else {
+                            lemonToast.warning(
+                                'This recording was already summarized, but the result is not available here.',
+                                { button: tryAgain }
+                            )
+                        }
+                    } catch {
+                        metricCount('replay_vision_frontend_observations_load_failures')
+                        actions.loadObservationsFailure()
+                        lemonToast.warning("Couldn't load this recording's summary.", { button: tryAgain })
+                    }
+                    return
+                }
+                const { level, message } = summarizeOutcomeMessage(outcome)
+                lemonToast[level](message)
+                if (outcome === 'started' || outcome === 'already_running') {
+                    // A scan is in flight either way — ours, or one this project already had running
+                    // against the shared inline scanner — so the poll window has a row to wait for.
+                    actions.summarizeSuccess()
+                    actions.setDockOpen(true)
+                    afterScanStarted()
+                } else {
+                    // Nothing started and nothing to read, so the poll window would watch for a row
+                    // that never arrives.
+                    actions.summarizeFailure()
+                }
+            } catch (error) {
+                reportTriggerFailure(
+                    error,
+                    'replay_vision_frontend_summarize_failures',
+                    'Failed to summarize recording'
+                )
+                actions.summarizeFailure()
+            } finally {
+                cache.summarizeInFlight = false
+            }
         }
         return {
             loadObservations: async (_, breakpoint) => {
@@ -351,85 +450,13 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 }
             },
 
-            summarize: async () => {
-                // A team that configured a summarizer wrote that prompt deliberately, so it beats the
-                // built-in one. `observe` owns the run from here, including its own double-click guard.
-                if (values.defaultSummarizer) {
-                    actions.observe(values.defaultSummarizer.id)
-                    return
-                }
-                // A cache flag for the same reason `observe` uses one: the reducer has already flipped
-                // `summarizing` by the time this runs.
-                if (cache.summarizeInFlight) {
-                    return
-                }
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    actions.summarizeFailure()
-                    return
-                }
-                cache.summarizeInFlight = true
-                try {
-                    const response = await visionScannersInlineScanCreate(String(teamId), {
-                        ...SUMMARIZE_RECORDING_CONFIG,
-                        session_ids: [props.sessionId],
-                    })
-                    // One session in, so one result out. The inline scanner is shared per project, so a
-                    // recording somebody already summarized comes back settled instead of started.
-                    const outcome = response.results?.[0]?.scan_outcome
-                    if (outcome === 'already_scanned') {
-                        // A row settled server-side, but the inline scanner is shared and RBAC-scoped, so
-                        // the row may not be readable here, and the reload can also fail. Confirm the row
-                        // is in hand before naming it, and leave a way to re-read when it stays hidden.
-                        actions.summarizeFailure()
-                        actions.setDockOpen(true)
-                        const tryAgain = { label: 'Try again', action: () => actions.loadObservations() }
-                        try {
-                            const reloaded = await visionObservationsList(String(teamId), {
-                                session_id: props.sessionId,
-                            })
-                            const results = reloaded.results ?? []
-                            actions.loadObservationsSuccess(results)
-                            if (response.scan_id && results.some((o) => o.scanner_id === response.scan_id)) {
-                                // The row is readable below. A failed or ineligible one still shows its retry
-                                // control there, so the user has a way to run the summary again.
-                                lemonToast.info('This recording already has a result below.')
-                            } else {
-                                lemonToast.warning(
-                                    'This recording was already summarized, but the result is not available here.',
-                                    { button: tryAgain }
-                                )
-                            }
-                        } catch {
-                            metricCount('replay_vision_frontend_observations_load_failures')
-                            actions.loadObservationsFailure()
-                            lemonToast.warning("Couldn't load this recording's summary.", { button: tryAgain })
-                        }
-                        return
-                    }
-                    const { level, message } = summarizeOutcomeMessage(outcome)
-                    lemonToast[level](message)
-                    if (outcome === 'started' || outcome === 'already_running') {
-                        // A scan is in flight either way — ours, or one this project already had running
-                        // against the shared inline scanner — so the poll window has a row to wait for.
-                        actions.summarizeSuccess()
-                        actions.setDockOpen(true)
-                        afterScanStarted()
-                    } else {
-                        // Nothing started and nothing to read, so the poll window would watch for a row
-                        // that never arrives.
-                        actions.summarizeFailure()
-                    }
-                } catch (error) {
-                    reportTriggerFailure(
-                        error,
-                        'replay_vision_frontend_summarize_failures',
-                        'Failed to summarize recording'
-                    )
-                    actions.summarizeFailure()
-                } finally {
-                    cache.summarizeInFlight = false
-                }
+            // Runs whatever the button currently resolves to, without disturbing the stored preference.
+            summarize: () => runSummary(values.defaultSummarizer?.id ?? null),
+
+            // An explicit pick from the dropdown, which also becomes the preference for next time.
+            summarizeWith: ({ scannerId }) => {
+                actions.setPreferredSummarizerId(scannerId ?? BUILT_IN_SUMMARIZER)
+                return runSummary(scannerId)
             },
 
             retryObservation: async ({ observationId }) => {

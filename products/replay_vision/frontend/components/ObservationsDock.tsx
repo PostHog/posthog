@@ -6,13 +6,13 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { isSummarizerScanner } from '../replay_scanners/types'
 import { getReplayVisionEditDisabledReason, getReplayVisionRecordingViewDisabledReason } from '../utils/accessControl'
 import { isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
@@ -33,28 +33,44 @@ export function ObservationsDock(): JSX.Element | null {
     return <ObservationsDockContent sessionId={sessionRecordingId} />
 }
 
-/** Runs the team's own summarizer when it has exactly one, and a built-in inline scan otherwise. */
+/** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
 function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { summarizing, defaultSummarizer, scanners } = useValues(logic)
-    const { summarize } = useActions(logic)
+    const { summarizing, defaultSummarizer, summarizerScanners } = useValues(logic)
+    const { summarize, summarizeWith } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
     // An inline scan mints a scanner, so that endpoint holds it to scanner-editor access. Running a
     // scanner the team already has is `observe`, which asks only for recording read.
-    const accessDisabledReason = defaultSummarizer
-        ? getReplayVisionRecordingViewDisabledReason()
-        : getReplayVisionEditDisabledReason()
-    const hasOtherSummarizers = !defaultSummarizer && scanners.some(isSummarizerScanner)
+    const builtInDisabledReason = getReplayVisionEditDisabledReason() ?? quotaDisabledReason
+    const scannerDisabledReason = getReplayVisionRecordingViewDisabledReason() ?? quotaDisabledReason
     // Nobody could tell which summarizer the button used, so it says so.
     const label = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
     const summarizerTooltip = defaultSummarizer
         ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
-        : hasOtherSummarizers
-          ? 'Writes a summary using a built-in prompt. To use one of your own, pick it from "Scan this recording".'
-          : 'Writes a summary using a built-in prompt. To control the wording, create a summarizer scanner.'
+        : 'Writes a summary using a built-in prompt.'
+
+    const menuItems: LemonMenuItem[] = [
+        ...summarizerScanners.map((scanner) => ({
+            key: scanner.id,
+            label: scanner.name,
+            active: scanner.id === defaultSummarizer?.id,
+            disabledReason: scannerDisabledReason,
+            onClick: () => summarizeWith(scanner.id),
+            'data-attr': 'vision-summarize-pick-scanner',
+        })),
+        {
+            key: 'built-in',
+            label: 'Quick summary',
+            tooltip: 'Uses a built-in prompt instead of one of your scanners.',
+            active: !defaultSummarizer,
+            disabledReason: builtInDisabledReason,
+            onClick: () => summarizeWith(null),
+            'data-attr': 'vision-summarize-pick-built-in',
+        },
+    ]
 
     const button = (
         <LemonButton
@@ -64,10 +80,22 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             loading={summarizing}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
-            disabledReason={accessDisabledReason ?? quotaDisabledReason}
+            disabledReason={defaultSummarizer ? scannerDisabledReason : builtInDisabledReason}
             tooltip={quotaTooltip ?? summarizerTooltip}
             data-attr="vision-summarize-recording"
             data-ph-capture-attribute-summarizer={defaultSummarizer ? 'configured' : 'built-in'}
+            // The dropdown is the only way to reach a second summarizer, so it appears once one exists.
+            sideAction={
+                summarizerScanners.length > 0 && dataProcessingAccepted
+                    ? {
+                          icon: <IconChevronDown />,
+                          dropdown: { placement: 'bottom-end', overlay: <LemonMenuOverlay items={menuItems} /> },
+                          divider: false,
+                          'aria-label': 'Choose a summarizer',
+                          'data-attr': 'vision-summarize-choose',
+                      }
+                    : null
+            }
         >
             <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
         </LemonButton>
