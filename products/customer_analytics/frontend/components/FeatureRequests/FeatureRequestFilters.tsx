@@ -10,7 +10,7 @@ import {
     IconSort,
     IconTarget,
 } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInputSelect, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 
@@ -32,7 +32,8 @@ export function FeatureRequestFilters(): JSX.Element {
         archiveState,
         requestOrdering,
         productAreas,
-        accounts,
+        accountOptions,
+        accountsLoading,
         featureRequestsResponseLoading,
         hasActiveFilters,
     } = useValues(featureRequestsLogic)
@@ -40,7 +41,8 @@ export function FeatureRequestFilters(): JSX.Element {
         toggleStatusFilter,
         togglePriorityFilter,
         toggleProductAreaFilter,
-        toggleAccountFilter,
+        setAccountFilter,
+        setAccountSearch,
         setCreatedByFilter,
         setArchiveState,
         setRequestOrdering,
@@ -72,15 +74,6 @@ export function FeatureRequestFilters(): JSX.Element {
                 label: area.is_active ? area.name : `${area.name} (inactive)`,
                 active: productAreaFilter.includes(area.id),
                 onClick: () => toggleProductAreaFilter(area.id),
-            })),
-        },
-    ]
-    const accountItems: LemonMenuItems = [
-        {
-            items: accounts.map((account) => ({
-                label: account.name,
-                active: accountFilter.includes(account.id),
-                onClick: () => toggleAccountFilter(account.id),
             })),
         },
     ]
@@ -144,7 +137,25 @@ export function FeatureRequestFilters(): JSX.Element {
                         {productAreaFilter.length ? `Product area · ${productAreaFilter.length}` : 'Product area'}
                     </LemonButton>
                 </LemonMenu>
-                <LemonMenu items={accountItems} closeOnClickInside={false}>
+                <LemonDropdown
+                    closeOnClickInside={false}
+                    overlay={
+                        <div className="p-2 min-w-80">
+                            <LemonInputSelect
+                                mode="multiple"
+                                value={accountFilter}
+                                onChange={setAccountFilter}
+                                onInputChange={setAccountSearch}
+                                options={accountOptions}
+                                loading={accountsLoading}
+                                placeholder="Search accounts"
+                                displayMode="count"
+                                fullWidth
+                                autoFocus
+                            />
+                        </div>
+                    }
+                >
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -154,7 +165,7 @@ export function FeatureRequestFilters(): JSX.Element {
                     >
                         {accountFilter.length ? `Account · ${accountFilter.length}` : 'Account'}
                     </LemonButton>
-                </LemonMenu>
+                </LemonDropdown>
                 <MemberSelectMultiplePopover value={createdByFilter} onChange={setCreatedByFilter} />
                 <LemonMenu items={archiveItems} closeOnClickInside>
                     <LemonButton

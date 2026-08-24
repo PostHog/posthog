@@ -154,12 +154,15 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.evidenceRequestedOn).toBeNull()
     })
 
-    it('keeps the selected account name and external key while search results reload', () => {
-        logic.actions.loadAccountsSuccess([account])
+    it('keeps selected account options while search results reload', () => {
+        const filterAccount = { ...account, id: 'account-2', name: 'Globex', external_id: 'cust_globex_001' }
+        logic.actions.loadAccountsSuccess([account, filterAccount])
         logic.actions.setAccountId(account.id)
+        logic.actions.setAccountFilter([filterAccount.id])
         logic.actions.loadAccountsSuccess([])
 
         expect(logic.values.accountOptions).toEqual([
+            { key: filterAccount.id, label: `${filterAccount.name} (${filterAccount.external_id})` },
             { key: account.id, label: `${account.name} (${account.external_id})` },
         ])
     })
