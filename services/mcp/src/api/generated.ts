@@ -10032,9 +10032,15 @@ export namespace Schemas {
        * * `USR` - user
        * * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
-      /** @nullable */
+      /**
+         * Optional insight ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_item?: number | null;
-      /** @nullable */
+      /**
+         * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_id?: number | null;
       /** @nullable */
       readonly dashboard_name: string | null;
@@ -57543,9 +57549,15 @@ export namespace Schemas {
        * * `USR` - user
        * * `GIT` - GitHub */
       creation_type?: CreationTypeEnum;
-      /** @nullable */
+      /**
+         * Optional insight ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_item?: number | null;
-      /** @nullable */
+      /**
+         * Optional dashboard ID to attach this annotation to. Must belong to the current project.
+         * @nullable
+         */
       dashboard_id?: number | null;
       /** @nullable */
       readonly dashboard_name?: string | null;

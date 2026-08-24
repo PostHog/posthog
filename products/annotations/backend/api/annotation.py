@@ -21,9 +21,16 @@ class AnnotationSerializer(serializers.ModelSerializer):
     # project-scoped annotation whose dashboard was deleted would otherwise be impossible to edit or
     # delete. Annotations actually scoped to a deleted parent never reach validation — the scope-gated
     # filter in AnnotationsViewSet.safely_get_queryset hides them first.
-    dashboard_id = serializers.IntegerField(required=False, allow_null=True)
+    dashboard_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+    )
     dashboard_item = TeamScopedPrimaryKeyRelatedField(
-        queryset=Insight.objects_including_soft_deleted.all(), required=False, allow_null=True
+        queryset=Insight.objects_including_soft_deleted.all(),
+        required=False,
+        allow_null=True,
+        help_text="Optional insight ID to attach this annotation to. Must belong to the current project.",
     )
 
     class Meta:
@@ -66,12 +73,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             },
             "creation_type": {
                 "help_text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.",
-            },
-            "dashboard_id": {
-                "help_text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
-            },
-            "dashboard_item": {
-                "help_text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
             },
             "deleted": {
                 "help_text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
@@ -165,9 +166,8 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         # Gated on scope: every annotation records the insight and dashboard it was
         # created from, so a project- or organization-scoped one would otherwise
         # disappear project-wide once that parent is deleted.
-        queryset = queryset.filter(
-            ~Q(scope=Annotation.Scope.INSIGHT) | Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
-            ~Q(scope=Annotation.Scope.DASHBOARD) | Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
+        queryset = queryset.exclude(scope=Annotation.Scope.INSIGHT, dashboard_item__deleted=True).exclude(
+            scope=Annotation.Scope.DASHBOARD, dashboard__deleted=True
         )
 
         scope = self.request.query_params.get("scope")
