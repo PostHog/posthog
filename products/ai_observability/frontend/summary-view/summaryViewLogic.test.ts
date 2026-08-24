@@ -175,6 +175,21 @@ describe('summaryViewLogic', () => {
         expect(logic.values.summaryError).toBeNull()
     })
 
+    it('keeps the cancellation reason out of the panel when nothing replaces the request', async () => {
+        summarizationPendingUntilAborted()
+        logic = summaryViewLogic({ trace, tree: [] })
+        logic.mount()
+        logic.actions.generateSummary({ mode: 'minimal' })
+        await flushMicrotasks()
+
+        // Cancel through the logic's own disposable key. With no newer invocation the breakpoint
+        // does not fire, so the abort reaches the reducer and would otherwise print the sentinel.
+        ;(logic as any).cache.disposables.dispose('summaryRequest')
+        await flushMicrotasks()
+
+        expect(logic.values.summaryError).toBeNull()
+    })
+
     it('cancels an in-flight request when the trace view closes', async () => {
         summarizationPendingUntilAborted()
         logic = summaryViewLogic({ trace, tree: [] })
