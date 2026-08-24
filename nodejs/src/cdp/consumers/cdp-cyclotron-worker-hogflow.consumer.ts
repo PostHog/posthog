@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
+import { hasEvaluableWaitCondition } from '../services/hogflows/hogflow-utils'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -151,9 +152,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
+                // On the run's first dequeue a stale cached person is unrecoverable for a wait step:
+                // the condition evaluates false, the run parks, and the write it was waiting for has
+                // already happened, so no person message arrives to wake it. Re-read uncached there.
+                const forceFreshPerson = !hogFlowInvocationState.currentAction && hasEvaluableWaitCondition(hogFlow)
+
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
-                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
+                              forceFresh: forceFreshPerson,
+                          })
                         : undefined,
                     this.groupsManager.getGroupsForEvent(
                         hogFlow.team_id,

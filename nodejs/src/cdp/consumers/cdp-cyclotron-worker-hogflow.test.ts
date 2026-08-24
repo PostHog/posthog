@@ -191,6 +191,37 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     .build()
             )
         )
+
+        hogFlows.push(
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test Hog Flow with a wait')
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: { type: 'event', filters: {} },
+                            },
+                            wait: {
+                                type: 'wait_until_condition',
+                                config: {
+                                    condition: { filters: { properties: [{ key: 'email', type: 'person' }] } },
+                                    max_wait_duration: '1h',
+                                } as any,
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'wait', type: 'continue' },
+                            { from: 'wait', to: 'exit', type: 'continue' },
+                        ],
+                    } as any)
+                    .build()
+            )
+        )
     })
 
     afterEach(async () => {
@@ -368,6 +399,29 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].invocation.state.personId).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
             // invocation4 (missing_person) resolves to nothing — no person_id to persist.
             expect(results[3].invocation.state.personId).toBeUndefined()
+        })
+
+        it('reads the person uncached on a wait flow first dequeue, so a just-written property is seen', async () => {
+            // The logic lives in hasEvaluableWaitCondition / PersonsManagerService.forceFresh (unit
+            // tested); this guards the wiring, without which a run enrolling right after a person write
+            // parks on a stale read that nothing will ever wake.
+            const spy = jest.spyOn(processor['personsManager'], 'getCyclotronPerson')
+
+            await processor.processInvocations([
+                createSerializedHogFlowInvocation(hogFlows[2], {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                }),
+                createSerializedHogFlowInvocation(hogFlows[0], {
+                    event: { distinct_id: 'distinct_A_2', properties: {} } as any,
+                }),
+            ])
+
+            const forceFreshByDistinctId = new Map(
+                spy.mock.calls.map(([, id, , options]) => [id, options?.forceFresh ?? false])
+            )
+            expect(forceFreshByDistinctId.get('distinct_A_1')).toBe(true)
+            // A flow with no wait step cannot park on a condition, so it keeps the cached read.
+            expect(forceFreshByDistinctId.get('distinct_A_2')).toBe(false)
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
