@@ -173,6 +173,10 @@ jobs:
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        # Skip when no Dockerfile changed, so no runner is provisioned. A skipped job reports
+        # success, so the required check stays green. The `changes` job dispatches on every PR,
+        # so the check is always reported.
+        if: needs.changes.outputs.dockerfiles_changed == 'true'
         permissions:
             contents: read
         steps:
@@ -180,10 +184,8 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Changed-Dockerfile list comes from the shared paths-filter in `changes`, so no
-            # second changed-files action or full-history checkout. The job still always runs
-            # (only the hadolint step is gated) to keep its required-check status reporting.
+            # second changed-files action or full-history checkout.
             - name: Lint changed Dockerfile(s) with Hadolint
-              if: needs.changes.outputs.dockerfiles_changed == 'true'
               uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
               with:
                   dockerfile: '${{ needs.changes.outputs.dockerfiles_files }}'
