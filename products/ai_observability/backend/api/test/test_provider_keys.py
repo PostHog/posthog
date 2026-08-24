@@ -6,8 +6,10 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
 from products.ai_observability.backend.api.proxy import models_cache_key
@@ -17,6 +19,8 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
@@ -39,6 +43,36 @@ def _setup_team():
     )
     User.objects.create_and_join(org, f"test-provider-keys-{uuid4()}@posthog.com", "testpassword123")
     return team
+
+
+def _grant_provider_key_management_without_evaluation_access(team: Team, membership: OrganizationMembership) -> None:
+    organization = membership.organization
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+    ]
+    organization.save()
+    membership.level = OrganizationMembership.Level.MEMBER
+    membership.save()
+    AccessControl.objects.create(
+        team=team,
+        resource="project",
+        resource_id=str(team.id),
+        access_level="admin",
+        organization_member=membership,
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="llm_analytics",
+        access_level="editor",
+        organization_member=membership,
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="evaluation",
+        access_level="none",
+        organization_member=membership,
+    )
 
 
 class TestLLMProviderKeyViewSet(APIBaseTest):
@@ -90,6 +124,20 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
 
         config = EvaluationConfig.objects.get(team=self.team)
         self.assertEqual(config.active_provider_key, key)
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_cannot_create_active_provider_key_without_evaluation_access(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345", "set_as_active": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(LLMProviderKey.objects.exists())
+        self.assertFalse(EvaluationConfig.objects.exists())
 
     def test_api_key_required_on_create(self):
         response = self.client.post(
@@ -1070,6 +1118,162 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
 
         config.refresh_from_db()
         self.assertEqual(config.active_provider_key, key2)
+
+    def test_cannot_replace_active_key_without_evaluation_access(self):
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        active_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-active"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{active_key.id}/"
+            f"?replacement_key_id={replacement_key.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        config.refresh_from_db()
+        self.assertEqual(config.active_provider_key, active_key)
+        self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
+
+    @parameterized.expand([(False,), (True,)])
+    def test_cannot_delete_active_key_pinned_to_denied_evaluation(self, use_replacement: bool):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        active_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-active"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=active_key,
+        )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Restricted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(evaluation.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        config = EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+        url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{active_key.id}/"
+        if use_replacement:
+            url = f"{url}?replacement_key_id={replacement_key.id}"
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        config.refresh_from_db()
+        model_config.refresh_from_db()
+        evaluation.refresh_from_db()
+        self.assertEqual(config.active_provider_key, active_key)
+        self.assertEqual(model_config.provider_key, active_key)
+        self.assertEqual(evaluation.status, "active")
+        self.assertTrue(LLMProviderKey.objects.filter(id=active_key.id).exists())
+
+    def test_cannot_replace_key_pinned_to_denied_evaluation(self):
+        _grant_provider_key_management_without_evaluation_access(self.team, self.organization_membership)
+        pinned_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Pinned Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-pinned"},
+            created_by=self.user,
+        )
+        replacement_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Replacement Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-replacement"},
+            created_by=self.user,
+        )
+        model_config = LLMModelConfiguration.objects.create(
+            team=self.team,
+            provider="openai",
+            model="gpt-5-mini",
+            provider_key=pinned_key,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Restricted Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{pinned_key.id}/"
+            f"?replacement_key_id={replacement_key.id}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        model_config.refresh_from_db()
+        self.assertEqual(model_config.provider_key, pinned_key)
+        self.assertTrue(LLMProviderKey.objects.filter(id=pinned_key.id).exists())
 
     def test_delete_non_active_key_with_replacement_keeps_active_key(self):
         active_key = LLMProviderKey.objects.create(

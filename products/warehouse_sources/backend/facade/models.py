@@ -18,10 +18,6 @@ from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
 )
-from products.warehouse_sources.backend.models.custom_oauth2_integration import (
-    CustomOAuth2Integration,
-    get_custom_oauth2_integration,
-)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -36,14 +32,13 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import (
     MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS,
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+    MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND,
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ExternalDataSource,
-    ManagedWarehouseSQLMode,
     get_direct_external_data_source_for_connection,
     is_managed_warehouse_connection_ready,
 )
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
-from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import (
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
@@ -68,7 +63,6 @@ from products.warehouse_sources.backend.models.util import (
 )
 
 __all__ = [
-    "CustomOAuth2Integration",
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "DataWarehouseTableColumns",
@@ -77,17 +71,15 @@ __all__ = [
     "ExternalDataSource",
     "MANAGED_WAREHOUSE_LEGACY_CREDENTIAL_KINDS",
     "MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND",
+    "MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND",
     "MANAGED_WAREHOUSE_SOURCE_PREFIX",
-    "ManagedWarehouseSQLMode",
     "PendingSourceCredential",
     "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
-    "SSHTunnel",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
     "acreate_datawarehousetable",
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
-    "get_custom_oauth2_integration",
     "get_all_schemas_for_source_id",
     "get_direct_external_data_source_for_connection",
     "is_managed_warehouse_connection_ready",

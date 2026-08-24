@@ -55,6 +55,18 @@ describe("buildPosthogProvider", () => {
     expect(config.apiKey).toBe("pha_static");
   });
 
+  it("forwards attribution headers to the provider and every routed model", () => {
+    const headers = {
+      "x-posthog-property-task_execution_environment": "local",
+    };
+    const config = buildPosthogProvider(models, { headers });
+
+    expect(config.headers).toEqual(headers);
+    expect(config.models?.every((model) => model.headers === headers)).toBe(
+      true,
+    );
+  });
+
   it("routes every provider model through an explicit gateway override", () => {
     const config = buildPosthogProvider(models, {
       region: "us",

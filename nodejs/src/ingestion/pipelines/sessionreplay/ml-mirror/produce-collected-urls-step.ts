@@ -76,8 +76,8 @@ export interface CollectedUrlsMessage {
  * would then lose them. The group-by-host step already removes most of the record count, `linger.ms`
  * makes the batches on the wire, and the ref cache stops a repeated image before it produces at all.
  *
- * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs,
- * and a ref with no image behind it renders as a placeholder.
+ * Delivery is not awaited and never fails the message. The mirrored lines already carry the refs
+ * in namespaced sibling attributes, while media sources keep their placeholders.
  *
  * The `url` field is the original, unscrubbed URL. It is as sensitive as the raw replay payload, so
  * it goes only into the Kafka value. Log lines and metrics carry hosts and counts only.

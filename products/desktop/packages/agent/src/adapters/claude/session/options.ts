@@ -12,8 +12,20 @@ import type {
   SpawnedProcess,
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
-import { buildPosthogPropertyHeaderLines } from "@posthog/shared/posthog-property-headers";
+import {
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+} from "@posthog/shared";
+import {
+  buildPosthogProjectHeaderLines,
+  buildPosthogPropertyHeaderLines,
+} from "@posthog/shared/posthog-property-headers";
+import {
+  applyContextWikiEnv,
+  resolveContextWikiPath,
+} from "../../../context-wiki";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
+import type { ContextWikiEnv } from "../../../types";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
@@ -57,11 +69,11 @@ export type GatewayEnv = {
   /**
    * Same task-metadata attribution headers as {@link anthropicCustomHeaders},
    * in record form for the codex/OpenAI path (which sets provider
-   * `http_headers` rather than `ANTHROPIC_CUSTOM_HEADERS`). Includes `team_id`,
-   * which the Claude path instead appends in {@link buildEnvironment}.
+   * `http_headers` rather than `ANTHROPIC_CUSTOM_HEADERS`). Project authorization
+   * uses the separate `X-PostHog-Project-Id` header.
    */
   openaiCustomHeaders?: Record<string, string>;
-  /** PostHog project ID for per-team attribution headers. */
+  /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
 };
 
@@ -103,14 +115,19 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
+  /** Per-session context wiki mount — prevents global process.env mutation. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export function buildSystemPrompt(
   customPrompt?: unknown,
-  opts?: { spokenNarration?: boolean },
+  opts?: { spokenNarration?: boolean; contextWikiPath?: string },
 ): Options["systemPrompt"] {
   const appendedInstructions = buildAppendedInstructions({
     spokenNarration: opts?.spokenNarration === true,
+    contextWikiPath: resolveContextWikiPath(opts?.contextWikiPath),
   });
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",
@@ -156,6 +173,8 @@ function buildMcpServers(
 function buildEnvironment(
   gateway?: GatewayEnv,
   sessionId?: string,
+  bedrockGatewayVariant?: BedrockGatewayVariant,
+  contextWiki?: ContextWikiEnv,
 ): Record<string, string> {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
   // which reads them from this env var (newline-delimited `name: value` lines)
@@ -169,23 +188,36 @@ function buildEnvironment(
   if (existingCustomHeaders) {
     headerLines.push(existingCustomHeaders);
   }
-  // Attribute every captured $ai_generation event to the customer's team. The
-  // gateway authenticates with a shared key, so without this the spend lands on
-  // the key owner's team. The gateway lifts `x-posthog-property-*` headers onto
-  // the event; both entrypoints export POSTHOG_PROJECT_ID before this runs
-  // (workspace-server auth-adapter.ts, server/agent-server.ts). Mirrors django's
-  // get_llm_client(team_id=...).
+  // Scope OAuth requests to the selected project so the gateway can authorize
+  // and derive billing attribution from it.
   const projectId = gateway?.posthogProjectId ?? process.env.POSTHOG_PROJECT_ID;
   if (projectId) {
-    headerLines.push(buildPosthogPropertyHeaderLines({ team_id: projectId }));
+    headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
   if (sessionId) {
     headerLines.push(
       buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
     );
   }
-  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
-  headerLines.push("x-posthog-use-bedrock-fallback: true");
+  // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
+  // on `x-posthog-provider: bedrock` and returns before it ever reads the
+  // fallback header, so sending both would imply a failover that cannot happen.
+  if (bedrockGatewayVariant === "test") {
+    // Serve the session from Bedrock outright. This path has no reverse
+    // fallback, so a Bedrock outage surfaces as an error instead of retrying
+    // against Anthropic.
+    headerLines.push("x-posthog-provider: bedrock");
+  } else {
+    // Fail over to Bedrock when Anthropic returns 5xx/429 or blocks on billing.
+    headerLines.push("x-posthog-use-bedrock-fallback: true");
+  }
+  if (bedrockGatewayVariant) {
+    // Stamps `$feature/bedrock-llm-gateway` onto the $ai_generation event the
+    // gateway captures, so test and control are comparable in analytics.
+    headerLines.push(
+      `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
+    );
+  }
   const customHeaders = headerLines.join("\n");
 
   // SDK 0.3.142 made MCP servers connect in the background by default. That
@@ -251,6 +283,7 @@ function buildEnvironment(
     delete env.TRACEPARENT;
     delete env.TRACESTATE;
   }
+  applyContextWikiEnv(env, contextWiki);
   return env;
 }
 
@@ -514,7 +547,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
-    env: buildEnvironment(params.gatewayEnv, params.sessionId),
+    env: buildEnvironment(
+      params.gatewayEnv,
+      params.sessionId,
+      params.bedrockGatewayVariant,
+      params.contextWiki,
+    ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
       params.onModeChange,

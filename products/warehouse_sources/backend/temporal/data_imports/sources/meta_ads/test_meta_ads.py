@@ -13,6 +13,7 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -1345,6 +1346,10 @@ class TestNonRetryableErrors:
             'Meta API request failed: 400 - {"error":{"message":"(#100) This endpoint cannot be loaded due to missing permissions."}}',
             # 400 when a business_management-gated field is requested without that scope.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Requires business_management permission to manage the object.","type":"OAuthException","code":200}}',
+            # 400 when the source's configured attribution windows include a value Meta's
+            # Insights API doesn't recognise.
+            'Meta API request failed: 400 - {"error":{"message":"(#100) action_attribution_windows[0] must be '
+            'one of the following values: 1d_view, 7d_view, 28d_view, 1d_click, 7d_click, 28d_click","type":"OAuthException","code":100}}',
             # 500 when Meta's backend refuses to service the query even after adaptive
             # chunking has shrunk the window to its smallest size.
             'Meta API request failed: 500 - {"error":{"code":1,"message":"Please reduce the amount of data you\'re asking for, then retry your request"}}',
@@ -2000,3 +2005,14 @@ class TestApiVersionDispatch:
     def test_new_sources_default_to_latest_while_previous_stays_supported(self) -> None:
         assert MetaAdsSource.default_version == META_ADS_API_VERSION_V26
         assert set(MetaAdsSource.supported_versions) == {META_ADS_API_VERSION_V25, META_ADS_API_VERSION_V26}
+
+    def test_v25_is_deprecated_with_vendor_sunset_date(self) -> None:
+        # The deprecation metadata (not just membership in `supported_versions`) drives the
+        # in-product warning banner and the sunset countdown, so lock in the exact version and date.
+        source = MetaAdsSource()
+        assert source.get_version_deprecation(META_ADS_API_VERSION_V25) == VersionDeprecation(
+            version=META_ADS_API_VERSION_V25, sunset_at=dt.date(2028, 7, 29)
+        )
+        # The default must never be deprecated — a pinned-off-default warning on every new source
+        # would be the drift the framework prevents.
+        assert source.get_version_deprecation(META_ADS_API_VERSION_V26) is None

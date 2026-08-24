@@ -367,6 +367,13 @@ export function createWindow(): void {
         cause: error.cause instanceof Error ? error.cause.stack : error.cause,
       });
     },
+    onNavigationCleanup: ({ webContentsId, url, aborted }) => {
+      trpcLog.info("Main-frame navigation committed", {
+        webContentsId,
+        url,
+        abortedOperations: aborted,
+      });
+    },
   });
 
   const rendererFilePath = path.join(

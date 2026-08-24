@@ -14,11 +14,8 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
-from products.warehouse_sources.backend.facade.models import (
-    DataWarehouseTable,
-    ExternalDataSource,
-    ManagedWarehouseSQLMode,
-)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

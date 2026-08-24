@@ -27,12 +27,18 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadTaskMapping,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services import slack_app_home
 from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
     ACTION_TASKS_PAGE_PREV,
@@ -468,6 +474,7 @@ class TestRenderHomeView:
                 total_filtered=25,
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
+            untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
 
         # Equality both ways: an unroutable control fails on the left, and a card that
@@ -482,6 +489,69 @@ class TestRenderHomeView:
         assert (
             resolve_source(_make_row(runtime_adapter="claude", model="claude-opus-4-7")) == PreferenceSource.personal()
         )
+
+
+class TestThreadFollowupsCard:
+    def _view(self, mode) -> dict:
+        return render_home_view(
+            effective=AIPreferences(),
+            user_row=None,
+            is_admin=False,
+            untagged_followup_mode=mode,
+        )
+
+    def test_card_absent_where_untagged_followups_do_not_run(self):
+        # Nothing to configure when replies are never picked up in the first place.
+        view = self._view(None)
+        assert ACTION_SET_UNTAGGED_FOLLOWUP_MODE not in _action_ids(view)
+
+    @pytest.mark.parametrize("mode", list(UntaggedFollowupMode))
+    def test_picker_preselects_the_stored_mode(self, mode):
+        # Without the right initial option the tab misreports the setting, and picking
+        # the value already stored is a no-op click that looks broken.
+        view = self._view(mode)
+        select = next(
+            el
+            for block in view["blocks"]
+            for el in block.get("elements", []) or []
+            if el.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
+        )
+        assert select["initial_option"]["value"] == mode.value
+        assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
+
+
+class TestThreadFollowupsPicker:
+    def _pick(self, value: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": SLACK_WORKSPACE_ID},
+            "user": {"id": "U001"},
+            "actions": [
+                {"action_id": ACTION_SET_UNTAGGED_FOLLOWUP_MODE, "selected_option": {"value": value}},
+            ],
+        }
+
+    @pytest.mark.parametrize(
+        "picked,expected",
+        [
+            (UntaggedFollowupMode.ASK.value, UntaggedFollowupMode.ASK.value),
+            (UntaggedFollowupMode.NEVER.value, UntaggedFollowupMode.NEVER.value),
+            (UntaggedFollowupMode.AUTO.value, UntaggedFollowupMode.AUTO.value),
+            # A value the tab never rendered isn't worth persisting — it would read
+            # back as `auto` anyway, but only after a round trip through the DB.
+            ("something-else", None),
+        ],
+    )
+    def test_pick_is_persisted_against_the_clicking_user(
+        self, slack_integration, mock_slack_client, flag_on, picked, expected
+    ):
+        payload = self._pick(picked)
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
+            handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row.untagged_followup_mode if row else None) == expected
+        assert mock_slack_client.views_publish.called
 
 
 class TestLinkedAccountsCard:

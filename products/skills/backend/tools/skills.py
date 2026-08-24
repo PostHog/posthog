@@ -11,6 +11,7 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
@@ -388,6 +389,11 @@ class CreateLLMSkillTool(MaxTool):
         metadata: dict[str, Any] | None = None,
         files: list[dict[str, str]] | None = None,
     ) -> tuple[str, None]:
+        # The tool calls create_skill directly, which skips the serializer's name validation, so a
+        # reserved name would persist a skill whose /skills/<name> page is taken by a tab route.
+        if name.lower() in RESERVED_SKILL_NAMES:
+            raise MaxToolFatalError(f"'{name}' is a reserved name and cannot be used for a skill.")
+
         try:
             skill = await database_sync_to_async(create_skill)(
                 self._team,
