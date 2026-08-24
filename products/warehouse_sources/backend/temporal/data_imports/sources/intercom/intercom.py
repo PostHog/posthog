@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
     BasePaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
@@ -162,6 +163,59 @@ class IntercomSearchPaginator(BasePaginator):
         pagination["starting_after"] = self._next_cursor
 
 
+class IntercomPagesPaginator(BaseNextUrlPaginator):
+    """Paginator for Intercom list endpoints whose ``pages.next`` shape varies.
+
+    Intercom's OpenAPI description types ``pages.next`` as a
+    ``{"starting_after": ...}`` object for the Help Center and News lists, but the
+    live Help Center endpoints return a plain next-page URL there instead — which
+    is why ``articles`` ships on ``JSONResponsePaginator``. Rather than bet on one
+    shape per endpoint, accept both: a string is followed as the next URL, an
+    object's ``starting_after`` is sent back as a query param.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        pages = payload.get("pages") if isinstance(payload, dict) else None
+        next_block = pages.get("next") if isinstance(pages, dict) else None
+
+        if isinstance(next_block, str):
+            self._cursor = None
+            self._advance_to(next_block)
+            return
+
+        # Clear any URL from a previous page so `update_request` can't reuse it.
+        self._next_url = None
+        cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
+        if cursor and cursor == self._cursor:
+            # Same guard as the base class applies to a repeated next URL: a cursor that
+            # doesn't advance would re-fetch the same page until the activity times out.
+            logger.warning("intercom_pagination_not_advancing", paginator=str(self))
+            self._has_next_page = False
+            return
+        self._cursor = cursor or None
+        self._has_next_page = bool(cursor)
+
+    def update_request(self, request: Request) -> None:
+        if self._next_url is not None:
+            super().update_request(request)
+            return
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["starting_after"] = self._cursor
+
+    def __str__(self) -> str:
+        return "IntercomPagesPaginator()"
+
+
 def _build_search_body(
     cfg: IntercomEndpointConfig,
     incremental_field: str,
@@ -193,6 +247,8 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
         )
     if cfg.paginator_kind == "next_url":
         return JSONResponsePaginator(next_url_path="pages.next")
+    if cfg.paginator_kind == "pages":
+        return IntercomPagesPaginator()
     return SinglePagePaginator()
 
 
@@ -218,7 +274,7 @@ def get_resource(
         # `value: 0` matches every record. Default to "updated_at" (the only
         # cursor Intercom search endpoints support) when no field is passed.
         endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
-    elif cfg.paginator_kind in ("cursor", "next_url"):
+    elif cfg.paginator_kind in ("cursor", "next_url", "pages"):
         params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
         if cfg.incremental_query_param:
             # Intercom's `/admins/activity_logs` returns a much smaller default

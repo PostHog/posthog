@@ -16,6 +16,10 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
+// Search param that deep-links to a single activity item. Scene logics that host an
+// ActivityLog under a tab key off this param too (e.g. to open their history tab).
+export const ACTIVITY_SEARCH_PARAM = 'activity'
+
 // Define which scopes should be expanded to include multiple scopes
 const SCOPE_EXPANSIONS: Partial<Record<ActivityScope, ActivityScope[]>> = {
     [ActivityScope.TAG]: [ActivityScope.TAG, ActivityScope.TAGGED_ITEM],
@@ -244,7 +248,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     })),
     urlToAction(({ values, actions, props }) => {
         const syncActivityHighlight = (searchParams: Record<string, any>): void => {
-            const activityId = searchParams?.activity
+            const activityId = searchParams?.[ACTIVITY_SEARCH_PARAM]
             if (activityId && activityId !== values.highlightedActivityId) {
                 actions.setHighlightedActivityId(activityId)
             } else if (!activityId && values.highlightedActivityId !== null) {

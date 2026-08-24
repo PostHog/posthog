@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -9,8 +9,10 @@ from parameterized import parameterized
 
 from products.conversations.backend.temporal.channel_summary.coordinator import _collect_due_channels
 from products.conversations.backend.temporal.channel_summary.summarize import (
+    _build_transcript,
     _fetch_period_messages,
     _include_message,
+    _message_refs,
     _resolve_mentions,
     _slack_permalink,
 )
@@ -114,6 +116,46 @@ class TestSummarizeHelpers:
     )
     def test_include_message(self, _name, message, expected):
         assert _include_message(message) is expected
+
+    def test_truncated_transcript_returns_only_the_kept_threads(self):
+        # Audit refs and message_count come from the returned threads: a thread the
+        # transcript dropped must drop out of the audit too, or the count overclaims.
+        old_thread: tuple[dict, list[dict]] = ({"text": "x" * 300, "ts": "100.0", "user": "U1"}, [])
+        new_thread: tuple[dict, list[dict]] = ({"text": "y" * 300, "ts": "200.0", "user": "U1"}, [])
+        client = MagicMock()
+        team = MagicMock()
+        team.timezone_info = UTC
+
+        with patch("products.conversations.backend.temporal.channel_summary.summarize.MAX_TRANSCRIPT_CHARS", 400):
+            transcript, covered = _build_transcript(
+                client, team, "C1", [old_thread, new_thread], period_start=50.0, cache={"U1": "alice"}
+            )
+
+        assert covered == [new_thread]
+        assert "(earlier messages omitted: transcript truncated)" in transcript
+        assert "yyy" in transcript and "xxx" not in transcript
+
+    def test_message_refs_cover_every_message_with_metadata_only(self):
+        parent = {"text": "secret question", "ts": "1721999999.123456", "thread_ts": "1721999999.123456", "user": "U1"}
+        reply = {"text": "secret answer", "ts": "1722000010.000200", "thread_ts": "1721999999.123456", "user": "U2"}
+        client = MagicMock()
+        client.users_info.return_value = {"user": {"profile": {"display_name": "alice", "real_name": "Alice A"}}}
+
+        refs = _message_refs(client, "C1", [(parent, [reply])], cache={"U2": "bob"})
+
+        assert refs == [
+            {
+                "author": "alice",
+                "sent_at": "2024-07-26T13:19:59.123456+00:00",
+                "permalink": "https://posthog.slack.com/archives/C1/p1721999999123456",
+            },
+            {
+                "author": "bob",
+                "sent_at": "2024-07-26T13:20:10.000200+00:00",
+                "permalink": "https://posthog.slack.com/archives/C1/p1722000010000200?thread_ts=1721999999.123456&cid=C1",
+            },
+        ]
+        assert not any("secret" in str(ref) for ref in refs)
 
     def test_thread_replies_after_the_period_are_excluded(self):
         parent = {"text": "question", "ts": "100.0", "thread_ts": "100.0", "user": "U1", "reply_count": 2}

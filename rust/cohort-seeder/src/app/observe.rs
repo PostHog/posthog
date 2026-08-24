@@ -3,7 +3,7 @@
 //! Outcomes land before observed: every non-superseded participation gets a definitive outcome
 //! write before `reconcile_observed_at` is stamped, which is this pass's last
 //! write. The marker set is the completion *authority* (bitmaps decide complete vs short); the seed
-//! group's committed offsets are *liveness only* (they gate whether we may even capture the membership
+//! group's committed offsets are *liveness only* (they gate whether we may even capture the marker-topic
 //! end-watermarks that a negative verdict's settlement proof requires). Hash attribution splits a
 //! shortfall into terminal (the cohort diverged or was deleted — supersede) vs retryable (the hash
 //! still matches — a gate-off or lossy fleet, error only). A [`CompletionStoreError::CompletionFenceLost`]
@@ -26,8 +26,8 @@ use sqlx::PgPool;
 use tracing::warn;
 
 use crate::domain::{
-    BehavioralShapeHash, DispatchEpoch, LivenessCheck, MarkerLedger, MarkerWatch, ObservationEnds,
-    PartitionBitmap, ReconcileHwms, RunId, SeedGroupCommits, SettledVerdict,
+    DispatchEpoch, LivenessCheck, MarkerLedger, MarkerWatch, ObservationEnds, PartitionBitmap,
+    ReconcileHwms, ReconcileScope, RunId, SeedGroupCommits, SettledVerdict, WatchPartition,
 };
 use crate::kafka::committed::SeedGroupOffsetReader;
 use crate::kafka::producer::SeedTileProducer;
@@ -35,11 +35,12 @@ use crate::observability::metrics::{
     RECONCILE_COHORTS_COMPLETED, RECONCILE_COHORTS_PARTIAL, RECONCILE_COHORTS_SHORTFALL,
 };
 use crate::store::completion::{
-    load_current_behavioral_hashes, load_observation_participations, mark_participation_completed,
+    load_current_shape_hashes, load_observation_participations, mark_participation_completed,
     mark_run_observed, persist_observation_ends, record_participation_partial,
-    record_participation_shortfall, CompletionStoreError, CurrentBehavioralHash,
+    record_participation_shortfall, CompletionStoreError, CurrentShapeHash,
     ObservationParticipation,
 };
+use crate::store::runs::RunKind;
 use crate::store::{render_error_chain, RenderedError};
 
 /// The dispatch record the observer needs, lifted from a `Reconciling(DispatchedReconcile)` phase.
@@ -47,6 +48,8 @@ use crate::store::{render_error_chain, RenderedError};
 pub struct ObserveTarget {
     pub run_id: RunId,
     pub team_id: TeamId,
+    /// Selects which shape-hash column the pass reads on both sides of the attribution compare.
+    pub kind: RunKind,
     pub epoch: DispatchEpoch,
     pub hwms: ReconcileHwms,
     pub watch: MarkerWatch,
@@ -59,7 +62,7 @@ pub enum ObserveStep {
     ObservedAllComplete,
     /// The seed group has not drained the reconcile records; the run holds for the next tick.
     LivenessLagging(usize),
-    /// Liveness passed and the membership end-watermarks were captured; observation resumes next tick.
+    /// Liveness passed and the marker-topic end-watermarks were captured; observation resumes next tick.
     EndsCaptured,
     /// Liveness passed earlier but the marker watcher has not read to the captured ends.
     MarkerLagging(usize),
@@ -107,7 +110,8 @@ pub async fn observe_run(
                 .await?;
         }
         store.mark_observed(target.run_id, target.epoch).await?;
-        counter!(RECONCILE_COHORTS_COMPLETED).increment(active.len() as u64);
+        counter!(RECONCILE_COHORTS_COMPLETED, "kind" => target.kind.as_str())
+            .increment(active.len() as u64);
         return Ok(ObserveStep::ObservedAllComplete);
     }
 
@@ -127,6 +131,10 @@ pub async fn observe_run(
                         .observation_ends()
                         .await
                         .map_err(ObserveError::TopicEnds)?;
+                    // Warn at capture rather than on the hold it causes: the dispatch's partition set
+                    // is fixed, so the answer never changes, and this arm runs once per dispatch
+                    // while the hold below is re-entered on every tick until a re-dispatch.
+                    warn_on_uncovered_partitions(target, &ends);
                     store
                         .persist_ends(target.run_id, target.epoch, &ends)
                         .await?;
@@ -138,7 +146,7 @@ pub async fn observe_run(
             None => {
                 return Ok(ObserveStep::MarkerLagging(
                     ends.behind(&target.watch.positions),
-                ))
+                ));
             }
             Some(proof) => proof,
         },
@@ -155,6 +163,27 @@ pub async fn observe_run(
     Ok(ObserveStep::Settled(summary))
 }
 
+/// A partition present in the freshly captured ends but absent from the dispatch's start positions is
+/// one the watcher was never assigned, so it can never be read and the run holds at
+/// [`ObserveStep::MarkerLagging`] until a re-dispatch recaptures the full set.
+fn warn_on_uncovered_partitions(target: &ObserveTarget, ends: &ObservationEnds) {
+    let uncovered: Vec<i32> = ends
+        .uncovered(&target.watch.positions)
+        .into_iter()
+        .map(WatchPartition::get)
+        .collect();
+    if uncovered.is_empty() {
+        return;
+    }
+    warn!(
+        run_id = ?target.run_id,
+        topic = %target.watch.topic,
+        partitions = ?uncovered,
+        "the marker topic gained partitions after this run was dispatched; the watcher is assigned \
+         only the partitions captured then, so this run holds until it is re-dispatched"
+    );
+}
+
 async fn apply_verdict(
     store: &dyn ObservationStore,
     target: &ObserveTarget,
@@ -168,7 +197,8 @@ async fn apply_verdict(
                     .mark_completed(target.run_id, target.epoch, participation.cohort_id)
                     .await?;
             }
-            counter!(RECONCILE_COHORTS_COMPLETED).increment(active.len() as u64);
+            counter!(RECONCILE_COHORTS_COMPLETED, "kind" => target.kind.as_str())
+                .increment(active.len() as u64);
             Ok(SettleSummary {
                 completed: active.len(),
                 ..SettleSummary::default()
@@ -183,7 +213,8 @@ async fn apply_verdict(
                     .mark_completed(target.run_id, target.epoch, *cohort_id)
                     .await?;
             }
-            counter!(RECONCILE_COHORTS_COMPLETED).increment(complete.len() as u64);
+            counter!(RECONCILE_COHORTS_COMPLETED, "kind" => target.kind.as_str())
+                .increment(complete.len() as u64);
             let (partial, shortfall) =
                 attribute_incomplete(store, target, active, &incomplete).await?;
             Ok(SettleSummary {
@@ -194,10 +225,21 @@ async fn apply_verdict(
             })
         }
         SettledVerdict::NoMarkers => {
+            // One-sided. False proves records landed after the ends were captured, so the topic is
+            // live and the gate-off reading is wrong. True proves nothing about whether markers ever
+            // landed: the positions and the captured ends coincide on any topic that has gone quiet.
+            let no_reads_past_ends = target.watch.ends.as_ref().is_some_and(|ends| {
+                *ends == ObservationEnds::from_positions(&target.watch.positions)
+            });
             warn!(
                 run_id = ?target.run_id,
                 team_id = target.team_id.0,
-                "zero reconcile markers observed for a settled run — the processor reconcile gate is likely off fleet-wide"
+                topic = %target.watch.topic,
+                no_reads_past_ends,
+                "no reconcile marker folded for a settled run: either markers reached the watched \
+                 topic but named another team, run, or cohort, or none reached it at all — the \
+                 processor reconcile gate is off fleet-wide, or its markers land somewhere else. A \
+                 false `no_reads_past_ends` rules the second out; a true one rules nothing out"
             );
             let incomplete: Vec<(CohortId, PartitionBitmap)> =
                 active.iter().map(|p| (p.cohort_id, p.bits)).collect();
@@ -213,8 +255,9 @@ async fn apply_verdict(
     }
 }
 
-/// Split each short cohort into a terminal supersede (hash diverged / cohort deleted / indeterminate)
-/// or a retryable shortfall (hash still matches the pinned one).
+/// Split each short cohort into a terminal supersede (shape diverged / cohort deleted /
+/// indeterminate) or a retryable shortfall (the shape still matches the pinned one). The comparison
+/// is [`ReconcileScope`] equality, so a person run is never satisfied by a behavioral shape.
 async fn attribute_incomplete(
     store: &dyn ObservationStore,
     target: &ObserveTarget,
@@ -223,21 +266,20 @@ async fn attribute_incomplete(
 ) -> Result<(usize, usize), ObserveError> {
     let cohort_ids: Vec<CohortId> = incomplete.iter().map(|(cohort_id, _)| *cohort_id).collect();
     let current = store
-        .load_current_hashes(target.team_id, &cohort_ids)
+        .load_current_hashes(target.team_id, &cohort_ids, target.kind)
         .await?;
-    let pinned: HashMap<CohortId, &BehavioralShapeHash> = active
-        .iter()
-        .map(|p| (p.cohort_id, &p.behavioral_filters_shape_hash))
-        .collect();
+    let pinned: HashMap<CohortId, &ReconcileScope> =
+        active.iter().map(|p| (p.cohort_id, &p.scope)).collect();
 
+    let kind_label = target.kind.as_str();
     let mut partial = 0;
     let mut shortfall = 0;
     for (cohort_id, bitmap) in incomplete {
         let missing = render_missing(*bitmap);
         let hash_matches = match current.get(cohort_id) {
-            Some(CurrentBehavioralHash::Present(current_hash)) => pinned
+            Some(CurrentShapeHash::Present(current_scope)) => pinned
                 .get(cohort_id)
-                .is_some_and(|pinned_hash| *pinned_hash == current_hash),
+                .is_some_and(|pinned_scope| *pinned_scope == current_scope),
             // Deleted / Indeterminate / absent row all read as diverged: terminal.
             _ => false,
         };
@@ -247,7 +289,7 @@ async fn attribute_incomplete(
                 .record_shortfall(target.run_id, target.epoch, *cohort_id, &error)
                 .await?;
             shortfall += 1;
-            counter!(RECONCILE_COHORTS_SHORTFALL).increment(1);
+            counter!(RECONCILE_COHORTS_SHORTFALL, "kind" => kind_label).increment(1);
         } else {
             let error = RenderedError::from_message(format!(
                 "reconcile superseded by a cohort change: {missing}"
@@ -256,7 +298,7 @@ async fn attribute_incomplete(
                 .record_partial(target.run_id, target.epoch, *cohort_id, &error)
                 .await?;
             partial += 1;
-            counter!(RECONCILE_COHORTS_PARTIAL).increment(1);
+            counter!(RECONCILE_COHORTS_PARTIAL, "kind" => kind_label).increment(1);
         }
     }
     Ok((partial, shortfall))
@@ -278,7 +320,7 @@ pub trait CommittedOffsetSource: Send + Sync {
     async fn committed(&self) -> Result<SeedGroupCommits, SourceError>;
 }
 
-/// The membership topic's current end-watermarks — captured at the liveness pass to bound the marker
+/// The marker topic's current end-watermarks — captured at the liveness pass to bound the marker
 /// set of this dispatch.
 #[async_trait]
 pub trait TopicOffsetSource: Send + Sync {
@@ -292,12 +334,14 @@ pub trait ObservationStore: Send + Sync {
     async fn load_participations(
         &self,
         run_id: RunId,
+        kind: RunKind,
     ) -> Result<Vec<ObservationParticipation>, CompletionStoreError>;
     async fn load_current_hashes(
         &self,
         team_id: TeamId,
         cohort_ids: &[CohortId],
-    ) -> Result<HashMap<CohortId, CurrentBehavioralHash>, CompletionStoreError>;
+        kind: RunKind,
+    ) -> Result<HashMap<CohortId, CurrentShapeHash>, CompletionStoreError>;
     async fn persist_ends(
         &self,
         run_id: RunId,
@@ -334,11 +378,12 @@ pub trait ObservationStore: Send + Sync {
 /// The real observation store over the seeder's pool.
 pub struct PgObservationStore {
     pool: PgPool,
+    marker_topic: String,
 }
 
 impl PgObservationStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, marker_topic: String) -> Self {
+        Self { pool, marker_topic }
     }
 }
 
@@ -347,16 +392,18 @@ impl ObservationStore for PgObservationStore {
     async fn load_participations(
         &self,
         run_id: RunId,
+        kind: RunKind,
     ) -> Result<Vec<ObservationParticipation>, CompletionStoreError> {
-        load_observation_participations(&self.pool, run_id).await
+        load_observation_participations(&self.pool, run_id, kind).await
     }
 
     async fn load_current_hashes(
         &self,
         team_id: TeamId,
         cohort_ids: &[CohortId],
-    ) -> Result<HashMap<CohortId, CurrentBehavioralHash>, CompletionStoreError> {
-        load_current_behavioral_hashes(&self.pool, team_id, cohort_ids).await
+        kind: RunKind,
+    ) -> Result<HashMap<CohortId, CurrentShapeHash>, CompletionStoreError> {
+        load_current_shape_hashes(&self.pool, team_id, cohort_ids, kind).await
     }
 
     async fn persist_ends(
@@ -365,7 +412,7 @@ impl ObservationStore for PgObservationStore {
         epoch: DispatchEpoch,
         ends: &ObservationEnds,
     ) -> Result<(), CompletionStoreError> {
-        persist_observation_ends(&self.pool, run_id, epoch, ends).await
+        persist_observation_ends(&self.pool, run_id, epoch, ends, &self.marker_topic).await
     }
 
     async fn mark_completed(
@@ -422,7 +469,7 @@ impl SourceError {
 pub enum ObserveError {
     #[error("reading the seed group's committed offsets")]
     Committed(#[source] SourceError),
-    #[error("capturing the membership end watermarks")]
+    #[error("capturing the marker-topic end watermarks")]
     TopicEnds(#[source] SourceError),
     #[error(transparent)]
     Store(#[from] CompletionStoreError),
@@ -447,7 +494,7 @@ impl CommittedOffsetSource for KafkaCommittedOffsets {
     }
 }
 
-/// The real topic-offset seam: the seed producer's client fetches the membership topic's watermarks.
+/// The real topic-offset seam: the seed producer's client fetches the marker topic's watermarks.
 pub struct KafkaTopicOffsets {
     producer: SeedTileProducer,
     topic: String,
@@ -474,7 +521,7 @@ impl TopicOffsetSource for KafkaTopicOffsets {
             tokio::task::spawn_blocking(move || producer.capture_topic_offsets(&topic, timeout))
                 .await
                 .map_err(|error| {
-                    SourceError::new(format!("join membership watermark task: {error}"))
+                    SourceError::new(format!("join marker-topic watermark task: {error}"))
                 })?
                 .map_err(|error| SourceError::new(render_error_chain(&error)))?;
         Ok(ObservationEnds::from_positions(&positions))
@@ -491,8 +538,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::domain::{
-        CommittedOffset, MarkerPartition, MembershipPartition, NextOffset, ProducedOffset,
-        SeedPartition, WatchPositions,
+        CommittedOffset, MarkerPartition, NextOffset, ProducedOffset, SeedPartition,
+        WatchPartition, WatchPositions,
     };
     use crate::store::completion::CompletionOperation;
 
@@ -505,8 +552,8 @@ mod tests {
         DispatchEpoch::from_dispatched_at(chrono::Utc.timestamp_opt(1_700_000_000, 0).unwrap())
     }
 
-    fn hash(value: &str) -> BehavioralShapeHash {
-        BehavioralShapeHash::parse(value).unwrap()
+    fn scope(kind: RunKind, value: &str) -> ReconcileScope {
+        ReconcileScope::parse(kind.scope(), value).unwrap()
     }
 
     fn full_hwms() -> ReconcileHwms {
@@ -527,9 +574,17 @@ mod tests {
     }
 
     fn participation(cohort: i32, bits: PartitionBitmap) -> ObservationParticipation {
+        scoped_participation(RunKind::Behavioral, cohort, bits)
+    }
+
+    fn scoped_participation(
+        kind: RunKind,
+        cohort: i32,
+        bits: PartitionBitmap,
+    ) -> ObservationParticipation {
         ObservationParticipation {
             cohort_id: CohortId(cohort),
-            behavioral_filters_shape_hash: hash("pinned"),
+            scope: scope(kind, "pinned"),
             bits,
             reconcile_completed_at: None,
             superseded_at: None,
@@ -550,12 +605,18 @@ mod tests {
     }
 
     fn target(ends: Option<ObservationEnds>) -> ObserveTarget {
+        scoped_target(RunKind::Behavioral, ends)
+    }
+
+    fn scoped_target(kind: RunKind, ends: Option<ObservationEnds>) -> ObserveTarget {
         ObserveTarget {
             run_id: run_id(),
             team_id: TeamId(2),
+            kind,
             epoch: epoch(),
             hwms: full_hwms(),
             watch: MarkerWatch {
+                topic: "cohort_reconcile_markers".to_string(),
                 positions: watched_positions(),
                 ends,
             },
@@ -565,29 +626,20 @@ mod tests {
     /// Where the watcher has read to. Past [`caught_up_ends`], short of [`pending_ends`].
     fn watched_positions() -> WatchPositions {
         let mut positions = WatchPositions::new();
-        positions.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(10),
-        );
+        positions.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
         positions
     }
 
     /// Ends the watcher's positions already satisfy, so settlement is reachable.
     fn caught_up_ends() -> ObservationEnds {
         let mut ends = ObservationEnds::new();
-        ends.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(10),
-        );
+        ends.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
         ends
     }
 
     fn pending_ends() -> ObservationEnds {
         let mut ends = ObservationEnds::new();
-        ends.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(20),
-        );
+        ends.insert(WatchPartition::new(0), NextOffset::from_high_watermark(20));
         ends
     }
 
@@ -647,7 +699,7 @@ mod tests {
     #[derive(Default)]
     struct FakeStore {
         participations: Vec<ObservationParticipation>,
-        current: HashMap<CohortId, CurrentBehavioralHash>,
+        current: HashMap<CohortId, CurrentShapeHash>,
         calls: Mutex<Vec<StoreCall>>,
         fence_lost_on_completed: bool,
     }
@@ -667,6 +719,7 @@ mod tests {
         async fn load_participations(
             &self,
             _run_id: RunId,
+            _kind: RunKind,
         ) -> Result<Vec<ObservationParticipation>, CompletionStoreError> {
             Ok(self.participations.clone())
         }
@@ -675,7 +728,8 @@ mod tests {
             &self,
             _team_id: TeamId,
             cohort_ids: &[CohortId],
-        ) -> Result<HashMap<CohortId, CurrentBehavioralHash>, CompletionStoreError> {
+            _kind: RunKind,
+        ) -> Result<HashMap<CohortId, CurrentShapeHash>, CompletionStoreError> {
             Ok(cohort_ids
                 .iter()
                 .filter_map(|cohort_id| {
@@ -875,8 +929,14 @@ mod tests {
                 participation(11, PartitionBitmap::default()),
             ],
             current: HashMap::from([
-                (CohortId(10), CurrentBehavioralHash::Present(hash("pinned"))),
-                (CohortId(11), CurrentBehavioralHash::Present(hash("pinned"))),
+                (
+                    CohortId(10),
+                    CurrentShapeHash::Present(scope(RunKind::Behavioral, "pinned")),
+                ),
+                (
+                    CohortId(11),
+                    CurrentShapeHash::Present(scope(RunKind::Behavioral, "pinned")),
+                ),
             ]),
             ..FakeStore::default()
         };
@@ -914,24 +974,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hash_attribution_splits_diverged_deleted_indeterminate_and_matching() {
+    async fn shape_attribution_splits_diverged_deleted_indeterminate_and_matching() {
+        let kind = RunKind::Behavioral;
         let store = FakeStore {
             participations: vec![
-                participation(10, complete_bits()),  // complete
-                participation(11, one_short_bits()), // diverged ⇒ partial
-                participation(12, one_short_bits()), // matching ⇒ shortfall
-                participation(13, one_short_bits()), // deleted ⇒ partial
-                participation(14, one_short_bits()), // indeterminate ⇒ partial
-                participation(15, one_short_bits()), // absent row ⇒ partial
+                scoped_participation(kind, 10, complete_bits()), // complete
+                scoped_participation(kind, 11, one_short_bits()), // diverged ⇒ partial
+                scoped_participation(kind, 12, one_short_bits()), // matching ⇒ shortfall
+                scoped_participation(kind, 13, one_short_bits()), // deleted ⇒ partial
+                scoped_participation(kind, 14, one_short_bits()), // indeterminate ⇒ partial
+                scoped_participation(kind, 15, one_short_bits()), // absent row ⇒ partial
             ],
             current: HashMap::from([
                 (
                     CohortId(11),
-                    CurrentBehavioralHash::Present(hash("diverged")),
+                    CurrentShapeHash::Present(scope(kind, "diverged")),
                 ),
-                (CohortId(12), CurrentBehavioralHash::Present(hash("pinned"))),
-                (CohortId(13), CurrentBehavioralHash::Deleted),
-                (CohortId(14), CurrentBehavioralHash::Indeterminate),
+                (
+                    CohortId(12),
+                    CurrentShapeHash::Present(scope(kind, "pinned")),
+                ),
+                (CohortId(13), CurrentShapeHash::Deleted),
+                (CohortId(14), CurrentShapeHash::Indeterminate),
             ]),
             ..FakeStore::default()
         };
@@ -942,7 +1006,7 @@ mod tests {
             &store,
             &committed,
             &ends,
-            &target(Some(caught_up_ends())),
+            &scoped_target(kind, Some(caught_up_ends())),
             &store.participations,
         )
         .await
@@ -955,7 +1019,7 @@ mod tests {
                 partial: 4,
                 shortfall: 1,
                 zero_markers: false,
-            })
+            }),
         );
         let calls = store.calls();
         assert_eq!(calls.first(), Some(&StoreCall::Completed(CohortId(10))));
@@ -969,6 +1033,36 @@ mod tests {
             Some(&StoreCall::Observed),
             "observed lands last"
         );
+    }
+
+    #[tokio::test]
+    async fn a_matching_hash_of_the_other_kind_never_saves_a_shortfall_from_supersession() {
+        // The store is kind-scoped, but the compare is the last line of defence: a cohort whose
+        // *other* shape still equals the pinned string must not read as "unchanged".
+        let store = FakeStore {
+            participations: vec![scoped_participation(
+                RunKind::PersonProperty,
+                10,
+                one_short_bits(),
+            )],
+            current: HashMap::from([(
+                CohortId(10),
+                CurrentShapeHash::Present(scope(RunKind::Behavioral, "pinned")),
+            )]),
+            ..FakeStore::default()
+        };
+
+        observe_run(
+            &store,
+            &FakeCommittedOffsets::default(),
+            &FakeTopicOffsets::default(),
+            &scoped_target(RunKind::PersonProperty, Some(caught_up_ends())),
+            &store.participations,
+        )
+        .await
+        .unwrap();
+
+        assert!(store.calls().contains(&StoreCall::Partial(CohortId(10))));
     }
 
     #[tokio::test]

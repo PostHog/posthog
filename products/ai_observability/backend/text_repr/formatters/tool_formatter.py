@@ -78,7 +78,8 @@ def _format_tools_list(tools_list: list[Any]) -> str:
 
             # Build function signature from schema
             signature = f"{name}("
-            if schema and isinstance(schema, dict) and "properties" in schema:
+            # SDKs record non-object `properties`, which crashes `.items()` below.
+            if isinstance(schema, dict) and isinstance(schema.get("properties"), dict):
                 properties = schema["properties"]
                 required = schema.get("required", [])
                 params: list[str] = []

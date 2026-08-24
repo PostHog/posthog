@@ -13,6 +13,7 @@ from llm_gateway.rate_limiting.cost_refresh import (
     apply_cost_aliases,
     normalize_metric_labels,
 )
+from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
 from llm_gateway.rate_limiting.model_cost_service import ModelCostService
 
 
@@ -87,29 +88,44 @@ class TestApplyCostAliases:
         apply_cost_aliases(cost)
         mock_logger.warning.assert_not_called()
 
-    def test_canonicals_exist_in_litellm_cost_map(self) -> None:
-        """Lock in that every COST_ALIASES canonical is present in the pinned litellm
-        cost map. If a litellm bump drops the canonical, this fails in CI rather than
-        letting `apply_cost_aliases` log `cost_alias_canonical_missing` every refresh
-        in production and falling back to the default cost for those models.
-        """
-        missing = [canonical for canonical, _ in COST_ALIASES.values() if canonical not in litellm.model_cost]
+    def test_canonicals_exist_after_model_cost_overrides(self) -> None:
+        model_cost = dict(litellm.model_cost)
+        apply_model_cost_overrides(model_cost)
+
+        missing = [canonical for canonical, _ in COST_ALIASES.values() if canonical not in model_cost]
         assert not missing, f"COST_ALIASES canonicals missing from litellm.model_cost: {missing}"
 
-    def test_alias_is_priced_for_routed_provider(self) -> None:
+    @pytest.mark.parametrize(
+        ("model", "prompt_tokens", "completion_tokens", "expected_input_cost", "expected_output_cost"),
+        [
+            ("@cf/zai-org/glm-5.2", 1000, 100, 0.0014, 0.00044),
+            ("zai-org/GLM-5.2-FP8", 1000, 100, 0.0014, 0.00044),
+            ("zai-org/GLM-5.2", 1000, 100, 0.0014, 0.00044),
+            ("moonshotai/kimi-k3", 1000, 100, 0.003, 0.0015),
+        ],
+    )
+    def test_alias_is_priced_for_routed_provider(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        expected_input_cost: float,
+        expected_output_cost: float,
+    ) -> None:
         model_cost = dict(litellm.model_cost)
+        apply_model_cost_overrides(model_cost)
         apply_cost_aliases(model_cost)
         litellm.model_cost = model_cost
 
         input_cost, output_cost = litellm.cost_per_token(
-            model="@cf/zai-org/glm-5.2",
-            prompt_tokens=1000,
-            completion_tokens=100,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
             custom_llm_provider="openai",
         )
 
-        assert input_cost == pytest.approx(0.0014)
-        assert output_cost == pytest.approx(0.00044)
+        assert input_cost == pytest.approx(expected_input_cost)
+        assert output_cost == pytest.approx(expected_output_cost)
 
 
 class TestNormalizeMetricLabels:

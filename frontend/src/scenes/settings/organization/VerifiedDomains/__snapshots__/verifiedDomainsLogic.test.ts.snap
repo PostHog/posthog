@@ -4,7 +4,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
 {
   "addModalShown": false,
   "configureIdJagModalId": null,
+  "configureIdJagModalLoading": false,
   "configureSAMLModalId": null,
+  "configureSAMLModalLoading": false,
   "configureSCIMModalId": null,
   "currentOrganizationId": "ABCD",
   "domainBeingVerified": null,
@@ -31,6 +33,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
   "isXAAAuthenticationAvailable": false,
+  "ownVerifiedDomain": null,
   "samlConfig": {},
   "samlConfigAllErrors": {
     "saml_acs_url": undefined,

@@ -14,6 +14,9 @@ name: Weekly flaky test report
 #     engineering_analytics:read + query:read for that project (the script also
 #     reads the product's ci_failures view for rescue counts and job links).
 #   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot.
+#
+# Trunk state is optional on top of that: with the TRUNK_* variables below unset, the report
+# carries no Trunk state and never queries for it.
 
 on:
     schedule:
@@ -44,6 +47,7 @@ jobs:
               with:
                   sparse-checkout: |
                       .github/scripts/weekly-flaky-report.mjs
+                      .github/scripts/weekly-report-common.mjs
                       .nvmrc
                       tools/owners
                       owners.yaml
@@ -67,6 +71,12 @@ jobs:
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
                   # Optional: override the source-prefixed runs table name.
                   ENG_ANALYTICS_RUNS_TABLE: ${{ vars.ENG_ANALYTICS_RUNS_TABLE }}
+                  # The same switches the CI uploaders read, so the report can only claim a test is
+                  # masked when Trunk is actually masking it. Unset means no Trunk section at all.
+                  TRUNK_UPLOAD_ENABLED: ${{ vars.TRUNK_UPLOAD_ENABLED }}
+                  TRUNK_QUARANTINE_ENABLED: ${{ vars.TRUNK_QUARANTINE_ENABLED }}
+                  # Optional: override the source-prefixed Trunk quarantine table name.
+                  TRUNK_QUARANTINE_TABLE: ${{ vars.TRUNK_QUARANTINE_TABLE }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
               run: node .github/scripts/weekly-flaky-report.mjs

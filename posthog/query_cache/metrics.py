@@ -6,7 +6,7 @@ from prometheus_client import CollectorRegistry, Counter, Histogram
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.exceptions_capture import capture_exception
-from posthog.metrics import LABEL_TEAM_ID, pushed_metrics_registry
+from posthog.metrics import pushed_metrics_registry
 
 
 class CacheMetrics(NamedTuple):
@@ -67,28 +67,25 @@ def _create_cache_metrics(registry: Optional[CollectorRegistry] = None) -> Cache
     hit_counter = Counter(
         name="posthog_query_cache_hit_total",
         documentation="Whether we could fetch the query from the cache or not.",
-        labelnames=[LABEL_TEAM_ID, "cache_hit", "trigger"],
+        labelnames=["cache_hit", "trigger"],
         registry=registry,
     )
 
     write_counter = Counter(
         name="posthog_query_cache_write_total",
         documentation="When a query result was persisted in the cache.",
-        labelnames=[LABEL_TEAM_ID],
         registry=registry,
     )
 
     bytes_counter = Counter(
         name="posthog_query_cache_write_bytes_total",
         documentation="Total bytes written to cache (uncompressed JSON)",
-        labelnames=[LABEL_TEAM_ID],
         registry=registry,
     )
 
     size_histogram = Histogram(
         name="posthog_query_cache_write_size_bytes",
         documentation="Distribution of cache write data sizes in bytes (uncompressed JSON)",
-        labelnames=[LABEL_TEAM_ID],
         buckets=[
             100,  # Small responses < 100B
             1000,  # 100B - 1KB
@@ -129,18 +126,18 @@ def is_cache_warming() -> bool:
     return (get_query_tag_value("trigger") or "").startswith("warming")
 
 
-def count_query_cache_hit(team_id: int, hit: str, trigger: str = "") -> None:
+def count_query_cache_hit(hit: str, trigger: str = "") -> None:
     """Count cache hit/miss, excluding cache warming requests."""
     if is_cache_warming():
         return
 
     with get_cache_metrics_context("query_cache_hits") as metrics:
-        metrics.hit_counter.labels(team_id=team_id, cache_hit=hit, trigger=trigger).inc()
+        metrics.hit_counter.labels(cache_hit=hit, trigger=trigger).inc()
 
 
-def count_cache_write_data(team_id: int, data_size: int) -> None:
+def count_cache_write_data(data_size: int) -> None:
     """Count cache write operations and data size metrics."""
     with get_cache_metrics_context("query_cache_writes") as metrics:
-        metrics.write_counter.labels(team_id=team_id).inc()
-        metrics.bytes_counter.labels(team_id=team_id).inc(data_size)
-        metrics.size_histogram.labels(team_id=team_id).observe(data_size)
+        metrics.write_counter.inc()
+        metrics.bytes_counter.inc(data_size)
+        metrics.size_histogram.observe(data_size)

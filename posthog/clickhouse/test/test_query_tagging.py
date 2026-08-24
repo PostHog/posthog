@@ -643,6 +643,7 @@ class TestAddFallbackQueryTags(BaseTest):
             ("exception", ["$exception"], Product.ERROR_TRACKING),
             ("web_vitals", ["$web_vitals"], Product.WEB_ANALYTICS),
             ("feature_flag_called", ["$feature_flag_called"], Product.FEATURE_FLAGS),
+            ("experiment_exposure", ["$experiment_exposure"], Product.EXPERIMENTS),
         ]
     )
     def test_hogql_features_event_fills_product(self, _name, events, expected_product):

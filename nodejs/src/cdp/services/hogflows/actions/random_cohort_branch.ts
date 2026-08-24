@@ -25,7 +25,17 @@ export function getRandomCohort(invocation: CyclotronJobInvocationHogFlow, actio
         return findNextAction(invocation.hogFlow, action.id)
     }
 
-    const random = Math.random() * 100 // 0-100
+    const total = cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0)
+    // A zero or NaN total has no proportions to split by, so fall through like the empty case.
+    if (!(total > 0)) {
+        return findNextAction(invocation.hogFlow, action.id)
+    }
+
+    // Percentages act as relative weights, scaled by whatever they actually add up to. Summing to 100
+    // is the same thing; not summing to 100 (an even N-way split of a count that doesn't divide 100,
+    // say) still gives every cohort its intended share, rather than piling the shortfall onto the last
+    // cohort or making later cohorts unreachable.
+    const random = Math.random() * total
     let cumulativePercentage = 0
 
     for (const [index, cohort] of cohorts.entries()) {
@@ -35,7 +45,7 @@ export function getRandomCohort(invocation: CyclotronJobInvocationHogFlow, actio
         }
     }
 
-    // If we somehow get here (shouldn't happen if percentages add up to 100),
-    // go to the last cohort
+    // Unreachable except for floating-point drift in the cumulative sum, where the last cohort is
+    // the intended landing spot anyway.
     return findNextAction(invocation.hogFlow, action.id, cohorts.length - 1)
 }

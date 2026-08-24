@@ -4,12 +4,19 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
+from celery.exceptions import Retry
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
+    COHORT_BACKFILL_REFUSAL_OUTCOMES,
+    COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
     COHORTS_TOTAL_GAUGE,
@@ -21,13 +28,32 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     reset_stuck_cohorts,
+    trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
+from posthog.test.persons import create_person
 
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.backfill.runs import BackfillRefusalReason
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 
 MISSING_COHORT_ID = 12345
+
+BACKFILL_KINDS = [("behavioral", CohortBackfillKind.BEHAVIORAL), ("person", CohortBackfillKind.PERSON_PROPERTY)]
+
+# What the task needs to reach the creators: both allowlists open, every attestation the two kinds
+# check between them, and a person seed budget. Tests peel these back to exercise the guards.
+BACKFILL_TASK_SETTINGS = {
+    "REALTIME_COHORT_TEAM_ALLOWLIST": "all",
+    "COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST": "all",
+    "BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED": True,
+    "BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": True,
+    "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED": True,
+    "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
+    "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
+}
 
 
 def calculate_cohort_test_factory(event_factory: Callable, person_factory: Callable):  # type: ignore
@@ -1053,6 +1079,160 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
+    def _backfillable_cohort(self) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="backfill trigger",
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "value": "performed_event",
+                            "conditionHash": "behavior00000001",
+                            "time_value": 7,
+                            "time_interval": "day",
+                        },
+                        {
+                            "type": "person",
+                            "key": "email",
+                            "value": ["person@example.com"],
+                            "operator": "exact",
+                            "conditionHash": "person0000000001",
+                        },
+                    ],
+                }
+            },
+        )
+
+    @parameterized.expand(BACKFILL_KINDS)
+    @override_settings(**BACKFILL_TASK_SETTINGS)
+    def test_trigger_backfill_run_task_returns_quietly_when_the_run_is_refused(
+        self, _name: str, backfill_kind: CohortBackfillKind
+    ) -> None:
+        # The cohort can be deleted or edited into ineligibility during the debounce window, and
+        # then the creator refuses. Raising there would spend the task's retries re-deciding the
+        # same refusal. The allowlists and attestations are open here so the refusal under test is
+        # the creator's own, not an earlier guard's.
+        trigger_cohort_backfill_run_task(self.team.pk, MISSING_COHORT_ID, "cohort_edited", backfill_kind.value)
+
+        self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
+    @parameterized.expand(BACKFILL_KINDS)
+    def test_trigger_backfill_run_task_creates_a_run_of_the_requested_kind(
+        self, _name: str, backfill_kind: CohortBackfillKind
+    ) -> None:
+        # The worker receives the kind as a plain string after JSON serialization, and the task's
+        # branch on it picks the creator. A person trigger that filed a behavioral run would leave
+        # the person conditions unseeded with nothing going red.
+        cohort = self._backfillable_cohort()
+
+        with override_settings(**BACKFILL_TASK_SETTINGS):
+            trigger_cohort_backfill_run_task(self.team.pk, cohort.pk, "cohort_created", backfill_kind.value)
+
+        run = CohortBackfillRun.objects.for_team(self.team.pk).get()
+        self.assertEqual(run.backfill_kind, backfill_kind)
+        self.assertEqual(run.cohort_id, cohort.pk)
+
+    @parameterized.expand(BACKFILL_KINDS)
+    def test_trigger_backfill_run_task_skips_instead_of_parking_a_blocked_run(
+        self, _name: str, backfill_kind: CohortBackfillKind
+    ) -> None:
+        # With the attestations unset the creators would record a `blocked` row, which counts as
+        # active, occupies the per-cohort uniqueness slot, and nothing ever advances. A team opted
+        # into the trigger allowlist before the operator attests would wedge every cohort it saves.
+        cohort = self._backfillable_cohort()
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all", COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"):
+            trigger_cohort_backfill_run_task(self.team.pk, cohort.pk, "cohort_created", backfill_kind.value)
+
+        self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
+    def test_trigger_backfill_run_task_skips_when_the_person_budget_is_unset(self) -> None:
+        # All four attestations on but no byte budget: `over_budget` is a strict comparison against
+        # it, so every sized run would refuse, after paying for a full-team sizing scan each time.
+        # The precondition check has to catch this before the scan.
+        cohort = self._backfillable_cohort()
+
+        with (
+            override_settings(**{**BACKFILL_TASK_SETTINGS, "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 0}),
+            patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes") as estimate,
+        ):
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_created", CohortBackfillKind.PERSON_PROPERTY.value
+            )
+
+        estimate.assert_not_called()
+        self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
+    def test_trigger_backfill_run_task_labels_a_budget_refusal_apart_from_a_blocked_slot(self) -> None:
+        # These two refusals call for opposite operator responses — raise the budget vs. go unwedge
+        # a stuck run — so the single flat `refused` outcome could not drive either alert.
+        cohort = self._backfillable_cohort()
+
+        with (
+            patch.object(COHORT_BACKFILL_TRIGGER_TASK_COUNTER, "labels") as counter,
+            override_settings(**{**BACKFILL_TASK_SETTINGS, "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1}),
+            patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes") as estimate,
+        ):
+            estimate.return_value = PersonSeedEstimate(
+                estimated_persons=10,
+                pinned_condition_count=1,
+                bytes_per_seed=294,
+                estimated_topic_bytes=2_940,
+                budget_bytes=1,
+            )
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_created", CohortBackfillKind.PERSON_PROPERTY.value
+            )
+
+        counter.assert_called_once_with(
+            backfill_kind=CohortBackfillKind.PERSON_PROPERTY.value, outcome="refused_over_budget"
+        )
+
+        with override_settings(**BACKFILL_TASK_SETTINGS):
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_created", CohortBackfillKind.BEHAVIORAL.value
+            )
+            with patch.object(COHORT_BACKFILL_TRIGGER_TASK_COUNTER, "labels") as counter:
+                trigger_cohort_backfill_run_task(
+                    self.team.pk, cohort.pk, "cohort_edited", CohortBackfillKind.BEHAVIORAL.value
+                )
+
+        counter.assert_called_once_with(
+            backfill_kind=CohortBackfillKind.BEHAVIORAL.value, outcome="refused_slot_occupied"
+        )
+
+    def test_every_backfill_refusal_reason_has_a_trigger_outcome(self) -> None:
+        # A reason with no mapping entry falls back to the flat `refused`, which reads as an
+        # unclassified refusal rather than an omission. Catch the drift here instead.
+        self.assertEqual(set(COHORT_BACKFILL_REFUSAL_OUTCOMES), set(BackfillRefusalReason))
+        # The alert rules match these literals, so a rename has to break a test, not a dashboard.
+        self.assertEqual(
+            set(COHORT_BACKFILL_REFUSAL_OUTCOMES.values()),
+            {"refused_over_budget", "refused_slot_occupied", "refused_ineligible", "refused_transient"},
+        )
+
+    def test_trigger_backfill_run_task_rechecks_the_allowlist_at_execution_time(self) -> None:
+        # Tasks sit in the queue for the debounce countdown, so an operator shrinking the allowlist
+        # during an incident has to stop those too, not only new enqueues.
+        cohort = self._backfillable_cohort()
+
+        with override_settings(
+            REALTIME_COHORT_TEAM_ALLOWLIST="all",
+            BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+            BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+        ):
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_edited", CohortBackfillKind.BEHAVIORAL.value
+            )
+
+        self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
     def test_safe_save_cohort_state_handles_errors(self) -> None:
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
@@ -1138,6 +1318,39 @@ class TestCohortCalculationTasks(APIBaseTest):
             )
             self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
             self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
+
+    @parameterized.expand(
+        [
+            # (exception raised, expected capture_exception call count)
+            ("system_error", Exception("Simulated query processing error"), 1),
+            ("user_query_error", QueryError("Unable to resolve field: distinct_ids"), 0),
+        ]
+    )
+    def test_insert_cohort_from_query_only_captures_system_errors(
+        self, _name: str, raised: Exception, expected_capture_calls: int
+    ) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_query_cohort",
+            is_static=True,
+            count=0,
+            query={"kind": "HogQLQuery", "query": "SELECT distinct_ids FROM persons LIMIT 10"},
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
+        ):
+            mock_insert_ch.side_effect = raised
+
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+            self.assertEqual(mock_capture.call_count, expected_capture_calls)
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
+            self.assertGreater(cohort.errors_calculating, 0, "Failure should be recorded regardless of error type")
 
     def test_insert_cohort_from_filters_count_updated_on_exception(self) -> None:
         cohort = Cohort.objects.create(
@@ -1275,3 +1488,114 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort_b.refresh_from_db()
         self.assertFalse(cohort_a.is_calculating)
         self.assertFalse(cohort_b.is_calculating)
+
+
+class TestCalculateCohortFromListRetries(APIBaseTest):
+    def _create_static_cohort(self) -> Cohort:
+        # Mirrors the enqueue site, which flips is_calculating before dispatching the task.
+        return Cohort.objects.create(
+            team_id=self.team.pk,
+            name="csv_upload_cohort",
+            is_static=True,
+            is_calculating=True,
+        )
+
+    def _run_task(self, cohort: Cohort, *, retries: int, called_directly: bool) -> None:
+        task = calculate_cohort_from_list
+        task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
+        try:
+            task.run(cohort.id, ["user123"], team_id=self.team.id, id_type="distinct_id")
+        finally:
+            task.pop_request()
+
+    def test_failed_import_keeps_previous_resolution_counts(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            last_import_total_count=10,
+            last_import_unmatched_count=2,
+        )
+        task = calculate_cohort_from_list
+        task.push_request(retries=0, called_directly=True, is_eager=True)
+        try:
+            with (
+                patch.object(Cohort, "insert_users_by_email", side_effect=RuntimeError("lookup failed")),
+                self.assertRaisesRegex(RuntimeError, "lookup failed"),
+            ):
+                task.run(
+                    cohort.id,
+                    ["one@example.com", "two@example.com"],
+                    team_id=self.team.id,
+                    id_type="email",
+                )
+        finally:
+            task.pop_request()
+
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.last_import_total_count, 10)
+        self.assertEqual(cohort.last_import_unmatched_count, 2)
+
+    @parameterized.expand(
+        [
+            ("retries_exhausted", ClickHouseAtCapacity, calculate_cohort_from_list.max_retries, False),
+            ("called_directly", ClickHouseAtCapacity, 0, True),
+            ("not_retryable", ValueError, 0, False),
+        ]
+    )
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_records_failure_when_nothing_will_retry(
+        self,
+        _name: str,
+        error_class: type[Exception],
+        retries: int,
+        called_directly: bool,
+        mock_insert_ch: MagicMock,
+    ) -> None:
+        # raise_on_error hands terminal-state finalization to the task, so whenever no retry
+        # follows, the task itself has to clear is_calculating and bump errors_calculating.
+        # Otherwise the cohort is stranded looking in-flight forever with no recorded error.
+        mock_insert_ch.side_effect = error_class("boom")
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+
+        with self.assertRaises(error_class):
+            self._run_task(cohort, retries=retries, called_directly=called_directly)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 1)
+        self.assertIsNotNone(cohort.last_error_at)
+
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_leaves_state_untouched_while_retries_remain(self, mock_insert_ch: MagicMock) -> None:
+        # A transient failure with attempts left belongs to the pending autoretry, so recording it
+        # now would show a cohort that is still being retried as errored and no longer calculating.
+        # Celery raising Retry rather than the original error is what confirms one was scheduled.
+        mock_insert_ch.side_effect = ClickHouseAtCapacity()
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+
+        with self.assertRaises(Retry):
+            self._run_task(cohort, retries=0, called_directly=False)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+    @patch("products.cohorts.backend.models.util.insert_static_cohort")
+    def test_retry_after_transient_failure_completes_the_cohort(self, mock_insert_ch: MagicMock) -> None:
+        # What the retry buys: the attempt that follows a capacity blip populates every member and
+        # finalizes clean state, and re-running the whole list adds no duplicate members.
+        mock_insert_ch.side_effect = [ClickHouseAtCapacity(), None]
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+
+        with self.assertRaises(Retry):
+            self._run_task(cohort, retries=0, called_directly=False)
+
+        self._run_task(cohort, retries=1, called_directly=False)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.errors_calculating, 0)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 1)

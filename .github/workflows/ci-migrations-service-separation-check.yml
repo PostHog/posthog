@@ -60,7 +60,6 @@ jobs:
                       sqlx_migrations:
                           - 'rust/persons_migrations/*.sql'
                           - 'rust/behavioral_cohorts_migrations/*.sql'
-                          - 'rust/cyclotron-core/migrations/*.sql'
                           - 'rust/cyclotron-node-migrations/*.sql'
                       nodejs:
                           - 'nodejs/**'
@@ -77,7 +76,6 @@ jobs:
                           - 'rust/**'
                           - '!rust/persons_migrations/**'
                           - '!rust/behavioral_cohorts_migrations/**'
-                          - '!rust/cyclotron-core/migrations/**'
                           - '!rust/cyclotron-node-migrations/**'
 
             - name: Check for conflicting changes

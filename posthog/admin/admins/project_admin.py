@@ -8,7 +8,6 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.models import Project
@@ -63,6 +62,7 @@ class ProjectAdmin(admin.ModelAdmin):
     def trigger_deletion_display(self, project: Project):
         if not project.pk:
             return "-"
+        request = getattr(self, "_current_request", None)
         # No csrf_token needed in the partial: the button posts the surrounding admin change
         # form (which carries the token) to the action URL via formaction.
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
@@ -77,12 +77,20 @@ class ProjectAdmin(admin.ModelAdmin):
                         "This starts an irreversible Temporal workflow that deletes the project and all its data."
                     ),
                     "notice": (
-                        "Before triggering, make sure no Temporal deletion workflow is already running for this "
-                        "project. Starting a second one while another is mid-flight can cause clashing deletes."
+                        "Before triggering, make sure no deletion workflow is already running for this project. "
+                        "Starting a second one while another is mid-flight can cause clashing deletes. If a "
+                        "previous attempt failed, this project may still show as pending deletion. Retriggering "
+                        "is safe: PostHog won't start a duplicate workflow if one is still running."
                     ),
                 },
+                request=request,
             )
         )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        # Store request for access in display methods (needed for the CSP nonce in templates).
+        self._current_request = request
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -115,21 +123,10 @@ class ProjectAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return redirect(change_url)
 
-        # Staff access alone must not authorize a destructive delete; require explicit
-        # membership in the deletion-authorized group (Django's model permissions are not a
-        # real gate here — User.is_superuser mirrors is_staff, so every staff user passes).
-        if not can_trigger_admin_deletion(request):
-            messages.error(request, "You do not have permission to delete this project.")
-            return redirect(change_url)
-
         if settings.DISABLE_BULK_DELETES:
             messages.error(
                 request, "Bulk deletes are temporarily disabled during a database migration. Try again later."
             )
-            return redirect(change_url)
-
-        if project.is_pending_deletion:
-            messages.error(request, f"Project {project.name} ({project.pk}) is already being deleted.")
             return redirect(change_url)
 
         teams = list(project.teams.only("id", "name", "organization_id").all())
@@ -139,7 +136,10 @@ class ProjectAdmin(admin.ModelAdmin):
         organization_id = project.organization_id
 
         # Mark pending before dispatch so the project is locked out even if this write and the
-        # workflow start race; mirrors the API deletion path.
+        # workflow start race; mirrors the API deletion path. Retriggering while already pending
+        # is allowed on purpose: a previously failed dispatch can leave this stuck True with no
+        # workflow actually running, and start_delete_project_data_workflow uses a deterministic
+        # workflow id, so a genuinely in-flight workflow is rejected below instead of duplicated.
         project.is_pending_deletion = True
         project.save(update_fields=["is_pending_deletion"])
 

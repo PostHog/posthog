@@ -82,7 +82,7 @@ export const HealthScene = (): JSX.Element => {
                         icon={<IconSupport />}
                         type="secondary"
                         size="small"
-                        onClick={() => openSupportForm({ kind: 'support', target_area: 'health_overview' })}
+                        onClick={() => openSupportForm({ kind: 'support' })}
                     >
                         Get help from our team
                     </LemonButton>

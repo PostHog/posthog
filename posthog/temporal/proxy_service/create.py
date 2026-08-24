@@ -13,7 +13,6 @@ from django.conf import settings
 import grpc.aio
 import requests
 import dns.resolver
-import dns.asyncresolver
 import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
@@ -26,6 +25,7 @@ from temporalio.client import (
 )
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
+from posthog.dns_utils import async_dnssec_resolver
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -122,7 +122,8 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         raise RecordDeletedException("proxy record was deleted while waiting for DNS records")
 
     try:
-        cnames = await dns.asyncresolver.resolve(inputs.domain, "CNAME")
+        resolver = async_dnssec_resolver()
+        cnames = await resolver.resolve(inputs.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
 
         if cnames[0].target == dns.name.from_text(inputs.target_cname):
@@ -140,7 +141,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = await dns.asyncresolver.resolve(inputs.domain, "A")
+        arecords = await resolver.resolve(inputs.domain, "A")
         if len(arecords) == 0:
             raise
         ip = arecords[0].to_text()
@@ -155,7 +156,7 @@ async def wait_for_dns_records(inputs: WaitForDNSRecordsInputs):
             # off (grey cloud). If the IPs match our target, the setup is
             # correct — the CNAME is just being flattened.
             try:
-                target_arecords = await dns.asyncresolver.resolve(inputs.target_cname, "A")
+                target_arecords = await resolver.resolve(inputs.target_cname, "A")
                 target_ips = {r.to_text() for r in target_arecords}
                 customer_ips = {r.to_text() for r in arecords}
                 if customer_ips == target_ips:

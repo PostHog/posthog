@@ -36,8 +36,32 @@ WORKFLOW_COMPLETION_GRACE_SECONDS = 60
 WORKFLOW_CANCELLATION_GRACE_SECONDS = 30
 
 
+class AgentNeverRanError(RuntimeError):
+    """The agent failed before it did any work, so the case has no outcome to score.
+
+    Raised so the engine records the case as an error and drops it from the aggregates. Scoring it
+    instead would put a zero on every outcome scorer while ``exit_code_zero`` stayed at one, which
+    reads as a model regression rather than the infrastructure failure it is.
+    """
+
+
 class WorkflowCleanupError(RuntimeError):
     pass
+
+
+def agent_never_ran(artifacts: AgentArtifacts) -> bool:
+    """Did the run fail before the agent did anything at all?
+
+    An agent that errored after making tool calls has a partial outcome worth scoring. One that
+    errored with no tool call behind it produced nothing, so its zeros describe the infrastructure
+    rather than the model.
+
+    Keyed off ``exit_code`` rather than ``stderr`` because both terminal failure channels set a
+    non-zero exit code, but only a ``session/update`` error also fills ``stderr``. A terminal
+    ``_posthog/error`` (the channel a provider 403 lands on) leaves ``stderr`` empty, so a
+    ``stderr`` check would score it instead of excluding it.
+    """
+    return artifacts.exit_code != 0 and artifacts.tool_call_count == 0
 
 
 async def _wait_for_workflow_terminal(handle: WorkflowHandle, timeout_seconds: int) -> bool:
@@ -111,10 +135,8 @@ async def run_eval_case(
         workflow_id = task_run.get_workflow_id(task.id, task_run.id)
         client = await async_connect()
         handle = client.get_workflow_handle(workflow_id)
-        last_message, full_log_opt, _, _ = await poll_for_turn(
-            task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg)
-        )
-        full_log = full_log_opt or ""
+        turn = await poll_for_turn(task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg))
+        full_log = turn.full_log or ""
 
         duration = time.monotonic() - start
         logger.info(
@@ -122,7 +144,7 @@ async def run_eval_case(
             case.name,
             duration,
             len(full_log),
-            last_message or "(none)",
+            turn.last_message or "(none)",
         )
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
         completion_task = asyncio.create_task(_finish_workflow(handle, status="completed", reason=None))
@@ -161,6 +183,7 @@ async def run_eval_case(
 def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_finished: bool) -> AgentArtifacts:
     """Extract scoring artifacts from JSONL agent logs."""
     tool_outputs: list[dict] = []
+    agent_errors: list[str] = []
     has_error = False
 
     for line in log_content.strip().split("\n"):
@@ -191,6 +214,12 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
         session_update = update.get("sessionUpdate")
         if session_update in {"tool_call", "tool_call_update"}:
             tool_outputs.append(update)
+        # The agent-server reports its own failures here, and every `errorType` it emits means the
+        # run failed rather than the model answering badly. Without this the case looks clean:
+        # the workflow still finishes, so `exit_code` stays 0 and only the outcome scorers move.
+        if session_update == "error":
+            has_error = True
+            agent_errors.append(str(update.get("message") or update.get("errorType") or "agent error"))
 
     # Extract git diff, file changes, test results from tool outputs
     git_diff = ""
@@ -242,12 +271,13 @@ def _parse_artifacts_from_log(log_content: str, duration_seconds: float, agent_f
     return AgentArtifacts(
         exit_code=0 if agent_finished and not has_error else 1,
         stdout=agent_output[:10000],
-        stderr="",
+        stderr="\n".join(agent_errors)[:5000],
         git_diff=git_diff,
         files_changed=files_changed,
         test_exit_code=test_exit_code,
         test_output=test_output[:5000],
         lint_exit_code=lint_exit_code,
         lint_output=lint_output[:5000],
+        tool_call_count=len(tool_outputs),
         duration_seconds=duration_seconds,
     )

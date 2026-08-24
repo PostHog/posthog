@@ -8,7 +8,13 @@ import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
-from llm_gateway.baseten import BASETEN_METRIC_MODEL
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_METRIC_MODEL,
+    BASETEN_DEEPSEEK_MODEL,
+    BASETEN_GLM53_METRIC_MODEL,
+    BASETEN_GLM53_MODEL,
+    BASETEN_METRIC_MODEL,
+)
 from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +33,10 @@ COST_ALIASES: dict[str, tuple[str, str]] = {
     # Modal serves the same GLM checkpoint; billed at the CF rate until trued
     # up against Modal's GPU-time invoices.
     "openai/zai-org/GLM-5.2-FP8": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
+    "openai/zai-org/GLM-5.2": (BASETEN_METRIC_MODEL, "openai"),
+    f"openai/{BASETEN_DEEPSEEK_MODEL}": (BASETEN_DEEPSEEK_METRIC_MODEL, "openai"),
+    f"openai/{BASETEN_GLM53_MODEL}": (BASETEN_GLM53_METRIC_MODEL, "openai"),
+    "openai/moonshotai/kimi-k3": ("moonshotai/kimi-k3", "openai"),
 }
 
 # Map LiteLLM's provider and model labels to stable telemetry identifiers. This stays separate from
@@ -37,6 +47,8 @@ ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     # Same public model id as the CF entry so dashboards slice one model across both backends.
     "openai/zai-org/GLM-5.2-FP8": ("modal", "@cf/zai-org/glm-5.2"),
     "openai/zai-org/GLM-5.2": ("baseten", BASETEN_METRIC_MODEL),
+    f"openai/{BASETEN_DEEPSEEK_MODEL}": ("baseten", BASETEN_DEEPSEEK_METRIC_MODEL),
+    f"openai/{BASETEN_GLM53_MODEL}": ("baseten", BASETEN_GLM53_METRIC_MODEL),
     "openai/moonshotai/kimi-k3": ("modal", "moonshotai/kimi-k3"),
 }
 

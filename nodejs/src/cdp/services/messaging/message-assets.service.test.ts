@@ -47,7 +47,7 @@ const invocationWithAction = (id: string, teamId = 7): CyclotronJobInvocationHog
 
 const resultWith = (assets: MessageAssetRow[]): CyclotronJobInvocationResult =>
     ({
-        emailAssets: assets,
+        messageAssets: assets,
     }) as unknown as CyclotronJobInvocationResult
 
 const producedRowAt = (outputs: jest.Mocked<IngestionOutputs<'message_assets'>>, index: number): MessageAssetRow => {
@@ -245,7 +245,7 @@ describe('MessageAssetsService', () => {
             expect(outputs.produce).toHaveBeenCalledTimes(1)
         })
 
-        it('skips results that carry an empty emailAssets array', async () => {
+        it('skips results that carry an empty messageAssets array', async () => {
             service.queueInvocationResults([resultWith([]), resultWith([])])
             await service.flush()
             expect(outputs.produce).not.toHaveBeenCalled()

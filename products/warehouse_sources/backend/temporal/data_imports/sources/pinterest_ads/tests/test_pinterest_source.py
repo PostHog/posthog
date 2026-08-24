@@ -3,8 +3,6 @@ from unittest import mock
 
 import requests
 
-from posthog.schema import SourceFieldOauthAccountSelectConfig, SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -12,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PinterestAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source import PinterestAdsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPinterestAdsSource:
@@ -20,31 +17,6 @@ class TestPinterestAdsSource:
         self.source = PinterestAdsSource()
         self.team_id = 123
         self.config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="789")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PINTERESTADS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "PinterestAds"
-        assert config.label == "Pinterest Ads"
-        assert config.releaseStatus == "ga"
-        assert config.featureFlag is None
-        assert len(config.fields) == 2
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "pinterest_ads_integration_id"
-        assert oauth_field.kind == "pinterest-ads"
-        assert oauth_field.required is True
-
-        account_field = config.fields[1]
-        assert isinstance(account_field, SourceFieldOauthAccountSelectConfig)
-        assert account_field.name == "ad_account_id"
-        assert account_field.required is True
-        assert account_field.integrationField == "pinterest_ads_integration_id"
-        assert account_field.integrationKind == "pinterest-ads"
 
     def test_validate_credentials_missing_account_id(self):
         invalid_config = PinterestAdsSourceConfig(pinterest_ads_integration_id=456, ad_account_id="")
@@ -96,15 +68,43 @@ class TestPinterestAdsSource:
             "campaigns",
             "ad_groups",
             "ads",
+            "ad_accounts",
+            "audiences",
+            "conversion_tags",
+            "keywords",
             "campaign_analytics",
             "ad_group_analytics",
             "ad_analytics",
+            "campaign_targeting_analytics",
+            "ad_group_targeting_analytics",
+            "ad_targeting_analytics",
         ]
         assert len(schemas) == len(expected_endpoints)
 
         schema_names = [schema.name for schema in schemas]
         for endpoint in expected_endpoints:
             assert endpoint in schema_names
+
+    @pytest.mark.parametrize(
+        "endpoint,should_sync_default",
+        [
+            ("campaigns", True),
+            ("campaign_analytics", True),
+            ("ad_accounts", True),
+            ("audiences", True),
+            ("conversion_tags", True),
+            ("keywords", True),
+            # Breakdown tables fan out over every entity, day and targeting type, so a customer has
+            # to opt into them rather than have them switched on by the schema picker.
+            ("campaign_targeting_analytics", False),
+            ("ad_group_targeting_analytics", False),
+            ("ad_targeting_analytics", False),
+        ],
+    )
+    def test_expensive_breakdown_tables_are_off_by_default(self, endpoint, should_sync_default):
+        schemas = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
+
+        assert [schema.should_sync_default for schema in schemas] == [should_sync_default]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.source.PinterestAdsSource.get_oauth_integration"
@@ -158,13 +158,6 @@ class TestPinterestAdsSource:
 
         with pytest.raises(ValueError, match="Pinterest Ads access token not found for job test_job"):
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-    def test_get_resumable_source_manager(self):
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class.__name__ == "PinterestAdsResumeConfig"
 
     @pytest.mark.parametrize(
         "transport_error",

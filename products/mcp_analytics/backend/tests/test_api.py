@@ -1,5 +1,6 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
@@ -12,7 +13,7 @@ from parameterized import parameterized
 from posthog.models.utils import uuid7
 from posthog.utils import generate_cache_key
 
-from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -637,7 +638,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 "$session_id": session_id,
                 "$mcp_tool_name": "query_run",
                 "$mcp_intent": "check signups",
-                "$mcp_client_name": "Claude Code",
+                "$mcp_client_name": "claude-code",
                 "$mcp_duration_ms": 120,
             },
         )
@@ -651,7 +652,7 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 "$mcp_tool_name": "docs_search",
                 "$mcp_is_error": "true",
                 "$mcp_response": '{"content": [{"type": "text", "text": "index unavailable"}]}',
-                "$mcp_client_name": "Claude Code",
+                "$mcp_client_name": "claude-code",
             },
         )
         _create_event(
@@ -693,23 +694,83 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert overview.recent_calls[1].duration_ms == 120.0
         assert overview.recent_calls[1].intent == "check signups"
 
-    def test_merges_client_spellings_that_differ_only_by_case_or_separator(self) -> None:
-        # Agents report the same client under several spellings. Grouping on the raw property
-        # listed one client as several rows, each competing for the same top-N slots.
-        for client, count in [("claude-code", 3), ("Claude Code", 2), ("CLAUDE_CODE", 1)]:
-            for _ in range(count):
-                _create_event(
-                    team=self.team,
-                    event="$mcp_tool_call",
-                    distinct_id="agent-1",
-                    timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
-                    properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", "$mcp_client_name": client},
-                )
+    def _emit_call(self, properties: dict[str, Any], count: int = 1) -> None:
+        for _ in range(count):
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="agent-1",
+                timestamp=datetime.now(tz=UTC) - timedelta(minutes=5),
+                properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", **properties},
+            )
+
+    def test_merges_client_spellings_into_one_canonical_row(self) -> None:
+        # One client reaches us under several spellings — different casing, and a proxied
+        # name carrying mcp-remote's signature. Grouping on the raw property listed each as
+        # its own row, so one client competed with itself for the top-N slots.
+        # Separator variants ("Claude Code", "CLAUDE_CODE") are deliberately not merged:
+        # no client emits them, and collapsing `[ ._-]` would destroy the surface tokens
+        # the classifier matches on ("claude-code cli", "visual studio code").
+        for client, count in [
+            ("claude-code", 3),
+            ("Claude-Code", 2),
+            ("claude-code (via mcp-remote 0.1.37)", 1),
+        ]:
+            self._emit_call({"$mcp_client_name": client}, count)
 
         overview = api.get_activity_overview(self.team)
 
-        # The most-seen spelling represents the merged row.
-        assert overview.clients == [contracts.ActivityClientRow(client="claude-code", calls=6)]
+        assert overview.clients == [contracts.ActivityClientRow(client="Claude Code", calls=6)]
+
+    def test_counts_one_client_reached_by_two_identity_signals_once(self) -> None:
+        # Codex arrives both as a session-pinned clientInfo name and as a user-agent
+        # surface. Those are two different tokens but one client, so counting tokens
+        # would report "2 clients" next to a Clients card showing a single row.
+        self._emit_call({"mcp_session_client_name": "codex-mcp-client"}, count=3)
+        self._emit_call({"$mcp_client_user_agent": "openai-mcp/1.0.0 (Codex)"}, count=2)
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.clients == [contracts.ActivityClientRow(client="OpenAI Codex", calls=5)]
+        assert overview.stats.distinct_clients == 1
+
+    @parameterized.expand(
+        [
+            # `$mcp_client_name` rides on `initialize` only, so a mid-session tool call
+            # carries the session-pinned name instead. Reading the raw property alone left
+            # every one of these unattributed.
+            ("session_pinned_name", {"mcp_session_client_name": "codex-mcp-client"}, "OpenAI Codex"),
+            # Codex's other spelling: the User-Agent surface. The generic `openai-mcp`
+            # prefix used to swallow this and report it as plain "OpenAI".
+            ("codex_user_agent_surface", {"$mcp_client_user_agent": "openai-mcp/1.0 (Codex)"}, "OpenAI Codex"),
+            ("vendor_header", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            ("oauth_client_name", {"$mcp_oauth_client_name": "cursor-vscode"}, "Cursor"),
+            # An unrecognized client is still named — its own self-report beats "Other".
+            ("unrecognized_named_verbatim", {"$mcp_client_name": "openclaw-bundle-mcp"}, "openclaw-bundle-mcp"),
+            # ...and keeps its own capitalization: matching lower-cases the token, but the
+            # name shown back is the one the client reported.
+            ("unrecognized_keeps_casing", {"$mcp_client_name": "NexusAgent"}, "NexusAgent"),
+            (
+                "unrecognized_keeps_casing_via_session",
+                {"mcp_session_client_name": "Concept Connectors"},
+                "Concept Connectors",
+            ),
+            ("no_identity_at_all", {}, mcp_harness.UNIDENTIFIED_HARNESS_LABEL),
+        ]
+    )
+    def test_attributes_clients_from_every_identity_signal(
+        self, _name: str, properties: dict[str, Any], expected: str
+    ) -> None:
+        self._emit_call(properties, count=2)
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.clients == [contracts.ActivityClientRow(client=expected, calls=2)]
+        # The stat tile and the live feed resolve the caller the same way the card does,
+        # so they can't disagree about who called: counting the raw property scored these
+        # as zero known clients and left the feed's caller column blank.
+        assert overview.stats.distinct_clients == (0 if expected == mcp_harness.UNIDENTIFIED_HARNESS_LABEL else 1)
+        assert [call.client_name for call in overview.recent_calls] == [expected, expected]
 
 
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

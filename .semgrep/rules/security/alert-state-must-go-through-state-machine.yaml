@@ -29,6 +29,33 @@ rules:
               - '/products/logs/backend/test/**'
               - '/products/logs/backend/**/test_*.py'
 
+    - id: billing-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., consecutive_failures=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
+      message: |
+          Direct mutation of a billing alert's lifecycle fields bypasses its state
+          machine adapter. Route the change through
+          products.billing_alerts.backend.logic.state_machine.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/billing_alerts/backend/**/*.py'
+          exclude:
+              - '/products/billing_alerts/backend/logic/state_machine.py'
+              - '/products/billing_alerts/backend/test/**'
+              - '/products/billing_alerts/backend/**/test_*.py'
+
     - id: insight-alert-state-direct-mutation
       patterns:
           - pattern-either:

@@ -60,6 +60,8 @@ common-temporal = { path = "../common/temporal" }
 
 [dev-dependencies]
 common-compression = { path = "../common/compression" }
+# For constructing IO-flavored RedisErrors in redis_heal classifier tests
+redis = { workspace = true }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }

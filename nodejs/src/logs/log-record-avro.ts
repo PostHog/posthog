@@ -9,6 +9,12 @@ import type { LogsSettings } from '~/types'
 import { recordLogProcessingDuration } from './ingestion-otel-metrics'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
 import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
+import {
+    type DropStats,
+    EMPTY_DROP_STATS,
+    type PipelineStage,
+    runPipelineStages,
+} from './pipeline/log-processing-pipeline'
 
 const MAX_JSON_ATTRIBUTES = 50
 
@@ -44,6 +50,9 @@ export interface LogRecord {
     event_name: string | null
     attributes: Record<string, string> | null
     bytes_uncompressed?: number | null
+    /** Per-row retention in days, stamped by the retention stage from team retention rules. Null/undefined
+     * leaves ClickHouse to fall back to the batch `retention-days` header (the team default). */
+    retention_days?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {
@@ -290,13 +299,59 @@ export async function transformDecodedLogRecordsInPlace(
     return pii
 }
 
+/** Applied to decoded records after the built-in transforms; mutates the array in place
+ * (dropped records are removed). Used to run hog log transformations last. */
+export type LogRecordsTransform = (records: LogRecord[]) => Promise<unknown>
+
+export type ProcessLogMessageBufferOptions = {
+    /** Runs after normalize and before the stages — sees every record post-scrub and pre-drop. */
+    onRecordsDecoded?: (records: LogRecord[]) => void
+    /** Ordered mutate/filter stages (sampling, hog transforms, per-row retention). */
+    stages?: PipelineStage[]
+}
+
+export type ProcessLogMessageBufferResult = {
+    value: Buffer | null
+    pii: PiiScrubStats
+    drops: DropStats
+}
+
 /**
- * Processes an AVRO-encoded log message buffer containing multiple records.
- * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
- * Otherwise: decode → optional PII scrub on `body` → optional parse bodies → optional JSON enrich → encode.
+ * How much work `processLogMessageBuffer` does with a buffer, cheapest first: `passthrough` forwards
+ * it untouched, `decode_only` decodes for a visitor then forwards the original, `decode_and_reencode`
+ * decodes, transforms and encodes again.
+ */
+export type BufferProcessingMode = 'passthrough' | 'decode_only' | 'decode_and_reencode'
+
+/**
+ * Give the buffer's current stage count, not the count it would have. A tier below
+ * `decode_and_reencode` names the work one more stage adds: `decode_only` adds an encode,
+ * `passthrough` adds a decode and an encode.
+ */
+export function bufferProcessingMode(
+    settings: LogsSettings,
+    stageCount: number,
+    hasVisitor: boolean
+): BufferProcessingMode {
+    const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
+    if (normalizeActive || stageCount > 0) {
+        return 'decode_and_reencode'
+    }
+    return hasVisitor ? 'decode_only' : 'passthrough'
+}
+
+/**
+ * The single decode → transform → encode path for a log message buffer.
+ * Passthrough (no decode) when json_parse_logs and pii_scrub_logs are off, there are no `stages`, and
+ * no `onRecordsDecoded` visitor.
+ * Otherwise: decode → normalize (optional PII scrub on `body`, then optional JSON parse + enrich) →
+ * `onRecordsDecoded` visitor → run `stages` in order → encode.
  *
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
- * attributes are derived from the redacted body string. `parseLogBodiesForIngestion` runs only when JSON parse is on.
+ * attributes are derived from the redacted body string. A read-only message (no normalize, no stages)
+ * that only ran a visitor is returned untouched — no re-encode.
+ *
+ * `value` is null when the stages dropped every record — the caller must not produce it downstream.
  */
 export const processLogMessageBuffer = instrumented({
     key: SPAN_LOGS_PROCESS_BUFFER,
@@ -304,21 +359,19 @@ export const processLogMessageBuffer = instrumented({
 })(async function processLogMessageBufferImpl(
     buffer: Buffer,
     settings: LogsSettings,
-    onRecordsDecoded?: (records: LogRecord[]) => void
-): Promise<{ value: Buffer; pii: PiiScrubStats }> {
-    const jsonParse = settings.json_parse_logs ?? false
-    const piiScrub = settings.pii_scrub_logs ?? false
+    options: ProcessLogMessageBufferOptions = {}
+): Promise<ProcessLogMessageBufferResult> {
+    const { onRecordsDecoded, stages = [] } = options
+    const processingMode = bufferProcessingMode(settings, stages.length, Boolean(onRecordsDecoded))
 
-    if (!jsonParse && !piiScrub) {
-        // Passthrough: the buffer is forwarded untouched. Decode only when a visitor
-        // (metric-rule extraction) needs the records — skipping the re-encode either way.
-        if (onRecordsDecoded) {
-            const [, , records] = await decodeLogRecordsInstrumented(buffer)
-            onRecordsDecoded(records)
-        }
-        return { value: buffer, pii: EMPTY_PII }
+    if (processingMode === 'passthrough') {
+        // Passthrough: nothing mutates or drops and no visitor needs the records — forward untouched.
+        return { value: buffer, pii: EMPTY_PII, drops: EMPTY_DROP_STATS() }
     }
 
+    // Read only by the duration labels in the `finally`, which the passthrough return never reaches.
+    const jsonParse = settings.json_parse_logs ?? false
+    const piiScrub = settings.pii_scrub_logs ?? false
     const startTime = Date.now()
     let codec = 'unknown'
 
@@ -333,8 +386,24 @@ export const processLogMessageBuffer = instrumented({
         const pii = await transformDecodedLogRecordsInPlace(records, settings)
         onRecordsDecoded?.(records)
 
-        const value = await encodeLogRecordsInstrumented(logRecordType, codec, records)
-        return { value, pii }
+        const { kept, stats } = await runPipelineStages(records, stages)
+
+        if (kept.length === 0) {
+            // No surviving records — signal the caller to suppress the message rather than forward or
+            // re-encode an empty batch downstream. Checked before the visitor-only shortcut below so a
+            // zero-record batch decoded solely for metric-rule tallying is suppressed too.
+            // `stats.droppedBy` distinguishes a filter drop (sampling / transformations) from an
+            // already-empty batch so the caller can attribute it correctly.
+            return { value: null, pii, drops: stats }
+        }
+        if (processingMode === 'decode_only') {
+            // Only a visitor ran and records survive — the buffer is unchanged, so forward it without
+            // re-encoding.
+            return { value: buffer, pii, drops: stats }
+        }
+
+        const value = await encodeLogRecordsInstrumented(logRecordType, codec, kept)
+        return { value, pii, drops: stats }
     } finally {
         const durationSeconds = (Date.now() - startTime) / 1000
         const durationLabels = {
@@ -348,5 +417,5 @@ export const processLogMessageBuffer = instrumented({
 }) as (
     buffer: Buffer,
     settings: LogsSettings,
-    onRecordsDecoded?: (records: LogRecord[]) => void
-) => Promise<{ value: Buffer; pii: PiiScrubStats }>
+    options?: ProcessLogMessageBufferOptions
+) => Promise<ProcessLogMessageBufferResult>

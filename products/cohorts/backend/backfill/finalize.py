@@ -1,7 +1,12 @@
-"""Terminalizes behavioral backfill runs the Rust seeder has fully observed.
+"""Terminalizes backfill runs the Rust seeder has fully observed.
 
-Only ``last_backfill_events_at`` is stamped; mixed person+behavioral cohorts stay flag-incompatible
-until the person-properties column is stamped too (intended fail-closed).
+A run stamps the readiness column of its own kind: behavioral runs stamp ``last_backfill_events_at``,
+person-property runs stamp ``last_backfill_person_properties_at``. A mixed cohort needs both runs to
+finalize before it is flag-compatible (intended fail-closed).
+
+The person half is gated dark by ``BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`` until the flags
+service can tell a stamp written here apart from the legacy ones it currently reads as proof that
+``cohort_membership`` is populated. See ``_finalizable_kinds``.
 
 The seeder writes a definitive per-participation outcome (``reconcile_completed_at`` /
 ``superseded_at`` / retryable ``error``) before it sets ``run.reconcile_observed_at`` as its last
@@ -9,6 +14,7 @@ write. This finalizer trusts those columns — never Kafka — and CASes the run
 ``reconciling`` once every participation has a terminal outcome.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -22,7 +28,7 @@ from prometheus_client import Counter, Gauge
 
 from posthog.tasks.utils import CeleryQueue
 
-from products.cohorts.backend.backfill.readiness import stamp_events_readiness
+from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
     CohortBackfillRun,
@@ -42,22 +48,30 @@ FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.update_team_service_fla
 
 READINESS_STAMPS_COUNTER = Counter(
     "posthog_cohort_backfill_readiness_stamps_total",
-    "Backfill participations resolved by the finalizer, by outcome",
-    ["result"],  # labels: "stamped", "superseded"
+    "Backfill participations resolved by the finalizer, by outcome and backfill kind",
+    # Split by kind for the same reason as by result: a person-side supersession spike is invisible
+    # summed against behavioral traffic.
+    ["result", "kind"],  # result: "stamped", "superseded"; kind: the CohortBackfillKind
 )
 
 RUNS_FINALIZED_COUNTER = Counter(
     "posthog_cohort_backfill_runs_finalized_total",
-    "Backfill runs terminalized by the finalizer, by terminal status",
-    ["status"],  # labels: "completed", "superseded"
+    "Backfill runs terminalized by the finalizer, by terminal status and backfill kind",
+    ["status", "kind"],  # status: "completed", "superseded"; kind: the CohortBackfillKind
 )
 
-# Split by reason: a shortfall is routine backpressure, an error is a crashed pass. Summing them
+# Split by reason: a shortfall is routine backpressure, an error is a crashed pass, and a gated run
+# is an expected backlog waiting on `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`. Summing them
 # would leave an alert unable to tell which one is happening.
 HELD_RUNS_GAUGE = Gauge(
     "posthog_cohort_backfill_finalizer_held_runs",
     "Observed backfill runs the finalizer left in reconciling, by reason",
-    ["reason"],  # labels: "shortfall" (an outcome was missing), "error" (the pass raised)
+    # labels: "shortfall" (an outcome was missing), "error" (the pass raised), "gated" (a person
+    # run parked behind the readiness gate)
+    ["reason"],
+    # This is a whole-fleet snapshot served from each worker pod's own registry, so `max` holds a
+    # drained reason high until the task lands again on the pod that wrote the high reading.
+    # `observe.py` pushes its equivalent gauges under one job name instead; this one wants the same.
     multiprocess_mode="max",
 )
 
@@ -69,8 +83,36 @@ class FinalizerPass:
     superseded: int = 0
     held: int = 0
     errored: int = 0
+    gated: int = 0
     stamped_participations: int = 0
     invalidated_teams: int = 0
+
+
+# Every kind this finalizer knows how to stamp. Discovery draws from these keys, so the lookup below
+# can only ever see a kind it has a stamp for, which is what guarantees a run is never stamped into
+# the wrong column. It also means a kind added to the vocabulary without a stamp here is filtered out
+# of discovery and simply never finalized: it sits in `reconciling` indefinitely, with no exception,
+# no error count, and no gauge movement. `test_every_backfill_kind_has_a_stamp` turns that silence
+# into a CI failure instead.
+_STAMP_BY_KIND: dict[str, Callable[[CohortBackfillRun, int], bool]] = {
+    CohortBackfillKind.BEHAVIORAL: stamp_events_readiness,
+    CohortBackfillKind.PERSON_PROPERTY: stamp_person_properties_readiness,
+}
+
+
+def _finalizable_kinds() -> tuple[str, ...]:
+    """The kinds this pass may terminalize, narrowed by the person readiness gate.
+
+    Gating discovery rather than the stamp is deliberate: a stamp function that returned ``False``
+    would mark the participation superseded, which is terminal, and would silently throw away a
+    completed person backfill. Filtering here leaves the run `reconciling` instead, so it finalizes
+    normally once the gate opens. See ``BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`` for why the
+    person stamp is held back: the flags service still reads it as proof that `cohort_membership`
+    is populated, which is true of the legacy rows but not of one this finalizer writes.
+    """
+    if settings.BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED:
+        return tuple(_STAMP_BY_KIND)
+    return (CohortBackfillKind.BEHAVIORAL,)
 
 
 def _dispatch_flags_cache_update(team_id: int) -> None:
@@ -87,20 +129,46 @@ def finalize_backfill_runs() -> FinalizerPass:
         _publish_held_runs(result)
         return result
 
+    if not settings.BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED:
+        # The kind filter below holds these runs invisibly: discovery never surfaces them, so
+        # `result.held` stays 0 and nothing else reports how much is waiting behind the gate.
+        result.gated = (
+            CohortBackfillRun.objects.unscoped()
+            .filter(
+                backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
+                status=CohortBackfillRunStatus.RECONCILING,
+                reconcile_observed_at__isnull=False,
+            )
+            .count()
+        )
+
     # Deliberate, documented cross-team scan: the finalizer serves all teams. Each row is re-locked
-    # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, which
-    # the partial index already orders by, so a capped pass drains the backlog in arrival order.
-    observed = list(
-        CohortBackfillRun.objects.unscoped()
+    # per team inside the loop, so the unscoped read is discovery only. The kind predicate does two
+    # jobs: while `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is off it holds person runs in
+    # `reconciling` rather than stamping them, and it is what makes "a kind with no stamp is never
+    # discovered", rather than "is discovered and then raises", protect `_STAMP_BY_KIND`.
+    #
+    # One query per kind, each with its own slice of the budget: the person backlog parked while
+    # the readiness gate was off all sorts ahead of live behavioral runs under
+    # `reconcile_observed_at`, so a single shared cap would hand it the entire budget for the first
+    # passes after the gate opens. Per-kind equality is also what keeps the walk cheap:
+    # `cohort_bfr_reconciling_idx` leads with `backfill_kind`, so each query enters the index at its
+    # own kind and reads `reconcile_observed_at` already ordered — the cap terminates the walk
+    # rather than bounding a sort, and neither kind pays for the other's parked backlog.
+    kinds = _finalizable_kinds()
+    per_kind = max(1, settings.BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS // len(kinds))
+    observed = [
+        row
+        for kind in kinds
+        for row in CohortBackfillRun.objects.unscoped()
         .filter(
-            # Only the events column is stamped, so never terminalize a person-properties run.
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            backfill_kind=kind,
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at__isnull=False,
         )
         .order_by("reconcile_observed_at")
-        .values_list("id", "team_id")[: settings.BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS]
-    )
+        .values_list("id", "team_id")[:per_kind]
+    ]
 
     teams_to_invalidate: set[int] = set()
     for run_id, team_id in observed:
@@ -133,6 +201,7 @@ def finalize_backfill_runs() -> FinalizerPass:
 def _publish_held_runs(result: FinalizerPass) -> None:
     HELD_RUNS_GAUGE.labels(reason="shortfall").set(result.held)
     HELD_RUNS_GAUGE.labels(reason="error").set(result.errored)
+    HELD_RUNS_GAUGE.labels(reason="gated").set(result.gated)
 
 
 def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool:
@@ -169,6 +238,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 team_id=team_id,
                 participations=len(participations),
             )
+        stamp_readiness = _STAMP_BY_KIND[run.backfill_kind]
         for participation in participations:
             # Supersede trumps completion, so check it first.
             if participation.superseded_at is not None:
@@ -178,16 +248,16 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 stamped += 1
                 continue
             if participation.reconcile_completed_at is not None:
-                if stamp_events_readiness(run, participation.cohort_id):
+                if stamp_readiness(run, participation.cohort_id):
                     stamped += 1
                     invalidate_team = True
                     result.stamped_participations += 1
-                    READINESS_STAMPS_COUNTER.labels(result="stamped").inc()
+                    READINESS_STAMPS_COUNTER.labels(result="stamped", kind=run.backfill_kind).inc()
                 else:
-                    # stamp_events_readiness superseded the participation (and, for a cohort-scoped
-                    # run, possibly the run row itself) inside this transaction.
+                    # The stamp superseded the participation (and, for a cohort-scoped run, possibly
+                    # the run row itself) inside this transaction.
                     superseded += 1
-                    READINESS_STAMPS_COUNTER.labels(result="superseded").inc()
+                    READINESS_STAMPS_COUNTER.labels(result="superseded", kind=run.backfill_kind).inc()
                 continue
 
             # No outcome despite reconcile_observed_at being set. An empty error means the seeder
@@ -223,18 +293,18 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
         if transitioned:
             if terminal_status == CohortBackfillRunStatus.COMPLETED:
                 result.completed += 1
-                RUNS_FINALIZED_COUNTER.labels(status="completed").inc()
+                RUNS_FINALIZED_COUNTER.labels(status="completed", kind=run.backfill_kind).inc()
             else:
                 result.superseded += 1
-                RUNS_FINALIZED_COUNTER.labels(status="superseded").inc()
+                RUNS_FINALIZED_COUNTER.labels(status="superseded", kind=run.backfill_kind).inc()
         else:
             # We hold the run row's FOR UPDATE lock, so a missed CAS can only mean our own
-            # stamp_events_readiness call superseded a cohort-scoped run inside this transaction —
+            # readiness stamp superseded a cohort-scoped run inside this transaction —
             # the run is terminal (superseded + finished_at) and counted as such. That reads the
             # one-participation invariant checked above: with more, a run that also stamped a cohort
             # would land here and be counted purely superseded.
             result.superseded += 1
-            RUNS_FINALIZED_COUNTER.labels(status="superseded").inc()
+            RUNS_FINALIZED_COUNTER.labels(status="superseded", kind=run.backfill_kind).inc()
 
         # Re-fire invalidation when completing a run whose stamps landed in an earlier pass, covering
         # a crash between that pass's commit and its post-commit invalidation. (A crash after this

@@ -229,6 +229,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         slack_email_at_link=identity.slack_email,
         user_access_token=identity.user_access_token,
         user_refresh_token=identity.user_refresh_token,
+        user_scopes=identity.user_scopes,
     )
 
     _post_link_success_followup(

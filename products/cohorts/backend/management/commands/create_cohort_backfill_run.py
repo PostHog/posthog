@@ -15,24 +15,19 @@ from products.cohorts.backend.backfill.pinning import (
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.runs import (
-    _person_backfill_ineligibility_reason,
     _validate_boundary_at,
     check_person_run_preconditions,
     check_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
+    has_behavioral_filters,
+    person_backfill_ineligibility_reason,
 )
 from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
-
-
-def _has_behavioral_filters(cohort: Cohort) -> bool:
-    return any(
-        leaf.get("type") == "behavioral" for leaf in walk_filter_leaves((cohort.filters or {}).get("properties"))
-    )
 
 
 def _parse_boundary_at(value: str | None) -> datetime | None:
@@ -111,7 +106,7 @@ class Command(BaseCommand):
             )
             if cohort_ids is not None:
                 queryset = queryset.filter(id__in=cohort_ids)
-            cohorts = [cohort for cohort in queryset.order_by("id") if _has_behavioral_filters(cohort)]
+            cohorts = [cohort for cohort in queryset.order_by("id") if has_behavioral_filters(cohort)]
             if cohort_ids is not None and {cohort.id for cohort in cohorts} != set(cohort_ids):
                 raise CommandError("One or more --cohort-ids are not eligible realtime behavioral cohorts")
             pinned, event_names = pin_conditions_for_cohorts(cohorts)
@@ -145,7 +140,7 @@ class Command(BaseCommand):
         boundary_at: datetime | None,
         dry_run: bool,
     ) -> None:
-        _, missing = check_person_run_preconditions(requires_sizing_attestation=True)
+        _, missing = check_person_run_preconditions()
         if missing:
             raise CommandError(f"Missing operator attestations: {', '.join(missing)}")
         if person_horizon_days < 1:
@@ -196,11 +191,11 @@ class Command(BaseCommand):
         requested_ids = set(cohort_ids) if cohort_ids is not None else None
         # Deliberately wider than `_person_cohorts_for_team`, which narrows the SQL-expressible half
         # of eligibility away before it locks: the dry run's whole job is naming *why* each cohort was
-        # refused, and it takes no locks. Both sides decide with `_person_backfill_ineligibility_reason`.
+        # refused, and it takes no locks. Both sides decide with `person_backfill_ineligibility_reason`.
         queryset = Cohort.objects.filter(team_id=team_id)
         if requested_ids is not None:
             queryset = queryset.filter(id__in=requested_ids)
-        candidates = [(cohort, _person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
+        candidates = [(cohort, person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
 
         refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
         if requested_ids is not None:

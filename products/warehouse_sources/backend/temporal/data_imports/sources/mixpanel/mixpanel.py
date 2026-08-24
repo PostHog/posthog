@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.s
     MIXPANEL_API_VERSION_V1,
     MIXPANEL_ENDPOINTS,
     REGION_HOSTS,
+    RegionHosts,
 )
 
 # Rows buffered before yielding a batch. The pipeline batches again downstream, but
@@ -98,16 +99,16 @@ class MixpanelResumeConfig:
     page: Optional[int] = None
 
 
-def _hosts(region: str) -> tuple[str, str]:
+def _hosts(region: str) -> RegionHosts:
     return REGION_HOSTS.get(region, REGION_HOSTS["us"])
 
 
 def _query_base(region: str) -> str:
-    return _hosts(region)[0]
+    return _hosts(region).query_base
 
 
 def _export_base(region: str) -> str:
-    return _hosts(region)[1]
+    return _hosts(region).export_base
 
 
 def _export_url(region: str, api_version: str) -> str:

@@ -9,12 +9,12 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from django.db.models import Case, Count, DateTimeField, Exists, Max, Min, OuterRef, Q, QuerySet, UUIDField, When
 from django.db.models.functions import Cast, Coalesce
 
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import query_with_columns
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.temporal.common.logger import get_logger
@@ -52,14 +52,20 @@ def build_support_ticket_url(team_id: int, ticket_number: int) -> str:
     return f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/support/tickets/{ticket_number}"
 
 
-def _get_slack_bot_token(slack_team_id: str | None, team_id: int | None) -> str | None:
-    """Resolve the Slack bot token that can read a channel.
+def _get_slack_bot_token(slack_team_id: str | None, team_id: int | None) -> tuple[str, str | None] | None:
+    """Resolve the Slack bot token that can read a channel, and the workspace it belongs to.
 
     The bot lives in the channel's Slack workspace, so match the config by
     ``slack_team_id`` (unique per workspace) first and fall back to the
     representative PostHog team only when the workspace id is unknown.
+
+    The returned workspace id comes from the resolved config rather than the
+    requested ``slack_team_id`` so that a team fallback attributes egress to the
+    workspace the token actually belongs to, not to a requested-but-unmatched id.
     """
-    configs = TeamConversationsSlackConfig.objects.filter(slack_bot_token__isnull=False).only("slack_bot_token")
+    configs = TeamConversationsSlackConfig.objects.filter(slack_bot_token__isnull=False).only(
+        "slack_bot_token", "slack_team_id"
+    )
 
     config = configs.filter(slack_team_id=slack_team_id).first() if slack_team_id else None
     if config is None and team_id is not None:
@@ -67,16 +73,22 @@ def _get_slack_bot_token(slack_team_id: str | None, team_id: int | None) -> str 
 
     if not config or not config.slack_bot_token:
         return None
-    return str(config.slack_bot_token)
+    return str(config.slack_bot_token), config.slack_team_id
 
 
 def fetch_slack_channel_user_count(team_id: int, slack_channel_id: str, slack_team_id: str | None = None) -> int | None:
     """Fetch the current Slack channel member count using the channel's support bot token."""
-    bot_token = _get_slack_bot_token(slack_team_id, team_id)
-    if not bot_token:
+    resolved = _get_slack_bot_token(slack_team_id, team_id)
+    if not resolved:
         return None
+    bot_token, resolved_slack_team_id = resolved
 
-    client = WebClient(token=bot_token)
+    client = WebClient(
+        token=bot_token,
+        source="salesforce_enrichment",
+        workspace_id=resolved_slack_team_id,
+        app_id="support",
+    )
     cursor: str | None = None
     user_count = 0
 

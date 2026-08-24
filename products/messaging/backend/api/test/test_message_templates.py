@@ -117,6 +117,23 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.json()["name"] == "Valid Template"
         assert response.json()["content"]["email"]["subject"] == "Hello"
 
+    def test_create_with_html_only_wraps_design_without_rerendering(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_templates/",
+            data={
+                "name": "HTML only",
+                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+                "type": "email",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        email = response.json()["content"]["email"]
+        assert email["html"] == "<p>Hello</p>"
+        contents = email["design"]["body"]["rows"][0]["columns"][0]["contents"]
+        assert contents[0]["type"] == "html"
+        assert contents[0]["values"]["html"] == "<p>Hello</p>"
+
     def test_create_email_template_without_email_content_succeeds(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",
@@ -295,7 +312,11 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.message_template.refresh_from_db()
-        assert self.message_template.content["email"] == {"subject": "New", "html": "<p>New</p>"}
+        email = self.message_template.content["email"]
+        assert email["subject"] == "New"
+        assert email["html"] == "<p>New</p>"
+        # The stored design is a wrap of the new html, not a merge of the old design
+        assert email["design"]["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"] == "<p>New</p>"
 
     def test_personal_api_key_cannot_access_other_teams_template(self):
         api_key = self.create_personal_api_key_with_scopes(["hog_flow:read"])

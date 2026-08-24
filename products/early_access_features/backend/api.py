@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import JsonResponse
 from django.utils.text import slugify
@@ -22,7 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
-from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
+from posthog.tasks.early_access_feature import POSTHOG_TEAM_ID, send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
 
 from products.feature_flags.backend.api.feature_flag import (
@@ -61,6 +62,16 @@ def assert_feature_flag_rbac_access(
     )
     if not has_access:
         raise PermissionDenied("You don't have sufficient permissions to modify the linked feature flag.")
+
+
+def derive_feature_flag_key(feature_name: str) -> str:
+    """Key of the flag auto-created for a feature of this name.
+
+    The collision pre-check in validate() and the actual creation in create() must derive the key
+    identically. If they drift, the pre-check clears a key create() never uses and the collision
+    resurfaces as an error on "key", the field the form doesn't have.
+    """
+    return slugify(feature_name)
 
 
 def clear_feature_enrollment(feature_flag: FeatureFlag, *, team: Team) -> None:
@@ -277,7 +288,9 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
         user_data = UserBasicSerializer(request.user).data if request.user else None
         serialized_previous = MinimalEarlyAccessFeatureSerializer(instance).data
 
-        if instance.stage != stage:
+        # A PATCH that omits stage (e.g. an inline assignee edit) leaves stage as None here; guard so
+        # it doesn't read as a move to a null stage and enqueue a spurious stage-change task.
+        if stage is not None and instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
         # The branches below each mutate the linked flag's enrollment filters, so they require
@@ -398,6 +411,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         read_only_fields = ["id", "feature_flag", "created_at", "created_by"]
 
     def validate(self, data):
+        # PostHog's own dogfooding project requires a description on every new early access feature.
+        # Scoped to US cloud specifically: project ids are allocated per region, so id 2 is only
+        # PostHog's own team on US — on EU/DEV/E2E it belongs to an unrelated customer.
+        is_us_cloud = (settings.CLOUD_DEPLOYMENT or "").upper() == "US"
+        if is_us_cloud and self.context["team_id"] == POSTHOG_TEAM_ID and not (data.get("description") or "").strip():
+            raise serializers.ValidationError({"description": "A description is required for early access features."})
+
         feature_flag_id = data.get("feature_flag_id", None)
 
         feature_flag = None
@@ -420,6 +440,33 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             if len(feature_flag.variants) > 0:
                 raise serializers.ValidationError(
                     "Multivariate feature flags are not supported for Early Access Features."
+                )
+        elif data.get("name"):
+            # No flag was chosen, so create() derives one from the name below. Checking the derived
+            # key here attaches the error to "name", the field this form actually has, instead of
+            # letting the nested FeatureFlagSerializer raise it on "key", which the form never shows.
+            feature_flag_key = derive_feature_flag_key(data["name"])
+            if not feature_flag_key:
+                # slugify() strips a name with no ASCII alphanumerics down to "", which the flag
+                # serializer's key regex then rejects.
+                raise serializers.ValidationError(
+                    {
+                        "name": "A feature flag key can't be built from this name. Rename this feature using letters (a-z) or numbers, or link an existing flag instead."
+                    }
+                )
+            existing_flag = FeatureFlag.objects.filter(
+                key=feature_flag_key, team__project_id=self.context["get_team"]().project_id
+            ).first()
+            if existing_flag is not None:
+                # Linking is only advice worth giving when the flag is actually linkable; the check
+                # above rejects a flag that already has a feature attached.
+                remedy = (
+                    "Rename this feature."
+                    if existing_flag.features.exists()
+                    else "Rename this feature, or link the existing flag instead."
+                )
+                raise serializers.ValidationError(
+                    {"name": f"A feature flag with the key '{feature_flag_key}' already exists. {remedy}"}
                 )
 
         return data
@@ -471,7 +518,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 team_id=self.context["team_id"],
             )
             assert_feature_flag_rbac_access(self.user_access_control)
-            feature_flag_key = slugify(validated_data["name"])
+            feature_flag_key = derive_feature_flag_key(validated_data["name"])
 
             filters: dict[str, Any] = {
                 "groups": default_condition,

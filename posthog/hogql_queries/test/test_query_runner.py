@@ -9,7 +9,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -63,7 +63,9 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -73,6 +75,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
 )
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.shared_link_user import SharedLinkUser
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -296,6 +299,7 @@ class TestQueryRunner(BaseTest):
                     "campaign_name_mappings": {},
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
+                    "costs_dedup_v2": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -345,6 +349,21 @@ class TestQueryRunner(BaseTest):
             "version": 2,
         }
 
+    def test_cache_payload_degrades_when_product_config_read_fails(self):
+        # A DB pool timeout while loading a product config for the cache key must not 500 the whole
+        # query; the failing config degrades to a stable marker while the others still resolve.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(organization=self.organization, base_currency=CurrencyCode.USD.value)
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+
+        with mock.patch.object(
+            TeamRevenueAnalyticsConfig, "to_cache_key_dict", side_effect=OperationalError("query_wait_timeout")
+        ):
+            products_modifiers = runner.get_cache_payload()["products_modifiers"]
+
+        assert products_modifiers["revenue_analytics"] == "unavailable"
+        assert products_modifiers["customer_analytics"]["signup_event"] == {}
+
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -365,7 +384,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_13ab830e775c41ee3ae4b45c386e6064d74eec55fb93092732c0bb305d7e980f"
+        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -379,7 +398,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_b624e873acbdc9829f0973b4dc14424bb26e3b5c36c11387ce24e9ff3bea2a00"
+        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -390,7 +409,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
+        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -1162,9 +1181,7 @@ class TestApplySeriesCustomNames(BaseTest):
     ):
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
-            StickinessQueryRunner,
-        )
+        from products.product_analytics.backend.facade.queries import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[
@@ -1360,6 +1377,20 @@ class TestSharedInsightsExecutionMode(BaseTest):
         result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
         self.assertEqual(result_mode, expected_mode)
         self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
+
+    @parameterized.expand([("shared_link_viewer", True), ("member", False)])
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_calculation_carries_the_share_for_a_shared_link_viewer(
+        self, _name: str, is_shared_viewer: bool, mock_enqueue: mock.MagicMock
+    ) -> None:
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        user = SharedLinkUser(sharing_configuration) if is_shared_viewer else self.user
+        runner = setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
+
+        runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=user)
+
+        expected = sharing_configuration.pk if is_shared_viewer else None
+        assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
 
 @pytest.mark.ee
@@ -1587,6 +1618,76 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         query = {"kind": "HogQLQuery", "query": "select * from system.surveys"}
         payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
         assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
+
+    def test_object_grants_under_a_denied_resource_partition_cache(self):
+        # Both users are denied notebooks at the resource level and see only what they were granted,
+        # so neither has a deny set to partition on - without the allowlist in the fingerprint they
+        # would share one entry and be served each other's notebook.
+        from products.notebooks.backend.models import Notebook
+
+        other_user = self._create_user("other@posthog.com")
+        other_membership = other_user.organization_memberships.get(organization=self.organization)
+        mine = Notebook.objects.create(team=self.team, created_by=self.user, title="Mine")
+        theirs = Notebook.objects.create(team=self.team, created_by=other_user, title="Theirs")
+
+        self._ac(resource="notebook", access_level="none")
+        self._ac(
+            resource="notebook",
+            resource_id=str(mine.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+        self._ac(
+            resource="notebook",
+            resource_id=str(theirs.id),
+            access_level="viewer",
+            organization_member=other_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        my_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        their_runner = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert my_runner.get_cache_payload()["allowlisted_objects"] == {"notebook": [str(mine.id)]}
+        assert their_runner.get_cache_payload()["allowlisted_objects"] == {"notebook": [str(theirs.id)]}
+        assert my_runner.get_cache_key() != their_runner.get_cache_key()
+
+    def test_creator_exemption_partitions_cache_between_identically_denied_users(self):
+        # The same notebook is denied to both users, so their deny sets match - but the guard keeps it
+        # visible to whoever created it, so they must not share a cache entry.
+        from products.notebooks.backend.models import Notebook
+
+        other_user = self._create_user("other@posthog.com")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="Mine")
+        self._ac(resource="notebook", access_level="editor")
+        self._ac(resource="notebook", resource_id=str(notebook.id), access_level="none")
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        creator_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        other_runner = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert creator_runner.get_cache_payload()["restricted_objects"] == {"notebook": [str(notebook.id)]}
+        assert other_runner.get_cache_payload()["restricted_objects"] == {"notebook": [str(notebook.id)]}
+        assert creator_runner.get_cache_key() != other_runner.get_cache_key()
+
+    def test_creator_exemption_partitions_cache_without_object_level_rules(self):
+        # A resource deny still leaves a creator's own objects visible. With no object rules, both users
+        # otherwise have the same fingerprint and could be served each other's cached result.
+        from products.notebooks.backend.models import Notebook
+
+        other_user = self._create_user("other@posthog.com")
+        Notebook.objects.create(team=self.team, created_by=self.user, title="Mine")
+        self._ac(resource="notebook", access_level="none")
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        creator_runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        other_runner = HogQLQueryRunner(query=query, team=self.team, user=other_user)
+
+        assert "restricted_objects" not in creator_runner.get_cache_payload()
+        assert "restricted_objects" not in other_runner.get_cache_payload()
+        assert creator_runner.get_cache_payload()["restricted_resources"] == ["notebook"]
+        assert other_runner.get_cache_payload()["restricted_resources"] == ["notebook"]
+        assert creator_runner.get_cache_key() != other_runner.get_cache_key()
 
     def test_run_recomputes_fingerprint_when_user_changes(self):
         # run(user=...) swaps the user after construction; the snapshot must rebuild for the new user.

@@ -20,10 +20,12 @@ import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import { ObservationResultSummary } from '../../components/ObservationCard'
 import type {
     FeedbackThemesApi,
@@ -151,6 +153,7 @@ function SuggestionEvaluationPanel({
     editedSinceTest: boolean
 }): JSX.Element | null {
     const [detailsOpen, setDetailsOpen] = useState(false)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const evaluation = suggestion.evaluation
     if (!evaluation) {
         return null
@@ -248,13 +251,11 @@ function SuggestionEvaluationPanel({
                                 title: 'Session',
                                 key: 'session',
                                 render: (_, result) => (
-                                    // New tab like the results table links, so reviewers keep their place.
                                     <Link
-                                        to={urls.replaySingle(result.session_id)}
-                                        target="_blank"
-                                        className="font-mono"
+                                        onClick={() => openSessionPlayer({ id: result.session_id })}
+                                        className="font-mono text-xs whitespace-nowrap"
                                     >
-                                        {result.session_id.slice(0, 8)}…
+                                        {result.session_id}
                                     </Link>
                                 ),
                             },
@@ -318,7 +319,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         loadSuggestionHistory,
     } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { quota } = useValues(visionQuotaLogic)
+    // `quota` gates the test button (enforcement), `displayQuota` renders spend copy (startup cap applied).
+    const { quota, displayQuota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // Scorer and summarizer have no discrete outcome, so they preview raw before/after instead of a verdict.
     const previewEvaluation = scanner?.scanner_type === 'scorer' || scanner?.scanner_type === 'summarizer'
@@ -396,7 +398,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <SuggestionMeta suggestion={currentSuggestion} />
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {currentSuggestion.status === 'pending' && evaluationSupported && (
                             <LemonButton
                                 size="small"
@@ -466,8 +468,8 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             of your {Math.min(evaluationSessionCap, ratedCount)} rated result
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, thumbs down first. Costs{' '}
                             {formatCreditCount(plannedTestCredits)}
-                            {quota && quota.remaining !== null && quota.credit_limit !== null
-                                ? `, ${formatCreditsRange(quota.remaining, quota.credit_limit)} left this period`
+                            {displayQuota && displayQuota.remaining !== null && displayQuota.credit_limit !== null
+                                ? `, ${formatCreditsRange(displayQuota.remaining, displayQuota.credit_limit)} left this period`
                                 : ''}
                             .
                         </span>
@@ -712,7 +714,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                 <Tooltip
                                     key={badge.version}
                                     title={
-                                        <div className="space-y-1 max-w-100">
+                                        <div className="space-y-1 max-w-[90vw] sm:max-w-100">
                                             <div className="font-semibold">
                                                 Prompt v{badge.version} · active from {badge.label}
                                             </div>
@@ -812,6 +814,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
     const logic = scannerCalibrationLogic({ scannerId })
     const { observations, observationsLoading, total, page, ratedFilter, sort } = useValues(logic)
     const { setPage, setRatedFilter, setSort, labelChanged } = useActions(logic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerType = scanner?.scanner_type
 
@@ -919,8 +922,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
                     size="small"
                     type="secondary"
                     icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
-                    targetBlank
+                    onClick={() => openSessionPlayer({ id: obs.session_id })}
                     className="whitespace-nowrap"
                     data-attr="vision-calibration-view-recording"
                 >
@@ -941,7 +943,7 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
             <RatingsOverTimePanel scannerId={scannerId} />
 
             <div className="space-y-3">
-                <div className="flex items-start gap-3">
+                <div className="flex flex-wrap items-start gap-3">
                     <div>
                         <h3 className="font-semibold text-base m-0">Rate results</h3>
                         <p className="text-muted text-xs m-0 mt-0.5">
@@ -983,11 +985,19 @@ export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX
                     nouns={['result', 'results']}
                     emptyState={
                         <div className="p-6 text-center text-muted">
-                            {ratedFilter === 'rated'
-                                ? 'No rated results yet. Rate some under "All" or "Unrated".'
-                                : ratedFilter === 'unrated'
-                                  ? 'No unrated results. Everything has been rated.'
-                                  : "No successful observations to rate yet. They'll appear here once the scanner produces results."}
+                            {ratedFilter === 'rated' ? (
+                                'No rated results yet. Rate some under "All" or "Unrated".'
+                            ) : ratedFilter === 'unrated' ? (
+                                'No unrated results. Everything has been rated.'
+                            ) : (
+                                <>
+                                    No successful observations to rate yet. They'll appear here once the scanner
+                                    produces results.{' '}
+                                    <VisionDocsLink page="calibration" dataAttr="vision-empty-docs-link-calibration">
+                                        Learn how calibration works
+                                    </VisionDocsLink>
+                                </>
+                            )}
                         </div>
                     }
                 />

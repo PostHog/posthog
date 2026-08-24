@@ -117,6 +117,10 @@ class BrokenTestState(StrEnum):
 
     - ``breaking_master``: has failed on the default branch and that job's latest completed run
       is still red — trunk is broken by this right now.
+    - ``blocking_merge_queue``: failed on a merge-queue gate branch and never on the default
+      branch — it stopped a merge on a commit that had already passed the PR's own CI, which is
+      the semantic-conflict class a merge queue exists to catch. Trunk is still green, so this
+      ranks below ``breaking_master``, but it is holding up landings right now.
     - ``novel_burst``: first seen within the last day and already spreading across several PR
       branches, not on the default branch yet — a new failure catching on.
     - ``potentially_resolved``: hit the default branch but that job's latest run is green again —
@@ -127,6 +131,7 @@ class BrokenTestState(StrEnum):
     """
 
     BREAKING_MASTER = "breaking_master"
+    BLOCKING_MERGE_QUEUE = "blocking_merge_queue"
     NOVEL_BURST = "novel_burst"
     POTENTIALLY_RESOLVED = "potentially_resolved"
     FLAKY = "flaky"
@@ -135,6 +140,8 @@ class BrokenTestState(StrEnum):
 
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
+    READY_FOR_REVIEW = "ready_for_review"
+    CONVERTED_TO_DRAFT = "converted_to_draft"
     CI_STARTED = "ci_started"
     CI_FINISHED = "ci_finished"
     MERGED = "merged"
@@ -762,6 +769,10 @@ class PullRequestListItem:
     merged_at: datetime | None
     # merged_at - created_at; coarse (fuses draft + ready-for-review time). None until merged.
     open_to_merge_seconds: int | None
+    # merged_at minus the LAST observed ready_for_review transition, falling back to created_at
+    # for a merged PR verifiably never drafted. None when unmerged, re-drafted, or not observed
+    # (the PR's life isn't fully inside the synced issue-event window); never "never drafted".
+    ready_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup
     # CI triggers attributed to this PR: distinct head SHAs across its workflow runs (a run
@@ -985,18 +996,18 @@ class CostPerMergeBucket:
 
 @dataclass(frozen=True)
 class TimeToGreenBucket:
-    """One time bucket of the repo's median time-to-green: the p50 wall-clock duration of *successful*
-    CI runs attributed to pull requests (default-branch runs excluded), started in this bucket. Cancelled
-    and failed runs end early and would bias the percentile low, so they are excluded — the same
-    success-only population the workflow-health percentiles use. ``p50_seconds`` is None for a bucket with
-    no successful PR run (a gap, not instant CI); the UI carries the last known value forward rather than
-    dipping the trend to zero.
+    """One time bucket of the repo's median time-to-green: p50 wall clock from a PR push round's
+    first run start until every workflow on that head SHA first completed benign (merge-queue gates
+    and partially-attributed fork rounds excluded). A flake re-run stretches the wall to its
+    recovery; a re-fire after green does not, though a workflow first firing late on the SHA (as
+    marking a draft ready does) stretches it by the wait that preceded it. ``p50_seconds`` is None
+    for a bucket with no fully green round (a gap, not instant CI); the UI carries the last known
+    value forward.
     """
 
-    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on round start.
     bucket_start: datetime
-    # Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. None when the
-    # bucket had no successful PR run.
+    # Median seconds from round start to all-green. None when the bucket had no fully green round.
     p50_seconds: float | None
 
 
@@ -1028,6 +1039,20 @@ class OpenToMergeBucket:
 
 
 @dataclass(frozen=True)
+class ReadyToMergeBucket:
+    """One time bucket of the repo's median cycle time: p50 of per-PR ``ready_to_merge_seconds``
+    (SPEC §6) over PRs merged in this bucket, bots and drafts excluded. ``p50_seconds`` is None
+    for a bucket with no observed value (a gap, not instant merges); the UI carries the last known
+    value forward.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Median per-PR ready_to_merge_seconds over PRs merged in this bucket. None when no observed value.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -1050,10 +1075,18 @@ class RepoOverview:
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
+    # The precise companion (SPEC §6): median per-PR ready_to_merge_seconds over merged PRs with an
+    # observed value. None means "not observed" (issue events unsynced or out of window), never zero.
+    median_ready_to_merge_seconds: float | None
+    median_ready_to_merge_seconds_prev: float | None
     billable_minutes: float | None
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
+    # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
+    # changes show up as their own delta instead of hiding inside the total.
+    merge_queue_billable_minutes: float | None
+    merge_queue_billable_minutes_prev: float | None
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
@@ -1062,8 +1095,8 @@ class RepoOverview:
     cost_series: list[CostPerMergeBucket]
     # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     cost_series_granularity: str
-    # Time-to-green trend: median CI duration of successful PR-attributed runs per bucket, oldest first,
-    # bucketed by `time_to_green_series_granularity`. Empty buckets carry None (no successful PR run).
+    # Time-to-green trend: median wall clock for a PR push round to settle fully green, per bucket,
+    # oldest first, bucketed by `time_to_green_series_granularity`. Empty buckets carry None.
     time_to_green_series: list[TimeToGreenBucket]
     # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     time_to_green_series_granularity: str
@@ -1077,6 +1110,11 @@ class RepoOverview:
     open_to_merge_series: list[OpenToMergeBucket]
     # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     open_to_merge_series_granularity: str
+    # Cycle-time trend: median per-PR ready_to_merge_seconds per bucket (bots/drafts excluded),
+    # oldest first. Empty when the issue-events table isn't synced; fall back to open_to_merge_series.
+    ready_to_merge_series: list[ReadyToMergeBucket]
+    # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    ready_to_merge_series_granularity: str
 
 
 @dataclass(frozen=True)

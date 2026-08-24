@@ -51,6 +51,7 @@ from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.insight.format import (
+    NULL_MARKER,
     TRUNCATED_MARKER,
     BoxPlotResultsFormatter,
     FunnelResultsFormatter,
@@ -135,10 +136,17 @@ class AssistantQueryExecutor:
 
     WAIT_TIME_S = 0.5
 
-    def __init__(self, team: Team, utc_now_datetime: datetime, user: "User"):
+    def __init__(
+        self,
+        team: Team,
+        utc_now_datetime: datetime,
+        user: "User",
+        event_source: EventSource = EventSource.POSTHOG_AI,
+    ):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
+        self._event_source = event_source
 
     async def arun_and_format_query(
         self,
@@ -317,6 +325,7 @@ class AssistantQueryExecutor:
             parent_tag_kwargs = get_query_tags().model_dump(exclude_none=True)
             team = self._team
             user = self._user
+            event_source = self._event_source
             query_dict = query.model_dump(mode="json")
 
             def process_query_dict_with_tags() -> dict | BaseModel:
@@ -327,7 +336,7 @@ class AssistantQueryExecutor:
                         execution_mode=execution_mode,
                         limit_context=LimitContext.POSTHOG_AI,
                         user=user,
-                        analytics_props={"source": EventSource.POSTHOG_AI},
+                        analytics_props={"source": event_source},
                     )
 
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread
@@ -590,6 +599,7 @@ async def execute_and_format_query(
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
     include_prompt_framing: bool = True,
+    event_source: EventSource = EventSource.POSTHOG_AI,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -613,7 +623,7 @@ async def execute_and_format_query(
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
-    query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user)
+    query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user, event_source=event_source)
 
     results, used_fallback = await query_runner.arun_and_format_query(
         query, execution_mode, insight_id, truncate_results=truncate_results
@@ -630,6 +640,10 @@ async def execute_and_format_query(
     has_truncated_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
         TRUNCATED_MARKER in results and not used_fallback
     )
+    # Check if SQL results contain null values
+    has_null_values = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and (
+        NULL_MARKER in results and not used_fallback
+    )
 
     query_result = format_prompt_string(
         QUERY_RESULTS_PROMPT,
@@ -640,6 +654,7 @@ async def execute_and_format_query(
         project_datetime_display=utc_now_datetime.astimezone(team.timezone_info).strftime("%Y-%m-%d %H:%M:%S"),
         project_timezone=team.timezone_info.tzname(utc_now_datetime),
         has_truncated_values=has_truncated_values,
+        has_null_values=has_null_values,
         sql_query=True if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) else None,
     )
 

@@ -34,7 +34,7 @@ def _slack_api_error(error_code):
 
 
 class TestGetSlackEmailForUser:
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_returns_email_when_present_in_fresh_response(self, mock_webclient_class, integration):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -47,7 +47,7 @@ class TestGetSlackEmailForUser:
         assert email == "dev@example.com"
         assert SlackUserProfileCache.objects.filter(integration=integration, slack_user_id="U1").exists()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_logs_empty_response_when_users_info_returns_blank(self, mock_webclient_class, integration, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -62,7 +62,7 @@ class TestGetSlackEmailForUser:
         assert email is None
         assert any("slack_app_resolve_user_email_empty_response" in record.message for record in caplog.records)
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_logs_missing_email_when_profile_has_no_email(self, mock_webclient_class, integration, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -88,7 +88,7 @@ class TestGetSlackEmailForUser:
             "token_expired",
         ],
     )
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_auth_error_logs_token_broken_flag(self, mock_webclient_class, integration, error_code, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -106,7 +106,7 @@ class TestGetSlackEmailForUser:
         assert any(f"'error_code': '{error_code}'" in r.message for r in failed)
         assert any("'token_broken': True" in r.message for r in failed)
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_non_auth_slack_error_does_not_flag_token_broken(self, mock_webclient_class, integration, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -121,7 +121,7 @@ class TestGetSlackEmailForUser:
         assert all("'token_broken': False" in r.message for r in failed)
         assert any("'error_code': 'user_not_found'" in r.message for r in failed)
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_generic_exception_logs_without_error_code(self, mock_webclient_class, integration, caplog):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -153,7 +153,7 @@ class TestAuthStateSideEffects:
         yield
         cache.clear()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_success_does_not_touch_auth_state(self, mock_webclient_class, integration):
         # The positive cache verdict is owned by the resolver's eager
         # ``auth.test`` layer. A successful ``users.info`` can hit the DB cache
@@ -176,7 +176,7 @@ class TestAuthStateSideEffects:
         "error_code",
         ["token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"],
     )
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_auth_class_error_writes_broken_state(self, mock_webclient_class, integration, error_code):
         from products.slack_app.backend.services.slack_auth import get_cached_auth_state
 
@@ -191,7 +191,7 @@ class TestAuthStateSideEffects:
         assert state.ok is False
         assert state.error_code == error_code
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_non_auth_slack_error_does_not_touch_cache(self, mock_webclient_class, integration):
         # ``user_not_found`` says nothing about token validity, so leaving the
         # cache untouched keeps the resolver from demoting a healthy install
@@ -206,7 +206,7 @@ class TestAuthStateSideEffects:
 
         assert get_cached_auth_state(integration.id) is None
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     def test_transient_exception_does_not_touch_cache(self, mock_webclient_class, integration):
         # Network blips and Slack 5xx must not brick the workspace by writing
         # a negative verdict for the full TTL.

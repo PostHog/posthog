@@ -525,6 +525,11 @@
             .NotebookColumn__content {
                 width: var(--notebook-column-right-width);
                 transform: translateX(100%);
+
+                // Sidebar nodes lost the legacy NotebookNode__gap spacer between them
+                > * + * {
+                    margin-top: 0.75rem;
+                }
             }
         }
 

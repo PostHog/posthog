@@ -5,8 +5,10 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from products.logs.backend.models import LogsRetentionRule
+from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 
 VALID_FILTER_GROUP = {"type": "AND", "values": [{"type": "AND", "values": []}]}
 
@@ -146,3 +148,103 @@ class TestLogsRetentionRulesAPI(APIBaseTest):
         response = self.client.post(self.base_url, self._payload(config=config), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert LogsRetentionRule.objects.count() == 0
+
+
+class TestLogsRetentionRuleSuggestName(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = f"/api/projects/{self.team.pk}/logs/retention_rules/suggest_name/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    def test_returns_generated_name(self):
+        with patch(
+            "products.logs.backend.presentation.views.retention_api.suggest_retention_rule_name",
+            return_value="Keep api logs for 14 days",
+        ) as mock_suggest:
+            response = self.client.post(
+                self.url, {"retention_days": 14, "filter_group": VALID_FILTER_GROUP}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"name": "Keep api logs for 14 days"}
+        assert mock_suggest.call_args.args == (14, VALID_FILTER_GROUP)
+        assert mock_suggest.call_args.kwargs["team_id"] == self.team.pk
+
+    def test_requires_ai_data_processing_approval(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        with patch(
+            "products.logs.backend.presentation.views.retention_api.suggest_retention_rule_name"
+        ) as mock_suggest:
+            response = self.client.post(
+                self.url, {"retention_days": 14, "filter_group": VALID_FILTER_GROUP}, format="json"
+            )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_suggest.assert_not_called()
+
+    def test_rejects_invalid_retention_days(self):
+        with patch(
+            "products.logs.backend.presentation.views.retention_api.suggest_retention_rule_name"
+        ) as mock_suggest:
+            response = self.client.post(
+                self.url, {"retention_days": 45, "filter_group": VALID_FILTER_GROUP}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        mock_suggest.assert_not_called()
+
+    def test_rejects_oversized_filter_group(self):
+        # Proves the endpoint reuses the same bounds as a write, so an unbounded tree never reaches
+        # the LLM prompt.
+        oversized = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "service.name",
+                            "type": "log_resource_attribute",
+                            "operator": "exact",
+                            "value": "x" * 2000,
+                        }
+                    ],
+                }
+            ],
+        }
+        with patch(
+            "products.logs.backend.presentation.views.retention_api.suggest_retention_rule_name"
+        ) as mock_suggest:
+            response = self.client.post(self.url, {"retention_days": 14, "filter_group": oversized}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        mock_suggest.assert_not_called()
+
+    def test_returns_blank_name_when_generation_fails(self):
+        with patch(
+            "products.logs.backend.presentation.views.retention_api.suggest_retention_rule_name",
+            return_value="",
+        ):
+            response = self.client.post(
+                self.url, {"retention_days": 14, "filter_group": VALID_FILTER_GROUP}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"name": ""}
+
+    def test_paid_tier_does_not_require_entitlement(self):
+        # Naming a rule isn't granting it — the entitlement check belongs on the write, not the hint.
+        with patch(
+            "products.logs.backend.presentation.views.retention_api.suggest_retention_rule_name",
+            return_value="Keep api logs for 30 days",
+        ):
+            response = self.client.post(
+                self.url, {"retention_days": 30, "filter_group": VALID_FILTER_GROUP}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_takes_the_shared_ai_throttles(self):
+        assert LogsRetentionRuleViewSet.suggest_name.kwargs["throttle_classes"] == [
+            AIBurstRateThrottle,
+            AISustainedRateThrottle,
+        ]

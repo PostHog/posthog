@@ -56,6 +56,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
     mcp_query_date_range,
@@ -66,14 +67,9 @@ from products.mcp_analytics.backend.hogql_queries.base import (
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-# The description of the *effective* tool: for single-exec calls the inner tool's
-# $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
-# Without this, an inner tool's Descriptions table would show the exec wrapper's text
-# (another tool's description) — a tool-level disclosure.
-_EFFECTIVE_DESCRIPTION = (
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
-    "toString(properties.$mcp_tool_description))"
-)
+# The effective-description expression lives in base.py so the intent-clustering
+# pipeline resolves descriptions identically to the Descriptions table here.
+_EFFECTIVE_DESCRIPTION = EFFECTIVE_DESCRIPTION_SQL
 
 # A per-row distinct-and-sorted list of resolved harness labels, collected from the
 # token computed in the inner subquery. groupArray evaluates the label per row, so the

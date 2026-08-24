@@ -1,0 +1,865 @@
+import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import type { CaptureOptions } from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { reconcileById } from 'lib/utils/objects'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { Breadcrumb } from '~/types'
+import type { UserType } from '~/types'
+
+import { OriginProduct, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsReportsViewedCreate } from 'products/signals/frontend/generated/api'
+
+import {
+    captureInboxReportClosed,
+    captureInboxReportOpened,
+    captureInboxReportScrolled,
+    InboxReportCloseMethod,
+    InboxReportOpenMethod,
+} from './inboxAnalytics'
+import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
+import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
+import { scratchpadLogic } from './logics/scratchpadLogic'
+import { signalSourcesLogic } from './signalSourcesLogic'
+import {
+    InboxFlatListTabKey,
+    INBOX_STAFF_ONLY_TAB_KEYS,
+    INBOX_TAB_KEYS,
+    InboxTabKey,
+    SignalReport,
+    SignalRun,
+    SignalScoutRunStatus,
+    SignalScoutRunSummary,
+} from './types'
+import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
+
+// Newest-first scout runs to pull for the Runs tab. The scout-runs endpoint caps at 100 server-side.
+const SCOUT_RUNS_LIMIT = 100
+
+// Signal-pipeline tasks to pull. Bounded symmetrically with the scout side (the tasks endpoint caps
+// at 100); passed explicitly so the cap is visible rather than relying on the server default.
+const SIGNAL_TASKS_LIMIT = 100
+
+/** Strips `#createScout=` from the URL so a refresh can't re-trigger it, then opens the modal. */
+function consumeScoutTemplateHash(
+    actions: { setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => void },
+    hashParams: Record<string, any> | undefined
+): void {
+    const raw = hashParams?.['createScout']
+    if (raw === undefined) {
+        return
+    }
+    const { createScout: _consumed, ...remainingHashParams } = hashParams ?? {}
+    router.actions.replace(router.values.location.pathname, router.values.searchParams, remainingHashParams)
+    const draft = decodeScoutCreateTemplate(raw)
+    if (draft) {
+        actions.setScoutTemplateDraft(draft)
+    } else {
+        lemonToast.error("Couldn't read the scout template from this link")
+    }
+}
+
+// How often the Runs tab refetches while it's open, so live runs update in place.
+const RUNS_POLL_INTERVAL_MS = 5000
+
+// `TaskRunStatus` and `SignalScoutRunStatus` enumerate the same run states. This `Record` keyed on the
+// enum makes the relationship exhaustive: a new `TaskRunStatus` value breaks the build here instead of
+// silently rendering as 'queued', so the two type vocabularies can't drift unnoticed.
+const TASK_RUN_STATUS_TO_SCOUT_STATUS: Record<TaskRunStatus, SignalScoutRunStatus> = {
+    [TaskRunStatus.NOT_STARTED]: 'not_started',
+    [TaskRunStatus.QUEUED]: 'queued',
+    [TaskRunStatus.IN_PROGRESS]: 'in_progress',
+    [TaskRunStatus.COMPLETED]: 'completed',
+    [TaskRunStatus.FAILED]: 'failed',
+    [TaskRunStatus.CANCELLED]: 'cancelled',
+}
+
+/**
+ * Merge the Runs tab's two sources — scout runs and signal-pipeline tasks — into one newest-first
+ * `SignalRun[]`. Pure (no I/O) so the merge/sort/normalize contract is unit-testable directly.
+ * Scout runs without a backing `task_id` are dropped (they can't deep-link to a task); signal rows
+ * fall back to the task's own timestamp / a null status when no run exists yet.
+ *
+ * A signal task only counts as a run once it's linked to a report. `origin_product=signal_report`
+ * alone is too broad: the scout-authoring CTAs create chat threads under the same origin, and those
+ * are a "let's write a scout" conversation, not a pipeline run — listing them here drops the user
+ * into a thread with no report to go back to.
+ */
+export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks: Task[]): SignalRun[] {
+    const scoutRows = scoutRuns
+        .filter((run): run is SignalScoutRunSummary & { task_id: string } => !!run.task_id)
+        .map(
+            (run): SignalRun => ({
+                task_id: run.task_id,
+                kind: 'scout',
+                title: run.skill_name,
+                status: run.status,
+                report_id: null,
+                created_at: run.created_at,
+            })
+        )
+    const signalRows = signalTasks
+        .filter((task): task is Task & { signal_report: string } => !!task.signal_report)
+        .map((task): SignalRun => {
+            const latestStatus = task.latest_run?.status
+            return {
+                task_id: task.id,
+                kind: 'signal',
+                title: task.title,
+                status: latestStatus ? TASK_RUN_STATUS_TO_SCOUT_STATUS[latestStatus] : null,
+                report_id: task.signal_report,
+                created_at: task.latest_run?.created_at ?? task.created_at,
+            }
+        })
+    return [...scoutRows, ...signalRows].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+}
+
+function isInboxTabKey(value: string | undefined): value is InboxTabKey {
+    return value !== undefined && (INBOX_TAB_KEYS as string[]).includes(value)
+}
+
+function isStaffOnlyTab(tab: string | undefined): boolean {
+    return tab !== undefined && (INBOX_STAFF_ONLY_TAB_KEYS as string[]).includes(tab)
+}
+
+/**
+ * Find a report already loaded in one of the mounted per-tab lists, so opening it can render the
+ * detail instantly from the list row instead of waiting on a fresh
+ * `GET`. The background fetch still runs to converge on the authoritative record.
+ */
+// A search typed into the scratchpad is transient: reopening the panel later should show the whole
+// window again, not the last query. Clear it whenever the scratchpad closes — by any path (close
+// button, report/scout open, Back nav).
+function clearScratchpadSearch(): void {
+    const mounted = scratchpadLogic.findMounted()
+    if (mounted?.values.searchText) {
+        mounted.actions.setSearchText('')
+    }
+}
+
+function findLoadedReport(id: string): SignalReport | null {
+    for (const tabKey of Object.keys(INBOX_FLAT_TAB_LIST_PARAMS) as InboxFlatListTabKey[]) {
+        const mounted = reportListLogic.findMounted({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
+        const found = mounted?.values.reports.find((r: SignalReport) => r.id === id)
+        if (found) {
+            return found
+        }
+    }
+    return null
+}
+
+/**
+ * Position (1-based) and size of the report's list, for `Inbox report opened`. Searches the mounted
+ * flat-tab lists for the report. Null when the report isn't in a loaded list (e.g. a cold deep-link).
+ */
+function findReportRank(id: string): { rank: number | null; listSize: number | null } {
+    for (const tabKey of Object.keys(INBOX_FLAT_TAB_LIST_PARAMS) as InboxFlatListTabKey[]) {
+        const mounted = reportListLogic.findMounted({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
+        const reports = mounted?.values.reports
+        if (!reports) {
+            continue
+        }
+        const idx = reports.findIndex((r: SignalReport) => r.id === id)
+        if (idx >= 0) {
+            return { rank: idx + 1, listSize: reports.length }
+        }
+    }
+    return { rank: null, listSize: null }
+}
+
+/**
+ * The URL for whichever full-width inbox surface is open, or the list otherwise. The four (report,
+ * scout detail, scratchpad, findings) are mutually exclusive, so a fixed priority order resolves them.
+ */
+function inboxSurfaceUrl(values: {
+    selectedReportId: string | null
+    activeTab: InboxTabKey
+    selectedScoutSkillName: string | null
+    selectedScoutFindingId: string | null
+    isScratchpadOpen: boolean
+    isFindingsOpen: boolean
+}): string {
+    if (values.selectedReportId) {
+        return urls.inboxReport(values.activeTab, values.selectedReportId)
+    }
+    if (values.selectedScoutSkillName) {
+        return urls.inboxScout(values.selectedScoutSkillName, values.selectedScoutFindingId ?? undefined)
+    }
+    if (values.isScratchpadOpen) {
+        return urls.inboxScratchpad()
+    }
+    if (values.isFindingsOpen) {
+        return urls.inboxFindings()
+    }
+    return urls.inbox(values.activeTab)
+}
+
+/** Open-report engagement tracking state, kept on the logic's `cache` (not reactive). */
+interface InboxOpenTracking {
+    report: SignalReport
+    openedAt: number
+    /** Set once the first detail-pane scroll has fired `Inbox report scrolled` for this open. */
+    scrolled: boolean
+}
+
+/**
+ * Emit the dwell-time close for a report still open when the view goes away, then clear the tracking
+ * so it can't fire twice. Shared by the scene unmount (`unmount`) and the tab-close flush
+ * (`page_unload`); a no-op when no report is open.
+ */
+function flushOpenReport(
+    cache: Record<string, any>,
+    closeMethod: InboxReportCloseMethod,
+    options?: CaptureOptions
+): void {
+    const open: InboxOpenTracking | undefined = cache.openTracking
+    if (!open) {
+        return
+    }
+    captureInboxReportClosed({ report: open.report, timeSpentMs: Date.now() - open.openedAt, closeMethod }, options)
+    cache.openTracking = undefined
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxSceneLogicValues {
+    user: UserType | null // userLogic
+    activeTab: InboxTabKey
+    breadcrumbs: Breadcrumb[]
+    isFindingsOpen: boolean
+    isScratchpadOpen: boolean
+    isStaff: boolean
+    scoutTemplateDraft: ScoutCreateInitialValues | null
+    selectedReport: SignalReport | null
+    selectedReportId: string | null
+    selectedReportLoading: boolean
+    selectedReportResponse: SignalReport | null
+    selectedReportResponseLoading: boolean
+    selectedScoutFindingId: string | null
+    selectedScoutSkillName: string | null
+    signalRuns: SignalRun[]
+    signalRunsLoading: boolean
+    signalRunsResponse: SignalRun[] | null
+    signalRunsResponseLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxSceneLogicActions {
+    loadSourceConfigs: () => any // signalSourcesLogic
+    loadRuns: (_payload: void) => void
+    loadRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRunsSuccess: (
+        signalRunsResponse: SignalRun[],
+        payload?: void
+    ) => {
+        signalRunsResponse: SignalRun[]
+        payload?: void
+    }
+    loadSelectedReport: ({ id }: { id: string }) => {
+        id: string
+    }
+    loadSelectedReportFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSelectedReportSuccess: (
+        selectedReportResponse: SignalReport | null,
+        payload?: {
+            id: string
+        }
+    ) => {
+        selectedReportResponse: SignalReport | null
+        payload?: {
+            id: string
+        }
+    }
+    reportDetailScrolled: () => {
+        value: true
+    }
+    seedSelectedReport: (report: SignalReport | null) => {
+        report: SignalReport | null
+    }
+    setActiveTab: (tab: InboxTabKey) => {
+        tab: InboxTabKey
+    }
+    setFindingsOpen: (open: boolean) => {
+        open: boolean
+    }
+    setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => {
+        draft: ScoutCreateInitialValues | null
+    }
+    setScratchpadOpen: (open: boolean) => {
+        open: boolean
+    }
+    setSelectedReportId: (
+        id: string | null,
+        openMethod?: InboxReportOpenMethod
+    ) => {
+        id: string | null
+        openMethod: InboxReportOpenMethod
+    }
+    setSelectedScoutSkillName: (
+        skillName: string | null,
+        findingId?: string | null
+    ) => {
+        findingId: string | null
+        skillName: string | null
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxSceneLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        isStaff: (user: UserType | null) => boolean
+        signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
+        signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
+        selectedReport: (selectedReportResponse: SignalReport | null) => SignalReport | null
+        selectedReportLoading: (selectedReportResponseLoading: boolean) => boolean
+    }
+}
+
+export type inboxSceneLogicType = MakeLogicType<
+    inboxSceneLogicValues,
+    inboxSceneLogicActions,
+    Record<string, any>,
+    inboxSceneLogicMeta
+>
+
+/**
+ * Inbox scene orchestrator. Owns the active tab, the selected report (loaded by id),
+ * the project-wide Runs list, and session-analysis. The per-tab report
+ * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab).
+ */
+export const inboxSceneLogic = kea<inboxSceneLogicType>([
+    path(['scenes', 'inbox', 'inboxSceneLogic']),
+
+    connect(() => ({
+        // Mount inboxFiltersLogic with the scene so its URL sync (shareable filter params) applies on
+        // deep-link load, before the filter bar / list have rendered.
+        logic: [inboxFiltersLogic],
+        values: [userLogic, ['user']],
+        actions: [signalSourcesLogic, ['loadSourceConfigs']],
+    })),
+
+    actions({
+        setSelectedReportId: (id: string | null, openMethod: InboxReportOpenMethod = 'unknown') => ({
+            id,
+            openMethod,
+        }),
+        // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
+        // detail renders without a spinner while the authoritative fetch runs in the background.
+        seedSelectedReport: (report: SignalReport | null) => ({ report }),
+        setActiveTab: (tab: InboxTabKey) => ({ tab }),
+        // Scout detail surface: selecting a scout opens its full-width detail over the list. An
+        // optional finding id deep-links to one emitted finding within that scout (highlighted +
+        // scrolled into view if it's still in the recent window).
+        setSelectedScoutSkillName: (skillName: string | null, findingId: string | null = null) => ({
+            skillName,
+            findingId,
+        }),
+        // Scout fleet-memory (scratchpad) surface: a full-width browse/search view over the list,
+        // mutually exclusive with the report and scout-detail views. Reached from the fleet-memory callout.
+        setScratchpadOpen: (open: boolean) => ({ open }),
+        // Cross-fleet findings surface: full-width browse/search/filter of every finding the troop
+        // emitted recently, mutually exclusive with the other full-width views.
+        setFindingsOpen: (open: boolean) => ({ open }),
+        // The detail pane was scrolled. The logic fires `Inbox report scrolled` once per open; the
+        // component reports the raw scroll.
+        reportDetailScrolled: true,
+        // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
+        setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
+    }),
+
+    loaders(({ values }) => ({
+        // Runs tab: a newest-first list of scout + signals-pipeline runs, composed from two existing
+        // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
+        // originating report's title). Merged client-side; there is no unified backend "runs" resource
+        // by design. Both endpoints are team-scoped and readable by any member, so the tab is public.
+        signalRunsResponse: [
+            null as SignalRun[] | null,
+            {
+                loadRuns: async (_payload: void, breakpoint) => {
+                    const [scoutResult, signalResult] = await Promise.allSettled([
+                        api.signalScout.runs.list({ limit: SCOUT_RUNS_LIMIT }),
+                        // `internal: 'all'` so the pipeline's runs (research and implementation, both
+                        // created internal) are included. They're hidden from the default task list.
+                        api.tasks.list({
+                            origin_product: OriginProduct.SIGNAL_REPORT,
+                            internal: 'all',
+                            limit: SIGNAL_TASKS_LIMIT,
+                        }),
+                    ])
+                    breakpoint()
+                    // Degrade gracefully: surface whichever source resolved, matching the inbox's other
+                    // fan-out loaders (scoutDetailLogic) so one source's outage doesn't blank the tab.
+                    // Only fail the load if both sources rejected.
+                    if (scoutResult.status === 'rejected' && signalResult.status === 'rejected') {
+                        throw scoutResult.reason
+                    }
+                    const scoutRuns = scoutResult.status === 'fulfilled' ? scoutResult.value : []
+                    const signalTasks = signalResult.status === 'fulfilled' ? signalResult.value.results : []
+                    // The tab polls every 5s and both endpoints return freshly parsed objects each
+                    // time. Reconcile the merged list so a no-change poll keeps every reference —
+                    // otherwise all ~100 run cards re-render every 5s on an idle tab. (No
+                    // wall-clock exception needed: a run whose status flips deep-compares
+                    // different and swaps identity on its own; timestamps self-update in TZLabel.)
+                    return reconcileById(
+                        values.signalRunsResponse ?? [],
+                        mergeSignalRuns(scoutRuns, signalTasks),
+                        (run) => run.task_id
+                    )
+                },
+            },
+        ],
+        // The selected report's base record, loaded by id so detail works regardless of which
+        // tab/list it came from (and on direct deep-link).
+        selectedReportResponse: [
+            null as SignalReport | null,
+            {
+                loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    try {
+                        const report = await api.signalReports.get(id)
+                        breakpoint()
+                        return report
+                    } catch (error) {
+                        // Discard a superseded load so a slow response for a report the user already
+                        // navigated away from can't overwrite the current one (e.g. a stale 404
+                        // blanking a valid report that resolved first).
+                        breakpoint()
+                        // An unresolvable id (a stale deep link, or the onboarding sample card) 404s.
+                        // Return null so the scene shows a "not found" empty state instead of the
+                        // global raw error toast. Let every other failure surface as before.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
+    })),
+
+    reducers({
+        selectedReportResponse: {
+            // Navigation seeds this directly: the listener resolves the list row (or null) and
+            // dispatches `seedSelectedReport` in the same tick, so we never flash through a stale
+            // report or a spinner when the row is already loaded. The loader repopulates it on fetch.
+            seedSelectedReport: (_, { report }) => report,
+        },
+        selectedReportId: [
+            null as string | null,
+            {
+                setSelectedReportId: (_, { id }) => id,
+            },
+        ],
+        activeTab: [
+            'pulls' as InboxTabKey,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        selectedScoutSkillName: [
+            null as string | null,
+            {
+                setSelectedScoutSkillName: (_, { skillName }) => skillName,
+            },
+        ],
+        isScratchpadOpen: [
+            false,
+            {
+                setScratchpadOpen: (_, { open }) => open,
+                // Opening a report, a scout, or the findings view closes the memory view.
+                setSelectedReportId: (state, { id }) => (id ? false : state),
+                setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
+                setFindingsOpen: (state, { open }) => (open ? false : state),
+            },
+        ],
+        isFindingsOpen: [
+            false,
+            {
+                setFindingsOpen: (_, { open }) => open,
+                // Opening a report, a scout, or the memory view closes the findings view.
+                setSelectedReportId: (state, { id }) => (id ? false : state),
+                setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
+                setScratchpadOpen: (state, { open }) => (open ? false : state),
+            },
+        ],
+        scoutTemplateDraft: [
+            null as ScoutCreateInitialValues | null,
+            {
+                setScoutTemplateDraft: (_, { draft }) => draft,
+            },
+        ],
+        // The finding deep-linked within the selected scout, if any. Cleared whenever a scout is
+        // (re)selected without a finding — navigating to a scout from the fleet drops any prior finding.
+        selectedScoutFindingId: [
+            null as string | null,
+            {
+                setSelectedScoutSkillName: (_, { findingId }) => findingId,
+            },
+        ],
+    }),
+
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'inbox',
+                    name: sceneConfigurations[Scene.Inbox].name,
+                    iconType: 'inbox',
+                },
+            ],
+        ],
+        isStaff: [
+            () => [userLogic.selectors.user],
+            (user: null | import('~/types').UserType): boolean => user?.is_staff ?? false,
+        ],
+        signalRuns: [
+            (s) => [s.signalRunsResponse],
+            (signalRunsResponse: SignalRun[] | null): SignalRun[] => signalRunsResponse ?? [],
+        ],
+        // True only while the first load is in flight (response still null), so the Runs tab shows a
+        // skeleton instead of the empty state before any data lands. A refetch on tab re-open keeps the
+        // already-loaded list visible rather than flashing the skeleton.
+        signalRunsLoading: [
+            (s) => [s.signalRunsResponse, s.signalRunsResponseLoading],
+            (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean): boolean =>
+                signalRunsResponse === null && signalRunsResponseLoading,
+        ],
+        selectedReport: [
+            (s) => [s.selectedReportResponse],
+            (selectedReportResponse: SignalReport | null): SignalReport | null => selectedReportResponse,
+        ],
+        selectedReportLoading: [
+            (s) => [s.selectedReportResponseLoading],
+            (selectedReportResponseLoading: boolean): boolean => selectedReportResponseLoading,
+        ],
+    }),
+
+    listeners(({ actions, values, cache }) => ({
+        setActiveTab: ({ tab }) => {
+            // While the Runs tab is open, refetch on a slow poll so live runs update in place. The
+            // keyed disposable replaces any prior poll and is torn down on tab switch / unmount, and
+            // kea-disposables pauses it while the browser tab is hidden. The refetch is silent (the
+            // skeleton only shows before the first load), so it swaps the list without flicker.
+            if (tab === 'runs') {
+                actions.loadRuns()
+                cache.disposables.add(() => {
+                    const interval = setInterval(() => actions.loadRuns(), RUNS_POLL_INTERVAL_MS)
+                    return () => clearInterval(interval)
+                }, 'runsPoll')
+            } else {
+                cache.disposables.dispose('runsPoll')
+            }
+        },
+        setSelectedReportId: ({ id, openMethod }) => {
+            // Close the previously open report (if any) before opening/clearing. `next_report` when
+            // switching straight to another report, `deselected` when returning to the list.
+            const open: InboxOpenTracking | undefined = cache.openTracking
+            if (open) {
+                const closeMethod: InboxReportCloseMethod = id ? 'next_report' : 'deselected'
+                captureInboxReportClosed({
+                    report: open.report,
+                    timeSpentMs: Date.now() - open.openedAt,
+                    closeMethod,
+                })
+                cache.previousReportId = open.report.id
+                cache.openTracking = undefined
+            }
+            if (!id) {
+                actions.seedSelectedReport(null)
+                return
+            }
+            // Opening a report closes the scratchpad (reducer) — clear its transient search so the
+            // callout doesn't stay hidden behind a stale no-match filter on the way back.
+            clearScratchpadSearch()
+            // The open method is resolved once the authoritative record lands in loadSelectedReportSuccess.
+            cache.pendingOpenMethod = openMethod
+            // A report and a scout detail are mutually exclusive full-width views.
+            if (values.selectedScoutSkillName !== null) {
+                actions.setSelectedScoutSkillName(null)
+            }
+            // Reuse the list row if we already have it (instant render), then refresh from the server.
+            actions.seedSelectedReport(findLoadedReport(id))
+            actions.loadSelectedReport({ id })
+        },
+        // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
+        // of the already-open report). Rank/list_size come from whichever loaded list holds it.
+        loadSelectedReportSuccess: ({ selectedReportResponse }) => {
+            const report = selectedReportResponse
+            // Skip already-open refreshes, and stale loads for a report the user already navigated away
+            // from before the fetch returned (else we'd log a phantom open + a later bogus dwell close).
+            if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {
+                return
+            }
+            const { rank, listSize } = findReportRank(report.id)
+            captureInboxReportOpened({
+                report,
+                openMethod: (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
+                previousReportId: cache.previousReportId ?? null,
+                rank,
+                listSize,
+            })
+            cache.openTracking = { report, openedAt: Date.now(), scrolled: false }
+            cache.pendingOpenMethod = undefined
+            // Best-effort server-side view record: consumption evidence that keeps the authoring
+            // scout from being auto-paused as ignored. The analytics event above stays the rich
+            // record (rank, open method, dwell), so a failure here is swallowed.
+            void signalsReportsViewedCreate(String(teamLogic.values.currentTeamId), report.id).catch(() => {})
+        },
+        reportDetailScrolled: () => {
+            // Fire the dwell signal once per open, on the first scroll. The metric's dwell branch
+            // filters `time_since_open_ms >= 5000`, so an immediate scroll is carried but won't qualify.
+            const open: InboxOpenTracking | undefined = cache.openTracking
+            if (!open || open.scrolled) {
+                return
+            }
+            open.scrolled = true
+            const { rank, listSize } = findReportRank(open.report.id)
+            captureInboxReportScrolled({
+                report: open.report,
+                rank,
+                listSize,
+                timeSinceOpenMs: Date.now() - open.openedAt,
+            })
+        },
+        setSelectedScoutSkillName: ({ skillName }) => {
+            if (skillName !== null) {
+                // Opening a scout detail closes the scratchpad (reducer) — clear its transient search.
+                clearScratchpadSearch()
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+                // A scout page is a Scouts-tab surface even when reached from a report or a cold
+                // deep link, so anything that closes back to "the tab" returns to the roster. After
+                // the report clear, so the tab change resolves to this scout's URL, not the report's.
+                if (values.activeTab !== 'scouts') {
+                    actions.setActiveTab('scouts')
+                }
+            }
+        },
+        setScratchpadOpen: ({ open }) => {
+            if (open) {
+                // Close the open report/scout through their own actions so report dwell-time
+                // bookkeeping runs (clearing the id in a reducer would skip the close tracking).
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+                if (values.selectedScoutSkillName !== null) {
+                    actions.setSelectedScoutSkillName(null)
+                }
+                // Same as opening a scout: the panel's Back control returns to the Scouts tab.
+                if (values.activeTab !== 'scouts') {
+                    actions.setActiveTab('scouts')
+                }
+            } else {
+                clearScratchpadSearch()
+            }
+        },
+        setFindingsOpen: ({ open }) => {
+            if (open) {
+                // Same dwell-tracking-preserving close as the scratchpad path; clear its transient
+                // search so the panel doesn't reopen behind a stale filter on the way back.
+                clearScratchpadSearch()
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
+                if (values.selectedScoutSkillName !== null) {
+                    actions.setSelectedScoutSkillName(null)
+                }
+                if (values.activeTab !== 'scouts') {
+                    actions.setActiveTab('scouts')
+                }
+            }
+        },
+    })),
+
+    events(({ cache }) => ({
+        afterMount: () => {
+            // `beforeUnmount` flushes dwell time on in-app navigation, but a tab close or hard page
+            // unload never unmounts the scene, so half the closes were dropped. Flush on `pagehide`
+            // too. `pauseOnPageHidden: false` keeps the listener alive while the tab is hidden —
+            // `pagehide` fires as the tab goes away, exactly when a paused listener would be gone.
+            cache.disposables.add(
+                () => {
+                    const onPageHide = (): void => flushOpenReport(cache, 'page_unload', { send_instantly: true })
+                    window.addEventListener('pagehide', onPageHide)
+                    return () => window.removeEventListener('pagehide', onPageHide)
+                },
+                'reportUnloadFlush',
+                { pauseOnPageHidden: false }
+            )
+        },
+        // The Runs list loads lazily when its tab opens (via the `setActiveTab` listener). There is no
+        // mount pre-fetch, so an inbox visit that never opens Runs doesn't pay for its two requests.
+        beforeUnmount: () => {
+            // Flush dwell time for a report still open when the scene unmounts (navigated away).
+            flushOpenReport(cache, 'unmount')
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        // Each action resolves to whichever full-width view is left open (or the list), so clearing one
+        // because another opened honors that surface's URL rather than bouncing to the list — and a
+        // tab change made while a scout surface is open leaves that surface's URL alone.
+        setActiveTab: () => [
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setSelectedReportId: () => [
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setSelectedScoutSkillName: () => [
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setScratchpadOpen: () => [
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+        setFindingsOpen: () => [
+            inboxSurfaceUrl(values),
+            router.values.searchParams,
+            router.values.hashParams,
+            { replace: false },
+        ],
+    })),
+
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.inboxScratchpad()]: () => {
+            if (!values.isScratchpadOpen) {
+                actions.setScratchpadOpen(true)
+            }
+        },
+        [urls.inboxFindings()]: () => {
+            if (!values.isFindingsOpen) {
+                actions.setFindingsOpen(true)
+            }
+        },
+        [urls.inbox()]: (_, __, hashParams) => {
+            cache.inboxListVisited = true
+            consumeScoutTemplateHash(actions, hashParams)
+            if (values.selectedReportId !== null) {
+                actions.setSelectedReportId(null)
+            }
+            if (values.selectedScoutSkillName !== null) {
+                actions.setSelectedScoutSkillName(null)
+            }
+            if (values.isScratchpadOpen) {
+                actions.setScratchpadOpen(false)
+            }
+            if (values.isFindingsOpen) {
+                actions.setFindingsOpen(false)
+            }
+        },
+        [urls.inbox(':tab')]: ({ tab }: { tab?: string }, _, hashParams) => {
+            // A bare report deep-link `/inbox/<reportId>`  redirected to report form. Mark the list as
+            // visited only when we're actually staying on a list view — otherwise the redirected report
+            // would be misclassified as an in-app click instead of a deep-link.
+            if (tab && !isInboxTabKey(tab) && tab !== 'scouts') {
+                router.actions.replace(
+                    urls.inboxReport('reports', tab),
+                    router.values.searchParams,
+                    router.values.hashParams
+                )
+                return
+            }
+            cache.inboxListVisited = true
+            consumeScoutTemplateHash(actions, hashParams)
+            // Staff-only tabs (Not actionable): bounce non-staff to the default tab.
+            if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
+                actions.setActiveTab('pulls')
+                return
+            }
+            if (isInboxTabKey(tab) && values.activeTab !== tab) {
+                actions.setActiveTab(tab)
+            }
+            if (values.selectedReportId !== null) {
+                actions.setSelectedReportId(null)
+            }
+            if (values.selectedScoutSkillName !== null) {
+                actions.setSelectedScoutSkillName(null)
+            }
+            if (values.isScratchpadOpen) {
+                actions.setScratchpadOpen(false)
+            }
+            if (values.isFindingsOpen) {
+                actions.setFindingsOpen(false)
+            }
+        },
+        [urls.inboxScout(':skillName')]: ({ skillName }: { skillName?: string }) => {
+            // `/inbox/scouts/scratchpad` and `/inbox/scouts/findings` also match this pattern; their own
+            // handlers own those paths (no real scout skill_name collides — they're `signals-scout-*`).
+            if (skillName === 'scratchpad' || skillName === 'findings') {
+                return
+            }
+            const name = skillName ?? null
+            // Also reset the finding when landing on the bare scout URL after a finding deep-link.
+            if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== null) {
+                actions.setSelectedScoutSkillName(name)
+            }
+        },
+        [urls.inboxScout(':skillName', ':findingId')]: ({
+            skillName,
+            findingId,
+        }: {
+            skillName?: string
+            findingId?: string
+        }) => {
+            const name = skillName ?? null
+            const finding = findingId ?? null
+            if (values.selectedScoutSkillName !== name || values.selectedScoutFindingId !== finding) {
+                actions.setSelectedScoutSkillName(name, finding)
+            }
+        },
+        [urls.inboxReport(':tab', ':reportId')]: ({ tab, reportId }: { tab?: string; reportId?: string }) => {
+            // This pattern also matches `/inbox/scouts/<skillName>`; the scout handler owns that path.
+            if (tab === 'scouts') {
+                return
+            }
+            if (isStaffOnlyTab(tab) && userLogic.values.user != null && !values.isStaff) {
+                actions.setActiveTab('pulls')
+                return
+            }
+            if (isInboxTabKey(tab) && values.activeTab !== tab) {
+                actions.setActiveTab(tab)
+            }
+            const id = reportId ?? null
+            if (values.selectedReportId !== id) {
+                // First route to a report before any list URL was seen → cold deep-link; otherwise an in-app click.
+                actions.setSelectedReportId(id, id ? (cache.inboxListVisited ? 'click' : 'deeplink') : 'unknown')
+            }
+        },
+    })),
+])

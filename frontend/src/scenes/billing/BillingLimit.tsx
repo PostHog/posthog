@@ -65,7 +65,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                                     data-attr={`billing-limit-set-${product.type}`}
                                                 >
                                                     You have a <b>${customLimitUsd?.toLocaleString()}</b> billing limit
-                                                    set for {product?.name?.toLowerCase()}.
+                                                    set for {product.name}.
                                                 </span>
                                             </Tooltip>
                                         )}
@@ -81,7 +81,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 ) : (
                                     <>
                                         <span className="text-sm" data-attr={`billing-limit-not-set-${product.type}`}>
-                                            You do not have a billing limit set for {product?.name?.toLowerCase()}.
+                                            You do not have a billing limit set for {product.name}.
                                         </span>
                                         <LemonButton
                                             onClick={() => setIsEditingBillingLimit(true)}

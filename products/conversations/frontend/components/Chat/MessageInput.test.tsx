@@ -24,7 +24,12 @@ jest.mock('../Editor', () => {
             disabled?: boolean
         }) => {
             React.useEffect(() => {
-                onCreate({ getJSON: () => ({ type: 'doc' }), clear: () => {} })
+                onCreate({
+                    getJSON: () => ({ type: 'doc' }),
+                    clear: () => {},
+                    setContent: () => {},
+                    isEmpty: () => false,
+                })
                 // eslint-disable-next-line react-hooks/exhaustive-deps
             }, [])
             return React.createElement(
@@ -107,5 +112,41 @@ describe('MessageInput', () => {
         await userEvent.click(screen.getByText(`${verb} and set pending`))
         expect(onSendMessage).toHaveBeenCalledTimes(1)
         expect(onSendMessage).toHaveBeenCalledWith('hello', { type: 'doc' }, isPrivate, expect.any(Function), 'pending')
+    })
+})
+
+describe('MessageInput editing mode', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    test('shows Save and Cancel, and locks the private checkbox', () => {
+        const onCancelEdit = jest.fn()
+
+        render(
+            <Provider>
+                <MessageInput
+                    onSendMessage={jest.fn()}
+                    messageSending={false}
+                    showPrivateOption
+                    isPrivate
+                    onPrivateChange={jest.fn()}
+                    draftContent={{ type: 'doc', content: [] }}
+                    editingMessageId="note-1"
+                    onCancelEdit={onCancelEdit}
+                />
+            </Provider>
+        )
+
+        expect(screen.getByText('Save')).toBeInTheDocument()
+        expect(screen.getByText('Cancel')).toBeInTheDocument()
+        expect(screen.queryByLabelText(/and set ticket status/)).not.toBeInTheDocument()
+
+        const checkbox = screen.getByRole('checkbox')
+        expect(checkbox).toBeDisabled()
     })
 })

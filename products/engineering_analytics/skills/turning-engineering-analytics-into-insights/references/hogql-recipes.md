@@ -211,7 +211,7 @@ GROUP BY week
 ORDER BY week
 ```
 
-Name it "open to first review", not "time in review": there is no ready-for-review timestamp, so draft time is fused in, same caveat as `open_to_merge_seconds`.
+Name it "open to first review", not "time in review": this recipe reads the PR snapshot only, so draft time is fused in, same caveat as `open_to_merge_seconds` (ready-for-review timestamps live in `<prefix>github_issue_events`, when synced).
 The reviewer handle is `ifNull(JSONExtractString(user, 'login'), '')` when needed (e.g. to exclude self-reviews by comparing against `author_handle`) — but never build per-reviewer leaderboards.
 
 ## Recipe: a team's weekly merge time (team_members table)

@@ -44,6 +44,7 @@ function makeVersion(version: number, isLatest: boolean): LLMSkillVersionSummary
     return {
         id: `skill-version-${version}`,
         version,
+        version_description: version === 4 ? 'Added OCR guidance for scanned PDFs' : null,
         is_latest: isLatest,
         created_at: `2025-01-${String(10 + version).padStart(2, '0')}T10:00:00Z`,
         created_by: MOCK_AUTHOR,
@@ -80,6 +81,7 @@ const SKILL: LLMSkillApi = {
         { level: 2, text: 'Notes' },
     ],
     version: 4,
+    version_description: 'Added OCR guidance for scanned PDFs',
     created_by: MOCK_AUTHOR,
     owners: [MOCK_AUTHOR],
     created_at: '2025-01-14T10:00:00Z',
@@ -108,6 +110,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
     category: SKILL.category,
     outline: SKILL.outline,
     version: SKILL.version,
+    version_description: SKILL.version_description,
     created_by: SKILL.created_by,
     owners: SKILL.owners,
     created_at: SKILL.created_at,

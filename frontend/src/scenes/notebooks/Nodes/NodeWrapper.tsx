@@ -1,6 +1,5 @@
 import { memo, type PointerEvent as ReactPointerEvent, useCallback, useRef } from 'react'
 import clsx from 'clsx'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -16,15 +15,18 @@ import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
 import { HogqlSqlRunMenu } from './components/HogqlSqlRunMenu'
 import { PythonRunMenu } from './components/PythonRunMenu'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconX } from '@posthog/icons'
+import { IconCollapse, IconEllipsis, IconExpand, IconPencil } from '@posthog/icons'
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
+    NotebookNodeProps,
     NodeWrapperProps,
     NotebookNodeResource,
     NotebookNodeType,
 } from '../types'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
+import { withoutNotebookMenuIcons } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 
 const NON_COPYABLE_NODES = [
     NotebookNodeType.PersonProperties,
@@ -48,6 +50,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
+        editableTitle = true,
+        titlePlaceholder,
+        defaultView,
+        views,
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
@@ -76,6 +82,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         duckSqlReturnVariable,
         hogqlSqlReturnVariable,
         customMenuItems,
+        actions,
         kernelInfo,
     } = useValues(nodeLogic)
     const {
@@ -236,7 +243,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             ? {
                   label: 'Copy',
                   onClick: () => copyToClipboard(),
-                  sideIcon: <IconCopy />,
               }
             : null,
         isEditable && isResizeable
@@ -250,16 +256,45 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                   },
               }
             : null,
-        isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
+        isEditable && editableTitle ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
         isEditable
             ? sourceComment
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
                 : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
             : null,
-        isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconX />, status: 'danger' } : null,
+        isEditable ? { label: 'Remove', onClick: () => deleteNode(), status: 'danger' } : null,
     ]
 
-    const menuItems = customMenuItems ?? defaultMenuItems
+    const viewMenuItem = getNotebookWidgetViewMenuItem(
+        { defaultView, views },
+        attributes,
+        updateAttributes
+    )
+    const resourceLabel = titlePlaceholder.charAt(0).toLocaleLowerCase() + titlePlaceholder.slice(1)
+    const menuItems: LemonMenuItems = withoutNotebookMenuIcons([
+        parsedHref && !isShared
+            ? {
+                  label: `Open ${resourceLabel}`,
+                  to: parsedHref,
+              }
+            : null,
+        parsedHref && !isShared
+            ? {
+                  label: 'Open in new tab',
+                  to: parsedHref,
+                  targetBlank: true,
+              }
+            : null,
+        ...(isEditable
+            ? actions.map((action) => ({
+                  label: action.text,
+                  disabledReason: action.disabledReason,
+                  onClick: action.onClick,
+              }))
+            : []),
+        isEditable ? viewMenuItem : null,
+        ...(customMenuItems ?? defaultMenuItems),
+    ])
 
     const hasMenu = menuItems.some((x) => !!x)
 
@@ -295,15 +330,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             </div>
 
                                             <div className="flex deprecated-space-x-1">
-                                                {parsedHref && !isShared && (
-                                                    <LemonButton
-                                                        size="small"
-                                                        icon={<IconLink />}
-                                                        to={parsedHref}
-                                                        tooltip="Open linked resource"
-                                                    />
-                                                )}
-
                                                 {isPythonNode ? (
                                                     <PythonRunMenu
                                                         isFresh={pythonIsFresh}
@@ -432,8 +458,27 @@ export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
 ): CreatePostHogWidgetNodeOptions<T> {
-    KNOWN_NODES[options.nodeType] = options
-    return options
+    const DefaultComponent = options.Component
+    const ToolbarComponent = options.ToolbarComponent
+    const registeredOptions: CreatePostHogWidgetNodeOptions<T> = options.views || options.ToolbarComponent
+        ? {
+              ...options,
+              Component: (props: NotebookNodeProps<T>): JSX.Element | null => {
+                  const viewKey = typeof props.attributes.view === 'string' ? props.attributes.view : null
+                  const ViewComponent = (viewKey ? options.views?.[viewKey]?.Component : null) ?? DefaultComponent
+
+                  return (
+                      <>
+                          {ToolbarComponent ? <ToolbarComponent {...props} /> : null}
+                          <ViewComponent {...props} />
+                      </>
+                  )
+              },
+          }
+        : options
+
+    KNOWN_NODES[options.nodeType] = registeredOptions
+    return registeredOptions
 }
 
 export const NotebookNodeChildRenderer = ({

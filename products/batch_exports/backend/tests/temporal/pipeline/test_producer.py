@@ -26,8 +26,8 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
-from products.batch_exports.backend.temporal.pipeline.producer import Producer, S3FileResumeState
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
+from products.batch_exports.backend.temporal.pipeline.producer import Producer, S3FileResumeState, slice_record_batch
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 
@@ -310,7 +310,7 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     activity_environment,
     data_interval_start,
     data_interval_end,
-    minio_client,
+    object_storage_client,
     ateam,
     clickhouse_client,
     model: BatchExportModel,
@@ -357,7 +357,7 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -367,7 +367,9 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     assert len(keys) == 1
     key = keys[0]
 
-    file_response = await minio_client.get_object(Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key)
+    file_response = await object_storage_client.get_object(
+        Bucket=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, Key=key
+    )
     file_bytes = await file_response["Body"].read()
     offsets = await record_batch_end_offsets(file_bytes)
     assert len(offsets) > 1, "test needs a multi-record-batch file to exercise resume"
@@ -402,3 +404,69 @@ async def test_producer_resumes_from_offset_after_mid_file_failure(
     assert resume_call.get("Range", "").startswith("bytes=")
     assert int(resume_call["Range"].removeprefix("bytes=").removesuffix("-")) > 0
     assert resume_call.get("IfMatch")
+
+
+def test_slice_record_batch_into_single_record_slices():
+    """Test we slice a record batch into slices with a single record."""
+    n_legs = pa.array([2, 2, 4, 4, 5, 100])
+    animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
+    arrays: collections.abc.Collection[pa.Array[typing.Any]] = [n_legs, animals]
+    batch = pa.RecordBatch.from_arrays(arrays, names=["n_legs", "animals"])
+
+    slices = list(slice_record_batch(batch, max_record_batch_size_bytes=1, min_records_per_batch=1))
+    assert len(slices) == 6
+    assert all(slice.num_rows == 1 for slice in slices)
+
+
+def test_slice_record_batch_into_one_batch():
+    """Test we do not slice a record batch without a bytes limit."""
+    n_legs = pa.array([2, 2, 4, 4, 5, 100])
+    animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+
+    slices = list(slice_record_batch(batch, max_record_batch_size_bytes=0))
+    assert len(slices) == 1
+    assert all(slice.num_rows == 6 for slice in slices)
+
+
+def test_slice_record_batch_in_half():
+    """Test we can slice a record batch into half size."""
+    n_legs = pa.array([4] * 6)
+    animals = pa.array(["Dog"] * 6)
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
+
+    slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
+    assert len(slices) == 2
+    assert all(slice.num_rows == 3 for slice in slices)
+
+
+def test_slice_large_record_batch():
+    """Test we can slice a record batch with plenty of elements and data.
+
+    We construct an array with a large payload and attempt to slice it evenly.
+    We assert that the count of rows matches expected, all ids are accounted
+    for, the number of slices matches what we expect, and that each slice
+    has the same number of rows.
+    """
+    size = 1_000_000
+    one_tenth = size / 10
+
+    payload = pa.array([b"0" * (1024)] * size, type=pa.large_binary())
+    id = pa.array(list(range(size)))
+    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])
+
+    # Large binary allocates additional 8 bytes per row.
+    # Id array is int64, and takes up 8 bytes per row.
+    # So, we add 16 bytes per row (16 * 1000 total) to get evenly split record
+    # batches of 1k rows each.
+    slices = list(
+        slice_record_batch(batch, max_record_batch_size_bytes=int(one_tenth * (1024 + 16)), min_records_per_batch=1)
+    )
+    expected_len = 10
+    result_len = len(slices)
+    concatenated = pa.concat_arrays(s.column("id") for s in slices)
+
+    assert sum(slice.num_rows for slice in slices) == size
+    assert concatenated.to_pylist() == list(range(size))
+    assert result_len == expected_len, f"Have {result_len} slices, expected {expected_len}"
+    assert all(slice.num_rows == one_tenth for slice in slices)

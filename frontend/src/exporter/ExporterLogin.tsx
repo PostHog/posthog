@@ -134,6 +134,8 @@ export const loginLogic = kea<loginLogicType>([
                 if (response.status === 200) {
                     actions.setSuccess()
                     window.location.reload()
+                } else if (response.status === 429) {
+                    actions.setGeneralError('throttled', 'Too many attempts on this link. Wait a minute and try again.')
                 } else {
                     actions.setGeneralError(response.statusText, (await response.json()).error)
                 }

@@ -16,15 +16,24 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.dns_utils import dnssec_resolver
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
+from posthog.models.proxy_record import is_valid_proxy_domain
+from posthog.security.pinned_requests import select_pinned_ip
+from posthog.security.url_validation import validate_url_and_pin_ips
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.cloudflare import (
+    BLOCKED_HOSTNAME_STATUSES,
+    CLOUDFLARE_ERROR_CROSS_USER_BANNED,
     CloudflareAPIError,
     CustomHostnameSSLStatus,
+    describe_blocked_hostname_status,
+    describe_cross_user_banned,
     get_custom_hostname_by_domain,
+    parse_cloudflare_error_code,
 )
 from posthog.temporal.proxy_service.common import (
     CaptureEventInputs,
@@ -44,9 +53,35 @@ LOGGER = get_logger(__name__)
 # Timeout (seconds) for every network call in the live-proxy probe - the POST and the raw-socket
 # cert fetch. The domain is attacker-controllable, so an unbounded call lets a malicious domain
 # hang the activity until Temporal's start_to_close_timeout. 5.0 (vs the diagnostics probe's 3.0 in
-# proxy_record_diagnostics.py) leaves headroom under this activity's 10s start_to_close budget,
+# proxy_record_diagnostics.py) leaves headroom under this activity's start_to_close budget,
 # where a single on-demand diagnostics run instead shares its tighter budget across several checks.
 PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
+
+# Every way a resolver reports "no answer". One left uncaught fails the run instead of
+# recording the DNS problem.
+DNS_LOOKUP_FAILURES = (
+    dns.resolver.NoAnswer,
+    dns.resolver.NXDOMAIN,
+    dns.resolver.NoNameservers,
+    dns.resolver.Timeout,
+    dns.resolver.LifetimeTimeout,
+    dns.resolver.NoResolverConfiguration,
+)
+
+# Stated rather than left to the resolver's own default, so the worst case below stays computable.
+DNS_LOOKUP_LIFETIME_S = 5.0
+
+CLOUDFLARE_IPS_TIMEOUT_S = 3.0
+
+# Each check must outlast the network calls it makes, or Temporal kills it first and the run
+# reports an opaque timeout instead of the problem the check found. Worst cases:
+#   check_dns                 two lookups plus the Cloudflare address list = 13s
+#   check_proxy_is_live       the POST plus the socket connect and TLS handshake = 10s
+#   check_certificate_status  one Cloudflare API call, or one call to the legacy provisioner = 8s
+CHECK_START_TO_CLOSE = dt.timedelta(seconds=30)
+
+# Two attempts at the budget above, plus the retry interval between them.
+CHECK_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=90)
 
 
 @dataclass
@@ -93,8 +128,14 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
         proxy_record.domain,
     )
 
+    # Blocking calls below, and this loop is shared with every activity on the queue.
+    return await asyncio.to_thread(_resolve_dns, proxy_record)
+
+
+def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    resolver = dnssec_resolver()
     try:
-        cnames = dns.resolver.query(proxy_record.domain, "CNAME")
+        cnames = resolver.resolve(proxy_record.domain, "CNAME", lifetime=DNS_LOOKUP_LIFETIME_S)
         value = cnames[0].target.canonicalize().to_text()
         if cnames[0].target == dns.name.from_text(proxy_record.target_cname):
             return CheckActivityOutput(
@@ -113,8 +154,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = dns.resolver.query(proxy_record.domain, "A")
-        if len(arecords) == 0:
+        try:
+            arecords = resolver.resolve(proxy_record.domain, "A", lifetime=DNS_LOOKUP_LIFETIME_S)
+        except DNS_LOOKUP_FAILURES:
             return CheckActivityOutput(
                 errors=["No CNAME or A record DNS records found"],
                 warnings=[],
@@ -122,9 +164,14 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
         ip = arecords[0].to_text()
 
-        # this is rare enough and fast enough that it's probably fine
-        # but maybe we want to cache this and/or do it async
-        cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
+        try:
+            cloudflare_ips = requests.get(
+                "https://www.cloudflare.com/ips-v4", timeout=CLOUDFLARE_IPS_TIMEOUT_S
+            ).text.split("\n")
+        except requests.RequestException:
+            # The list only refines the message below, so a failed fetch is not worth failing on.
+            cloudflare_ips = []
+
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
             # the customer has set cloudflare proxying on
@@ -137,7 +184,7 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
             errors=["DNS records not found"],
             warnings=[],
         )
-    except (dns.resolver.NXDOMAIN, dns.resolver.Timeout, ApplicationError):
+    except (*DNS_LOOKUP_FAILURES, ApplicationError):
         return CheckActivityOutput(
             errors=["Domain name not found"],
             warnings=[],
@@ -175,6 +222,14 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
         if hostname_info is None:
             return CheckActivityOutput(
                 errors=["Custom Hostname not found in Cloudflare"],
+                warnings=[],
+            )
+
+        # A blocked or moved hostname rejects traffic at the edge even when the certificate is
+        # active, so it is an error, not a certificate warning.
+        if hostname_info.status in BLOCKED_HOSTNAME_STATUSES:
+            return CheckActivityOutput(
+                errors=[describe_blocked_hostname_status(hostname_info.status, proxy_record.domain)],
                 warnings=[],
             )
 
@@ -241,7 +296,12 @@ async def _check_legacy_certificate_status(proxy_record, logger) -> CheckActivit
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
         if e.code() == grpc.StatusCode.NOT_FOUND:
-            raise NonRetriableException("not found") from e
+            # A missing certificate is the problem this check exists to report, so record it on
+            # the proxy rather than ending the run before it can write anything.
+            return CheckActivityOutput(
+                errors=["No TLS certificate found for this domain"],
+                warnings=[],
+            )
         raise
 
 
@@ -260,6 +320,21 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
         proxy_record.domain,
     )
 
+    # Blocking calls below, and this loop is shared with every activity on the queue.
+    return await asyncio.to_thread(_probe_proxy, proxy_record)
+
+
+def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
+    # Records created before the serializer validated this field can hold a value that a DNS
+    # resolver and a URL parser read as two different hosts, so the probes below would report on a
+    # host nobody configured. The check runs unattended and its outcome is visible on the record.
+    if not is_valid_proxy_domain(proxy_record.domain):
+        return CheckActivityOutput(
+            errors=["Proxy domain is not a plain hostname; recreate this proxy record"],
+            warnings=[],
+        )
+    probe_base = f"https://{proxy_record.domain}"
+
     # send dummy event to check the proxy is working
     try:
         # allow_redirects=False is a security boundary: the domain is attacker-controllable
@@ -269,7 +344,7 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
         # as the on-demand diagnostics probe in posthog/api/proxy_record_diagnostics.py
         # (_check_live_event).
         response = requests.post(
-            f"https://{proxy_record.domain}/i/v0/e/",
+            f"{probe_base}/i/v0/e/",
             headers={"Content-Type": "application/json"},
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
             timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
@@ -292,9 +367,25 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
         # an attacker-controlled domain can't stall this raw socket the way it could the POST above -
         # same guard, same reason. Mirrors _check_cert_expiry in proxy_record_diagnostics.py.
+        #
+        # A raw socket carries no proxy settings, so the egress proxy that covers the POST above
+        # does not see this connection. Validate and pin the address here instead: this resolution
+        # is its own, separate from whatever the POST resolved, so the domain can answer the first
+        # lookup correctly and point somewhere internal by this one. SNI stays on the hostname so
+        # certificate verification still checks the name the customer configured.
+        verdict = validate_url_and_pin_ips(f"{probe_base}/")
+        if not verdict.allowed:
+            return CheckActivityOutput(
+                errors=["Proxy domain does not resolve to a public address"],
+                warnings=[],
+            )
+        chosen_ip = select_pinned_ip(verdict.pinned_ips)
+        # An empty set means validation was bypassed (dev mode), so fall back to the hostname.
+        connect_host = str(chosen_ip) if chosen_ip is not None else proxy_record.domain
+
         ctx = ssl.create_default_context()
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-        with socket.create_connection((proxy_record.domain, 443), timeout=PROXY_LIVE_CHECK_TIMEOUT_S) as sock:
+        with socket.create_connection((connect_host, 443), timeout=PROXY_LIVE_CHECK_TIMEOUT_S) as sock:
             with ctx.wrap_socket(sock, server_hostname=proxy_record.domain) as s:
                 cert = s.getpeercert()
         if cert is None:
@@ -323,8 +414,18 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
             warnings=[],
         )
     except requests.exceptions.HTTPError as e:
+        # Parse the Cloudflare error code from the 403 body. The check then reports a cross-user
+        # CNAME ban (1014) as a hostname authorization problem, not a bare status code.
+        response = e.response
+        cf_code = parse_cloudflare_error_code(response.text) if response is not None else None
+        if cf_code == CLOUDFLARE_ERROR_CROSS_USER_BANNED:
+            return CheckActivityOutput(
+                errors=[describe_cross_user_banned(proxy_record.domain)],
+                warnings=[],
+            )
+        status_code = response.status_code if response is not None else "unknown"
         return CheckActivityOutput(
-            errors=[f"Failed to send event to proxy, expected 200 but got {e.response.status_code}"],
+            errors=[f"Failed to send event to proxy, expected 200 but got {status_code}"],
             warnings=[],
         )
     except requests.exceptions.RequestException:
@@ -411,8 +512,8 @@ class MonitorManagedProxyWorkflow(PostHogWorkflow):
             check_dns_response = await temporalio.workflow.execute_activity(
                 check_dns,
                 CheckActivityInput(proxy_record_id=inputs.proxy_record_id),
-                schedule_to_close_timeout=dt.timedelta(minutes=1),
-                start_to_close_timeout=dt.timedelta(seconds=10),
+                schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
+                start_to_close_timeout=CHECK_START_TO_CLOSE,
                 retry_policy=temporalio.common.RetryPolicy(
                     backoff_coefficient=1.1,
                     initial_interval=dt.timedelta(seconds=3),
@@ -427,8 +528,8 @@ class MonitorManagedProxyWorkflow(PostHogWorkflow):
             check_proxy_response = await temporalio.workflow.execute_activity(
                 check_proxy_is_live,
                 CheckActivityInput(proxy_record_id=inputs.proxy_record_id),
-                schedule_to_close_timeout=dt.timedelta(minutes=1),
-                start_to_close_timeout=dt.timedelta(seconds=10),
+                schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
+                start_to_close_timeout=CHECK_START_TO_CLOSE,
                 retry_policy=temporalio.common.RetryPolicy(
                     backoff_coefficient=1.1,
                     initial_interval=dt.timedelta(seconds=3),
@@ -443,8 +544,8 @@ class MonitorManagedProxyWorkflow(PostHogWorkflow):
             check_certificate_response = await temporalio.workflow.execute_activity(
                 check_certificate_status,
                 CheckActivityInput(proxy_record_id=inputs.proxy_record_id),
-                schedule_to_close_timeout=dt.timedelta(minutes=1),
-                start_to_close_timeout=dt.timedelta(seconds=10),
+                schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
+                start_to_close_timeout=CHECK_START_TO_CLOSE,
                 retry_policy=temporalio.common.RetryPolicy(
                     backoff_coefficient=1.1,
                     initial_interval=dt.timedelta(seconds=3),

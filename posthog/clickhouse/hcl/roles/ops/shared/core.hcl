@@ -513,7 +513,4 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
-  view "custom_metrics" {
-    query = file("sql/custom_metrics.sql")
-  }
 }

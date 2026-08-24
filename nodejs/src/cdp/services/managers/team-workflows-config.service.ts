@@ -1,5 +1,6 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
 
 // Mirrors EmailTrackingConsentMode in products/workflows/backend/models/team_workflows_config.py
 export type EmailTrackingConsentMode = 'off' | 'opt_out' | 'opt_in'
@@ -7,11 +8,13 @@ export type EmailTrackingConsentMode = 'off' | 'opt_out' | 'opt_in'
 export type TeamWorkflowsConfig = {
     capture_workflows_engagement_events: boolean
     email_tracking_consent_mode: EmailTrackingConsentMode
+    email_sending_suspended: boolean
 }
 
 const DEFAULT_CONFIG: TeamWorkflowsConfig = {
     capture_workflows_engagement_events: false,
     email_tracking_consent_mode: 'off',
+    email_sending_suspended: false,
 }
 
 /**
@@ -45,14 +48,30 @@ export class TeamWorkflowsConfigService {
         return config.email_tracking_consent_mode
     }
 
+    /**
+     * Team-level kill switch, set by staff when a team's sender reputation puts shared SES
+     * deliverability at risk. Fails open: a lookup error must never block legitimate sends.
+     */
+    public async isEmailSendingSuspended(teamId: number): Promise<boolean> {
+        try {
+            const config = await this.get(teamId)
+            return config.email_sending_suspended
+        } catch (error) {
+            logger.error('[TeamWorkflowsConfig] Failed to check email sending suspension', { teamId, error })
+            return false
+        }
+    }
+
     private async fetchConfigs(teamIds: string[]): Promise<Record<string, TeamWorkflowsConfig>> {
         const result = await this.postgres.query<{
             team_id: number
             capture_workflows_engagement_events: boolean
             email_tracking_consent_mode: EmailTrackingConsentMode
+            email_sending_suspended: boolean
         }>(
             PostgresUse.COMMON_READ,
-            `SELECT team_id, capture_workflows_engagement_events, email_tracking_consent_mode
+            `SELECT team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                    email_sending_suspended_at IS NOT NULL AS email_sending_suspended
              FROM workflows_teamworkflowsconfig
              WHERE team_id = ANY($1)`,
             [teamIds.map(Number)],
@@ -67,6 +86,7 @@ export class TeamWorkflowsConfigService {
             configs[String(row.team_id)] = {
                 capture_workflows_engagement_events: row.capture_workflows_engagement_events,
                 email_tracking_consent_mode: row.email_tracking_consent_mode ?? 'off',
+                email_sending_suspended: row.email_sending_suspended,
             }
         }
         return configs

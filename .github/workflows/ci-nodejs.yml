@@ -62,6 +62,9 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        # These native addons are built by Turbo before Node.js tests. Their Rust
+                        # dependencies are not part of the ingestion consumer's targeted e2e set.
+                        - 'rust/common/hogvm/**'
                         - '**/crosslang/**'
                         # The clientwarnings consumer e2e replays capture's warning envelope from
                         # this shared fixture. Without it the rust filter below decides, and it only
@@ -143,10 +146,21 @@ jobs:
               with:
                   clean: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -169,21 +183,22 @@ jobs:
             - name: Prepare Node.js workspace
               run: bin/turbo --filter=@posthog/nodejs prepare
 
-            - name: Check formatting with prettier
-              run: pnpm --filter=@posthog/nodejs format:check
+            - parallel:
+                  - name: Check formatting with prettier
+                    run: pnpm --filter=@posthog/nodejs format:check
 
-            - name: Lint with ESLint
-              run: pnpm --filter=@posthog/nodejs lint
+                  - name: Lint with ESLint
+                    run: pnpm --filter=@posthog/nodejs lint
 
-            # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
-            # imports. Presence-checked so branches without the guard yet are unaffected.
-            - name: Check ingestion boundaries
-              run: |
-                  if [ -f nodejs/bin/check-ingestion-boundaries.mjs ]; then
-                      node nodejs/bin/check-ingestion-boundaries.mjs
-                  else
-                      echo "Ingestion boundary guard not present on this branch; skipping."
-                  fi
+                  # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
+                  # imports. Presence-checked so branches without the guard yet are unaffected.
+                  - name: Check ingestion boundaries
+                    run: |
+                        if [ -f nodejs/bin/check-ingestion-boundaries.mjs ]; then
+                            node nodejs/bin/check-ingestion-boundaries.mjs
+                        else
+                            echo "Ingestion boundary guard not present on this branch; skipping."
+                        fi
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
@@ -196,10 +211,21 @@ jobs:
               with:
                   clean: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -277,7 +303,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools,dynamodb
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -286,7 +312,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools,dynamodb
               run: bin/ci-wait-for-docker wait
 
             - name: Add service hostnames to /etc/hosts
@@ -359,11 +385,13 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack, SeaweedFS
+            - name: Wait for Clickhouse, Redis, Kafka, DynamoDB, SeaweedFS
               # seaweedfs backs the blob-store integration tests; the profile-scoped
               # stack launch above never starts it (it sits in the replay/agents
               # profiles), so start it explicitly here — no profiles overlay in play.
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack seaweedfs -d --wait
+              # objectstorage starts by default but is listed so --wait blocks on its
+              # bootstrap sentinel: it returns InvalidAccessKeyId until that finishes.
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 valkey-cluster clickhouse maildev dynamodb objectstorage seaweedfs -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
@@ -393,6 +421,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
                   GH_TOKEN: ${{ github.token }}
               run: |
                   # Download pre-migrated schema from CI
@@ -451,8 +480,6 @@ jobs:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
                   LOG_LEVEL: info
-                  # Enable localstack integration tests for DynamoDB/KMS
-                  LOCALSTACK_ENABLED: '1'
                   # Emit JUnit XML for the Trunk upload below (turbo passes JEST_JUNIT_* through).
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.shard }}.xml
@@ -482,7 +509,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
-            # secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # secret).
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -491,12 +518,9 @@ jobs:
               id: quarantine_gate
               continue-on-error: true
               if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
-              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-*.xml
-                  org-slug: posthog-inc
-                  cli-version: '0.13.7'
-                  quarantine: true
                   # Worst of the two test steps: the gate must know the run failed even when
                   # only the parity step (shard 1) did. A skipped parity step counts as success.
                   previous-step-outcome: ${{ (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && 'failure' || 'success' }}
@@ -552,7 +576,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -561,7 +585,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools,localstack
+                  COMPOSE_PROFILES: dev_tools
               run: bin/ci-wait-for-docker wait
 
             - name: Add service hostnames to /etc/hosts
@@ -634,8 +658,8 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Wait for Clickhouse, Redis, Kafka, Localstack
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+            - name: Wait for Clickhouse, Redis, Kafka
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev -d --wait
 
             - name: Create Kafka topics
               run: docker compose -f docker-compose.dev.yml up kafka-init
@@ -665,6 +689,7 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  # Downloading an artifact requires the Actions permission, which the setup-actions app does not hold
                   GH_TOKEN: ${{ github.token }}
               run: |
                   # Download pre-migrated schema from CI

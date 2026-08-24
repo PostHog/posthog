@@ -18,7 +18,12 @@ from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleListA
 
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
-from products.data_modeling.backend.logic.cohort_scheduling import bucket_into_cadence_tiers, is_tier_schedule_id
+from products.data_modeling.backend.logic.cohort_scheduling import (
+    Tier,
+    anchor_minutes_from_schedule_id,
+    bucket_into_cadence_tiers,
+    interval_seconds_from_schedule_id,
+)
 from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     clamp_to_source_floor,
@@ -26,6 +31,7 @@ from products.data_modeling.backend.logic.freshness import (
 )
 from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
 
 
@@ -37,6 +43,7 @@ class LiveTier:
     interval_seconds: int | None  # None = migration-era single schedule (no cadence tier)
     covers_whole_dag: bool  # True when node_ids is unset — the schedule materializes every node
     node_ids: frozenset[str] | None  # the exact set the tier will materialize; None when whole-DAG
+    anchor_minutes: int | None = None  # the cohort's pinned phase; None = hash-spread
 
 
 @dataclasses.dataclass
@@ -50,6 +57,7 @@ class NodeScheduleStatus:
     expected_interval: int | None  # what reconcile would put it on now (None = ride-downstream opt-out)
     verdict: str
     dag_reconcile_blocked: bool = False  # a non-bucket tier anywhere in the DAG makes reconcile refuse it
+    expected_anchor: int | None = None  # the expected cohort's pinned phase; None = hash-spread
 
 
 # Verdict values — a node's live scheduling vs what reconcile would currently schedule.
@@ -61,13 +69,10 @@ CORRECTLY_UNSCHEDULED = "correctly_unscheduled"  # no target and no live tier �
 # Reconcile refuses the *whole DAG* when any desired tier is not a schedulable bucket, so this must
 # never be reported as stale_needs_reconcile: running reconcile would change nothing and raise.
 UNSUPPORTED_TARGET = "unsupported_target"
-
-
-def _interval_from_schedule_id(schedule_id: str) -> int | None:
-    """Recover the tier's cadence (seconds) from its schedule id, or None for the legacy single schedule."""
-    if is_tier_schedule_id(schedule_id):
-        return int(schedule_id.rsplit(":", 1)[1])
-    return None
+# Typed VIEW while a table backs the query, so `get_dag_structure` calls it ephemeral and every tier
+# run skips it — reporting success and writing no job. Outranks every tier verdict: the node can sit
+# in exactly the right tier and still never materialize, and reconcile cannot fix a node's type.
+EPHEMERAL_SKIPPED = "ephemeral_skipped"
 
 
 async def _decode_node_ids(temporal: Client, action: object) -> list[str] | None:
@@ -107,36 +112,33 @@ async def read_live_tiers(temporal: Client, dag_id: str) -> list[LiveTier]:
         tiers.append(
             LiveTier(
                 schedule_id=listing.id,
-                interval_seconds=_interval_from_schedule_id(listing.id),
+                interval_seconds=interval_seconds_from_schedule_id(listing.id),
                 covers_whole_dag=node_ids is None,
                 node_ids=frozenset(node_ids) if node_ids is not None else None,
+                anchor_minutes=anchor_minutes_from_schedule_id(listing.id),
             )
         )
     return tiers
 
 
-def _desired_tiers(dag: DAG) -> dict[timedelta, set[str]]:
+def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     """The tiers reconcile would want for this DAG: effective cadences → clamp to floor → buckets."""
     graph = build_frequency_graph(dag)
     effective = compute_effective_cadences(
         nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
     )
     effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
-    return bucket_into_cadence_tiers(effective)
+    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
-def expected_tier_by_node(dag: DAG) -> dict[str, int]:
-    """What cadence (seconds) reconcile would currently schedule each schedulable node on.
+def expected_tier_by_node(dag: DAG) -> dict[str, Tier]:
+    """The cohort reconcile would currently schedule each schedulable node on.
 
     Mirrors `reconcile_dag_schedules` exactly (effective cadences → clamp to source floor → buckets)
     so a node absent from this map is one reconcile would leave unscheduled (the ride-downstream
     opt-out), not a bug.
     """
-    return {
-        node_id: int(interval.total_seconds())
-        for interval, node_ids in _desired_tiers(dag).items()
-        for node_id in node_ids
-    }
+    return {node_id: tier for tier, node_ids in _desired_tiers(dag).items() for node_id in node_ids}
 
 
 def dag_reconcile_would_refuse(dag: DAG) -> bool:
@@ -146,7 +148,7 @@ def dag_reconcile_would_refuse(dag: DAG) -> bool:
     desired tier falls outside `SCHEDULABLE_BUCKETS`, leaving every schedule untouched. Without
     this, such a node reads as `stale_needs_reconcile` — advice that would raise rather than fix.
     """
-    return any(interval not in SCHEDULABLE_BUCKETS for interval in _desired_tiers(dag))
+    return any(tier.interval not in SCHEDULABLE_BUCKETS for tier in _desired_tiers(dag))
 
 
 def classify_node(
@@ -157,23 +159,36 @@ def classify_node(
     dag_id: str,
     dag_name: str,
     live_tiers: list[LiveTier],
-    expected_interval: int | None,
+    expected_tier: Tier | None,
     reconcile_blocked: bool = False,
+    has_backing_table: bool = False,
 ) -> NodeScheduleStatus:
     """Compare a node's live tier membership against what reconcile would schedule for it."""
-    live_intervals = [
-        tier.interval_seconds
-        for tier in live_tiers
-        if tier.covers_whole_dag or (tier.node_ids is not None and node_id in tier.node_ids)
+    covering = [
+        tier for tier in live_tiers if tier.covers_whole_dag or (tier.node_ids is not None and node_id in tier.node_ids)
     ]
-    covered_live = bool(live_intervals)
+    live_intervals = [tier.interval_seconds for tier in covering]
+    covered_live = bool(covering)
+    expected_interval = int(expected_tier.interval.total_seconds()) if expected_tier is not None else None
 
-    if covered_live and expected_interval is not None:
-        # A whole-DAG (interval None) schedule always satisfies expectation.
-        verdict = SCHEDULED if (None in live_intervals or expected_interval in live_intervals) else SCHEDULED_WRONG_TIER
-    elif covered_live and expected_interval is None:
+    if node_type == NodeType.VIEW and has_backing_table:
+        verdict = EPHEMERAL_SKIPPED
+    elif covered_live and expected_tier is not None:
+        # A whole-DAG (interval None) schedule always satisfies expectation. A tier matches on
+        # cadence AND anchor — a hash-spread schedule does not satisfy an anchored expectation,
+        # else the exact drift anchors exist to escape reads as healthy.
+        verdict = (
+            SCHEDULED
+            if any(
+                tier.interval_seconds is None
+                or (tier.interval_seconds, tier.anchor_minutes) == (expected_interval, expected_tier.anchor_minutes)
+                for tier in covering
+            )
+            else SCHEDULED_WRONG_TIER
+        )
+    elif covered_live and expected_tier is None:
         verdict = OVER_SCHEDULED
-    elif not covered_live and expected_interval is not None:
+    elif not covered_live and expected_tier is not None:
         # Reconcile is the remediation for stale_needs_reconcile, so only report it when reconcile
         # would actually run. A blocked DAG needs its unschedulable target fixed first.
         verdict = UNSUPPORTED_TARGET if reconcile_blocked else STALE_NEEDS_RECONCILE
@@ -188,6 +203,7 @@ def classify_node(
         dag_name=dag_name,
         live_intervals=sorted(live_intervals, key=lambda i: (i is None, i or 0)),
         expected_interval=expected_interval,
+        expected_anchor=expected_tier.anchor_minutes if expected_tier is not None else None,
         verdict=verdict,
         dag_reconcile_blocked=reconcile_blocked,
     )

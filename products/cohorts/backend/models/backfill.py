@@ -41,6 +41,12 @@ ACTIVE_COHORT_BACKFILL_RUN_STATUSES = (
     CohortBackfillRunStatus.RECONCILING,
 )
 
+# Derived, so the two tuples always partition the enum: a ninth status joins one or the other, and
+# cannot fall out of both and into no gauge.
+TERMINAL_COHORT_BACKFILL_RUN_STATUSES = tuple(
+    status for status in CohortBackfillRunStatus if status not in ACTIVE_COHORT_BACKFILL_RUN_STATUSES
+)
+
 
 class CohortBackfillChunkStatus(models.TextChoices):
     PENDING = "pending", "Pending"
@@ -79,7 +85,7 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
         blank=True,
         help_text=(
             "Opaque watcher resume state written by the Rust seeder, shape "
-            '{"schema":1,"positions":{...},"ends":{...}|null}. Django never interprets it.'
+            '{"schema":2,"topic":"...","positions":{...},"ends":{...}|null}. Django never interprets it.'
         ),
     )
     blocked_reason = models.TextField(blank=True, default="")

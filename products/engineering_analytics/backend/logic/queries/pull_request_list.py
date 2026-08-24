@@ -33,7 +33,9 @@ _SELECT = f"""
         pr.number, pr.title, pr.repo_owner, pr.repo_name,
         pr.author_handle, pr.author_avatar_url, pr.is_bot,
         pr.state, pr.is_draft, pr.created_at, pr.merged_at,
-        pr.open_to_merge_seconds, pr.labels,
+        pr.open_to_merge_seconds,
+        __READY_TO_MERGE__,
+        pr.labels,
         coalesce(ci.runs, 0) AS runs,
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
@@ -45,6 +47,7 @@ _SELECT = f"""
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
+    __READY_JOIN__
     WHERE (
             pr.state = 'open'
             OR pr.merged_at >= {{date_from}}
@@ -59,6 +62,10 @@ _SELECT = f"""
 # ``ci_rollup``: latest run per (push, workflow) via argMax, then any decisive failure turns the
 # round red and any not-yet-completed run marks it pending. Wall time is the round's earliest run
 # start to its latest completed run end (``updated_at`` is the end time the duration column uses).
+#
+# Merge-queue gate runs are excluded for the same reason as ``runs_by_pr`` (see its docstring), and
+# for one specific to here: they are the newest rounds a PR has, since they happen at merge time, so
+# leaving them in would push the author's real pushes out of the capped window below.
 #
 # ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the scan to the most
 # recent N pushes per PR *in ClickHouse* (rows are ordered newest-first, so the cap keeps the newest),
@@ -80,7 +87,7 @@ _PUSH_HISTORY_SELECT = """
             argMax(status, run_started_at) AS s,
             argMax(conclusion, run_started_at) AS c
         FROM __RUNS_SOURCE__ AS r
-        WHERE pr_number IN {pr_numbers}
+        WHERE pr_number IN {pr_numbers} AND NOT is_merge_queue
         GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
     )
     GROUP BY repo_owner, repo_name, pr_number, head_sha
@@ -130,8 +137,14 @@ def query_pull_request_list(
     if author:
         author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
+    ready = curated.ready_to_merge_sql()
+    select = (
+        _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
+        .replace("__READY_JOIN__", ready.join)
+        .replace("__AUTHOR__", author_clause)
+    )
     response = curated.run(
-        curated.pr_list_rollup_query(_SELECT.replace("__AUTHOR__", author_clause)),
+        curated.pr_list_rollup_query(select),
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )
@@ -165,6 +178,7 @@ def _map_row(
         created_at,
         merged_at,
         open_to_merge_seconds,
+        ready_to_merge_seconds,
         labels,
         runs,
         passing,
@@ -190,6 +204,7 @@ def _map_row(
         created_at=created_at,
         merged_at=merged_at,
         open_to_merge_seconds=open_to_merge_seconds,
+        ready_to_merge_seconds=int(ready_to_merge_seconds) if ready_to_merge_seconds is not None else None,
         labels=list(labels),
         # A PR with no CI misses the LEFT JOIN; the array column then comes back empty or NULL
         # depending on join_use_nulls — normalize both to [].

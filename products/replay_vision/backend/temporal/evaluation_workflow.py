@@ -12,7 +12,10 @@ from temporalio.common import SearchAttributePair, TypedSearchAttributes, Workfl
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import unwrap_temporal_cause
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
@@ -85,6 +88,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_limit=inputs.session_limit,
                 config_override=inputs.config_override,
+                started_at=inputs.started_at,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=_STATE_RETRY,
@@ -135,7 +139,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=dt.timedelta(minutes=30),
+                execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
@@ -147,6 +151,8 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                # The activity heartbeats, so a dead worker costs ~2 minutes, not the full budget.
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             call_output: ScannerCallOutput = await wf.execute_activity(
@@ -159,6 +165,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                     snapshot_override=selection.snapshot,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             await self._record(
@@ -199,6 +206,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 after_output=after_output,
                 error=error,
                 preview=preview,
+                started_at=inputs.started_at,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_RETRY,

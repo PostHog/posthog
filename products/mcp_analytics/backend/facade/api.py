@@ -107,8 +107,9 @@ def get_activity_overview(team: Team) -> contracts.ActivityOverview:
     return logic.get_activity_overview(team)
 
 
-def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
-    return logic.get_intent_cluster_snapshot(team)
+def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
+    """The latest snapshot, optionally narrowed to one tool's slice of it."""
+    return logic.get_intent_cluster_snapshot(team, tool=tool)
 
 
 def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:

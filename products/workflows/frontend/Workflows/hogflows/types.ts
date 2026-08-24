@@ -2,6 +2,7 @@ import { Edge, Node } from '@xyflow/react'
 import z from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 
 import { AccessControlLevel, UserBasicType } from '~/types'
 
@@ -82,7 +83,12 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
+    // Staged content changes awaiting publish (active workflows only). A full snapshot of the
+    // content fields; null when nothing is staged. Read-only server state.
+    draft?: Partial<HogFlow> | null
+    draft_updated_at?: string | null
 }
+
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
 
@@ -94,6 +100,9 @@ export type DropzoneNode = Node<{ edge: HogFlowActionEdge; isBranchJoinDropzone?
 
 export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult & {
     schema: z.ZodError | null
+    // Per-field messages for a `function_email` step, placed next to their inputs. Only populated
+    // once a save/enable has been attempted, so a freshly opened step stays clean.
+    emailErrors?: EmailFieldErrors
 }
 
 export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {

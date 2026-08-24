@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -68,8 +67,10 @@ export const manifest: ProductManifest = {
         '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
         '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
         '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+        '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+        '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
         '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
         '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     },
@@ -82,8 +83,10 @@ export const manifest: ProductManifest = {
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
         replayVisionTemplates: (): string => '/replay-vision/new/template',
         replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+        replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+        replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
         replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
         replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
@@ -109,8 +112,6 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
-            tags: ['beta'],
-            flag: FEATURE_FLAGS.REPLAY_VISION,
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

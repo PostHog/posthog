@@ -6,7 +6,6 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
-import { DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS } from 'products/logs/frontend/logsConfigLogic'
 
 export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
     const group = filterGroup?.values?.[0]
@@ -69,6 +68,9 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
     return lines
 }
 
+// Mirror of DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS in products/logs/backend/models.py — keep the
+// two in sync. Values under these keys render as clickable person links here, and the person
+// Logs tab scopes on them server-side so those logs appear on the person's tab.
 const DISTINCT_ID_KEYS = [
     'distinct.id',
     'distinct_id',
@@ -80,6 +82,7 @@ const DISTINCT_ID_KEYS = [
     'posthog.distinct.id',
     'posthog.distinct_id',
 ]
+// Some pipelines emit `posthogSessionId` even though no SDK does. Removing it breaks them.
 const SESSION_ID_KEYS = [
     'session.id',
     'session_id',
@@ -167,27 +170,41 @@ export function buildDateRangeAround(timestamp: string, windowMinutes: number): 
 }
 
 // Builds logs viewer filters scoped to one session, for other products surfacing logs
-// (error tracking, session replay). Filters on the team's configured session ID keys
-// (OR across keys, exact match), defaulting to the SDK convention; a timestamp scopes
-// the date range to ±30 minutes so old sessions aren't hidden by the default range.
+// (error tracking, session replay). Filters (OR across keys, exact match) on the team's
+// configured session ID keys plus the SESSION_ID_KEYS conventions, deduped, configured
+// first — the same breadth `getSessionIdWithKey` resolves, so a team whose stored key their
+// pipeline never emits still matches. Literal keys only: an exact filter can't express the
+// dot-suffix variants `matchesKey` allows. A timestamp scopes the date range to ±30 minutes
+// so old sessions aren't hidden by the default range.
 export function buildLogsSessionFilters(
     sessionId: string,
     configuredKeys?: string[],
     timestamp?: string
 ): Partial<LogsViewerFilters> {
-    const keys = configuredKeys?.length ? configuredKeys : DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+    const keys = Array.from(new Set([...(configuredKeys ?? []), ...SESSION_ID_KEYS]))
     const filters: Partial<LogsViewerFilters> = {
         filterGroup: {
             type: FilterLogicalOperator.And,
             values: [
                 {
                     type: FilterLogicalOperator.Or,
-                    values: keys.map((key) => ({
-                        key,
-                        value: [sessionId],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.LogAttribute,
-                    })),
+                    // Each key is queried in both maps, because getSessionIdWithKey renders the
+                    // session link off attributes or resource_attributes. Person scoping resolves
+                    // distinct ids across both maps for the same reason.
+                    values: keys.flatMap((key) => [
+                        {
+                            key,
+                            value: [sessionId],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogAttribute,
+                        },
+                        {
+                            key,
+                            value: [sessionId],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogResourceAttribute,
+                        },
+                    ]),
                 },
             ],
         },

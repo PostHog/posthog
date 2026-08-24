@@ -143,6 +143,7 @@ function getOneHourWindow(timestamp: string): { after: string; before: string } 
 function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string; createdAt?: string }): JSX.Element {
     const [properties, setProperties] = useState<ErrorEventProperties | null>(null)
     const [eventId, setEventId] = useState<string | null>(null)
+    const [eventTimestamp, setEventTimestamp] = useState<string | null>(null)
     const [loading, setLoading] = useState(true)
 
     const fetchEvent = useCallback(async () => {
@@ -152,7 +153,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
             const query: EventsQuery = {
                 kind: NodeKind.EventsQuery,
                 event: '$exception',
-                select: ['uuid', 'properties'],
+                select: ['uuid', 'properties', 'timestamp'],
                 ...timeWindow,
                 where: [
                     `properties.$exception_fingerprint = '${fingerprint.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`,
@@ -163,9 +164,10 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
             }
             const response = await api.query(query)
             if (response.results.length > 0) {
-                const [uuid, props] = response.results[0]
+                const [uuid, props, timestamp] = response.results[0]
                 setEventId(uuid)
                 setProperties(typeof props === 'string' ? JSON.parse(props) : props)
+                setEventTimestamp(timestamp ?? null)
             }
         } finally {
             setLoading(false)
@@ -177,8 +179,13 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
     }, [fetchEvent])
 
     const eventProps = useMemo(
-        () => ({ properties: properties ?? undefined, id: eventId ?? fingerprint }) as ErrorPropertiesLogicProps,
-        [properties, eventId, fingerprint]
+        () =>
+            ({
+                properties: properties ?? undefined,
+                id: eventId ?? fingerprint,
+                timestamp: eventTimestamp ?? undefined,
+            }) as ErrorPropertiesLogicProps,
+        [properties, eventId, fingerprint, eventTimestamp]
     )
 
     if (loading) {

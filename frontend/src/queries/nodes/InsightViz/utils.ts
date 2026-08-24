@@ -162,6 +162,8 @@ export const getDefaultQuery = (
         return queryFromKind(NodeKind.RetentionQuery, filterTestAccountsDefault)
     } else if (insightType === InsightType.PATHS) {
         return queryFromKind(NodeKind.PathsQuery, filterTestAccountsDefault)
+    } else if (insightType === InsightType.JOURNEYS) {
+        return queryFromKind(NodeKind.PathsV2Query, filterTestAccountsDefault)
     } else if (insightType === InsightType.STICKINESS) {
         return queryFromKind(NodeKind.StickinessQuery, filterTestAccountsDefault)
     } else if (insightType === InsightType.LIFECYCLE) {
@@ -193,7 +195,7 @@ export const getQueryBasedDashboard = (
 
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
 // estimated too expensive to run), 513 (out of memory)
-const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
+export const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
 
 const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
     VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)

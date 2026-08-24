@@ -13,7 +13,6 @@ from posthog.temporal.delete_teams.activities import (
     delete_loop_trigger_schedules_activity,
     delete_misc_small_tables_activity,
     delete_organization_record_activity,
-    delete_personless_distinct_ids_activity,
     delete_project_record_activity,
     delete_team_persons_activity,
     delete_team_records_activity,
@@ -62,7 +61,6 @@ EMAIL_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 # Bulky Postgres phases, run in dependency-safe order (each its own retryable activity).
 BULKY_POSTGRES_ACTIVITIES = (
     delete_misc_small_tables_activity,
-    delete_personless_distinct_ids_activity,
     delete_cohort_members_activity,
     delete_groups_activity,
     delete_team_persons_activity,
@@ -122,13 +120,21 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
             heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
             retry_policy=SIDE_EFFECT_RETRY_POLICY,
         )
-        await temporalio.workflow.execute_activity(
-            delete_data_modeling_schedules_activity,
-            team_inputs,
-            start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-            retry_policy=SIDE_EFFECT_RETRY_POLICY,
-        )
+        # Best-effort, like the loop schedules below: a schedule we fail to delete is a nuisance the
+        # orphan sweeps clean up later, and never a reason to leave a team's data in place.
+        try:
+            await temporalio.workflow.execute_activity(
+                delete_data_modeling_schedules_activity,
+                team_inputs,
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=SIDE_EFFECT_RETRY_POLICY,
+            )
+        except temporalio.exceptions.ActivityError:
+            temporalio.workflow.logger.warning(
+                "delete_data_modeling_schedules_activity failed; continuing team deletion without it",
+                exc_info=True,
+            )
         # Gated with `patched` so in-flight deletions from before this deploy don't fail replay on a
         # new command. Best-effort: a loop-schedule teardown failure must never wedge team deletion,
         # the schedules it misses are a nuisance, not a blocker (reconciliation/one-off GC catch up).

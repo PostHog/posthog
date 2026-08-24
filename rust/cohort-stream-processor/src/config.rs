@@ -251,8 +251,8 @@ pub struct Config {
     #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
     pub cohort_register_transfer_enabled: bool,
 
-    /// Admit and drain reconcile controls. Default off; enable only once every downstream consumer
-    /// tolerates completion markers. Register transfer is gated separately by
+    /// Admit and drain reconcile controls. Default off; enable only once `COHORT_RECONCILE_MARKERS_TOPIC`
+    /// exists in the environment, which startup asserts. Register transfer is gated separately by
     /// `COHORT_REGISTER_TRANSFER_ENABLED`.
     #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
     pub cohort_seed_reconcile_enabled: bool,
@@ -309,6 +309,22 @@ pub struct Config {
     /// The shadow output topic for membership changes.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
+
+    /// Reconcile completion markers ride their own topic: the membership topic's consumers reject
+    /// any record without `person_id`/`status`, and the seeder's watcher tails this one end to end.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
+
+    /// `message.timeout.ms` for the marker producer alone — much shorter than the shared 20 s. The
+    /// marker produce runs inline on a partition worker, so a broker that black-holes it stalls live
+    /// evaluation on that partition for the whole timeout, and the drain sweeper re-queues the job a
+    /// tick later and stalls it again. Half of `COHORT_SEED_RECONCILE_TICK_INTERVAL_MS`, so the
+    /// worker is free for events between attempts rather than held end to end, and still above the
+    /// ingestion cluster's p99 produce ack (~950 ms on prod-us) — below that, healthy tail produces
+    /// turn into spurious marker failures and bury the signal in
+    /// `cohort_reconcile_marker_produce_errors_total`.
+    #[envconfig(default = "1000")]
+    pub reconcile_marker_message_timeout_ms: u32,
 
     /// `murmur2_random` co-partitions a `person_id` key identically to the Node/Python producers.
     #[envconfig(default = "murmur2_random")]
@@ -1029,6 +1045,17 @@ impl Config {
             ..self.build_kafka_config()
         }
     }
+
+    /// Producer config for the reconcile-marker sink: the shared config with a shorter
+    /// `message.timeout.ms`. Same inline-on-a-worker reason as the transfer sink, except the retry
+    /// is the drain sweeper's rather than an inline loop, so an unreachable marker topic would
+    /// otherwise hold the worker for the full timeout on every tick.
+    pub fn build_marker_kafka_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_message_timeout_ms: self.reconcile_marker_message_timeout_ms,
+            ..self.build_kafka_config()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1083,6 +1110,8 @@ mod tests {
             pod_name: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
+            cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
+            reconcile_marker_message_timeout_ms: 1000,
             kafka_producer_partitioner: "murmur2_random".to_string(),
             cohort_partition_count: 64,
             kafka_compression_codec: "none".to_string(),
@@ -1171,11 +1200,24 @@ mod tests {
             defaults.reconcile_tick_interval(),
             Duration::from_millis(2_000)
         );
+        // The marker produce blocks a partition worker, so its timeout has to stay under the tick
+        // that re-queues it — at parity a black-holed topic occupies the worker end to end.
+        assert_eq!(
+            defaults
+                .build_marker_kafka_config()
+                .kafka_message_timeout_ms,
+            1000,
+        );
+        assert!(
+            u64::from(defaults.reconcile_marker_message_timeout_ms)
+                < defaults.reconcile_tick_interval().as_millis() as u64
+        );
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_SEED_RECONCILE_ENABLED", "true"),
             ("COHORT_SEED_RECONCILE_SCAN_PAGE", "17"),
             ("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", "345"),
+            ("RECONCILE_MARKER_MESSAGE_TIMEOUT_MS", "125"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -1184,6 +1226,10 @@ mod tests {
         assert!(config.cohort_seed_reconcile_enabled);
         assert_eq!(config.cohort_seed_reconcile_scan_page, 17);
         assert_eq!(config.reconcile_tick_interval(), Duration::from_millis(345));
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            125,
+        );
     }
 
     #[test]
@@ -2068,6 +2114,10 @@ mod tests {
         let transfer = config.build_transfer_kafka_config();
         // Only `message.timeout.ms` differs; every other producer knob is inherited.
         assert_eq!(transfer.kafka_message_timeout_ms, 2000);
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            1000,
+        );
         assert_eq!(shared.kafka_message_timeout_ms, 20_000);
         assert_eq!(
             transfer.kafka_producer_partitioner,

@@ -296,6 +296,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     event_plan=req.event_plan,
                     error=req.error,
                     pending_input=req.pending_input,
+                    handoff_text=req.handoff_text,
                     created_by_id=created_by_id,
                 )
             )

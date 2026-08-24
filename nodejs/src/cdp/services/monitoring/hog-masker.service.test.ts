@@ -8,6 +8,7 @@ import { Hub } from '~/types'
 import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { createCdpValkeyShadowPools } from '../../cdp-services'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
@@ -20,6 +21,7 @@ describe('HogMasker', () => {
         let hub: Hub
         let masker: HogMaskerService
         let redis: RedisV2
+        let valkey: RedisV2
 
         beforeEach(async () => {
             hub = await createHub()
@@ -36,9 +38,11 @@ describe('HogMasker', () => {
                 poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
+            valkey = createCdpValkeyShadowPools(hub, 'hog-masker-test').writer
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+            await deleteKeysWithPrefix(valkey, BASE_REDIS_KEY)
 
-            masker = new HogMaskerService(redis)
+            masker = new HogMaskerService(redis, valkey)
         })
 
         const advanceTime = (ms: number) => {
@@ -441,6 +445,26 @@ describe('HogMasker', () => {
                     const res = await masker.filterByMasking(batch)
                     expect(res.notMasked).toHaveLength(1)
                     expect(res.masked).toHaveLength(2)
+                })
+
+                it('release() undoes exactly the claims a call made, so a replay is not masked', async () => {
+                    const first = await masker.filterByMasking([
+                        createExampleHogFlowInvocation(hogFlowEvery),
+                        createExampleHogFlowInvocation(hogFlowEvery),
+                    ])
+                    expect(first.notMasked).toHaveLength(1)
+
+                    await first.release()
+
+                    // The replay is allowed again — an under-release (only part of the batch's
+                    // increment undone) or a no-op release would leave it masked.
+                    const replay = await masker.filterByMasking([createExampleHogFlowInvocation(hogFlowEvery)])
+                    expect(replay.notMasked).toHaveLength(1)
+
+                    // Only the released claims came back — an over-release (counter pushed
+                    // negative) would let this one through too.
+                    const extra = await masker.filterByMasking([createExampleHogFlowInvocation(hogFlowEvery)])
+                    expect(extra.masked).toHaveLength(1)
                 })
 
                 it('resets after ttl for hog flow trigger masking', async () => {

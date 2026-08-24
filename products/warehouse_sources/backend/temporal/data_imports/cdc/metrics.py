@@ -43,6 +43,24 @@ def get_micro_batches_flushed_metric(team_id: int, source_id: str) -> MetricCoun
     )
 
 
+def get_shadow_buffer_files_written_metric(team_id: int, source_id: str) -> MetricCounter:
+    return _source_meter(team_id, source_id).create_counter(
+        "cdc_shadow_buffer_files_written_total", "Total buffer files written in shadow mode"
+    )
+
+
+def get_shadow_buffer_write_errors_metric(team_id: int, source_id: str) -> MetricCounter:
+    return _source_meter(team_id, source_id).create_counter(
+        "cdc_shadow_buffer_write_errors_total", "Total swallowed shadow buffer write failures"
+    )
+
+
+def get_shadow_buffer_write_duration_metric(team_id: int, source_id: str) -> MetricHistogramFloat:
+    return _source_meter(team_id, source_id).create_histogram_float(
+        "cdc_shadow_buffer_write_duration_seconds", "Duration of shadow buffer S3 writes", "s"
+    )
+
+
 def get_extraction_duration_metric(team_id: int, source_id: str, status: str) -> MetricHistogramFloat:
     return (
         _meter()

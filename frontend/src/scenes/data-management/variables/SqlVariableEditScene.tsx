@@ -2,14 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCopy, IconInfo } from '@posthog/icons'
-import {
-    LemonInput,
-    LemonInputSelect,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonSkeleton,
-    LemonTable,
-} from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -20,8 +13,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { getListVariableValues } from '~/queries/nodes/DataVisualization/Components/Variables/VariableFields'
-import { ListVariable, VariableType } from '~/queries/nodes/DataVisualization/types'
+import { VariableSpecificFields } from '~/queries/nodes/DataVisualization/Components/Variables/VariableForm'
+import { Variable, VariableType } from '~/queries/nodes/DataVisualization/types'
 
 import { VARIABLE_TYPE_OPTIONS, formatVariableReference, getCodeName } from './constants'
 import { VARIABLE_INSIGHT_COLUMNS } from './insightColumns'
@@ -39,86 +32,24 @@ export const scene: SceneExport<SqlVariableEditSceneLogicProps> = {
 
 function VariableTypeFields(): JSX.Element {
     const { variableType, variableForm } = useValues(sqlVariableEditSceneLogic)
+    const { setVariableFormValues } = useActions(sqlVariableEditSceneLogic)
+    const variable = {
+        id: '',
+        name: '',
+        code_name: '',
+        default_value: '',
+        ...variableForm,
+        type: variableType,
+        ...(variableType === 'List' && { values: 'values' in variableForm ? (variableForm.values ?? []) : [] }),
+    } as Variable
 
-    if (variableType === 'String') {
-        return (
-            <LemonField name="default_value" label="Default value">
-                <LemonInput placeholder="Enter default value" />
-            </LemonField>
-        )
-    }
-
-    if (variableType === 'Number') {
-        return (
-            <LemonField name="default_value" label="Default value">
-                <LemonInput type="number" placeholder="Enter default value" />
-            </LemonField>
-        )
-    }
-
-    if (variableType === 'Boolean') {
-        return (
-            <LemonField name="default_value" label="Default value">
-                {({ value, onChange }) => (
-                    <LemonSegmentedButton
-                        className="w-full"
-                        value={value ? 'true' : 'false'}
-                        onChange={(val) => onChange(val === 'true')}
-                        options={[
-                            { value: 'true', label: 'true' },
-                            { value: 'false', label: 'false' },
-                        ]}
-                    />
-                )}
-            </LemonField>
-        )
-    }
-
-    if (variableType === 'List') {
-        return (
-            <>
-                <LemonField name="values" label="Options">
-                    {({ value, onChange }) => (
-                        <LemonInputSelect
-                            value={value || []}
-                            onChange={onChange}
-                            placeholder="Add options..."
-                            mode="multiple"
-                            allowCustomValues={true}
-                            options={[]}
-                            sortable={true}
-                        />
-                    )}
-                </LemonField>
-                <LemonField name="default_value" label="Default value">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            className="w-full"
-                            placeholder="Select default value"
-                            value={value}
-                            options={getListVariableValues(variableForm as ListVariable).map((n: string) => ({
-                                label: n,
-                                value: n,
-                            }))}
-                            onChange={(val) => onChange(val ?? '')}
-                            allowClear
-                            dropdownMaxContentWidth
-                        />
-                    )}
-                </LemonField>
-            </>
-        )
-    }
-
-    if (variableType === 'Date') {
-        return (
-            <LemonField name="default_value" label="Default value (YYYY-MM-DD)">
-                <LemonInput placeholder="e.g., 2024-01-15" />
-            </LemonField>
-        )
-    }
-
-    return <></>
+    return (
+        <VariableSpecificFields
+            variable={variable}
+            updateVariable={(updatedVariable) => setVariableFormValues(updatedVariable)}
+            onSave={() => {}}
+        />
+    )
 }
 
 export function SqlVariableEditScene(): JSX.Element {

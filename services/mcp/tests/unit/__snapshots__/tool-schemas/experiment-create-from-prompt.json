@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "Optional experiment description.",
+            "type": "string"
+        },
+        "feature_flag_key": {
+            "description": "Optional feature flag key. If omitted, a slug is derived from the experiment name.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Optional experiment name. If omitted, a name is generated from the prompt and versions.",
+            "type": "string"
+        },
+        "prompt_name": {
+            "description": "The name of the LLM prompt to experiment on. Must already exist for this team.",
+            "type": "string"
+        },
+        "templates": {
+            "description": "One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.",
+            "items": {
+                "description": "* `cost` - cost\n* `latency` - latency\n* `eval_pass_rate` - eval_pass_rate",
+                "enum": ["cost", "latency", "eval_pass_rate"],
+                "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array"
+        },
+        "versions": {
+            "description": "Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.",
+            "items": {
+                "minimum": 1,
+                "type": "number"
+            },
+            "maxItems": 10,
+            "minItems": 2,
+            "type": "array"
+        }
+    },
+    "required": ["prompt_name", "versions", "templates"],
+    "type": "object"
+}

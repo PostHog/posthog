@@ -147,14 +147,3 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         refreshed = self.filter_queryset(self.get_queryset())
         return Response(self.get_serializer(refreshed, many=True).data)
-
-
-@extend_schema(extensions={"x-product": "core"})
-class DesktopFileSystemShortcutViewSet(FileSystemShortcutViewSet):
-    """
-    Sidebar shortcuts for the desktop product surface. Reuses all FileSystemShortcutViewSet
-    behaviour but is scoped to the "desktop" surface, so its shortcuts are fully isolated from
-    the default "web" surface.
-    """
-
-    file_system_surface = "desktop"

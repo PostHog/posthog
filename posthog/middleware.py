@@ -44,6 +44,7 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
@@ -62,7 +63,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -1172,8 +1173,11 @@ class CSPMiddleware:
                 "report-to posthog",
             ]
 
+            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+            # `report-to posthog` directive keeps routing violations to `posthog`.
+            admin_report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"
             response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
+                f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
             )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         else:
@@ -1204,9 +1208,16 @@ class CSPMiddleware:
                 "report-to posthog",
             ]
 
-            response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"'
-            )
+            report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"
+            user = getattr(request, "user", None)
+            if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                # Crash reports arrive after the tab already died, so the report body is the
+                # only chance to attribute them; carrying the distinct_id in the endpoint URL
+                # ties the event to the person instead of a random per-report id.
+                report_endpoint += "&" + urlencode({"distinct_id": user.distinct_id})
+            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+            # `report-to posthog` directive keeps routing violations to `posthog`.
+            response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
             response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
@@ -1232,7 +1243,7 @@ class SocialAuthExceptionMiddleware:
 
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
-            return redirect("/login?error_code=oauth_cancelled")
+            return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
 
         # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
@@ -1243,14 +1254,16 @@ class SocialAuthExceptionMiddleware:
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
                 "sso_enforced",
+                "reauth_user_mismatch",
             ):
-                return redirect(f"/login?error_code={error}")
+                return redirect(sso_failure_redirect_url(request, error))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
-            params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
-            return redirect(f"/login?{params}")
+            url = sso_failure_redirect_url(request, "social_login_failure")
+            separator = "&" if "?" in url else "?"
+            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
 
         return None
 
@@ -1326,40 +1339,51 @@ def is_read_only_impersonation(request: HttpRequest) -> bool:
 # HTTP methods that are considered idempotent/safe and allowed during impersonation
 IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
-# Paths that are allowed for non-idempotent requests during read-only impersonation.
-# These should be paths that are safe or necessary for the impersonated session to function.
-# Supports both prefix strings and compiled regex patterns.
-READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
-    # These endpoints use POST but are read-only:
-    # /query/[A-Z][A-Za-z]* matches query-kind segments, while the schema-upgrade POST action
-    # /query/upgrade/ needs an explicit "|upgrade" branch as that starts with a lowercase letter
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/[A-Za-z]+)?/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
+# Requests allowed despite using a non-idempotent method during read-only impersonation,
+# as (method, path) pairs. These should be requests that are safe or necessary for the
+# impersonated session to function. Each entry permits a single method so a path match
+# can't authorize other mutating methods on overlapping routes (e.g. DELETE
+# /api/.../query/<id>/ cancels a query and must stay blocked).
+# Paths support both prefix strings and compiled regex patterns.
+READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = [
+    # These endpoints use POST but are read-only: the optional segment matches the
+    # schema-upgrade action /query/upgrade/ and query-kind paths, which start uppercase
+    # and may contain digits (e.g. PathsV2Query), mirroring the route in posthog/api/query.py
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/query(?:/(?:upgrade|[A-Z][A-Za-z0-9]*))?/?$"),
+    ),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$")),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$")),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$")),
     # POST but read-only: returns metadata about available incremental fields / columns
     # for a data warehouse schema. Validates external credentials and lists schemas
     # against the customer's source — no PostHog-side mutations.
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"),
+    (
+        "POST",
+        re.compile(
+            r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
+        ),
+    ),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
-    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$"),
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
     # Allow upgrading from read-only to read-write impersonation
-    "/admin/impersonation/upgrade/",
+    ("POST", "/admin/impersonation/upgrade/"),
     # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
     # while Django's URL config accepts both via opt_slash_path — match both forms.
-    re.compile(r"^/logout/?$"),
+    ("POST", re.compile(r"^/logout/?$")),
     # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
     # Scopes minted while read-only impersonation is active are filtered through
     # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
     # resulting tokens can't grant write access. Tokens minted here are also tagged with
     # the impersonator and revoked when impersonation ends.
-    re.compile(r"^/oauth/authorize/?$"),
-    re.compile(r"^/oauth/token/?$"),
+    ("POST", re.compile(r"^/oauth/authorize/?$")),
+    ("POST", re.compile(r"^/oauth/token/?$")),
 ]
 
 
@@ -1390,7 +1414,7 @@ class ImpersonationReadOnlyMiddleware:
         if request.method in IMPERSONATION_SAFE_METHODS:
             return self.get_response(request)
 
-        if self._is_path_allowlisted(request.path):
+        if self._is_request_allowlisted(request):
             return self.get_response(request)
 
         if self._is_allowed_users_request(request):
@@ -1405,12 +1429,14 @@ class ImpersonationReadOnlyMiddleware:
             status=403,
         )
 
-    def _is_path_allowlisted(self, path: str) -> bool:
-        for allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
+    def _is_request_allowlisted(self, request: HttpRequest) -> bool:
+        for allowed_method, allowed_path in READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS:
+            if request.method != allowed_method:
+                continue
             if isinstance(allowed_path, re.Pattern):
-                if allowed_path.match(path):
+                if allowed_path.match(request.path):
                     return True
-            elif path.startswith(allowed_path):
+            elif request.path.startswith(allowed_path):
                 return True
         return False
 

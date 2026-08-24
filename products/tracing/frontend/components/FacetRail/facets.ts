@@ -34,7 +34,9 @@ export type FacetColumn = 'service_name' | 'status_code'
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name), queried with
  *   breakdownType `span_resource_attribute`. Selection is a span_resource_attribute property filter.
  */
-export type FacetSource = { type: 'column'; column: FacetColumn } | { type: 'resourceAttribute'; key: string }
+export type FacetSource =
+    | { type: 'column'; column: FacetColumn }
+    | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
 
 /**
  * The sources whose selection lives in the filterGroup. `service_name` is deliberately excluded:
@@ -43,7 +45,7 @@ export type FacetSource = { type: 'column'; column: FacetColumn } | { type: 'res
  */
 export type FilterGroupFacetSource =
     | { type: 'column'; column: Exclude<FacetColumn, 'service_name'> }
-    | { type: 'resourceAttribute'; key: string }
+    | { type: 'resourceAttribute'; key: string; aliasKeys?: string[] }
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -90,17 +92,31 @@ function facetFilterKey(source: FilterGroupFacetSource): string {
     return source.type === 'column' ? source.column : source.key
 }
 
-function isFacetFilter(filter: SpanFacetFilter, source: FilterGroupFacetSource): boolean {
-    return filter?.type === facetFilterType(source) && filter?.key === facetFilterKey(source)
+/**
+ * Tri-state selection for a facet: a value is included, excluded, or in neither set. The query
+ * effect is `IN (included)` AND `NOT IN (excluded)` — attribute exclusions keep spans missing the
+ * attribute entirely (an absent map key reads as '', which never equals an excluded value).
+ */
+export interface FacetSelection {
+    included: string[]
+    excluded: string[]
 }
 
-/**
- * Values currently selected for a facet whose selection lives in the filterGroup (status_code and
- * resource attributes — service_name reads the dedicated serviceNames field instead).
- */
-export function facetFilterValues(group: UniversalFiltersGroup | undefined, source: FilterGroupFacetSource): string[] {
-    const existing = innerFilters(group).find((f) => isFacetFilter(f, source))
-    const value = existing?.value
+// The rail owns a facet's `exact` (include) and `is_not` (exclude) filters. A chip on the same key
+// with any other operator (e.g. icontains) is not rail state: it's ignored on read and preserved
+// untouched on write.
+const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
+
+function isRailFacetFilter(filter: SpanFacetFilter, source: FilterGroupFacetSource): boolean {
+    return (
+        filter?.type === facetFilterType(source) &&
+        filter?.key === facetFilterKey(source) &&
+        RAIL_OPERATORS.includes(filter?.operator)
+    )
+}
+
+function filterValues(filter: SpanFacetFilter): string[] {
+    const value = filter.value
     if (Array.isArray(value)) {
         // Empty strings from external state (URL, saved view) would select a value with no visible row.
         return value.map(String).filter((v) => v !== '')
@@ -109,57 +125,194 @@ export function facetFilterValues(group: UniversalFiltersGroup | undefined, sour
 }
 
 /**
- * Values currently selected for any facet — routes the service facet to the dedicated
- * serviceNames field and everything else to its filterGroup property filter.
+ * Selection for a facet whose state lives in the filterGroup (status_code and resource attributes —
+ * service_name reads the dedicated serviceNames field instead), read from its exact (include) and
+ * is_not (exclude) filters.
  */
-export function facetSelectedValues(
+export function facetFilterSelection(
     group: UniversalFiltersGroup | undefined,
-    serviceNames: string[] | undefined | null,
-    source: FacetSource
-): string[] {
-    if (source.type === 'column') {
-        if (source.column === 'service_name') {
-            // Empty strings from external state (URL, saved view) would select a value with no visible row.
-            return (serviceNames ?? []).filter((v) => v !== '')
-        }
-        return facetFilterValues(group, { type: 'column', column: source.column })
+    source: FilterGroupFacetSource
+): FacetSelection {
+    const railFilters = innerFilters(group).filter((f) => isRailFacetFilter(f, source))
+    return {
+        included: railFilters.filter((f) => f.operator === PropertyOperator.Exact).flatMap(filterValues),
+        excluded: railFilters.filter((f) => f.operator === PropertyOperator.IsNot).flatMap(filterValues),
     }
-    return facetFilterValues(group, source)
 }
 
 /**
- * Add or remove `value` from a facet's filterGroup selection, returning a new filterGroup.
- * Multi-select is one property filter per key with an array value.
+ * Selection for any facet — routes the service facet to the dedicated serviceNames field
+ * (include-only, so nothing is ever excluded there) and everything else to its filterGroup filters.
+ * Column selections are reported against the rows the rail renders, so a folded-away value
+ * (status_code "0") shows up as its group's row instead of as a selection with no row to click.
  */
-export function toggleFacetFilter(
+export function facetSelection(
+    group: UniversalFiltersGroup | undefined,
+    serviceNames: string[] | undefined | null,
+    source: FacetSource
+): FacetSelection {
+    if (source.type === 'column') {
+        if (source.column === 'service_name') {
+            // Empty strings from external state (URL, saved view) would select a value with no visible row.
+            return { included: (serviceNames ?? []).filter((v) => v !== ''), excluded: [] }
+        }
+        return facetRowSelection(source, facetFilterSelection(group, { type: 'column', column: source.column }))
+    }
+    return facetFilterSelection(group, source)
+}
+
+/**
+ * Advance `value` one step through the facet cycle — unchecked → included → excluded → unchecked —
+ * returning a new filterGroup. Selection is stored as up to two property filters per key with
+ * array values, `exact` and `is_not`; a filter is dropped when its side of the selection empties.
+ * Both sides are written as whole value groups, so no click can leave half of a folded group behind.
+ */
+export function cycleFacetFilter(
     group: UniversalFiltersGroup | undefined,
     source: FilterGroupFacetSource,
     value: string
 ): UniversalFiltersGroup {
-    const current = facetFilterValues(group, source)
-    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
-    const others = innerFilters(group).filter((f) => !isFacetFilter(f, source))
-    const values: SpanFacetFilter[] =
-        next.length > 0
-            ? [
-                  ...others,
-                  {
-                      key: facetFilterKey(source),
-                      type: facetFilterType(source),
-                      operator: PropertyOperator.Exact,
-                      value: next,
-                  },
-              ]
-            : others
+    const valueGroup = facetValueGroup(source, value)
+    const { included, excluded } = facetFilterSelection(group, source)
+    let nextIncluded = included
+    let nextExcluded = excluded
+    if (valueGroup.some((v) => included.includes(v))) {
+        nextIncluded = included.filter((v) => !valueGroup.includes(v))
+        nextExcluded = [...excluded, ...valueGroup.filter((v) => !excluded.includes(v))]
+    } else if (valueGroup.some((v) => excluded.includes(v))) {
+        nextExcluded = excluded.filter((v) => !valueGroup.includes(v))
+    } else {
+        nextIncluded = [...included, ...valueGroup.filter((v) => !included.includes(v))]
+    }
+
+    const values = innerFilters(group).filter((f) => !isRailFacetFilter(f, source))
+    const nextIncludedValues = expandToValueGroups(source, nextIncluded)
+    const nextExcludedValues = expandToValueGroups(source, nextExcluded)
+    if (nextIncludedValues.length > 0) {
+        values.push({
+            key: facetFilterKey(source),
+            type: facetFilterType(source),
+            operator: PropertyOperator.Exact,
+            value: nextIncludedValues,
+        })
+    }
+    if (nextExcludedValues.length > 0) {
+        values.push({
+            key: facetFilterKey(source),
+            type: facetFilterType(source),
+            operator: PropertyOperator.IsNot,
+            value: nextExcludedValues,
+        })
+    }
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
-// OTel span status. Values must stay the digit strings "0"/"1"/"2": breakdown rows arrive
+/** The data key a facet is broken down by: its column, or the resource-attribute key resolution picked. */
+export function facetSourceKey(facet: FacetConfig): string {
+    return facet.source.type === 'column' ? facet.source.column : facet.source.key
+}
+
+/** Everything a facet's own values can depend on, before its own selection is stripped out. */
+export interface FacetScope {
+    currentTeamId: number | null
+    utcDateRange: { date_from?: string | null; date_to?: string | null }
+    serviceNames: string[] | undefined
+    /** filterGroup with any pinned scope folded in — what the breakdown request actually carries. */
+    queryFilterGroup: UniversalFiltersGroup | undefined
+}
+
+/**
+ * A stable string identifying everything that can change this facet's values: the breakdown scope
+ * minus the facet's own contributions, mirroring what the backend strips when excludeBreakdownFilter
+ * is set (see _extract_filters in products/tracing/backend/attribute_breakdown_query_runner.py,
+ * pinned from the other side by test_attribute_breakdown.py::test_exclude_breakdown_filter_*).
+ * Selecting a value in this facet leaves the signature untouched, so the facet doesn't refetch
+ * itself; selecting in any other facet changes it.
+ *
+ * A string, not an object: `queryFilterGroup` gets a fresh identity on every edit, so an object
+ * couldn't tell "nothing I care about changed". Presentation state (view mode, sort, compare) is
+ * deliberately absent — the breakdown request doesn't read it.
+ */
+export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
+    const { source } = facet
+    const selfKey = facetSourceKey(facet)
+    const selfType = source.type === 'column' ? PropertyFilterType.Span : PropertyFilterType.SpanResourceAttribute
+    // Any operator: the backend drops every filter under the breakdown key, not just the rail's own.
+    const groupSignature = innerFilters(scope.queryFilterGroup)
+        .filter((filter) => !(filter.type === selfType && filter.key === selfKey))
+        .map((filter) => [filter.type, filter.key, filter.operator, JSON.stringify(filter.value ?? null)])
+
+    return JSON.stringify([
+        // A facet mounted before the team resolved fetches nothing; keeping the id in the signature
+        // makes it fetch once the team arrives.
+        scope.currentTeamId ?? null,
+        [source.type, selfKey],
+        scope.utcDateRange.date_from ?? null,
+        scope.utcDateRange.date_to ?? null,
+        // The service facet breaks down the same column the dedicated field filters.
+        source.type === 'column' && source.column === 'service_name' ? null : (scope.serviceNames ?? []),
+        groupSignature,
+    ])
+}
+
+// A span that never had its status explicitly set carries no distinct meaning from one marked
+// OK, so the rail folds status_code 0 (Unset) into the OK row: selecting, excluding, and counting
+// "1" also reads and writes "0". Keyed on the digit strings the breakdown rows and filter values
+// already use.
+const STATUS_CODE_VALUE_GROUPS: Record<string, string[]> = {
+    '1': ['0', '1'],
+}
+
+/**
+ * The full set of underlying column values a facet click or count should read/write for `value`.
+ * Only status_code's "OK" (folding in "Unset") expands to more than itself; every other facet
+ * value, including status_code's "Error", is its own singleton group.
+ */
+export function facetValueGroup(source: FacetSource, value: string): string[] {
+    if (source.type === 'column' && source.column === 'status_code') {
+        return STATUS_CODE_VALUE_GROUPS[value] ?? [value]
+    }
+    return [value]
+}
+
+// Reverse of STATUS_CODE_VALUE_GROUPS: which row each underlying value is rendered under.
+const STATUS_CODE_ROW_BY_VALUE: Record<string, string> = Object.fromEntries(
+    Object.entries(STATUS_CODE_VALUE_GROUPS).flatMap(([row, values]) => values.map((value) => [value, row]))
+)
+
+/**
+ * The rail row `value` is rendered under: itself for every value except one that was folded away,
+ * which reports the row it folded into. Filters written before the fold (or by hand outside the
+ * rail) can carry status_code "0" on its own, so the OK row has to read as active for it; otherwise
+ * the first click would cycle that already-active group to excluded instead of selecting it.
+ */
+function facetRowValue(source: FacetSource, value: string): string {
+    if (source.type === 'column' && source.column === 'status_code') {
+        return STATUS_CODE_ROW_BY_VALUE[value] ?? value
+    }
+    return value
+}
+
+/** Map a raw filter selection onto the rows the rail renders, deduping values that share a row. */
+function facetRowSelection(source: FacetSource, selection: FacetSelection): FacetSelection {
+    const toRows = (values: string[]): string[] => [...new Set(values.map((v) => facetRowValue(source, v)))]
+    return { included: toRows(selection.included), excluded: toRows(selection.excluded) }
+}
+
+/**
+ * Expand a set of filter values onto whole value groups, so a write always covers every value behind
+ * the rows it touches. Legacy state carrying part of a group (status_code "0" without "1") would
+ * otherwise survive a click on a different row, leaving the rail showing OK while the query drops
+ * explicitly-OK spans.
+ */
+function expandToValueGroups(source: FacetSource, values: string[]): string[] {
+    return [...new Set(values.flatMap((v) => facetValueGroup(source, facetRowValue(source, v))))]
+}
+
+// OTel span status. Values must stay the digit strings "1"/"2": breakdown rows arrive
 // stringified (the backend toString()s the Int16 column), so these are what counts key on.
-// Don't switch to the label strings — the server-side filter normaliser treats "OK" as
-// {Unset, OK}, which would silently widen a selection.
+// "Unset" (0) has no separate row; see STATUS_CODE_VALUE_GROUPS above.
 const STATUS_OPTIONS: FacetOption[] = [
-    { value: '0', label: 'Unset', count: 0 },
     { value: '1', label: 'OK', count: 0 },
     { value: '2', label: 'Error', count: 0 },
 ]
@@ -185,15 +338,22 @@ const STATUS_FACET: FacetConfig = {
     fixedOptions: STATUS_OPTIONS,
 }
 
-// Curated OTel resource attributes worth faceting. Keys are the stable OTel semantic-convention names;
-// `deployment.environment.name` is the 1.27+ stable key (older data may use `deployment.environment`).
-function resourceAttributeFacet(key: string, slug: string, title: string, group: string): FacetConfig {
+// Curated OTel resource attributes worth faceting. `key` is the current OTel semantic-convention name;
+// `aliasKeys` are older or non-standard spellings of the same attribute that resolveFacets falls back to
+// when the tenant doesn't emit the current key.
+function resourceAttributeFacet(
+    key: string,
+    slug: string,
+    title: string,
+    group: string,
+    aliasKeys?: string[]
+): FacetConfig {
     return {
         key: slug,
         title,
         group,
         kind: 'dynamic',
-        source: { type: 'resourceAttribute', key },
+        source: { type: 'resourceAttribute', key, aliasKeys },
         searchable: true,
         searchPlaceholder: `Search ${title.toLowerCase()}…`,
         emptyLabel: `No ${title.toLowerCase()} values`,
@@ -201,11 +361,17 @@ function resourceAttributeFacet(key: string, slug: string, title: string, group:
     }
 }
 
+// The only faceted attribute semconv has ever renamed: `deployment.environment` became
+// `deployment.environment.name` in 1.27. `env` is not a semantic convention — it's what a Datadog `env:`
+// tag lands as, since the Datadog ingest path stores ddtags verbatim. The rest below need no aliases:
+// the `k8s.*.name` keys and `service.version` are stable and were never renamed, and `host.name` has
+// kept its spelling too.
 const ENVIRONMENT_FACET = resourceAttributeFacet(
     'deployment.environment.name',
     'environment',
     'Environment',
-    'Standard'
+    'Standard',
+    ['deployment.environment', 'env']
 )
 const VERSION_FACET = resourceAttributeFacet('service.version', 'version', 'Version', 'Standard')
 const NAMESPACE_FACET = resourceAttributeFacet('k8s.namespace.name', 'namespace', 'Namespace', 'Kubernetes')
@@ -215,7 +381,8 @@ const HOST_FACET = resourceAttributeFacet('host.name', 'host', 'Host', 'Infrastr
 /**
  * The rail is rendered entirely from this list — append a config to add a facet (or a new group).
  * Ordered by group (Standard → Kubernetes → Infrastructure) since facetsByGroup keeps first-appearance order.
- * Resource-attribute facets only render when the tenant actually emits the key (see facetCountsLogic).
+ * Resource-attribute facets only render when the tenant actually emits the key or one of its aliases
+ * (see resolveFacets, called from facetCountsLogic).
  */
 export const FACETS: FacetConfig[] = [
     SERVICE_FACET,
@@ -226,6 +393,29 @@ export const FACETS: FacetConfig[] = [
     DEPLOYMENT_FACET,
     HOST_FACET,
 ]
+
+/**
+ * Resolve the configured facets against the resource-attribute keys a tenant actually emits.
+ * Column facets always pass through. A resource-attribute facet is kept only if the tenant emits its
+ * current key or one of its aliases, and its source is rewritten onto whichever spelling is present so
+ * the rail queries and filters on the key that has data. The current key wins when several are present.
+ */
+export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string[]): FacetConfig[] {
+    const present = new Set(presentResourceKeys)
+    const resolved: FacetConfig[] = []
+    for (const facet of facets) {
+        if (facet.source.type === 'column') {
+            resolved.push(facet)
+            continue
+        }
+        const match = [facet.source.key, ...(facet.source.aliasKeys ?? [])].find((k) => present.has(k))
+        if (match === undefined) {
+            continue
+        }
+        resolved.push(match === facet.source.key ? facet : { ...facet, source: { ...facet.source, key: match } })
+    }
+    return resolved
+}
 
 /**
  * Filter facets by a free-text query matching the field name or its group (case-insensitive

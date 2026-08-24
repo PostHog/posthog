@@ -5,6 +5,9 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase, mock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -18,7 +21,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 
 class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
@@ -1261,7 +1264,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         }
 
     def _create_endpoint_with_variables(self, name="range-endpoint"):
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1347,7 +1350,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert endpoint_data.get("materialization", {}).get("status") is None
 
     def test_bucket_overrides_stored_on_version(self):
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        from products.product_analytics.backend.facade.models import InsightVariable
 
         InsightVariable.objects.create(
             team=self.team, id="00000000-0000-0000-0000-000000000001", code_name="start_ts", type="String"
@@ -1886,3 +1889,73 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
         v2 = endpoint.get_version(2)
         # Explicit list wins — NOT the inherited ["$browser", "$os"].
         self.assertEqual(v2.optional_breakdown_properties, ["$os"])
+
+
+class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "endpoints"
+
+    def _create_endpoints(self, count: int) -> None:
+        for i in range(count):
+            endpoint = create_endpoint_with_version(
+                name=f"list_perf_{i}",
+                team=self.team,
+                query={
+                    "kind": "HogQLQuery",
+                    "query": "SELECT count() AS c FROM events WHERE event = {variables.event_name}",
+                    "variables": {"v0": {"variableId": "v0", "code_name": "event_name", "value": "$pageview"}},
+                },
+                created_by=self.user,
+            )
+            endpoint.versions.update(columns=[{"name": "c", "type": "integer"}])
+
+    def _list_query_count(self, endpoint_count: int) -> int:
+        Endpoint.objects.all().delete()
+        self._create_endpoints(endpoint_count)
+        url = f"/api/environments/{self.team.id}/endpoints/"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(endpoint_count, len(response.json()["results"]))
+        return len(ctx.captured_queries)
+
+    def test_list_query_count_does_not_grow_with_endpoint_count(self):
+        few = self._list_query_count(2)
+        many = self._list_query_count(8)
+
+        self.assertEqual(few, many, f"listing 8 endpoints cost {many} queries vs {few} for 2, so something N+1s")
+
+    def test_list_reports_the_latest_version_and_the_full_history_count(self):
+        endpoint = create_endpoint_with_version(
+            name="versioned",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+        )
+        for i in range(2, 4):
+            self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": {"kind": "HogQLQuery", "query": f"SELECT {i}"}},
+                format="json",
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        result = response.json()["results"][0]
+        self.assertEqual(3, result["current_version"])
+        self.assertEqual(3, result["versions_count"])
+        self.assertEqual("SELECT 3", result["query"]["query"])
+
+    def test_list_survives_an_endpoint_whose_eligibility_check_raises(self):
+        self._create_endpoints(2)
+
+        with mock.patch.object(EndpointVersion, "can_materialize", side_effect=RuntimeError("boom")):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        results = response.json()["results"]
+        self.assertEqual(2, len(results))
+        for result in results:
+            self.assertFalse(result["materialization"]["can_materialize"])
+            self.assertIn("Couldn't check", result["materialization"]["reason"])

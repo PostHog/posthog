@@ -429,6 +429,44 @@ class TestWebAuthnLogin(APIBaseTest):
         self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthog.auth.verify_passkey_authentication_response")
+    def test_login_blocked_for_member_when_org_requires_verified_domain(self, mock_verify):
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import user_uuid_to_handle
+
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        self.client.post("/api/webauthn/login/begin/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        user_handle = user_uuid_to_handle(self.user.uuid)
+
+        response = self.client.post(
+            "/api/webauthn/login/complete/",
+            {
+                "id": bytes_to_base64url(self.credential.credential_id),
+                "rawId": bytes_to_base64url(self.credential.credential_id),
+                "type": "public-key",
+                "response": {
+                    "authenticatorData": "data",
+                    "clientDataJSON": "data",
+                    "signature": "sig",
+                    "userHandle": bytes_to_base64url(user_handle),
+                },
+            },
+            format="json",
+        )
+        # A blocked member is refused; only blocked admins get the gated session (covered in the
+        # password login tests, where the escape-hatch loop is exercised).
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("verified email domain", response.json()["error"])
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("posthog.auth.verify_passkey_authentication_response")
     def test_spoofed_user_handle_cannot_bypass_sso_enforcement(self, mock_verify):
         """An attacker with a valid passkey cannot bypass SSO enforcement by spoofing
         the userHandle to point to a user without SSO enforcement."""

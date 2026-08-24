@@ -24,7 +24,8 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs
+    clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium)
 INFRA_SERVICES=(zookeeper kafka db redis7)
 ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
@@ -165,7 +166,7 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
 
 if [ -n "${PRIME_POSTGRES_FROM:-}" ] && [ -f "${PRIME_POSTGRES_FROM}" ]; then
-    # CI primes Postgres from a cached schema dump produced by the
+    # CI primes Postgres from the master schema dump produced by the
     # "Validate migrations" job in ci-backend.yml. Loading via psql is much
     # faster than running every Django migration from scratch. Pair this with
     # SKIP_ASYNC_MIGRATIONS_SETUP=1 because PostHogConfig.ready() otherwise
@@ -189,7 +190,9 @@ else
     # read path; CI does that and points PRIME_POSTGRES_FROM at a cached
     # schema dump so this branch is only taken on cache miss.
     echo "==> Running Django (Postgres) migrations..."
-    python manage.py migrate --noinput
+    # --skip-checks: the Django system check pass costs ~1 minute here and
+    # runs in its own CI job already.
+    python manage.py migrate --noinput --skip-checks
 fi
 
 SMOKE_STAGE="migrate_clickhouse"
@@ -201,12 +204,12 @@ echo "==> Verifying per-node table layout..."
 python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
 
 # Convergence gate: the migrations just applied must reproduce the declarative
-# HCL golden for the managed OPS/LOGS roles. Two steps — (1) introspect those
-# nodes into HCL dumps, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
+# HCL golden for every role this stack runs. Two steps — (1) introspect each
+# node into an HCL dump, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
 # Enforced by default (drift fails the smoke); export VERIFY_LIVE_WARN=1 to make
 # it informational (report drift but pass) while reconciling.
 SMOKE_STAGE="dump_live_hcl"
-echo "==> Dumping live OPS/LOGS schema..."
+echo "==> Dumping live schema from every node..."
 LIVE_DUMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")"
 bash posthog/clickhouse/hcl/dump-live.sh "$LIVE_DUMP_DIR" >/dev/null
 

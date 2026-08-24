@@ -4,7 +4,6 @@ from products.review_hog.backend.reviewer.constants import published_priorities_
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
-from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import build_review_body
 
 # The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
@@ -24,10 +23,6 @@ def _issue(issue_id: str, priority: IssuePriority = IssuePriority.MUST_FIX) -> I
     )
 
 
-def _chunk(chunk_id: int, chunk_type: str) -> Chunk:
-    return Chunk(chunk_id=chunk_id, files=[FileInfo(filename="src/auth.py")], chunk_type=chunk_type, key_changes=[])
-
-
 def _pr_files() -> list[PRFile]:
     # The reviewed diff touches lines 1-2 of src/auth.py, so a finding there is on-diff (inline-able).
     return [
@@ -41,46 +36,51 @@ def _pr_files() -> list[PRFile]:
     ]
 
 
-def test_only_validated_issues_count_and_chunk_appears() -> None:
-    # One valid + one invalid issue on the same chunk: the body shows the chunk (with a humanized
-    # header) and counts only the valid one.
-    chunks_data = ChunksList(chunks=[_chunk(1, "business_logic")])
-    issues = [_issue("1-1-1"), _issue("1-1-2")]
+@pytest.mark.parametrize(
+    "findings,expected_line",
+    [
+        # Only findings the validator ruled valid are tallied.
+        (
+            [(IssuePriority.MUST_FIX, None, True), (IssuePriority.MUST_FIX, None, False)],
+            "Found **1 must fix**.",
+        ),
+        # Severities read most urgent first, and consider sits below the threshold so it never counts.
+        (
+            [
+                (IssuePriority.CONSIDER, None, True),
+                (IssuePriority.SHOULD_FIX, None, True),
+                (IssuePriority.MUST_FIX, None, True),
+            ],
+            "Found **1 must fix**, **1 should fix**.",
+        ),
+        # Validator-wins: an upgrade joins the tally under its new severity.
+        ([(IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, True)], "Found **1 should fix**."),
+        # And a downgrade below the threshold leaves nothing to publish.
+        ([(IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER, True)], "No issues to report."),
+    ],
+)
+def test_body_tallies_publishable_findings_by_severity(
+    findings: list[tuple[IssuePriority, IssuePriority | None, bool]], expected_line: str
+) -> None:
+    # The body is a severity tally, so its one line has to count exactly what gets published: valid
+    # findings at or above the acting user's threshold, bucketed by EFFECTIVE (validator-wins) severity.
+    # A miscount here is the whole message being wrong. Asserting the WHOLE body (on-diff lines keep the
+    # off-diff section out) also guards the point of the tally: no chunk headers, file lists, or diff
+    # narrative creeping back in.
+    issues = [_issue(f"1-1-{index}", priority=priority) for index, (priority, _, _) in enumerate(findings)]
     validations = {
-        "1-1-1": IssueValidation(is_valid=True, argumentation="real bug", category="bug"),
-        "1-1-2": IssueValidation(is_valid=False, argumentation="not a bug", category="code_quality"),
+        issue.id: IssueValidation(is_valid=is_valid, argumentation="reason", category="bug", adjusted_priority=adjusted)
+        for issue, (_, adjusted, is_valid) in zip(issues, findings)
     }
 
     body = build_review_body(
-        chunks_data=chunks_data,
         issues=issues,
         validations=validations,
         pr_files=_pr_files(),
         published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
-    assert "# ReviewHog Report" in body
-    assert "## Business logic" in body  # chunk_type humanized into the header
-    assert "**Issues:** 1 issue" in body  # only the valid issue counts
-
-
-def test_chunk_with_no_valid_issue_is_skipped() -> None:
-    # chunk 2 has no validated issue, so it must not clutter the body (which summarizes findings, not
-    # coverage); chunk 1 has a valid finding and appears.
-    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix"), _chunk(2, "frontend")])
-    issues = [_issue("1-1-1")]
-    validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="real", category="bug")}
-
-    body = build_review_body(
-        chunks_data=chunks_data,
-        issues=issues,
-        validations=validations,
-        pr_files=_pr_files(),
-        published_priorities=_SHOULD_FIX_PUBLISHED,
-    )
-
-    assert "## Bugfix" in body
-    assert "## Frontend" not in body
+    assert body == f"# ReviewHog Report\n\n{expected_line}\n"
 
 
 @pytest.mark.parametrize(
@@ -106,8 +106,7 @@ def test_other_findings_section_membership(
     # (validator-wins) is must/should-fix and which have no inline anchor (off-diff) — so an off-diff
     # valid finding isn't silently dropped at publish, while consider / invalid / on-diff findings don't
     # leak in, and a validator upgrade/downgrade moves the finding in or out. The title renders only in
-    # this section (the per-chunk summary lists no titles), so its presence is the membership signal.
-    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
+    # this section (the tally lists no titles), so its presence is the membership signal.
     issue = Issue(
         id="1-1-1",
         title="Membership marker finding",
@@ -124,7 +123,6 @@ def test_other_findings_section_membership(
     }
 
     body = build_review_body(
-        chunks_data=chunks_data,
         issues=[issue],
         validations=validations,
         pr_files=_pr_files(),
@@ -139,7 +137,6 @@ def test_off_diff_finding_sections_lead_with_validation() -> None:
     # the inline comment (verdict first, then description, then fix). The two renderers are separate
     # templates, so the inline-comment order test can't catch _render_off_diff_section flipping back
     # to description-first.
-    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
     issue = Issue(
         id="1-1-1",
         title="Off-diff finding",
@@ -152,7 +149,6 @@ def test_off_diff_finding_sections_lead_with_validation() -> None:
     validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="verified", category="bug")}
 
     body = build_review_body(
-        chunks_data=chunks_data,
         issues=[issue],
         validations=validations,
         pr_files=_pr_files(),
@@ -164,36 +160,3 @@ def test_off_diff_finding_sections_lead_with_validation() -> None:
         for label in ("Why we think it's a valid issue", "Issue description", "Suggested fix")
     ]
     assert positions == sorted(positions)
-
-
-@pytest.mark.parametrize(
-    "base,adjusted,expected_count_line",
-    [
-        (IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, "**Issues:** 1 issue"),  # upgrade joins the count
-        (IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER, None),  # downgrade drops out of the count
-    ],
-)
-def test_chunk_count_reflects_effective_priority(
-    base: IssuePriority, adjusted: IssuePriority, expected_count_line: str | None
-) -> None:
-    # The per-chunk "Issues: N" count must reflect the validator's override, not the reviewer's frozen
-    # priority — a finding downgraded to consider stops counting, an upgraded one starts. Uses an
-    # on-diff line so the off-diff section never interferes with the count signal.
-    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
-    issue = _issue("1-1-1", priority=base)
-    validations = {
-        "1-1-1": IssueValidation(is_valid=True, argumentation="reason", category="bug", adjusted_priority=adjusted)
-    }
-
-    body = build_review_body(
-        chunks_data=chunks_data,
-        issues=[issue],
-        validations=validations,
-        pr_files=_pr_files(),
-        published_priorities=_SHOULD_FIX_PUBLISHED,
-    )
-
-    if expected_count_line is None:
-        assert "**Issues:**" not in body
-    else:
-        assert expected_count_line in body

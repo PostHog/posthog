@@ -54,10 +54,11 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
     }
 
     beforeEach(async () => {
@@ -417,7 +418,7 @@ describe('createProcessPersonsStep', () => {
         }
     })
 
-    describe('always-v1 team allowlist', () => {
+    describe('merge distinct id versioning', () => {
         function identify(anonDistinctId: string, targetDistinctId: string): PluginEvent {
             return {
                 ...pluginEvent,
@@ -428,11 +429,8 @@ describe('createProcessPersonsStep', () => {
             }
         }
 
-        async function runIdentify(event: PluginEvent, allowlist: string): Promise<void> {
-            const step = createProcessPersonsStep(
-                { ...options, PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: allowlist },
-                personOutputs
-            )
+        async function runIdentify(event: PluginEvent): Promise<void> {
+            const step = createProcessPersonsStep(options, personOutputs)
             const result = await step(
                 createInput({ normalizedEvent: event, timestamp: DateTime.fromISO(event.timestamp!) })
             )
@@ -450,19 +448,16 @@ describe('createProcessPersonsStep', () => {
             return Number(result.rows[0].version ?? 0)
         }
 
-        it('writes version 1 for merge-added distinct ids only for allowlisted teams', async () => {
+        it('writes version 1 for a merge-added distinct id', async () => {
             await createPersonWithDistinctIds('user-1')
 
-            // Neither anon id has personless history, so without the gate both would get version 0.
-            await runIdentify(identify('anon-gated', 'user-1'), `${teamId}`)
-            await runIdentify(identify('anon-ungated', 'user-1'), `${teamId + 1}`)
+            await runIdentify(identify('anon-1', 'user-1'))
 
-            expect(await versionOf('anon-gated')).toBe(1)
-            expect(await versionOf('anon-ungated')).toBe(0)
+            expect(await versionOf('anon-1')).toBe(1)
         })
 
         it('gives the non-primary distinct id version 1 when neither points at a person', async () => {
-            await runIdentify(identify('anon-new', 'user-new'), '*')
+            await runIdentify(identify('anon-new', 'user-new'))
 
             // The event distinct id derives the person uuid, so it stays at version 0.
             expect(await versionOf('user-new')).toBe(0)
@@ -643,15 +638,11 @@ describe('createProcessPersonsStep', () => {
             expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
         })
 
-        it('folded personless adds get version 1 for always-v1 teams', async () => {
+        it('folded adds for distinct ids without a person get version 1', async () => {
             await createPersonWithProps('anon-1', { a: 1 })
-            // anon-2 has no person row and no personless history, so without the gate it would get version 0
             const plan = planFor('user-1', 'anon-1', 'anon-2')
 
-            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, {
-                ...foldOptions,
-                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '*',
-            })
+            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, foldOptions)
 
             expect(plan.status).toBe('executed')
             const rows = await fetchDistinctIds(infra.postgres, plan.mergedPerson!)

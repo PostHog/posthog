@@ -18,9 +18,9 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dags.common.owners import JobOwners
 from posthog.hogql_queries.property_values_query_runner import PropertyValuesQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.job_owners import JobOwners
 from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
 from posthog.queries.property_values import get_person_property_values_for_key
@@ -138,7 +138,7 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
             query=PropertyValuesQuery(property_type=PropertyType.EVENT, property_key=property_name),
             user=self._user,
         )
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self._user)
         return [item.name for item in getattr(response, "results", []) or []]
 
 

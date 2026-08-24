@@ -3,14 +3,16 @@ import json
 import uuid
 import datetime
 from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 from freezegun.api import freeze_time
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
+from django.shortcuts import redirect
 from django.test import override_settings
 from django.utils import timezone
 
@@ -21,10 +23,11 @@ from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
-from ee.api.authentication import CustomGoogleOAuth2
+from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 
@@ -67,7 +70,13 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
-            {"sso_enforcement": "google-oauth2", "saml_available": False, "webauthn_credentials": []},
+            {
+                "sso_enforcement": "google-oauth2",
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_unverified_domain(self):
@@ -84,7 +93,14 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             )  # Note we didn't create a user that matches, only domain is matched
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_inexistent_account(self):
@@ -100,7 +116,14 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": "github", "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": "github",
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
@@ -117,7 +140,14 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
 
@@ -261,6 +291,149 @@ class TestEEAuthenticationAPI(APILicensedTest):
             response = self.client.get("/login/google-oauth2/")
         self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
+    def test_misconfigured_provider_does_not_sign_out_the_current_session(self):
+        # Google isn't configured here, so the provider check fails. It has to run before the session
+        # is touched, otherwise a misconfigured provider signs people out.
+        response = self.client.get("/login/google-oauth2/")
+
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
+        self.assertTrue(self.client.session.get("_auth_user_id"))
+
+    def test_sso_reauth_keeps_the_session(self):
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            session_key_before = self.client.session.session_key
+            response = self.client.get("/login/google-oauth2/?reauth=true&next=/settings/user")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("accounts.google.com", response.headers["Location"])
+        self.assertEqual(self.client.session.session_key, session_key_before)
+
+    @parameterized.expand(
+        [
+            ("plain_path", "/settings/user", "/settings/user?error_code=improperly_configured_sso"),
+            (
+                "path_with_query",
+                "/settings/user?tab=danger",
+                "/settings/user?tab=danger&error_code=improperly_configured_sso",
+            ),
+            # The error code has to stay ahead of the fragment, or the browser reads it as fragment text
+            # and the modal never learns the re-auth failed.
+            (
+                "path_with_fragment",
+                "/settings/user#danger-zone",
+                "/settings/user?error_code=improperly_configured_sso#danger-zone",
+            ),
+            # An unusable `next` still must not land a signed-in user on /login, which drops the error code
+            ("offsite_next", "https://evil.example.com/steal", "/?error_code=improperly_configured_sso"),
+        ]
+    )
+    def test_failed_sso_reauth_returns_to_the_page_that_asked_for_it(self, _name, next_url, expected_location):
+        query = urlencode({"reauth": "true", "next": next_url})
+
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch(
+                "posthog.api.authentication.auth",
+                side_effect=AuthConnectionError(cast(Any, "google-oauth2"), "unreachable"),
+            ),
+        ):
+            response = self.client.get(f"/login/google-oauth2/?{query}")
+
+        self.assertRedirects(response, expected_location, fetch_redirect_response=False)
+        self.assertTrue(self.client.session.get("_auth_user_id"))
+
+    def _begin_google_reauth(self) -> str:
+        response = self.client.get(f"/login/google-oauth2/?reauth=true&next=/settings/user&email={self.user.email}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        return self.client.session["google-oauth2_state"]
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_refreshes_the_sensitive_action_window(self, mock_request):
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+        session = self.client.session
+        session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session.save()
+        last_reauth_at_before = session[settings.SESSION_LAST_REAUTH_AT_KEY]
+        session_key_before = session.session_key
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "sub": "google-sub-123",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/settings/user", fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+        self.assertGreater(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        self.assertIsNone(self.client.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY))
+
+        login_activity = ActivityLog.objects.filter(scope="User", activity="logged_in").latest("created_at")
+        login_context = cast(dict, login_activity.detail)["context"]
+        self.assertEqual(login_context["reauth"], True)
+        self.assertEqual(login_context["login_method"], "Google OAuth")
+
+        # Opening the sensitive-action window has to retire the session id that existed before it,
+        # so a cookie copied earlier can't ride the window the victim just opened.
+        self.assertNotEqual(self.client.session.session_key, session_key_before)
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = cast(str, session_key_before)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_refused_later_in_the_pipeline_grants_nothing(self, mock_request):
+        # A pipeline step that returns a response aborts the flow - domain enforcement in
+        # `social_create_user` does this for a member no organization admits any more. The step-up
+        # must not already have been granted by then.
+        UserSocialAuth.objects.create(user=self.user, provider="google-oauth2", uid="google-sub-123")
+        session = self.client.session
+        session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        session.save()
+        last_reauth_at_before = session[settings.SESSION_LAST_REAUTH_AT_KEY]
+        session_key_before = session.session_key
+        activity_count_before = ActivityLog.objects.filter(scope="User", activity="logged_in").count()
+
+        with (
+            self.settings(**GOOGLE_MOCK_SETTINGS),
+            patch(
+                "posthog.api.signup.social_create_user",
+                return_value=redirect("/login?error_code=verified_domain_required"),
+            ),
+        ):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": self.user.email,
+                "sub": "google-sub-123",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/login?error_code=verified_domain_required", fetch_redirect_response=False)
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        self.assertTrue(self.client.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY))
+        self.assertEqual(self.client.session.session_key, session_key_before)
+        self.assertEqual(ActivityLog.objects.filter(scope="User", activity="logged_in").count(), activity_count_before)
+
+    @patch("social_core.backends.base.BaseAuth.request")
+    def test_sso_reauth_with_a_different_identity_is_rejected_without_signing_out(self, mock_request):
+        last_reauth_at_before = self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY]
+
+        with self.settings(**GOOGLE_MOCK_SETTINGS):
+            state = self._begin_google_reauth()
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "someone-else@posthog.com",
+                "sub": "unassociated-sub",
+            }
+            response = self.client.get(f"/complete/google-oauth2/?code=2&state={state}")
+
+        self.assertRedirects(response, "/settings/user?error_code=reauth_user_mismatch", fetch_redirect_response=False)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.user.pk))
+        self.assertEqual(self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY], last_reauth_at_before)
+        # The stranger's identity must not have been linked to the signed-in account
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
     def test_existing_session_remains_valid_when_sso_enforced(self):
         """Test that existing password-authenticated sessions remain valid after SSO is enforced"""
         self.client.logout()
@@ -389,9 +562,82 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             "/api/login/precheck", {"email": "helloworld@posthog.com"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True, "webauthn_credentials": []})
+        self.assertEqual(
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": True,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
+        )
 
     # Initiate SAML flow
+
+    def _grant_saml(self) -> None:
+        if self.organization.is_feature_available(AvailableFeature.SAML):
+            return
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+        ]
+        self.organization.save()
+
+    def test_saml_config_can_back_multiple_verified_domains(self):
+        self._grant_saml()
+
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+        OrganizationDomain.objects.create(
+            domain="posthog.co.uk",
+            verified_at=timezone.now(),
+            organization=self.organization,
+            identity_provider_config=config,
+        )
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        idp = auth.get_idp(config.saml_relay_state)
+
+        self.assertEqual(idp.name, config.saml_relay_state)
+
+    def test_relay_state_minted_before_the_move_to_configs_still_resolves(self):
+        self._grant_saml()
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.saml_relay_state = str(self.organization_domain.id)
+        config.save(update_fields=["saml_relay_state"])
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        idp = auth.get_idp(str(self.organization_domain.id))
+
+        self.assertEqual(idp.entity_id, config.saml_entity_id)
+
+    def test_saml_assertion_accepts_any_verified_domain_on_the_config(self):
+        # An assertion carries the config's identifier, not a domain, so it is valid for every domain
+        # the config backs. Checking the email against a single one of them locks out everyone on the
+        # others.
+        self._grant_saml()
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
+        OrganizationDomain.objects.create(
+            domain="posthog.co.uk",
+            verified_at=timezone.now(),
+            organization=self.organization,
+            identity_provider_config=config,
+        )
+
+        auth = object.__new__(MultitenantSAMLAuth)
+        details = auth.get_user_details(
+            {
+                "idp_name": config.saml_relay_state,
+                "attributes": {"email": ["engineering@posthog.co.uk"]},
+            }
+        )
+
+        self.assertEqual(details["email"], "engineering@posthog.co.uk")
 
     def test_can_initiate_saml_flow(self):
         response = self.client.get("/login/saml/?email=hellohello@posthog.com")
@@ -410,8 +656,13 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
+        config = self.organization_domain.identity_provider_config
+        assert config is not None
+        config.refresh_from_db()
         relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
-        self.assertEqual(relay_state["idp"], str(self.organization_domain.id))
+        # The identifier comes off the IdP config. It currently equals the domain's id, so asserting
+        # against the domain would pass just as well if this regressed to reading the domain.
+        self.assertEqual(relay_state["idp"], config.saml_relay_state)
         self.assertEqual(relay_state["next"], "/settings/organization/authentication")
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
@@ -859,7 +1110,14 @@ YotAcSbU3p5bzd11wpyebYHB"""
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": "saml", "saml_available": True, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": "saml",
+                "saml_available": True,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
     def test_cannot_use_saml_without_enterprise_license(self):
@@ -874,7 +1132,14 @@ YotAcSbU3p5bzd11wpyebYHB"""
         response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
         )
 
         # Cannot start SAML flow - sso_login catches AuthFailed and redirects
@@ -925,12 +1190,13 @@ YotAcSbU3p5bzd11wpyebYHB"""
         )
         my_config = self.organization_domain.identity_provider_config
         assert my_config is not None
-        other_domain.identity_provider_config = IdentityProviderConfig.objects.create(
+        other_config = IdentityProviderConfig.objects.create(
             organization=other_org,
             saml_entity_id=my_config.saml_entity_id,
             saml_acs_url=my_config.saml_acs_url,
             saml_x509_cert=my_config.saml_x509_cert,
         )
+        other_domain.identity_provider_config = other_config
         other_domain.save()
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
@@ -950,7 +1216,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             "/complete/saml/",
             {
                 "SAMLResponse": saml_response,
-                "RelayState": str(other_domain.id),
+                "RelayState": str(other_config.saml_relay_state),
             },
             follow=False,
             format="multipart",

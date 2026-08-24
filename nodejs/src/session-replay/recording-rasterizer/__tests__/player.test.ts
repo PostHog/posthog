@@ -135,6 +135,26 @@ describe('PlayerController', () => {
         jest.useRealTimers()
     })
 
+    it('waitForStart() surfaces an error that arrived before it was called', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        await controller.load(basePlayerConfig())
+
+        // Error lands between load() and waitForStart(); previously it was shelved and the wait
+        // idled into a bogus retryable TIMEOUT that masked the terminal code.
+        mp._emit({
+            type: 'error',
+            code: 'NO_SNAPSHOTS',
+            message: 'No snapshot data found',
+            retryable: false,
+        })
+
+        await expect(controller.waitForStart(basePlayerConfig(), 5000)).rejects.toMatchObject({
+            code: 'NO_SNAPSHOTS',
+            retryable: false,
+        })
+    })
+
     it('waitForStart() rejects when player sends error message', async () => {
         const mp = mockCapturePage()
         const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
@@ -151,6 +171,26 @@ describe('PlayerController', () => {
 
         await expect(startPromise).rejects.toThrow('[NO_SNAPSHOTS] No snapshot data found')
         await expect(startPromise).rejects.toBeInstanceOf(RasterizationError)
+    })
+
+    it('waitForStart() keeps a retryable NO_SNAPSHOTS retryable', async () => {
+        // A scan can start once replay metadata exists but before the snapshot blocks are readable, and that render
+        // succeeds on a later attempt. Downgrading NO_SNAPSHOTS to non-retryable here would strand those recordings as
+        // permanently ineligible, so the player's own verdict has to survive.
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
+
+        mp._emit({
+            type: 'error',
+            code: 'NO_SNAPSHOTS',
+            message: 'No snapshots after processing',
+            retryable: true,
+        })
+
+        await expect(startPromise).rejects.toMatchObject({ code: 'NO_SNAPSHOTS', retryable: true })
     })
 
     it('isEnded() returns true after ended message', async () => {

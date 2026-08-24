@@ -4,13 +4,15 @@ from typing import cast
 from django.utils import timezone
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.models import PersonalAPIKey, User
+from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
@@ -71,6 +73,15 @@ def validate_personal_api_key_scopes(
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
+    local_dev_value = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Full value of the deterministic local-development key seeded by "
+            "`manage.py setup_local_api_key`, so that it can be recovered without rerunning the "
+            "command. Only populated when the instance runs with DEBUG and ALLOW_DEV_API_KEY_REVEAL "
+            "outside a cloud deployment, and only for that one key. Null in every other case."
+        ),
+    )
     is_legacy_hashing = serializers.SerializerMethodField(
         help_text="Whether this key uses legacy PBKDF2 hashing and should be rolled to upgrade."
     )
@@ -94,6 +105,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "value",
             "is_legacy_hashing",
             "mask_value",
+            "local_dev_value",
             "created_at",
             "last_used_at",
             "user_id",
@@ -107,6 +119,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "value",
             "is_legacy_hashing",
             "mask_value",
+            "local_dev_value",
             "created_at",
             "last_used_at",
             "user_id",
@@ -115,6 +128,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_local_dev_value(self, obj: PersonalAPIKey) -> str | None:
+        return get_local_dev_api_key_value(obj)
 
     def get_is_legacy_hashing(self, obj: PersonalAPIKey) -> bool:
         # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
@@ -180,7 +197,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         personal_api_key._value = value  # type: ignore
         # User created their FIRST PAT themselves through a session, so the credential
         # review interstitial has nothing partner-issued to surface for them - mark it
-        # acknowledged. Three gates, all load-bearing:
+        # acknowledged. Four gates, all load-bearing:
         #   - count == 0: no pre-existing PATs, so this is the user's first. If they
         #     already had keys, those might be partner-issued and still awaiting review,
         #     so don't stamp.
@@ -188,11 +205,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         #     partner-issued PAT mint another PAT to silently dismiss the victim's
         #     review screen. Same constraint as credentials_review_complete.
         #   - credentials_reviewed_at IS NULL: don't clobber a real review timestamp.
+        #   - no live third-party OAuth access: a partner-provisioned account has access
+        #     to disclose even with no partner-issued PAT, and stamping here would retire
+        #     the interstitial before the user was ever shown that connection.
         request = self.context["request"]
         if (
             count == 0
             and user.credentials_reviewed_at is None
             and isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
+            and not has_live_third_party_oauth_access(user)
         ):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])

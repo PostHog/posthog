@@ -1,4 +1,8 @@
+from collections.abc import Callable
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, cast
+
+from django.db.models import Model
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -10,31 +14,47 @@ from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
-    ACCESS_CONTROL_RESOURCES,
-    RESOURCE_INHERITANCE_MAP,
-    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
-    AccessControlLevel,
     AccessSource,
+    ResolvedAccess,
     UserAccessControl,
     default_access_level,
-    get_effective_access_level_for_member,
-    get_effective_access_level_for_role,
+    fallback_parent_object,
     highest_access_level,
     minimum_access_level,
     ordered_access_levels,
 )
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 
 from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
 else:
     _GenericViewSet = object
+
+
+def _inherited_source_display_name(obj: Model, access: ResolvedAccess) -> str | None:
+    """A human name for the parent object an inherited level comes through, so the UI can say
+    which one. Only object-scoped sources have one, and the parent is always the object's own
+    fallback relation (that's where the walk got its id), so it is read off the object — cached
+    by Django, free when already loaded — never refetched by id. The name field comes from the
+    same registry the settings UI names objects with, so a new fallback parent needs no code here."""
+    from ee.api.rbac.access_control_settings import (
+        _display_model,  # noqa: PLC0415 — access_control_settings imports this module; deferring breaks the cycle
+    )
+
+    if access.source != "parent_object":
+        return None
+    parent = fallback_parent_object(obj, access.source_resource)
+    display = _display_model(access.source_resource)
+    if parent is None or display is None:
+        return None
+    name = getattr(parent, display.name_field, None)
+    return str(name) if name else None
 
 
 class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
@@ -50,6 +70,46 @@ class OrganizationMemberField(serializers.PrimaryKeyRelatedField):
             ),
         )
         super().__init__(**kwargs)
+
+
+class ResolvedAccessSerializer(serializers.Serializer):
+    """A resolved access level with the rule that supplied it — the wire form of `ResolvedAccess`."""
+
+    access_level = serializers.CharField(help_text="The access level that applies.")
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=[
+            "object",
+            "parent_object",
+            "resource",
+            "parent_resource",
+            "system_default",
+            "org_admin",
+            "creator",
+            "org_membership",
+        ],
+        help_text="How the level was derived: a rule on the object, its parent object, the resource, the parent "
+        "resource, the built-in default, or one of the bypasses (org admin, creator, organization membership).",
+    )
+    source_subject = serializers.ChoiceField(
+        choices=["member", "role", "default"],
+        allow_null=True,
+        help_text="Whose rule decided: a member's own, a role's, or the default for everyone. Null when no rule did.",
+    )
+    source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
+    source_resource_id = serializers.CharField(
+        allow_null=True,
+        help_text="The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).",
+    )
+
+
+class InheritedAccessSerializer(ResolvedAccessSerializer):
+    """The level an object falls back to without its own override, plus a display name for the parent it
+    comes through when there is one."""
+
+    source_display_name = serializers.CharField(
+        allow_null=True,
+        help_text="A human name for the parent object the level comes through (e.g. a table's source type).",
+    )
 
 
 class UserAccessInfoSerializer(serializers.Serializer):
@@ -142,6 +202,14 @@ class AccessControlSerializer(serializers.ModelSerializer):
         if data.get("role") and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
             raise exceptions.PermissionDenied("Role-based access controls require the Role-based access feature.")
 
+        # Neither relation is scoped by organization on the way in, so a rule could otherwise name
+        # a role or member from a different organization and cross the authorization boundary
+        if data.get("role") and data["role"].organization_id != team.organization_id:
+            raise serializers.ValidationError("The role must belong to the same organization as this project.")
+
+        if data.get("organization_member") and data["organization_member"].organization_id != team.organization_id:
+            raise serializers.ValidationError("The member must belong to the same organization as this project.")
+
         if resource_id:
             if str(the_object.pk) != str(resource_id):
                 raise exceptions.PermissionDenied(
@@ -180,6 +248,45 @@ class AccessControlSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied("Must be an Organization admin to modify project-wide permissions.")
 
         return data
+
+
+def upsert_access_control(
+    *,
+    team: Team,
+    user_access_control: UserAccessControl,
+    build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
+) -> Response:
+    """Apply one validated access control rule: a null level deletes the subject's rule, any other
+    level creates or updates it. Shared by the per-resource PUT actions and the settings page's
+    generic object-rule write, so validation and cache behavior cannot drift between them."""
+    serializer = build_serializer(None)
+    serializer.is_valid(raise_exception=True)
+    params = serializer.validated_data
+
+    instance = AccessControl.objects.filter(
+        team=team,
+        resource=params["resource"],
+        resource_id=params.get("resource_id"),
+        organization_member=params.get("organization_member"),
+        role=params.get("role"),
+    ).first()
+
+    if params["access_level"] is None:
+        if instance:
+            instance.delete()
+            # Drop the preloaded access-control snapshot so later reads this request are fresh.
+            user_access_control._clear_cache()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    if instance:
+        serializer = build_serializer(instance)
+        serializer.is_valid(raise_exception=True)
+    serializer.validated_data["team"] = team
+    serializer.save()
+    # Drop the preloaded access-control snapshot so later reads this request are fresh.
+    user_access_control._clear_cache()
+
+    return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AccessControlViewSetMixin(_GenericViewSet):
@@ -240,9 +347,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "resource_access_controls",
             "global_access_controls",  # DEPRECATED - use resource_access_controls instead.
             "users_with_access",
-            "access_control_defaults",
-            "access_control_roles",
-            "access_control_members",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
@@ -300,32 +404,23 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         if not is_resource_level:
             # The level this object falls back to when it carries no default of its own, so the UI
-            # can spell out what removing the override means. Follows RESOURCE_INHERITANCE_MAP
-            # because that's the resource the runtime check consults — a warehouse view is gated by
-            # the warehouse_objects rules, not by its own.
+            # can spell out what removing the override means. Resolved by the access walker itself
+            # (the object's own rows masked out, everyone perspective), so the shown level cannot
+            # disagree with how access is actually enforced — a re-derivation here would miss the
+            # fallback-parent tier (a table gated by its source).
             #
             # None for a project is load-bearing: it is what stops the UI offering "No override" on
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited_resource = (
-                None
-                if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS
-                else RESOURCE_INHERITANCE_MAP.get(resource, resource)
+            inherited = SubjectAccessControl.for_default(user_access_control, team).inherited_access_for_object(obj)
+            payload["inherited_access"] = (
+                InheritedAccessSerializer(
+                    {**asdict(inherited), "source_display_name": _inherited_source_display_name(obj, inherited)}
+                ).data
+                if inherited
+                else None
             )
-            payload["inherited_resource"] = inherited_resource
-            payload["inherited_access_level"] = None
-            if inherited_resource:
-                everyone_rule = AccessControl.objects.filter(
-                    team=team,
-                    resource=inherited_resource,
-                    resource_id=None,
-                    organization_member=None,
-                    role=None,
-                ).first()
-                payload["inherited_access_level"] = (
-                    everyone_rule.access_level if everyone_rule else default_access_level(inherited_resource)
-                )
 
         return Response(payload)
 
@@ -409,38 +504,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             data["resource"] = resource
             data["resource_id"] = resource_id
 
-        partial_serializer = self._get_access_control_serializer(data=request.data)
-        partial_serializer.is_valid(raise_exception=True)
-        params = partial_serializer.validated_data
-
-        instance = AccessControl.objects.filter(
+        return upsert_access_control(
             team=team,
-            resource=params["resource"],
-            resource_id=params.get("resource_id"),
-            organization_member=params.get("organization_member"),
-            role=params.get("role"),
-        ).first()
-
-        if params["access_level"] is None:
-            if instance:
-                instance.delete()
-                # Drop the preloaded access-control snapshot so later reads this request are fresh.
-                self.user_access_control._clear_cache()  # type: ignore[attr-defined]
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        # Perform the upsert
-        if instance:
-            serializer = self._get_access_control_serializer(instance, data=request.data)
-        else:
-            serializer = self._get_access_control_serializer(data=request.data)
-
-        serializer.is_valid(raise_exception=True)
-        serializer.validated_data["team"] = team
-        serializer.save()
-        # Drop the preloaded access-control snapshot so later reads this request are fresh.
-        self.user_access_control._clear_cache()  # type: ignore[attr-defined]
-
-        return Response(serializer.data, status=status.HTTP_200_OK)
+            user_access_control=self.user_access_control,  # type: ignore[attr-defined]
+            build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
+        )
 
     @extend_schema(exclude=True)
     @action(methods=["GET", "PUT"], detail=True)
@@ -482,289 +550,3 @@ class AccessControlViewSetMixin(_GenericViewSet):
         Get all users with access to this resource, including explicit and implicit access.
         """
         return self._get_users_with_access(request)
-
-    # ----------------------------------------------------------------
-    # Endpoints for the new access control settings UI
-    # ----------------------------------------------------------------
-
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True, url_path="access_control_defaults")
-    def access_control_defaults(self, request: Request, *args, **kwargs):
-        team = cast(Team, self.team)  # type: ignore
-        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-
-        default_access_controls = AccessControl.objects.filter(team=team, organization_member=None, role=None)
-
-        project_access_level: AccessControlLevel = default_access_level("project")
-        saved_resource_levels: dict[str, str] = {}
-
-        for ac in default_access_controls:
-            if ac.resource == "project":
-                project_access_level = ac.access_level
-            elif ac.resource_id is None and ac.resource in set(ACCESS_CONTROL_RESOURCES):
-                saved_resource_levels[ac.resource] = ac.access_level
-
-        resource_access_levels = {
-            r: {
-                "access_level": saved_resource_levels.get(r),
-                "minimum": minimum_access_level(r),
-                "maximum": highest_access_level(r),
-            }
-            for r in ACCESS_CONTROL_RESOURCES
-        }
-
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
-                "project_access_level": project_access_level,
-                "resource_access_levels": resource_access_levels,
-            }
-        )
-
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True, url_path="access_control_roles")
-    def access_control_roles(self, request: Request, *args, **kwargs):
-        team = cast(Team, self.team)  # type: ignore
-        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-
-        from django.db.models import Q
-
-        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
-
-        # Build lookup dicts from saved access controls
-        project_default_level: AccessControlLevel = default_access_level("project")
-        resource_default_levels: dict[APIScopeObject, AccessControlLevel] = {}
-        role_project_overrides: dict[str, AccessControlLevel] = {}
-        role_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
-
-        for ac in access_controls:
-            level: AccessControlLevel = ac.access_level
-            resource_type: APIScopeObject = ac.resource
-            role_id = ac.role_id
-            is_default = ac.organization_member_id is None and role_id is None
-
-            if is_default:
-                if ac.resource == "project":
-                    project_default_level = level
-                else:
-                    resource_default_levels[resource_type] = level
-            elif role_id:
-                if ac.resource == "project":
-                    role_project_overrides[str(role_id)] = level
-                else:
-                    role_resource_overrides[(str(role_id), resource_type)] = level
-
-        # Role overrides (project- and resource-level) only take effect if the
-        # organization has the ROLE_BASED_ACCESS feature; otherwise role rows in the
-        # DB are inert and we must not surface them as the effective access level.
-        role_based_access_supported = team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-
-        # Build results for each role
-        roles = Role.objects.filter(organization=team.organization)
-        results = []
-
-        for role in roles:
-            rid = str(role.id)
-
-            project_role_level = role_project_overrides.get(rid) if role_based_access_supported else None
-            project_result = get_effective_access_level_for_role(
-                resource="project",
-                default_level=project_default_level,
-                role_level=project_role_level,
-            )
-
-            resource_entries: dict[str, dict] = {}
-            for resource in ACCESS_CONTROL_RESOURCES:
-                resource_role_level = (
-                    role_resource_overrides.get((rid, resource)) if role_based_access_supported else None
-                )
-                resource_default = resource_default_levels.get(resource)
-                resource_result = get_effective_access_level_for_role(
-                    resource=resource,
-                    default_level=resource_default,
-                    role_level=resource_role_level,
-                )
-                resource_entries[resource] = {
-                    "access_level": resource_role_level,
-                    "effective_access_level": resource_result.effective_access_level,
-                    "inherited_access_level": resource_result.inherited_access_level,
-                    "inherited_access_level_reason": resource_result.inherited_access_level_reason,
-                    "minimum": minimum_access_level(resource),
-                    "maximum": highest_access_level(resource),
-                }
-
-            results.append(
-                {
-                    "role_id": role.id,
-                    "role_name": role.name,
-                    "project": {
-                        "access_level": project_role_level,
-                        "effective_access_level": project_result.effective_access_level,
-                        "inherited_access_level": project_result.inherited_access_level,
-                        "inherited_access_level_reason": project_result.inherited_access_level_reason,
-                        "minimum": minimum_access_level("project"),
-                        "maximum": highest_access_level("project"),
-                    },
-                    "resources": resource_entries,
-                }
-            )
-
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
-                "results": results,
-            }
-        )
-
-    @extend_schema(exclude=True)
-    @action(methods=["GET"], detail=True, url_path="access_control_members")
-    def access_control_members(self, request: Request, *args, **kwargs):
-        team = cast(Team, self.team)  # type: ignore
-        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
-
-        from django.db.models import Q
-
-        access_controls = AccessControl.objects.filter(team=team).filter(Q(resource="project") | Q(resource_id=None))
-
-        # Build lookup dicts from saved access controls
-        project_default_level: AccessControlLevel = default_access_level("project")
-        resource_default_levels: dict[APIScopeObject, AccessControlLevel] = {}
-        role_project_overrides: dict[str, AccessControlLevel] = {}
-        role_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
-        member_project_overrides: dict[str, AccessControlLevel] = {}
-        member_resource_overrides: dict[tuple[str, APIScopeObject], AccessControlLevel] = {}
-
-        for ac in access_controls:
-            level: AccessControlLevel = ac.access_level
-            resource_type: APIScopeObject = ac.resource
-            role_id = ac.role_id
-            member_id = ac.organization_member_id
-            is_default = member_id is None and role_id is None
-
-            if is_default:
-                if ac.resource == "project":
-                    project_default_level = level
-                else:
-                    resource_default_levels[resource_type] = level
-            elif role_id:
-                if ac.resource == "project":
-                    role_project_overrides[str(role_id)] = level
-                else:
-                    role_resource_overrides[(str(role_id), resource_type)] = level
-            elif member_id:
-                if ac.resource == "project":
-                    member_project_overrides[str(member_id)] = level
-                else:
-                    member_resource_overrides[(str(member_id), resource_type)] = level
-
-        # Role overrides (project- and resource-level) only take effect if the
-        # organization has the ROLE_BASED_ACCESS feature; otherwise role rows in the
-        # DB are inert and we must not let them influence members' effective access.
-        role_based_access_supported = team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-
-        # Build results for each member
-        memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
-            .select_related("user")
-            .prefetch_related("role_memberships")
-        )
-
-        can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
-        hide_non_project_members = (
-            not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
-        )
-
-        results = []
-        for membership in memberships:
-            mid = str(membership.id)
-            is_org_admin = membership.level >= OrganizationMembership.Level.ADMIN
-            # Role memberships only contribute when ROLE_BASED_ACCESS is enabled.
-            member_role_ids = (
-                [str(rm.role_id) for rm in membership.role_memberships.all()] if role_based_access_supported else []
-            )
-
-            project_member_level = member_project_overrides.get(mid)
-            project_role_levels: list[AccessControlLevel] = [
-                role_project_overrides[rid] for rid in member_role_ids if rid in role_project_overrides
-            ]
-            project_result = get_effective_access_level_for_member(
-                resource="project",
-                default_level=project_default_level,
-                role_levels=project_role_levels,
-                member_level=project_member_level,
-                is_org_admin=is_org_admin,
-            )
-
-            # When the org restricts member list visibility, project members only see users with
-            # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
-            if hide_non_project_members:
-                project_scoped_result = get_effective_access_level_for_member(
-                    resource="project",
-                    default_level=project_default_level,
-                    role_levels=project_role_levels,
-                    member_level=project_member_level,
-                    is_org_admin=False,
-                )
-                if project_scoped_result.effective_access_level in (None, "none"):
-                    continue
-
-            resource_entries: dict[str, dict] = {}
-            for resource in ACCESS_CONTROL_RESOURCES:
-                resource_member_level = member_resource_overrides.get((mid, resource))
-                resource_default = resource_default_levels.get(resource)
-                resource_role_levels: list[AccessControlLevel] = [
-                    role_resource_overrides[(rid, resource)]
-                    for rid in member_role_ids
-                    if (rid, resource) in role_resource_overrides
-                ]
-                resource_result = get_effective_access_level_for_member(
-                    resource=resource,
-                    default_level=resource_default,
-                    role_levels=resource_role_levels,
-                    member_level=resource_member_level,
-                    is_org_admin=is_org_admin,
-                )
-                resource_entries[resource] = {
-                    "access_level": resource_member_level,
-                    "effective_access_level": resource_result.effective_access_level,
-                    "inherited_access_level": resource_result.inherited_access_level,
-                    "inherited_access_level_reason": resource_result.inherited_access_level_reason,
-                    "minimum": minimum_access_level(resource),
-                    "maximum": highest_access_level(resource),
-                }
-
-            user = membership.user
-            results.append(
-                {
-                    "organization_membership_id": membership.id,
-                    "user": {
-                        "uuid": user.uuid,
-                        "first_name": user.first_name,
-                        "last_name": user.last_name,
-                        "email": user.email,
-                    },
-                    "organization_level": membership.level,
-                    "project": {
-                        "access_level": project_member_level,
-                        "effective_access_level": project_result.effective_access_level,
-                        "inherited_access_level": project_result.inherited_access_level,
-                        "inherited_access_level_reason": project_result.inherited_access_level_reason,
-                        "minimum": minimum_access_level("project"),
-                        "maximum": highest_access_level("project"),
-                    },
-                    "resources": resource_entries,
-                }
-            )
-
-        return Response(
-            {
-                "available_project_levels": list(ordered_access_levels("project")),
-                "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": can_edit,
-                "results": results,
-            }
-        )

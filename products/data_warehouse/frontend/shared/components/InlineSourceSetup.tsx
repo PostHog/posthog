@@ -35,21 +35,30 @@ export interface InlineSourceSetupProps {
     autoConfigureTables?: boolean
 }
 
+interface InternalInlineSourceSetupProps extends InlineSourceSetupProps {
+    currentView: InlineSourceSetupView
+    selectedSource: ExternalDataSourceType | null
+    onSourceSelect: (sourceId: ExternalDataSourceType) => void
+    onBack: () => void
+    onFormSuccess: () => void
+}
+
 function InternalInlineSourceSetup({
-    onComplete,
     featured = false,
     title,
     subtitle = 'Choose a source to import data from',
     showWizard = false,
     autoConfigureTables = false,
-}: InlineSourceSetupProps): JSX.Element {
+    currentView,
+    selectedSource,
+    onSourceSelect,
+    onBack,
+    onFormSuccess,
+}: InternalInlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
-    const { onClear } = useActions(sourceWizardLogic)
     const { searchParams, location } = useValues(router)
     const { replace } = useActions(router)
 
-    const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
-    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
     const [expanded, setExpanded] = useState(!featured)
     const [searchQuery, setSearchQuery] = useState('')
 
@@ -67,8 +76,7 @@ function InternalInlineSourceSetup({
         }
         const match = availableConnectors.find((c) => c.name.toLowerCase() === String(kind).toLowerCase())
         if (match) {
-            setSelectedSource(match.name)
-            setCurrentView('connecting')
+            onSourceSelect(match.name)
         }
         // Consume the param so a later remount (refresh, back-navigation, cancel) doesn't force the
         // wizard back open after the connection has already been handled.
@@ -95,24 +103,6 @@ function InternalInlineSourceSetup({
     }))
 
     const effectiveTitle = title ?? `Choose from ${availableConnectors.length} sources`
-
-    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
-        setSelectedSource(sourceId)
-        setCurrentView('connecting')
-    }
-
-    const handleFormSuccess = (): void => {
-        setCurrentView('selection')
-        setSelectedSource(null)
-        onClear()
-        onComplete?.()
-    }
-
-    const handleBack = (): void => {
-        setCurrentView('selection')
-        setSelectedSource(null)
-        onClear()
-    }
 
     return (
         <div className="space-y-6">
@@ -147,7 +137,7 @@ function InternalInlineSourceSetup({
                                     <div
                                         key={source.id}
                                         className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
-                                        onClick={() => handleSourceSelect(source.id)}
+                                        onClick={() => onSourceSelect(source.id)}
                                     >
                                         <SourceIcon type={source.id} size="small" disableTooltip />
                                         <span className="font-medium text-sm">{source.label}</span>
@@ -182,13 +172,13 @@ function InternalInlineSourceSetup({
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center justify-between mb-4">
-                            <LemonButton type="secondary" size="small" onClick={handleBack}>
+                            <LemonButton type="secondary" size="small" onClick={onBack}>
                                 ← Back to sources
                             </LemonButton>
                         </div>
                         <NewSourcesWizard
                             hideBackButton
-                            onComplete={handleFormSuccess}
+                            onComplete={onFormSuccess}
                             allowedSources={availableConnectors.map((c: SourceConfig) => c.name)}
                             initialSource={selectedSource}
                             autoConfigureTables={autoConfigureTables}
@@ -202,6 +192,32 @@ function InternalInlineSourceSetup({
 
 export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { onClear } = useActions(sourceWizardLogic)
+
+    const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
+    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
+
+    // Defined once here and bound as the logic's `onComplete` below, so the wizard's step-5
+    // completion listener always sees this same callback — never the logic's unbound default —
+    // regardless of which of this component's `BindLogic` mounts happens to be active at that
+    // moment (see `NewSourcesWizard`'s own nested `BindLogic`, which receives this same callback).
+    const handleFormSuccess = (): void => {
+        setCurrentView('selection')
+        setSelectedSource(null)
+        onClear()
+        props.onComplete?.()
+    }
+
+    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
+        setSelectedSource(sourceId)
+        setCurrentView('connecting')
+    }
+
+    const handleBack = (): void => {
+        setCurrentView('selection')
+        setSelectedSource(null)
+        onClear()
+    }
 
     if (availableSourcesLoading) {
         return <LemonSkeleton />
@@ -212,8 +228,18 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     }
 
     return (
-        <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
-            <InternalInlineSourceSetup {...props} />
+        <BindLogic
+            logic={sourceWizardLogic}
+            props={{ availableSources, onComplete: handleFormSuccess, autoConfigureTables: props.autoConfigureTables }}
+        >
+            <InternalInlineSourceSetup
+                {...props}
+                currentView={currentView}
+                selectedSource={selectedSource}
+                onSourceSelect={handleSourceSelect}
+                onBack={handleBack}
+                onFormSuccess={handleFormSuccess}
+            />
         </BindLogic>
     )
 }

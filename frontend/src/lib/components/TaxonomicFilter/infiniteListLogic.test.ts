@@ -14,6 +14,7 @@ import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
@@ -28,6 +29,13 @@ window.POSTHOG_APP_CONTEXT = {
     current_team: { id: MOCK_TEAM_ID },
     current_project: { id: MOCK_TEAM_ID },
 } as unknown as AppContext
+
+// The disposables plugin pauses and resumes on `visibilitychange`, reading `document.hidden`, so a
+// test that backgrounds the tab has to move the property before dispatching the event.
+const setTabHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
@@ -540,7 +548,7 @@ describe('infiniteListLogic', () => {
         beforeEach(silenceKeaLoadersErrors)
         afterEach(resumeKeaLoadersErrors)
 
-        it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
+        it('surfaces the error state instead of spinning forever or claiming no results', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': () => [500, { detail: 'server error' }],
@@ -562,18 +570,186 @@ describe('infiniteListLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     showLoadingState: false,
-                    showEmptyState: true,
+                    // A failure must not read as "this event doesn't exist" - that sends people
+                    // hunting for a tracking bug instead of retrying.
+                    showEmptyState: false,
+                    showErrorState: true,
                 })
 
-            // The failure lands on the same empty state as a genuine no-match, so telemetry is
-            // the only prod signal that the backend blipped — losing this capture makes the
-            // worst case ("event exists, fetch failed") invisible.
             const failedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter fetch failed')
             expect(failedCalls).toHaveLength(1)
             expect(failedCalls[0][1]).toMatchObject({
                 groupType: TaxonomicFilterGroupType.Events,
                 searchQuery: 'user_signed_up',
             })
+        })
+
+        // Group names go out over the query endpoint instead of the list endpoint, so they need
+        // the abort signal wired separately - without it the watchdog fires against a controller
+        // nobody is listening to and the list keeps spinning.
+        const hangingListCases: { label: string; listGroupType: TaxonomicFilterGroupType; mocks: Mocks }[] = [
+            {
+                label: 'a list endpoint',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                mocks: {
+                    get: { '/api/projects/:team/event_definitions': () => new Promise(() => {}) },
+                },
+            },
+            {
+                label: 'a group name query',
+                listGroupType: `${TaxonomicFilterGroupType.GroupNamesPrefix}_0` as TaxonomicFilterGroupType,
+                mocks: {
+                    get: {
+                        '/api/projects/:team/groups_types': [
+                            { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
+                        ],
+                    },
+                    post: { '/api/environments/:team_id/query/': () => new Promise(() => {}) },
+                },
+            },
+        ]
+
+        it.each(hangingListCases)('gives up on $label that never responds', async ({ listGroupType, mocks }) => {
+            useMocks(mocks)
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const hangingLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'hangingList',
+                    listGroupType,
+                    taxonomicGroupTypes: [listGroupType],
+                    showNumericalPropsOnly: false,
+                })
+                hangingLogic.mount()
+                // Let the group type list arrive, so a group name list resolves its group index
+                // and takes the query path rather than falling back to the list endpoint.
+                await jest.advanceTimersByTimeAsync(1)
+                hangingLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(hangingLogic.values.showLoadingState).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(30000)
+                expect(hangingLogic.values.showErrorState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('leaves a search that legitimately found nothing alone once the request timeout elapses', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const emptyLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'emptyList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                emptyLogic.mount()
+                emptyLogic.actions.setSearchQuery('definitely_not_a_real_event')
+
+                await jest.advanceTimersByTimeAsync(600)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+
+                // Well past the watchdog: it bounds a request in flight, and this one already
+                // answered. "No results" must not decay into "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(emptyLogic.values.showErrorState).toBe(false)
+                expect(emptyLogic.values.showEmptyState).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('clears the error state when a retry succeeds', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => {
+                        attempts += 1
+                        return attempts === 1
+                            ? [500, { detail: 'server error' }]
+                            : [200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }]
+                    },
+                },
+            })
+            initKeaTests()
+            const retryingLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'retryingList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            retryingLogic.mount()
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.setSearchQuery('user_signed_up')
+            })
+                .toDispatchActions(['loadRemoteItemsFailure'])
+                .toFinishAllListeners()
+                .toMatchValues({ showErrorState: true })
+
+            await expectLogic(retryingLogic, () => {
+                retryingLogic.actions.retryRemoteItems()
+            })
+                .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    showErrorState: false,
+                    showEmptyState: false,
+                })
+            expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
+        })
+
+        it('backgrounding the tab neither cancels the request nor fails a search that succeeded', async () => {
+            let respond: ((response: [number, Record<string, any>]) => void) | undefined
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () =>
+                        new Promise<[number, Record<string, any>]>((resolve) => {
+                            respond = resolve
+                        }),
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const backgroundedLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'backgroundedList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                backgroundedLogic.mount()
+                backgroundedLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(backgroundedLogic.values.showLoadingState).toBe(true)
+
+                setTabHidden(true)
+                expect(backgroundedLogic.cache.abortController.signal.aborted).toBe(false)
+
+                setTabHidden(false)
+                respond?.([200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }])
+                await jest.advanceTimersByTimeAsync(1)
+
+                // Well past the watchdog. Coming back to the tab must not arm a second watchdog
+                // against the request that already answered, or a successful search decays into
+                // "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(backgroundedLogic.values.showErrorState).toBe(false)
+                expect(backgroundedLogic.values.totalResultCount).toBeGreaterThan(0)
+            } finally {
+                jest.useRealTimers()
+                setTabHidden(false)
+            }
         })
     })
 

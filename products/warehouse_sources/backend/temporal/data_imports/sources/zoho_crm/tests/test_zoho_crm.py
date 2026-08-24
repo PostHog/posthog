@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.z
     MAX_PAGE,
     PAGE_SIZE,
     REFRESH_TOKEN_REJECTED_MESSAGE,
+    RegionHosts,
     ZohoCRMAuthError,
     ZohoCRMClient,
     ZohoCRMResumeConfig,
@@ -113,7 +114,7 @@ class TestResolveHosts:
         ],
     )
     def test_regional_hosts(self, region: str, accounts_host: str, api_host: str) -> None:
-        assert resolve_hosts(region) == (accounts_host, api_host)
+        assert resolve_hosts(region) == RegionHosts(accounts_host=accounts_host, api_domain=api_host)
 
     def test_unknown_region_raises(self) -> None:
         with pytest.raises(ValueError):

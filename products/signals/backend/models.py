@@ -6,8 +6,9 @@ from typing import Any, cast
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
+from django.utils.functional import Promise
 
 from asgiref.sync import async_to_sync
 from django_deprecate_fields import deprecate_field
@@ -32,9 +33,14 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_CHOICES, SignalSourceProduct
+from products.signals.backend.enums import SignalSourceProduct, signal_source_product_choices
 
 logger = logging.getLogger(__name__)
+
+
+def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(SignalSourceConfig.SourceType.choices)
 
 
 class SignalSourceConfig(UUIDModel):
@@ -48,7 +54,6 @@ class SignalSourceConfig(UUIDModel):
     # other configs and are deliberately absent).
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
-        EVALUATION = "evaluation", "Evaluation"
         EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
@@ -67,8 +72,8 @@ class SignalSourceConfig(UUIDModel):
         CI_DURATION_REGRESSION = "ci_duration_regression", "CI duration regression"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
-    source_type = models.CharField(max_length=100, choices=SourceType)
+    source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
+    source_type = models.CharField(max_length=100, choices=signal_source_type_choices)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -80,9 +85,7 @@ class SignalSourceConfig(UUIDModel):
         """Check whether a given signal source is enabled for a team.
 
         Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True. AI observability evaluation signals additionally
-        carry a per-evaluation allowlist in the config row, enforced upstream in the llma evals
-        workflows — the row check here is the team-level gate.
+        SignalSourceConfig row with enabled=True.
         """
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
@@ -128,7 +131,7 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
-class SignalTeamConfig(UUIDModel):
+class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
         on_delete=models.CASCADE,
@@ -141,12 +144,27 @@ class SignalTeamConfig(UUIDModel):
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P4)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     autostart_base_branches = models.JSONField(default=dict, blank=True)
+    # Daily cap on reports surfacing to the inbox, counted against SignalReport.first_visible_at
+    # within the project-timezone day. Once reached, the whole generation pipeline pauses until
+    # local midnight (see daily_limit.py). Null means unlimited.
+    max_reports_per_day = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Signal team config"
         verbose_name_plural = "Signal team configs"
+
+    def base_branch_for(self, repository: str | None) -> str | None:
+        """Configured base branch for ``repository`` ("organization/repository"), if any.
+
+        Keys are stored lowercased by the serializer, so the lookup lowercases to match.
+        Every path that opens a self-driving pull request resolves through here, so that
+        auto-start and the inbox "Create PR" button cannot disagree on the branch.
+        """
+        if not repository or not isinstance(self.autostart_base_branches, dict):
+            return None
+        return self.autostart_base_branches.get(repository.lower()) or None
 
 
 register_team_extension_signal(SignalTeamConfig, logger=logger)
@@ -236,11 +254,22 @@ class SignalReport(UUIDModel):
     # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
     # the column it doesn't know about — fails until the rollout finishes.
     charts = models.JSONField(default=list, db_default=[], blank=True)
+    # Questions this report suggests its reader ask AI about it, each a plain string (see
+    # report_prompts.py). Content rather than log for the same reason `charts` is: a question is
+    # written against the summary it sits under, so a rewrite of that summary replaces it instead of
+    # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
+    # `db_default` alongside `default` for the reason spelled out on `charts`.
+    suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # When the report first became user-visible (entered READY or PENDING_INPUT, the statuses the
+    # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
+    # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
+    # field or never surfaced.
+    first_visible_at = models.DateTimeField(null=True, blank=True)
 
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
@@ -262,6 +291,12 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
+            models.Index(
+                fields=["team", "first_visible_at"],
+                condition=models.Q(first_visible_at__isnull=False),
+                name="signals_report_first_visible",
+            ),
         ]
 
     def transition_to(
@@ -303,6 +338,14 @@ class SignalReport(UUIDModel):
                 self.signals_at_run = self.signal_count + signals_at_run_increment
                 self.run_count += 1
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
+
+            # A summary run paused mid-workflow by the self-driving credits quota gate returns to
+            # CANDIDATE, so the report re-promotes on the next matching signal instead of sticking
+            # in IN_PROGRESS (which no promotion rule ever picks up). No side effects: promoted_at
+            # is still accurate, and run_count / signals_at_run keep the values the aborted run
+            # advanced them to (run_count feeds Temporal workflow IDs and must never roll back).
+            case (S.IN_PROGRESS, S.CANDIDATE):
+                pass
 
             case (S.IN_PROGRESS, S.READY):
                 if title is None or summary is None:
@@ -384,6 +427,13 @@ class SignalReport(UUIDModel):
 
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
+
+        # First arrival into a user-visible status (the inbox lists READY and PENDING_INPUT).
+        # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a
+        # report only ever counts once toward SignalTeamConfig.max_reports_per_day.
+        if new_status in (S.READY, S.PENDING_INPUT) and self.first_visible_at is None:
+            self.first_visible_at = timezone.now()
+            updated_fields.add("first_visible_at")
 
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
@@ -705,6 +755,11 @@ class SignalEmissionRecord(UUIDModel):
         ]
 
 
+def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(SignalReportArtefact.ArtefactType.choices)
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -759,7 +814,7 @@ class SignalReportArtefact(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType)
+    type = models.CharField(max_length=100, choices=signal_report_artefact_type_choices)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     # Nullable so the migration is a fast, rolling-deploy-safe `ADD COLUMN ... NULL`; `auto_now`
@@ -955,10 +1010,22 @@ class SignalReportArtefact(UUIDModel):
         parsed = parse_artefact_content(self.type, content)
         # The `task` FK is the association and is creation-time only; an edit must not let
         # content.task_id drift away from it.
-        if isinstance(parsed, TaskRunArtefact) and str(parsed.task_id) != str(self.task_id):
-            raise ArtefactContentValidationError(
-                "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
-            )
+        if isinstance(parsed, TaskRunArtefact):
+            if str(parsed.task_id) != str(self.task_id):
+                raise ArtefactContentValidationError(
+                    "task_run content.task_id must match the artefact's task and cannot be reassigned by editing"
+                )
+            # (product, type) is the run's purpose and feeds the per-report task cap, which counts
+            # non-pipeline signals runs; letting an edit relabel a discussion as pipeline work
+            # would free its slot in the count.
+            existing = parse_artefact_content(self.type, self.content)
+            if isinstance(existing, TaskRunArtefact) and (parsed.product, parsed.type) != (
+                existing.product,
+                existing.type,
+            ):
+                raise ArtefactContentValidationError(
+                    "task_run content.product and content.type record what ran and cannot be changed by editing"
+                )
         self.content = parsed.model_dump_json()
         self.save(update_fields=["content", "updated_at"])
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
@@ -1073,6 +1140,104 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class SignalReportAction(TeamScopedRootMixin, UUIDModel):
+    """One row per (report, user, action type): a person's lightweight interaction with a report.
+
+    Heavier work on a report already leaves person-attributed `SignalReportArtefact` rows (notes,
+    dismissals, commits); this table records the interactions too light to be artefacts — opening
+    a report, rating it with the thumbs — which otherwise exist only as client-side analytics
+    events the backend can never read. The scout inactivity sweep
+    (`scout_harness/inactivity.py`) reads both feeds when judging whether a scout's output is
+    consumed, and the rows are a durable per-person consumption record future ranking/learning
+    can build on.
+
+    Upsert semantics, not a log: one row per (report, user, type), with `count` and `last_at`
+    advancing on repeats. The high-volume raw stream (every open, dwell time, rank) stays in
+    analytics events; this row is the queryable server-side fact that the interaction happened,
+    kept one-row-per-person so it can sit on the sweep's hot path.
+    """
+
+    class ActionType(models.TextChoices):
+        # A person opened the report's detail view in the inbox UI.
+        VIEW = "view"
+        # The thumbs rating at the end of the report body ("Was this report useful?").
+        FEEDBACK = "feedback"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents (app-level enforcement only).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="actions")
+    # CASCADE, unlike the artefact log's SET_NULL: a row here is evidence that a specific person
+    # interacted, so with the person gone it proves nothing and can go with them.
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    type = models.CharField(max_length=20, choices=ActionType)
+    # Latest-wins detail about the interaction (e.g. the feedback row keeps the most recent
+    # sentiment). Never required by readers — the row's existence is the fact that matters.
+    metadata = models.JSONField(default=dict, blank=True)
+    # Coarse repeat signal, not an exact ledger: bundled rating+note submissions and reordered
+    # fire-and-forget requests can move it by one either way. Readers get "roughly how often",
+    # never billing-grade counts.
+    count = models.PositiveIntegerField(default=1)
+    first_at = models.DateTimeField(auto_now_add=True)
+    last_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Signal report action"
+        verbose_name_plural = "Signal report actions"
+        default_manager_name = "all_teams"
+        constraints = [
+            # Also the only index: the sweep's "which of these reports did a person touch since
+            # <ts>?" resolves as per-report probes on this, and keeping `last_at` out of any index
+            # leaves the hot repeat-view UPDATE eligible for HOT.
+            models.UniqueConstraint(fields=["report", "user", "type"], name="signals_report_action_identity"),
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        *,
+        team_id: int,
+        report_id: str,
+        user_id: int,
+        action_type: "SignalReportAction.ActionType",
+        metadata: dict[str, Any] | None = None,
+        bump_count: bool = True,
+    ) -> None:
+        """Upsert one interaction: bump the existing row or create it.
+
+        Update-then-create rather than get_or_create so the common case (a repeat view) is one
+        UPDATE; the create's unique-constraint race falls back to the update path.
+
+        ``bump_count=False`` refreshes an existing row (metadata, ``last_at``) without counting
+        it as a new interaction — for follow-up requests that amend one the row already counted,
+        like the note trailing a thumbs rating. A create still starts at 1.
+        """
+        now = timezone.now()
+        updates: dict[str, Any] = {"last_at": now}
+        if bump_count:
+            updates["count"] = models.F("count") + 1
+        if metadata is not None:
+            updates["metadata"] = metadata
+        row = cls.objects.for_team(team_id).filter(report_id=report_id, user_id=user_id, type=action_type)
+        if row.update(**updates):
+            return
+        try:
+            with transaction.atomic():
+                cls.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    report_id=report_id,
+                    user_id=user_id,
+                    type=action_type,
+                    metadata=metadata or {},
+                    last_at=now,
+                )
+        except IntegrityError:
+            row.update(**updates)
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Core tables backing the Signals scout:
@@ -1105,9 +1270,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         """
 
         ACTIVE = "active", "Active"
-        # Warned by a system writer: will be paused on a set date unless something changes.
-        # Still scheduled. A state rather than a notification so the sweep that sets it is
-        # idempotent and any human touch has something concrete to clear.
+        # Warned by a system writer. Still scheduled; whether the warning later advances to a
+        # pause depends on its reason (an `ignored` warning pauses after a grace period, a
+        # `no_output` one only ever warns). A state rather than a notification so the sweep
+        # that sets it is idempotent and any human touch has something concrete to clear.
         PENDING_PAUSE = "pending_pause", "Pending pause"
         PAUSED_BY_SYSTEM = "paused_by_system", "Paused by system"
         # A human switched the scout off. No system writer may resume or re-pause it.
@@ -1125,13 +1291,38 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
 
+    class NetworkAccess(models.TextChoices):
+        """What the scout's sandbox can reach over the network during a run.
+
+        `trusted` maps to the Tasks sandbox `TRUSTED` level (the platform's default
+        trusted-domain allowlist); `full` maps to `FULL` (unrestricted egress). Room is
+        deliberately left for a `custom` choice carrying a user-supplied domain allowlist
+        later — mirror the Tasks `SandboxEnvironment.NetworkAccessLevel` vocabulary when
+        adding it so the mapping in the runner stays one-to-one.
+        """
+
+        TRUSTED = "trusted", "Trusted domains only"
+        FULL = "full", "Full"
+
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
     RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
 
+    # The pause reasons the inactivity sweep owns (`scout_harness/inactivity.py`): `no_output`
+    # for a scout that surfaced nothing, `ignored` for one whose output nobody picked up. On the
+    # model rather than the sweep because the update serializer also reads them: a human
+    # re-enable of a pause carrying one of these emits the sweep's false-positive metric
+    # (`signals_scout_auto_pause_reverted`).
+    INACTIVITY_PAUSE_REASONS = (PauseReason.NO_OUTPUT, PauseReason.IGNORED)
+
     # How long a scout is treated as provisional after creation or a human re-enable, during
     # which system writers should leave it alone (`in_cold_start_grace`).
     COLD_START_GRACE = timedelta(days=14)
+
+    # Bounds on `tags`. Tags are a grouping aid over a fleet an org can only grow so far, not a
+    # taxonomy — the caps keep the column small and the fleet filter's option list scannable.
+    MAX_TAGS = 10
+    MAX_TAG_LENGTH = 50
 
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
@@ -1196,6 +1387,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         db_index=False,
     )
+    # Opt-out from the inactivity sweep (`scout_harness/inactivity.py`) — a watchdog whose whole
+    # value is staying quiet (health checks, inbox validation) is *supposed* to surface nothing
+    # most weeks, so silence must never read as waste. Only ever set explicitly: a re-enable of a
+    # swept scout relies on the `in_cold_start_grace` re-anchor for its fresh window instead of
+    # minting permanent immunity. `db_default` alongside `default` keeps the AddField
+    # non-blocking and the column populated for writers that don't know about it yet.
+    auto_pause_exempt = models.BooleanField(default=False, db_default=False)
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
@@ -1216,11 +1414,64 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
+    # What the scout's sandbox can reach over the network. The runner maps this to the Tasks
+    # sandbox environment the run is provisioned into: `trusted` (default) keeps runs on the
+    # platform's trusted-domain allowlist, `full` lifts the restriction for scouts whose skill
+    # needs arbitrary external reads (docs, papers, status pages). Deliberately NOT excluded
+    # from activity logging — flipping a scout to full network is a security-relevant change.
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column
+    # populated for writers that don't know about it yet.
+    network_access = models.CharField(
+        max_length=20,
+        choices=NetworkAccess.choices,
+        default=NetworkAccess.TRUSTED,
+        db_default=NetworkAccess.TRUSTED,
+    )
+    # Optional agent-model pin for this scout's runs, e.g. `claude-opus-4-5`. Null keeps the
+    # normal resolution chain (the `scouts-model-selection` experiment gate, then the pipeline
+    # runtime pin, then the agent-server default). Honored at dispatch only while the
+    # `scouts-model-config` flag is on for the team, so a stored value is inert outside the
+    # dogfood — the flag is the kill switch, which is why the value itself is not cleared when
+    # the flag goes off. Free-form rather than a choices list: the model catalog changes
+    # without deploys, and `model_selection` already treats an unroutable id defensively.
+    model = models.CharField(max_length=200, null=True, blank=True)
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
     # config columns. A Slack destination is active only when both its integration and channel
     # are present; the UI may persist the integration first while the user chooses a channel.
     output_destinations = models.JSONField(default=dict, db_default={})
+    # Free-form labels for grouping the fleet ("revenue", "on-call", "experimental"). Normalized
+    # to lowercase and deduped at the API boundary, so a tag means the same thing whoever typed
+    # it. No GIN index: every read is already scoped to one team, and a team holds at most a
+    # couple of dozen scouts, so `tags && ARRAY[...]` runs over a handful of rows.
+    # `null=True` only so the AddField could land without a NOT NULL rewrite — the migration
+    # backfilled existing rows with `{}` and every write path sends a list, so NULL carries no
+    # meaning. Read through `tag_list` rather than this column so that stays an implementation
+    # detail instead of leaking a nullable `tags` into the API and its generated clients.
+    tags = ArrayField(
+        models.CharField(max_length=MAX_TAG_LENGTH),
+        default=list,
+        null=True,
+        blank=True,
+    )
+    # Optional JSON Schema (draft 2020-12, object-rooted) describing one structured record this
+    # scout produces via `scout-record-output`. Null = the channel is off: the record endpoint
+    # fails closed and the run prompt renders no structured-output section. Records land solely
+    # as `$scout_structured_output` events in the project, so the channel also requires `emit`
+    # (a dry-run scout has nowhere to record to). Serializer-validated (must compile as a
+    # schema, bounded size) — this field is only written through the config API. The schema
+    # describes ONE record; cardinality is the scout's call (one record per run, one per judged
+    # entity, ...), so no separate mode enum is stored.
+    structured_output_schema = models.JSONField(null=True, blank=True)
+    # MCP gateway servers (UUIDs as strings) this scout's runs may mount, chosen from the
+    # connections members shared to the whole team. Selection is per scout: the runner
+    # snapshots it onto the task, and provisioning mounts only the team-scoped grants on the
+    # listed servers, so an empty list mounts none. Personal grants never back a scout run,
+    # which keeps runs identical no matter who created or edits the scout. Stale or unknown
+    # ids simply never match a grant.
+    # Deliberately NOT excluded from activity logging, because changing which external tools
+    # a scout reaches is a security-relevant change, like `network_access`.
+    mcp_gateway_server_ids = models.JSONField(default=list, db_default=[])
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1238,8 +1489,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
     # Failure-streak circuit breaker over this lane's run outcomes, maintained by the runner:
-    # bumped on a failed run, zeroed on a successful one. At `FAILURE_STREAK_PAUSE_THRESHOLD`
-    # the runner pauses the lane (`transition_status_by_system`, `repeated_failures`) and the
+    # bumped on a failed run, zeroed on a successful one. At the threshold
+    # `failure_streak_pause_threshold` derives from this lane's own schedule, the runner pauses it
+    # (`transition_status_by_system`, `repeated_failures`) and the
     # coordinator holds it to one probe per `AUTO_PAUSE_PROBE_INTERVAL_S`. Without it a lane
     # that can never succeed re-dispatches forever, taking a full-length sandbox lease per
     # interval to produce nothing. Written on every run, so it is excluded from activity
@@ -1263,10 +1515,22 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
 
+    # Which product created this scout and which of its objects the scout belongs to. Signals owns
+    # scouts, but another product can stand one up for one of its own objects (Replay Vision creates
+    # one per scanner), and that product needs to find its scouts again, authorize reads against the
+    # owning object, and clean up when the object goes. Same `(source_product, source_id)` shape the
+    # rest of Signals uses for cross-product provenance. Null for a scout a person created directly.
+    source_product = models.CharField(max_length=100, choices=signal_source_product_choices, null=True, blank=True)
+    source_id = models.CharField(max_length=200, null=True, blank=True)
+
     class Meta:
         verbose_name = "Signal scout config"
         verbose_name_plural = "Signal scout configs"
         default_manager_name = "all_teams"
+        indexes = [
+            # The owning product's lookup: "which scouts belong to this object of mine".
+            models.Index(fields=["team", "source_product", "source_id"], name="scout_config_source_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
             # Backstop for the dual-write in `save`: added NOT VALID + validated (0080–0082)
@@ -1320,6 +1584,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 kwargs["update_fields"] = fields | touched
         super().save(*args, **kwargs)
 
+    @classmethod
+    def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
+        """The ownership rule compares writers, not exact reasons: the inactivity sweep owns
+        both `no_output` and `ignored`, and must be able to reclassify its own warning from
+        one to the other without being refused as a foreign writer."""
+        if current == incoming:
+            return True
+        inactivity: set[str] = set(cls.INACTIVITY_PAUSE_REASONS)
+        return current in inactivity and incoming in inactivity
+
     def transition_status_by_system(
         self,
         new_status: "SignalScoutConfig.Status",
@@ -1329,11 +1603,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
-        `pause_reason` names the calling writer (an inactivity sweep passes `no_output`, a
-        failure breaker `repeated_failures`) as well as the reason recorded on a pause. The
-        rule: a system writer may never touch `paused_by_user`, and may only move a scout
-        whose current pause carries its own reason, so independent pause mechanisms cannot
-        clear or overwrite each other's state. The checks run against a freshly locked row,
+        `pause_reason` names the calling writer (an inactivity sweep passes `no_output` or
+        `ignored`, a failure breaker `repeated_failures`) as well as the reason recorded on a
+        pause. The rule: a system writer may never touch `paused_by_user`, and may only move a
+        scout whose current pause carries a reason it owns (`_pause_reasons_share_writer`), so
+        independent pause mechanisms cannot clear or overwrite each other's state. The checks run against a freshly locked row,
         not the caller's instance, so a human pause or another writer's claim that landed
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
@@ -1358,7 +1632,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 return False
             if locked.status == self.Status.PAUSED_BY_USER:
                 return False
-            if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
+            if locked.status != self.Status.ACTIVE and not self._pause_reasons_share_writer(
+                locked.pause_reason, pause_reason
+            ):
                 return False
             # A warning is weaker than a pause: a delayed or retried warn must not reopen a
             # scout its own writer already paused (pending_pause is runnable).
@@ -1428,6 +1704,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
+
+    @property
+    def tag_list(self) -> list[str]:
+        """`tags` with the nullable column's NULL folded away, for readers.
+
+        The API serializes this rather than the column so `tags` is a plain non-null list
+        everywhere downstream. Serializing the column directly would surface `null` in the
+        OpenAPI schema and, through the generated clients, force every consumer to tell "no
+        tags" apart from "not set" — a distinction the column does not actually carry, since
+        the AddField backfilled existing rows and every write path sends a list.
+        """
+        return self.tags or []
 
     def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
@@ -1539,6 +1827,15 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+            # The per-scout run window ("last N runs of each scout") probes one scout at a time,
+            # constraining all three keys, so each probe reads only the entries it returns. The
+            # index above stops at the partition key, which leaves the planner sorting every one of
+            # a scout's runs to take the newest N — on a table that only ever grows, and a read the
+            # inbox repeats every 60 seconds.
+            models.Index(
+                fields=["team", "skill_name", "-created_at"],
+                name="signal_scout_run_recent_idx",
+            ),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table
@@ -1692,14 +1989,20 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
       is in no scout's run context, so this note is its sole carrier and the full gate applies —
       `llm_skill:write` and `signal_scout:write` included.
+    - `REPORT_FEEDBACK` — rating a report useful/not useful with a note, see `feedback_notes.py`. Like
+      a discussion the note is the only path the text takes to a scout (the rating otherwise lands only
+      on a product-analytics event), so the full gate applies too. Forwarded only for a report with a
+      resolvable authoring scout, since the feedback is a verdict on that scout's own report.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
-    on one report, and a discussion as a question to weigh rather than fleet-level steering.
+    on one report, a discussion as a question to weigh, and feedback as a reader's rating — rather than
+    fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
+        REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

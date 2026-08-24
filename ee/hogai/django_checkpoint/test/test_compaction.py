@@ -87,9 +87,9 @@ class TestCheckpointCompaction(NonAtomicBaseTest):
         return parent.compile(checkpointer=checkpointer)
 
     async def _message_contents(self, conversation: Conversation) -> list[str]:
-        state, _, _ = await aget_conversation_state(conversation, self.team, self.user)
-        assert state is not None, "UI load path returned no state"
-        return [m.content for m in state.messages]
+        result = await aget_conversation_state(conversation, self.team, self.user)
+        assert result.state is not None, "UI load path returned no state"
+        return [m.content for m in result.state.messages]
 
     async def test_compaction_handles_nested_subgraphs(self):
         conversation = await Conversation.objects.acreate(user=self.user, team=self.team)

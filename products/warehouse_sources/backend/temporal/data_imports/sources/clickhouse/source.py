@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+    BypassEnvProxy,
     ClickHouseConnectionError,
     _get_client,
     clickhouse_source,
@@ -61,12 +62,27 @@ GENERIC_CONNECTION_ERROR = (
     "your server, and that PostHog's IP addresses are allowed through any firewall."
 )
 
+# A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+# misleading "check the spelling" message that echoes the raw value back (which can embed
+# credentials). Catch it early with an actionable message that never reflects the input.
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, play.clickhouse.com), not a full URL or "
+    "connection string. Remove any scheme (like https://) and any username, password, port, or path."
+)
+
 # A transient gateway/rate-limit response that survived the in-process connect
 # retries. The connection details are fine — the server is momentarily busy or
 # waking (idle ClickHouse Cloud services routinely 5xx the first request), so
 # ask the user to retry rather than implying their credentials are wrong.
 _TEMPORARILY_UNAVAILABLE = (
     "ClickHouse is temporarily busy or unavailable and didn't accept the connection. Wait a moment and try again."
+)
+
+# Connections that skip the egress proxy don't follow redirects, so a redirecting endpoint
+# comes back as a 3xx response code instead of a request to wherever it pointed.
+_REDIRECTED = (
+    "We reached your ClickHouse host but it redirected us, and redirects aren't followed. Point the source at the "
+    "ClickHouse HTTP interface directly rather than at a proxy or load balancer in front of it."
 )
 
 # Error message → user-friendly translation. Matched as a substring of the
@@ -81,7 +97,13 @@ ClickHouseErrors: dict[str, str] = {
     "nodename nor servname provided": "Could not resolve the ClickHouse host",
     "name or service not known": "Could not resolve the ClickHouse host",
     "connection refused": "Could not connect to ClickHouse on the given host/port",
-    "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
+    "connection timed out": "Connection to ClickHouse timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
+    # Must stay above the generic "ssl" entry, which would otherwise match first and send the
+    # user to the wrong toggle. Verification runs against the configured ClickHouse host even
+    # over an SSH tunnel (server_hostname), so a mismatch is real: the certificate doesn't
+    # cover the host the user configured. Deliberately does not suggest turning verification
+    # off — that would train users into a MITM-able setup.
+    "hostname mismatch": "The server's TLS certificate doesn't cover the ClickHouse host configured for this source. Use a host name the certificate covers.",
     "ssl": "TLS/SSL handshake failed. If your server does not use TLS, disable the HTTPS toggle.",
     # The host answered but isn't serving the ClickHouse HTTP interface on this
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
@@ -90,6 +112,10 @@ ClickHouseErrors: dict[str, str] = {
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+    "returned response code 301": _REDIRECTED,
+    "returned response code 302": _REDIRECTED,
+    "returned response code 307": _REDIRECTED,
+    "returned response code 308": _REDIRECTED,
     "returned response code 429": _TEMPORARILY_UNAVAILABLE,
     "returned response code 502": _TEMPORARILY_UNAVAILABLE,
     "returned response code 503": _TEMPORARILY_UNAVAILABLE,
@@ -110,11 +136,32 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
 
+    def _bypass_env_proxy(self, config: ClickHouseSourceConfig, team_id: int) -> BypassEnvProxy:
+        """Why this connection may skip the egress proxy, or None to stay proxied.
+
+        Two cases, both of which the proxy would refuse. Internal teams may point a source at a
+        PostHog-internal host. And a tunneled connection is made to the tunnel's own loopback
+        bind address, which the proxy blocks by design — clickhouse-connect honours HTTP_PROXY
+        for every host including loopback, so the request would never reach the forwarded port
+        and the tunnel would open no channel to the customer's ClickHouse. The tunnel claim is
+        checked twice downstream: the tunnel helpers refuse to yield a non-loopback bind, and
+        `_get_client` refuses a non-loopback host claiming "tunnel_loopback".
+
+        ClickHouse is the only tunnel-capable source this bites: the other database drivers use
+        raw TCP sockets and ignore the proxy env vars entirely.
+        """
+        if self.ssh_tunnel_enabled(config):
+            return "tunnel_loopback"
+        if is_team_allowlisted_for_internal_hosts(team_id):
+            return "internal_team"
+        return None
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             releaseStatus=ReleaseStatus.GA,
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
@@ -300,6 +347,23 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # `_get_client`'s in-process retry never sees it; Temporal's activity retry
             # reopens a fresh tunnel + client and resumes from the last committed cursor.
             "Connection broken: IncompleteRead",
+            # requests/urllib3 raises this when the server accepts the connection but never
+            # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
+            # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
+            # `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`, so `_get_client` doesn't retry it in-process
+            # (a slow-to-wake service needs real wall-clock time, not an immediate re-dial);
+            # Temporal's activity retry provides that backoff and reopens a fresh connection.
+            "Read timed out",
+            # The source server rejected the client-construction probe because it was already
+            # at its concurrent-query limit (Code: 202, TOO_MANY_SIMULTANEOUS_QUERIES).
+            # `_get_client` already backs off and retries this in-process like a 429; this
+            # entry covers the case where the server stays saturated past all in-process
+            # attempts, so Temporal's own retry — with a fresh backoff budget — isn't noise.
+            "TOO_MANY_SIMULTANEOUS_QUERIES",
+            # `_get_client` already retries this in-process (see `_TRANSIENT_CONNECT_DROP_SUBSTRINGS`
+            # in clickhouse.py); this entry covers the case where our own egress proxy stays
+            # unreachable past all in-process attempts, so Temporal's retry isn't noise.
+            "Cannot connect to proxy.', TimeoutError('timed out')",
         }
 
     @contextmanager
@@ -329,7 +393,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 query_timeout=query_timeout,
                 settings=settings,
-                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
+                bypass_env_proxy=self._bypass_env_proxy(config, team_id),
+                server_hostname=config.host,
             )
             try:
                 yield client
@@ -347,9 +412,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
-        # Internal teams may point at PostHog-internal ClickHouse hosts, which the
-        # egress proxy would refuse — connect those directly.
-        bypass_env_proxy = is_team_allowlisted_for_internal_hosts(team_id)
+        bypass_env_proxy = self._bypass_env_proxy(config, team_id)
 
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_clickhouse_schemas(
@@ -362,6 +425,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 names=names,
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=config.host,
             )
 
             row_counts: dict[str, int] = {}
@@ -376,6 +440,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     verify=config.verify,
                     names=names,
                     bypass_env_proxy=bypass_env_proxy,
+                    server_hostname=config.host,
                 )
 
             detected_pks = get_clickhouse_primary_keys_for_schemas(
@@ -388,6 +453,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 table_names=list(db_schemas.keys()),
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=config.host,
             )
 
         for table_name, columns in db_schemas.items():
@@ -434,6 +500,9 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
+
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
 
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
@@ -482,7 +551,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 password=config.password,
                 secure=config.secure,
                 verify=config.verify,
-                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
+                bypass_env_proxy=self._bypass_env_proxy(config, team_id),
+                server_hostname=config.host,
             )
 
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -508,7 +578,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             chunk_size_override=schema.chunk_size_override,
             row_filters=inputs.row_filters,
             enabled_columns=inputs.enabled_columns,
-            bypass_env_proxy=is_team_allowlisted_for_internal_hosts(inputs.team_id),
+            bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
+            server_hostname=config.host,
         )
 
     def reconcile_schema_metadata(

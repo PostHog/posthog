@@ -3,14 +3,22 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from langchain_core import messages
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.search import DOC_ITEM_TEMPLATE, DOCS_SEARCH_RESULTS_TEMPLATE, InkeepDocsSearchTool, SearchTool
+from ee.hogai.tools.search import (
+    DOC_ITEM_TEMPLATE,
+    DOCS_SEARCH_NO_RESULTS_TEMPLATE,
+    DOCS_SEARCH_RESULTS_TEMPLATE,
+    InkeepDocsSearchTool,
+    SearchTool,
+    format_inkeep_docs_response,
+)
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -129,3 +137,41 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(mock_llm_class.call_args.kwargs["base_url"], "https://api.inkeep.com/v1/")
         self.assertEqual(mock_llm_class.call_args.kwargs["api_key"], "test-inkeep-key")
         self.assertEqual(mock_llm_class.call_args.kwargs["streaming"], False)
+
+
+class TestFormatInkeepDocsResponse(SimpleTestCase):
+    @staticmethod
+    def _payload(*urls: str) -> dict:
+        return {
+            "content": [
+                {
+                    "type": "document",
+                    "record_type": "page",
+                    "url": url,
+                    "title": f"Title for {url}",
+                    "source": {"type": "text", "content": [{"type": "text", "text": "Body"}]},
+                }
+                for url in urls
+            ]
+        }
+
+    @parameterized.expand(
+        [
+            ("community_question", "https://posthog.com/questions/how-do-i-mask-inputs", False),
+            ("community_question_www", "https://www.posthog.com/questions/how-do-i-mask-inputs", False),
+            ("community_questions_index", "https://posthog.com/questions", False),
+            ("docs_page", "https://posthog.com/docs/session-replay/privacy", True),
+            ("docs_common_questions", "https://posthog.com/docs/data/common-questions", True),
+            ("tutorial", "https://posthog.com/tutorials/session-recordings-for-support", True),
+            ("github_issue", "https://github.com/PostHog/posthog-js/issues/2292", True),
+        ]
+    )
+    def test_filters_community_questions(self, _name: str, url: str, expected_included: bool) -> None:
+        result = format_inkeep_docs_response(self._payload(url, "https://posthog.com/docs/getting-started"))
+
+        self.assertEqual(url in result, expected_included)
+
+    def test_returns_no_results_when_every_result_is_a_community_question(self) -> None:
+        result = format_inkeep_docs_response(self._payload("https://posthog.com/questions/why-no-recordings"))
+
+        self.assertEqual(result, DOCS_SEARCH_NO_RESULTS_TEMPLATE)

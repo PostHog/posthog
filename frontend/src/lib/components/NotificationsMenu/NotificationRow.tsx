@@ -37,6 +37,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Pipeline failures',
         description: 'When a data pipeline or batch export fails',
     },
+    materialization_failure: {
+        label: 'Materialized view failures',
+        description: 'When a materialized view in your project fails to refresh',
+    },
     issue_assigned: {
         label: 'Issues assigned',
         description: 'When an error tracking issue is assigned to you',
@@ -68,6 +72,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
     subscription_nudge: {
         label: 'Subscription suggestions',
         description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
+    },
+    data_quality_check_failure: {
+        label: 'Data quality check failures',
+        description: 'When a data quality check on a warehouse table or view starts failing',
     },
 }
 
@@ -182,7 +190,7 @@ export function NotificationRow({
     return (
         <div
             ref={autoMarkRef}
-            className={`group/row relative flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
+            className={`group/row @container/row relative flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
                 notification.read ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
             }`}
             onClick={handleOpen}
@@ -197,36 +205,61 @@ export function NotificationRow({
                     : notification.body && (
                           <div className="text-xs text-secondary mt-2 text-pretty">{notification.body}</div>
                       )}
-                <div className="flex items-center gap-1.5 mt-2">
-                    <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
-                    {otherProjectName && (
-                        <Tooltip title={`Notified on project ${otherProjectName}`}>
-                            <span className="text-[10px] text-muted bg-fill-highlight-100 px-1 py-px rounded truncate max-w-[240px]">
-                                {otherProjectName}
-                            </span>
-                        </Tooltip>
-                    )}
-                    {hasNavigationTarget && (
-                        <button
-                            onClick={handleNavigate}
-                            className="inline-flex items-center gap-0.5 text-[10px] text-secondary opacity-0 transition-opacity hover:text-primary group-hover/row:opacity-100"
-                        >
-                            {resourceLabel}
-                            <IconOpenInNew className="size-3" />
-                        </button>
+                {/* Meta and actions sit side by side, and only the meta half wraps: the tag drops to a
+                    second line rather than squeezing the timestamp into "a / month / ago", while the
+                    actions can never claim a line of their own. Keeping the actions in flow also means
+                    the wrap point tracks their real width, where a fixed padding either wrapped early
+                    or left them overlapping. */}
+                {/* items-end keeps the actions on the last line when the meta wraps, rather than
+                    floating them to the vertical middle of a two-line block */}
+                <div className="flex items-end gap-1.5 mt-2">
+                    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <span className="shrink-0 text-[10px] text-muted">
+                            {dayjs(notification.created_at).fromNow()}
+                        </span>
+                        {/* One flex item so the tag and the link wrap to the second line together,
+                            rather than the tag staying up beside the timestamp and stranding the icon */}
+                        {(otherProjectName || hasNavigationTarget) && (
+                            <div className="min-w-0 flex items-center gap-x-1.5">
+                                {otherProjectName && (
+                                    <Tooltip title={`Notified on project ${otherProjectName}`}>
+                                        <span className="text-[10px] text-muted bg-fill-highlight-100 px-1 py-px rounded truncate">
+                                            {otherProjectName}
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                {/* A narrow panel can't fit the label next to the timestamp and project
+                                    tag, so it drops to an icon-only button rather than crowding the
+                                    actions. The label stays as the accessible name and tooltip. */}
+                                {hasNavigationTarget && (
+                                    <Tooltip title={resourceLabel}>
+                                        <button
+                                            onClick={handleNavigate}
+                                            aria-label={resourceLabel}
+                                            className="shrink-0 inline-flex items-center gap-0.5 text-[10px] text-secondary transition-colors hover:text-primary"
+                                        >
+                                            <span className="hidden @[20rem]:inline">{resourceLabel}</span>
+                                            <IconOpenInNew className="size-3" />
+                                        </button>
+                                    </Tooltip>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                    {!readOnly && (
+                        <div className={`shrink-0 flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
+                            {archivingEnabled && (
+                                <NotificationActionButton
+                                    icon={<IconArchive className="size-4" />}
+                                    tooltip="Archive"
+                                    onClick={handleArchive}
+                                    tone="danger"
+                                />
+                            )}
+                            <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />
+                        </div>
                     )}
                 </div>
-            </div>
-            <div className={`absolute bottom-1.5 right-1.5 flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
-                {archivingEnabled && !readOnly && (
-                    <NotificationActionButton
-                        icon={<IconArchive className="size-4" />}
-                        tooltip="Archive"
-                        onClick={handleArchive}
-                        tone="danger"
-                    />
-                )}
-                {!readOnly && <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />}
             </div>
         </div>
     )

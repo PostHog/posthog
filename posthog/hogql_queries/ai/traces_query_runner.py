@@ -23,6 +23,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
     SentimentEvaluationLookup,
@@ -30,7 +31,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
-from posthog.hogql_queries.ai.utils import parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -81,6 +82,13 @@ class TracesQueryDateRange(QueryDateRange):
 
     def date_to(self) -> datetime:
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
+
+
+@frozen
+class TraceIdsResult:
+    trace_ids: list[str]
+    min_timestamp: datetime | None
+    max_timestamp: datetime | None
 
 
 class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
@@ -148,7 +156,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             },
         )
 
-    def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
+    def _get_trace_ids(self) -> TraceIdsResult:
         """Execute a separate query to get relevant trace IDs and their time range."""
         with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
             trace_ids_result = execute_hogql_query(
@@ -163,21 +171,21 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
             # Extract trace IDs and time range from results
             if not trace_ids_result.results or not trace_ids_result.results[0]:
-                return [], None, None
+                return TraceIdsResult(trace_ids=[], min_timestamp=None, max_timestamp=None)
 
             trace_ids_array, min_timestamp, max_timestamp = trace_ids_result.results[0]
 
             # Filter out any null/empty trace IDs and convert to strings
             trace_ids = [str(tid) for tid in (trace_ids_array or []) if tid]
 
-            return trace_ids, min_timestamp, max_timestamp
+            return TraceIdsResult(trace_ids=trace_ids, min_timestamp=min_timestamp, max_timestamp=max_timestamp)
 
     def _calculate(self):
         # First, get the trace IDs and time range
-        trace_ids, min_timestamp, max_timestamp = self._get_trace_ids()
+        trace_ids_result = self._get_trace_ids()
 
         # If no trace IDs found, return empty results
-        if not trace_ids:
+        if not trace_ids_result.trace_ids:
             return TracesQueryResponse(
                 columns=[],
                 results=[],
@@ -188,14 +196,14 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             )
 
         # Store trace_ids for use in to_query
-        self._trace_ids = trace_ids
+        self._trace_ids = trace_ids_result.trace_ids
 
         # Create a narrowed date range if we have timestamps
-        narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
+        narrowed_date_range = self._create_narrowed_date_range(trace_ids_result=trace_ids_result)
 
         with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
             query_result = self.paginator.execute_hogql_query(
-                query=self._to_query_with_trace_ids(trace_ids),
+                query=self._to_query_with_trace_ids(trace_ids_result.trace_ids),
                 placeholders={
                     "filter_conditions": self._get_where_clause(date_range=narrowed_date_range),
                 },
@@ -239,8 +247,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         """Public method matching the base class signature."""
         if self._trace_ids is None:
             # If called before _calculate, run the trace_ids query
-            trace_ids, _, _ = self._get_trace_ids()
-            self._trace_ids = trace_ids if trace_ids else []
+            trace_ids_result = self._get_trace_ids()
+            self._trace_ids = trace_ids_result.trace_ids if trace_ids_result.trace_ids else []
 
         return self._to_query_with_trace_ids(self._trace_ids)
 
@@ -390,18 +398,20 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         # Minute-level precision for 10m capture range
         return TracesQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
-    def _create_narrowed_date_range(
-        self, min_timestamp: datetime | None, max_timestamp: datetime | None
-    ) -> TracesQueryDateRange | None:
+    def _create_narrowed_date_range(self, *, trace_ids_result: TraceIdsResult) -> TracesQueryDateRange | None:
         """Create a narrowed date range based on the actual data timestamps."""
-        if min_timestamp is None or max_timestamp is None:
+        if trace_ids_result.min_timestamp is None or trace_ids_result.max_timestamp is None:
             return None
 
         # Create a custom date range with the min/max timestamps
         # The TracesQueryDateRange class will automatically add the 10-minute capture range buffer
         # through its overridden date_from() and date_to() methods
         narrowed_range = TracesQueryDateRange(
-            DateRange(date_from=min_timestamp.isoformat(), date_to=max_timestamp.isoformat(), explicitDate=True),
+            DateRange(
+                date_from=trace_ids_result.min_timestamp.isoformat(),
+                date_to=trace_ids_result.max_timestamp.isoformat(),
+                explicitDate=True,
+            ),
             self.team,
             IntervalType.MINUTE,
             datetime.now(),
@@ -617,9 +627,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []
-        if self.query.properties:
+        properties = filled_property_filters(self.query.properties)
+        if properties:
             with self.timings.measure("property_filters"):
-                for prop in self.query.properties:
+                for prop in properties:
                     property_filters.append(property_to_expr(prop, self.team))
 
         if not property_filters:

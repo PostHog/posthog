@@ -42,6 +42,13 @@ class SuggestedAction(StrEnum):
     # Switch this integration's match field from campaign_name to campaign_id to avoid
     # cross-platform name collisions. Caveat: requires utm_campaign URLs to use the ID too.
     SWITCH_TO_ID_MATCH = "switch_to_id_match"
+    # Only offered when the suggester found a confident match; `mapping_candidate` holds it.
+    # Secondary to FIX_PLATFORM_URLS, which cures the tagging bug itself.
+    ADD_CAMPAIGN_NAME_MAPPING = "add_campaign_name_mapping"
+
+
+# Same reason as UTM_ISSUE_KIND_CHOICES above: a stable enum name in the generated schema.
+SUGGESTED_ACTION_CHOICES = [action.value for action in SuggestedAction]
 
 
 class MatchType(StrEnum):
@@ -74,6 +81,9 @@ class UtmIssue:
     missing_source_count: int = 0
     # Ordered list of suggested remediations. First entry is the primary recommendation.
     suggested_actions: list[SuggestedAction] = dataclass_field(default_factory=list)
+    # The orphaned value that looks like a typo of this campaign. Set only alongside
+    # ADD_CAMPAIGN_NAME_MAPPING, and the half the audit can't see on its own.
+    mapping_candidate: str = ""
 
 
 @dataclass

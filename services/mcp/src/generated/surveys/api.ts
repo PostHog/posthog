@@ -78,8 +78,19 @@ export const surveysCreateBodyResponseSamplingLimitMax = 2147483647
 export const surveysCreateBodyBaseLanguageMax = 20
 
 export const SurveysCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().min(1).max(surveysCreateBodyNameMax).describe('Survey name.'),
-    description: zod.string().optional().describe('Survey description.'),
+    name: zod
+        .string()
+        .min(1)
+        .max(surveysCreateBodyNameMax)
+        .describe(
+            "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it."
+        ),
+    description: zod
+        .string()
+        .optional()
+        .describe(
+            'Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.'
+        ),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
         .describe(
@@ -930,8 +941,20 @@ export const surveysPartialUpdateBodyResponseSamplingLimitMax = 2147483647
 export const surveysPartialUpdateBodyBaseLanguageMax = 20
 
 export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().min(1).max(surveysPartialUpdateBodyNameMax).optional().describe('Survey name.'),
-    description: zod.string().optional().describe('Survey description.'),
+    name: zod
+        .string()
+        .min(1)
+        .max(surveysPartialUpdateBodyNameMax)
+        .optional()
+        .describe(
+            "Survey name. Anyone can read it. In-app surveys send it to every visitor's browser alongside the questions and appearance text, and a hosted survey shows it on its public page. Keep customer names and other private details out of it."
+        ),
+    description: zod
+        .string()
+        .optional()
+        .describe(
+            'Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.'
+        ),
     type: zod
         .enum(['popover', 'widget', 'external_survey', 'api'])
         .describe(

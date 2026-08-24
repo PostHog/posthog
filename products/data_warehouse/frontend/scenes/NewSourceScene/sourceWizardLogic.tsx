@@ -170,6 +170,11 @@ export const buildKeaFormDefaultFromSourceDetails = (
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
+            if (field.multiple) {
+                obj[field.name] = field.defaultValue ? [field.defaultValue] : []
+                return
+            }
+
             if (hasOptionFields) {
                 obj[field.name] = {}
                 obj[field.name]['selection'] = field.defaultValue
@@ -253,6 +258,23 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
 
+// A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
+// blocker or extension blocking the request. Name that likely cause instead of echoing it.
+export function resolveConnectErrorMessage(e: any): string {
+    const apiMessage = e?.data?.message ?? e?.detail
+    if (apiMessage) {
+        return apiMessage
+    }
+    if (e?.status === undefined || e?.status === null || e?.status === 0) {
+        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
+    }
+    if (e?.status >= 500) {
+        return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+    }
+    // A 4xx without a message body would otherwise toast "undefined".
+    return e?.message ?? 'Something went wrong setting up your source. Please try again.'
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -298,6 +320,28 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     }
     // leave unset and require user configuration
     return undefined
+}
+
+// Supabase tables carry arbitrary user columns, so the "any timestamp/date" and id-column
+// fallbacks above can land on a value that never changes on update (a date of birth, a
+// config integer). Such a cursor syncs each row once and then silently stops seeing
+// updates, so only trust update-tracking columns and otherwise default to full refresh.
+export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
+    fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
+    fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
+
+// Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
+// rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
+// (e.g. Supabase Vault tables, which hold decrypted secrets) keep their current state so
+// enabling them always takes an explicit per-table opt-in. Bulk disable still clears them.
+export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, selectAll: boolean): boolean => {
+    if (schema.permission_error) {
+        return false
+    }
+    if (selectAll && schema.should_sync_default === false) {
+        return schema.should_sync
+    }
+    return selectAll
 }
 
 function syncExpandedSchemaGroupKeys(
@@ -574,6 +618,7 @@ export interface sourceWizardLogicActions {
             | 'Aircall'
             | 'AirOps'
             | 'Airtable'
+            | 'Airwallex'
             | 'Aiven'
             | 'AkamaiReporting'
             | 'Akeneo'
@@ -756,6 +801,7 @@ export interface sourceWizardLogicActions {
             | 'CanvasLms'
             | 'CapsuleCRM'
             | 'CaptainData'
+            | 'Capterra'
             | 'Captivate'
             | 'CareQualityCommission'
             | 'CartCom'
@@ -787,6 +833,7 @@ export interface sourceWizardLogicActions {
             | 'CiscoMeraki'
             | 'Clari'
             | 'Clarifai'
+            | 'Clarify'
             | 'Classy'
             | 'Clay'
             | 'Clazar'
@@ -806,6 +853,7 @@ export interface sourceWizardLogicActions {
             | 'Cloudability'
             | 'Cloudbeds'
             | 'Cloudflare'
+            | 'Cloudinary'
             | 'Cloudsmith'
             | 'Cloudzero'
             | 'Clover'
@@ -865,6 +913,7 @@ export interface sourceWizardLogicActions {
             | 'DataForSEO'
             | 'Datahub'
             | 'Datascope'
+            | 'DatoCMS'
             | 'Datorama'
             | 'Dayforce'
             | 'Db2'
@@ -872,9 +921,11 @@ export interface sourceWizardLogicActions {
             | 'Debugbear'
             | 'Decagon'
             | 'Deel'
+            | 'DeelFlows'
             | 'Deepgram'
             | 'Deepsource'
             | 'DenoDeploy'
+            | 'Depot'
             | 'Deputy'
             | 'Descope'
             | 'Develocity'
@@ -892,6 +943,7 @@ export interface sourceWizardLogicActions {
             | 'Docusign'
             | 'DodoPayments'
             | 'DoIt'
+            | 'Dokploy'
             | 'Dolibarr'
             | 'Donorbox'
             | 'Doorloop'
@@ -977,6 +1029,7 @@ export interface sourceWizardLogicActions {
             | 'Formbricks'
             | 'Fortnox'
             | 'Fourthwall'
+            | 'Framer'
             | 'Fred'
             | 'FreeAgent'
             | 'Freightview'
@@ -1056,8 +1109,10 @@ export interface sourceWizardLogicActions {
             | 'GoogleDirectory'
             | 'GoogleDrive'
             | 'GoogleForms'
+            | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
+            | 'GooglePostmasterTools'
             | 'GoogleSearchConsole'
             | 'GoogleSheets'
             | 'GoogleTasks'
@@ -1070,6 +1125,7 @@ export interface sourceWizardLogicActions {
             | 'GreytHr'
             | 'Gridly'
             | 'Groq'
+            | 'Growi'
             | 'GrowthBook'
             | 'Guardian'
             | 'Guesty'
@@ -1104,6 +1160,7 @@ export interface sourceWizardLogicActions {
             | 'Honeycomb'
             | 'Hookdeck'
             | 'HoorayHR'
+            | 'Hootsuite'
             | 'Hostaway'
             | 'HousecallPro'
             | 'Hubplanner'
@@ -1119,6 +1176,7 @@ export interface sourceWizardLogicActions {
             | 'Imagga'
             | 'ImfData'
             | 'Impact'
+            | 'ImpactPartner'
             | 'Imperva'
             | 'IncidentIo'
             | 'Infisical'
@@ -1139,6 +1197,7 @@ export interface sourceWizardLogicActions {
             | 'Invoiced'
             | 'Invoiceninja'
             | 'IP2Whois'
+            | 'IronSourceAds'
             | 'Iterable'
             | 'Iyzico'
             | 'JamfPro'
@@ -1157,6 +1216,7 @@ export interface sourceWizardLogicActions {
             | 'K6Cloud'
             | 'Kafka'
             | 'Kajabi'
+            | 'Kalshi'
             | 'Kameleoon'
             | 'Kandji'
             | 'KapaAI'
@@ -1268,6 +1328,7 @@ export interface sourceWizardLogicActions {
             | 'MicrosoftDefenderEndpoint'
             | 'MicrosoftDefenderForCloud'
             | 'MicrosoftEntraId'
+            | 'MicrosoftExcel'
             | 'MicrosoftIntune'
             | 'MicrosoftLists'
             | 'MicrosoftPurview'
@@ -1295,7 +1356,9 @@ export interface sourceWizardLogicActions {
             | 'MonteCarlo'
             | 'Moodle'
             | 'Motherduck'
+            | 'Motion'
             | 'Moxie'
+            | 'MSG91'
             | 'MSSQL'
             | 'Mux'
             | 'Mycase'
@@ -1425,7 +1488,8 @@ export interface sourceWizardLogicActions {
             | 'Piwik'
             | 'Plaid'
             | 'Plain'
-            | 'PlanetScale'
+            | 'PlanetScaleMySQL'
+            | 'PlanetScalePostgres'
             | 'Planhat'
             | 'PlanningCenter'
             | 'PlatformSh'
@@ -1438,6 +1502,7 @@ export interface sourceWizardLogicActions {
             | 'Podium'
             | 'Polar'
             | 'Polygon'
+            | 'Polymarket'
             | 'Poplar'
             | 'Postgres'
             | 'Postmark'
@@ -1455,6 +1520,7 @@ export interface sourceWizardLogicActions {
             | 'Productboard'
             | 'Productiv'
             | 'Productive'
+            | 'Profound'
             | 'PromptingCompany'
             | 'PromptWatch'
             | 'ProofpointTap'
@@ -1472,7 +1538,9 @@ export interface sourceWizardLogicActions {
             | 'QuickBooks'
             | 'Railway'
             | 'Railz'
+            | 'Raisely'
             | 'Raken'
+            | 'RakutenAdvertising'
             | 'Ramp'
             | 'Rapid7Insightvm'
             | 'Raygun'
@@ -1525,6 +1593,7 @@ export interface sourceWizardLogicActions {
             | 'SalesforceMarketingCloud'
             | 'SalesLoft'
             | 'Salestrics'
+            | 'SamCart'
             | 'Sanity'
             | 'SapConcur'
             | 'SapErp'
@@ -1535,6 +1604,7 @@ export interface sourceWizardLogicActions {
             | 'ScaleAI'
             | 'Scaleway'
             | 'Scalr'
+            | 'Schematic'
             | 'SearchAds360'
             | 'SecEdgar'
             | 'Secoda'
@@ -1557,6 +1627,7 @@ export interface sourceWizardLogicActions {
             | 'ServiceNow'
             | 'Servicetitan'
             | 'Servicetrade'
+            | 'Sevalla'
             | 'Sevdesk'
             | 'SevenShifts'
             | 'SFTP'
@@ -1725,6 +1796,7 @@ export interface sourceWizardLogicActions {
             | 'UnComtrade'
             | 'Unleash'
             | 'Unstructured'
+            | 'Uploadcare'
             | 'UpPromote'
             | 'Upstash'
             | 'Uptick'
@@ -1763,10 +1835,14 @@ export interface sourceWizardLogicActions {
             | 'WeightsAndBiases'
             | 'WhatsappBusinessManagement'
             | 'WhenIWork'
+            | 'WHMCS'
             | 'WhoGho'
             | 'Whop'
             | 'WikipediaPageviews'
             | 'Windmill'
+            | 'WindsorAi'
+            | 'WisprFlow'
+            | 'Wix'
             | 'Wiz'
             | 'Wompi'
             | 'WooCommerce'
@@ -1807,6 +1883,7 @@ export interface sourceWizardLogicActions {
             | 'Zenloop'
             | 'Zep'
             | 'Zero'
+            | 'Zitadel'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -2320,20 +2397,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
-                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            should_sync: schema.permission_error ? false : selectAll,
+                            should_sync: bulkToggledShouldSync(schema, selectAll),
                         }))
                     }
                     const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
                         should_sync: targetSet.has(schema.table)
-                            ? schema.permission_error
-                                ? false
-                                : selectAll
+                            ? bulkToggledShouldSync(schema, selectAll)
                             : schema.should_sync,
                     }))
                 },
@@ -3033,19 +3107,24 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setIsLoading(false)
         },
         onSubmit: () => {
-            // Shared function that triggers different actions depending on the current step
-            if (values.currentStep === 1) {
+            // Shared function that triggers different actions depending on the current step.
+            // Snapshot the step once: some branches below (e.g. step 4) dispatch actions that
+            // synchronously advance `currentStep`, and re-reading `values.currentStep` after that
+            // would let this same call fall through into the next step's branch too.
+            const step = values.currentStep
+
+            if (step === 1) {
                 return
             }
 
-            if (values.currentStep === 2 && values.selectedConnector?.name) {
+            if (step === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
-            } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
+            } else if (step === 2 && values.isManualLinkFormVisible) {
                 selfManagedSourceLogic.actions.submitTable()
                 posthog.capture('source created', { sourceType: 'Manual' })
             }
 
-            if (values.currentStep === 3 && values.selectedConnector?.name) {
+            if (step === 3 && values.selectedConnector?.name) {
                 if (values.isDirectQueryMode) {
                     actions.updateSource({
                         payload: {
@@ -3224,7 +3303,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
 
-            if (values.currentStep === 4) {
+            if (step === 4) {
                 if (webhookResultHasNoPendingInputs(values.webhookResult)) {
                     actions.onNext()
                 } else {
@@ -3232,9 +3311,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     // (validates, then triggers submitWebhookFields)
                     actions.submitWebhookFieldInputs()
                 }
-            }
-
-            if (values.currentStep === 5) {
+            } else if (step === 5) {
                 if (props.onComplete) {
                     props.onComplete()
                 } else {
@@ -3265,6 +3342,45 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            // Webhook-sync tables produce no rows until the webhook is registered with the
+            // provider, and the required-tables flow never shows the webhook step (step 4) —
+            // register the webhook after creation and only report completion once it succeeds.
+            const registerRequiredWebhookAndComplete = async (sourceId: string): Promise<void> => {
+                let webhookResult: WebhookCreateResult
+                try {
+                    webhookResult = await api.externalDataSources.createWebhook(sourceId)
+                } catch (e: any) {
+                    posthog.captureException(e)
+                    webhookResult = {
+                        success: false,
+                        webhook_url: '',
+                        error: e.data?.message ?? e.message,
+                    }
+                }
+                actions.setWebhookResult(webhookResult)
+                if (!webhookResultHasNoPendingInputs(webhookResult)) {
+                    lemonToast.error(
+                        `We created the source but couldn't set up its webhook${
+                            webhookResult.error ? `: ${webhookResult.error}` : ''
+                        }. Connect again to retry, or finish webhook setup in the source settings.`
+                    )
+                    return
+                }
+                props.onComplete!()
+            }
+
+            // A required-tables run whose webhook registration failed left the source created —
+            // retry the webhook instead of creating a duplicate source.
+            if (values.requiredTables && props.onComplete && values.sourceId) {
+                if (values.hasWebhookSchemas) {
+                    await registerRequiredWebhookAndComplete(values.sourceId)
+                } else {
+                    props.onComplete()
+                }
+                actions.setIsLoading(false)
+                return
+            }
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -3292,7 +3408,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
-                    props.onComplete()
+                    if (values.hasWebhookSchemas) {
+                        await registerRequiredWebhookAndComplete(id)
+                    } else {
+                        props.onComplete()
+                    }
                 } else if (values.hasWebhookSchemas) {
                     // Go to webhook setup step (4)
                     actions.onNext()
@@ -3301,7 +3421,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                lemonToast.error(resolveConnectErrorMessage(e))
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -3346,7 +3466,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             }
 
-            actions.onNext()
+            // Only advance from the webhook step — guards against a stray double submission
+            // (e.g. the form's own Save button plus the wizard's Next button) re-firing this and
+            // pushing `currentStep` past the last real step.
+            if (values.currentStep === 4) {
+                actions.onNext()
+            }
         },
         handleRedirect: async ({ source }) => {
             // By default, we assume the source is a valid external data source
@@ -3411,7 +3536,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'webhook'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField =
+                                values.selectedConnector.name === 'Supabase'
+                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+                                    : resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
                             if (resolvedField) {
                                 schema.incremental_field = resolvedField.field
@@ -3426,8 +3554,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                     // Onboarding one-click setup: opt every syncable table in (permission errors
                     // already continued above), so the user can sync the whole source in one click.
+                    // Default-off tables stay off via the shared bulk rule: this path shows no
+                    // table picker, so nothing else stops a secrets table from syncing.
                     if (props.autoConfigureTables) {
-                        schema.should_sync = true
+                        schema.should_sync = bulkToggledShouldSync(schema, true)
                     }
                 }
 
@@ -3440,15 +3570,41 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // If required tables are specified (e.g. signals setup), skip the schema selection step
                 // entirely and create the source with only those tables, using their default sync settings
                 if (values.requiredTables) {
-                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
-                    if (requiredSchemas.length !== values.requiredTables.length) {
-                        const missingTables = values.requiredTables.filter(
-                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
+                    // Multi-repo sources qualify their schema names (`owner/repo.endpoint`), so a
+                    // required table matches by suffix as well as exactly, and can resolve to one
+                    // row per repo. Mirrors ensureRequiredTableSyncing in signalSourcesLogic.
+                    const matchesRequiredTable = (tableName: string, requiredTable: string): boolean =>
+                        tableName === requiredTable || tableName.endsWith(`.${requiredTable}`)
+                    // The payload below forces should_sync on, so a permission-errored row would
+                    // queue a guaranteed-403 sync. Treat it as unavailable instead.
+                    const requiredSchemas = schemas.filter(
+                        (schema) =>
+                            !schema.permission_error &&
+                            values.requiredTables!.some((table: string) => matchesRequiredTable(schema.table, table))
+                    )
+                    const missingTables = values.requiredTables.filter(
+                        (table: string) => !requiredSchemas.some((schema) => matchesRequiredTable(schema.table, table))
+                    )
+                    if (missingTables.length > 0) {
+                        const permissionError = schemas.find(
+                            (schema) =>
+                                schema.permission_error &&
+                                missingTables.some((table: string) => matchesRequiredTable(schema.table, table))
+                        )?.permission_error
+                        lemonToast.error(
+                            permissionError
+                                ? `Source credentials cannot read the tables this needs (${missingTables.join(', ')}): ${permissionError}. Grant the missing scope in your source provider and reconnect.`
+                                : `Required tables not found in source: ${missingTables.join(', ')}`
                         )
-                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
                         actions.setIsLoading(false)
                         return
                     }
+                    for (const schema of requiredSchemas) {
+                        schema.should_sync = true
+                    }
+                    // createSource reads hasWebhookSchemas off databaseSchema to decide whether the
+                    // new source still needs its webhook registered.
+                    actions.setDatabaseSchemas(requiredSchemas)
 
                     actions.updateSource({
                         payload: {
@@ -3477,15 +3633,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
-                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
-                // friendly hint for server-side failures while keeping any API-provided message.
                 const apiMessage = e.data?.message ?? e.detail
-                const errorMessage =
-                    apiMessage ??
-                    (e.status >= 500
-                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
-                        : e.message)
+                const errorMessage = resolveConnectErrorMessage(e)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential
@@ -3827,8 +3976,14 @@ export const getErrorsForFields = (
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 
             if (!hasOptionFields) {
-                if (field.required && !valueObj[field.name]) {
-                    errorsObj[field.name] = `Please select a ${field.label.toLowerCase()}`
+                // An empty array is truthy, so a multiple select needs its own emptiness
+                // check or `required` passes with nothing selected.
+                const selected = valueObj[field.name]
+                const selectionMissing = Array.isArray(selected) ? selected.length === 0 : !selected
+                if (field.required && selectionMissing) {
+                    errorsObj[field.name] = Array.isArray(selected)
+                        ? `Please select at least one of your ${field.label.toLowerCase()}`
+                        : `${field.label} is required`
                 }
             } else {
                 errorsObj[field.name] = {}
@@ -3853,10 +4008,22 @@ export const getErrorsForFields = (
         // emptiness check or `required` would pass with zero selections.
         const fieldValue = valueObj[field.name]
         const valueMissing = Array.isArray(fieldValue) ? fieldValue.length === 0 : !fieldValue
+
+        // An OAuth field with nothing selected can never produce a working source, but some
+        // backend configs keep it `required=False` so stored configs on the other auth branch
+        // (e.g. GitHub PAT sources) still parse. Enforce it here instead of letting the submit
+        // through to a guaranteed credentials error.
+        if (field.type === 'oauth' && valueMissing) {
+            // Label verbatim: OAuth field labels lead with a brand name ("GitHub account"),
+            // which lowercasing would mangle.
+            errorsObj[field.name] = `Select or connect a ${field.label}`
+            return
+        }
+
         if ('required' in field && field.required && valueMissing) {
             errorsObj[field.name] = Array.isArray(fieldValue)
                 ? `Please enter at least one of your ${field.label.toLowerCase()}`
-                : `Please enter a ${field.label.toLowerCase()}`
+                : `${field.label} is required`
         }
     }
 

@@ -33,6 +33,14 @@ MCP_ANALYTICS_FEATURE_FLAG = "mcp-analytics"
 EFFECTIVE_TOOL_SQL = (
     "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
 )
+# The description of the *effective* tool: for single-exec calls the inner tool's
+# $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
+# Without this, an inner tool's description would resolve to the exec wrapper's text
+# (another tool's description) — a tool-level disclosure.
+EFFECTIVE_DESCRIPTION_SQL = (
+    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_description), ''), "
+    "toString(properties.$mcp_tool_description))"
+)
 # Marker the posthog-node MCP analytics SDK stamps on the events it sends.
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 

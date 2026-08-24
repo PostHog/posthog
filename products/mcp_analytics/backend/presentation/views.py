@@ -317,10 +317,24 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Return the most recent intent cluster snapshot for the current project. "
             "Returns an empty IDLE snapshot when no clustering run has happened yet."
         ),
+        parameters=[
+            OpenApiParameter(
+                name="tool",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the response to one tool: its pivot entry, the clusters it serves or switches "
+                    "with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use "
+                    "this for single-tool views so they don't download every cluster and pivot to render "
+                    "one row. An unknown tool returns empty sections, not a 404."
+                ),
+            )
+        ],
         responses={200: MCPIntentClusterSnapshotSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        snapshot = api.get_intent_cluster_snapshot(self.team)
+        snapshot = api.get_intent_cluster_snapshot(self.team, tool=request.query_params.get("tool") or None)
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data)
 

@@ -8716,15 +8716,17 @@ Diffed against: <https://trigger.dev/docs/llms.txt>
 
 Note: Trigger.dev also ships a TRQL query endpoint (management/query/execute) that exposes run data as a SQL-like surface; its schema endpoint (management/query/schema) lists every queryable table and would be the cheapest way to widen coverage. Env vars and queue concurrency controls were excluded as config.
 
-## TrunkIo — adequate
+## TrunkIo — gaps
 
-Today (3): `FailingTests`, `QuarantinedTests`, `UnhealthyTests`
+Today (4): `FailingTests`, `MergeQueuePullRequests`, `QuarantinedTests`, `UnhealthyTests`
 
-Diffed against: <https://docs.trunk.io/flaky-tests/reference/api-reference.md>
+Diffed against: <https://docs.trunk.io/openapi.json> (spec-verified 2026-08-03; supersedes the 2026-07-26 prose-docs pass)
 
-No material gaps found.
+- [x] `listPullRequests` — merge queue history: state, stateChangedAt, priority, batching flags and author per submitted PR. Cursor-paginated (`cursor`/`take`, `nextCursor`) with a `since` filter on conclusion time, so it is a genuine incremental collection (high)
+- [ ] `flaky-tests/get-test-details` — column-level, not a missing table: it returns the same 20 fields as a `list-failing-tests` row, so it adds nothing to `FailingTests`. Its only value is backfilling `most_common_failures` and `failure_rate_last_7d`/`_24h` onto `UnhealthyTests` rows whose test has not failed inside the `FailingTests` window, at the cost of one call per unhealthy test (low)
+- [ ] `getQueue` — merge queue configuration (concurrency, batching, merge method, required statuses) plus a point-in-time `enqueuedPullRequests` snapshot that duplicates `listPullRequests`. Full-refresh only, so it captures the current config and never its history — it cannot answer "did merge time change when we bumped concurrency" retrospectively (low)
 
-Note: The Flaky Tests REST API has exactly five endpoints: three list endpoints (distinct failed tests in a time range, unhealthy tests, quarantined tests) - all three already exposed as FailingTests, UnhealthyTests and QuarantinedTests - plus a single test-case detail lookup and a write op (link a ticket). Trunk's other API is the Merge Queue API (docs.trunk.io/merge-queue/reference/merge), a POST-based control plane (submit/cancel/restart PR, getQueue, getSubmittedPullRequest, Prometheus metrics) that requires per-branch parameters rather than exposing listable collections, so it is not a warehouse gap for this source.
+Note: the 2026-07-26 pass recorded Merge Queue as a control plane with no listable collections. The OpenAPI spec contradicts that — `/listPullRequests` is a paginated collection with an incremental filter — hence the correction. It does need a `targetBranch` the flaky-tests endpoints don't (a queue covers one branch), which is why the table ships opt-in via a source config field. Of the remaining 21 paths: `/getMergeQueueTestingDetails` needs a `testRunId` no readable endpoint returns, so a connector cannot reach it; `/getMergeQueueMetrics` is `text/plain` Prometheus; `/status` is Trunk's own service health rather than customer data; the other 11 are writes (submit/cancel/restart PR, queue CRUD, `link-ticket-to-test-case`, alpha `create-ci-run`) or device-auth token flows.
 
 ## TVMaze — gaps
 

@@ -8,23 +8,34 @@ interface Props {
     onChange: (value: ToolApprovalState) => void
     size?: 'small' | 'xsmall' | 'medium'
     disabledReason?: string | null
+    disabledStates?: Partial<Record<ToolApprovalState, string>>
     fullWidth?: boolean
 }
 
-// Labels map design language ("approved / ask / blocked") to the backend enum
+// Labels map product language to the backend enum
 // (`approved` / `needs_approval` / `do_not_use`). Display-only — no schema change.
 const OPTIONS: { value: ToolApprovalState; label: string; icon: JSX.Element }[] = [
-    { value: 'approved', label: 'Approved', icon: <IconCheck /> },
-    { value: 'needs_approval', label: 'Requires approval', icon: <IconShieldLock /> },
+    { value: 'approved', label: 'Always Allow', icon: <IconCheck /> },
+    { value: 'needs_approval', label: 'Needs Approval', icon: <IconShieldLock /> },
     { value: 'do_not_use', label: 'Blocked', icon: <IconX /> },
 ]
 
-export function ToolPolicyToggle({ value, onChange, size = 'xsmall', disabledReason, fullWidth }: Props): JSX.Element {
+export function ToolPolicyToggle({
+    value,
+    onChange,
+    size = 'xsmall',
+    disabledReason,
+    disabledStates,
+    fullWidth,
+}: Props): JSX.Element {
     return (
         <LemonSegmentedButton
             size={size}
             value={value}
-            options={OPTIONS}
+            options={OPTIONS.map((option) => ({
+                ...option,
+                disabledReason: disabledStates?.[option.value],
+            }))}
             onChange={onChange}
             disabledReason={disabledReason ?? undefined}
             fullWidth={fullWidth}

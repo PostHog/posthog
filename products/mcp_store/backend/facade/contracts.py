@@ -5,14 +5,17 @@ Stable, framework-free frozen dataclasses that define what this product
 exposes to the rest of the codebase. No Django imports.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class ActiveInstallationInfo:
+class ActiveInstallation:
     """An MCP server installation that is active and ready to use."""
 
     id: str
     name: str
     proxy_path: str
     scope: str = "personal"
+    # Set only for credentials delegated to a built-in agent. Kept out of reprs so the
+    # short-lived bearer cannot accidentally land in logs.
+    proxy_token: str | None = field(default=None, repr=False)

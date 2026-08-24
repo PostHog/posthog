@@ -21,9 +21,10 @@ from hypothesis import (
 from hypothesis.extra.django import TestCase as HypothesisDjangoTestCase
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     NO_ACCESS_LEVEL,
@@ -32,14 +33,13 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
     default_access_level,
-    get_effective_access_level_for_member,
-    get_effective_access_level_for_role,
     highest_access_level,
     minimum_access_level,
     model_to_resource,
     ordered_access_levels,
 )
 from posthog.scopes import APIScopeObject
+from posthog.user_permissions import UserPermissions
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -68,18 +68,6 @@ def resource_with_levels(draw, n: int = 1):
     resource = draw(resources_st)
     level = st.sampled_from(ordered_access_levels(resource))
     return (resource, *(draw(level) for _ in range(n)))
-
-
-@st.composite
-def member_level_inputs(draw):
-    resource = draw(resources_st)
-    level = st.sampled_from(ordered_access_levels(resource))
-    return (
-        resource,
-        draw(st.none() | level),  # project default
-        draw(st.lists(level, max_size=4)),  # role overrides
-        draw(st.none() | level),  # member override
-    )
 
 
 def _max_level(levels: list[AccessControlLevel], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
@@ -119,57 +107,6 @@ class TestAccessLevelHelpersProperties(TestCase):
             assert a == b
         if access_level_satisfied_for_resource(resource, a, b) and access_level_satisfied_for_resource(resource, b, c):
             assert access_level_satisfied_for_resource(resource, a, c)
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_org_admin_member_always_gets_highest(self, data):
-        resource, default_level, role_levels, member_level = data
-        result = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=True
-        )
-        assert result.effective_access_level == highest_access_level(resource)
-        assert result.inherited_access_level == highest_access_level(resource)
-        assert result.inherited_access_level_reason == "organization_admin"
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_member_level_is_max_of_inputs(self, data):
-        resource, default_level, role_levels, member_level = data
-        result = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=False
-        )
-        provided = [level for level in [default_level, *role_levels, member_level] if level is not None]
-        assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_member_level_is_monotonic(self, data):
-        resource, default_level, role_levels, member_level = data
-        levels = ordered_access_levels(resource)
-        base = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=False
-        )
-        for extra in levels:
-            extended = get_effective_access_level_for_member(
-                resource, default_level, [*role_levels, extra], member_level, is_org_admin=False
-            )
-            assert extended.effective_access_level is not None
-            if base.effective_access_level is not None:
-                assert levels.index(extended.effective_access_level) >= levels.index(base.effective_access_level)
-
-    @given(data=resource_with_levels(n=2), has_default=st.booleans(), has_role=st.booleans())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_role_level_is_max_of_inputs(self, data, has_default, has_role):
-        resource, default_level, role_level = data
-        default_arg = default_level if has_default else None
-        role_arg = role_level if has_role else None
-        result = get_effective_access_level_for_role(resource, default_arg, role_arg)
-
-        provided = [level for level in [default_arg, role_arg] if level is not None]
-        assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-        # The inherited reason is "project_default" exactly when a default level is present,
-        # regardless of whether a role override is also present.
-        assert (result.inherited_access_level_reason == "project_default") == (default_arg is not None)
 
 
 # ------------------------------------------------------------
@@ -301,9 +238,21 @@ def model_has_created_by(model_cls: type[models.Model]) -> bool:
 
 
 # Row targets: who an AccessControl row applies to, relative to self.user
-# (who is in role_a; other_user is in role_b).
-TARGETS = ("team_default", "self_member", "other_member", "role_a", "role_b")
-# Rows _filter_options can ever see for self.user - other_member/role_b rows are invisible
+# (who is in role_a and in role_other_org; other_user is in role_b).
+# role_other_org/member_other_org are a role and a membership self.user holds in a different
+# organization, neither of which the write path scopes out of a rule on this team - resolving either
+# here would cross the authorization boundary.
+TARGETS = (
+    "team_default",
+    "self_member",
+    "other_member",
+    "role_a",
+    "role_b",
+    "role_other_org",
+    "member_other_org",
+)
+# Rows _filter_options can ever see for self.user - other_member/role_b and both *_other_org targets
+# are invisible
 MATCHING = {"team_default", "self_member", "role_a"}
 
 PROJECT_LEVELS = ordered_access_levels("project")
@@ -395,6 +344,39 @@ def oracle_explicit_level(specs: list[RowSpec], order: list[AccessControlLevel])
     return None
 
 
+def oracle_project_membership_level(
+    specs: list[RowSpec],
+    membership_level: OrganizationMembership.Level,
+    role_based_access: bool,
+) -> Optional[OrganizationMembership.Level]:
+    # Mirrors UserTeamPermissions.effective_membership_level_for_parent_membership. Same
+    # shadowing as oracle_explicit_level, applied to project rows: rules naming the user (their
+    # member row, or a role they hold) decide, highest of them winning, so an all-"none" set of
+    # them denies instead of falling through to the team default. Role rows are invisible without
+    # ROLE_BASED_ACCESS, so a stale role rule neither grants nor denies.
+    if membership_level >= OrganizationMembership.Level.ADMIN:
+        # Project access caps at admin, so an org owner resolves to admin and never OWNER
+        return OrganizationMembership.Level.ADMIN
+
+    visible = {"team_default", "self_member"} | ({"role_a"} if role_based_access else set())
+    matching = [s for s in specs if s.target in visible]
+    explicit = [s.level for s in matching if s.target != "team_default"]
+    team_default = [s.level for s in matching if s.target == "team_default"]
+
+    if explicit:
+        resolved = _max_level(explicit, PROJECT_LEVELS)
+    elif team_default:
+        resolved = _max_level(team_default, PROJECT_LEVELS)
+    else:
+        resolved = default_access_level("project")
+
+    return {
+        "none": None,
+        "member": OrganizationMembership.Level.MEMBER,
+        "admin": OrganizationMembership.Level.ADMIN,
+    }[cast(str, resolved)]
+
+
 def oracle_object_access_level(
     resource: APIScopeObject, specs: list[RowSpec], is_creator: bool, is_org_admin: bool
 ) -> AccessControlLevel:
@@ -476,6 +458,9 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
     other_user: User
     role_a: "Role"
     role_b: "Role"
+    role_other_org: "Role"
+    other_organization: Organization
+    other_organization_membership: OrganizationMembership
 
     # Fixtures live in setUpTestData (class-level atomics): hypothesis runs each
     # example inside Django's per-test transaction via _pre_setup/_post_teardown,
@@ -495,6 +480,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
         RoleMembership.objects.create(user=cls.user, role=cls.role_a)
         RoleMembership.objects.create(user=cls.other_user, role=cls.role_b)
 
+        # A second organization self.user also belongs to, holding a role there
+        cls.other_organization = Organization.objects.create(name="PBT other organization")
+        cls.other_organization_membership = OrganizationMembership.objects.create(
+            organization=cls.other_organization, user=cls.user, level=OrganizationMembership.Level.MEMBER
+        )
+        cls.role_other_org = Role.objects.create(name="PBT foreign role", organization=cls.other_organization)
+        RoleMembership.objects.create(
+            user=cls.user, role=cls.role_other_org, organization_member=cls.other_organization_membership
+        )
+
     def _membership(self, user: User) -> OrganizationMembership:
         return OrganizationMembership.objects.get(user=user, organization=self.organization)
 
@@ -512,6 +507,10 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
             return {"organization_member": self._membership(self.other_user)}
         if target == "role_a":
             return {"role": self.role_a}
+        if target == "role_other_org":
+            return {"role": self.role_other_org}
+        if target == "member_other_org":
+            return {"organization_member": self.other_organization_membership}
         return {"role": self.role_b}
 
     def _materialize(self, specs: list[RowSpec], resource: APIScopeObject, obj: Optional[models.Model]) -> None:
@@ -543,6 +542,16 @@ class BaseAccessControlPropertyTest(HypothesisDjangoTestCase, BaseTest):
 
     def _fresh_uac(self) -> UserAccessControl:
         return UserAccessControl(self.user, self.team)
+
+    def _set_role_based_access(self, enabled: bool) -> None:
+        # Written on every example (not just when disabling) so the class-level in-memory
+        # organization, which hypothesis's per-example rollback does not restore, can't drift
+        # from the row the resolvers read
+        features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+        if enabled:
+            features.append({"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS})
+        self.organization.available_product_features = features
+        self.organization.save()
 
 
 class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
@@ -588,7 +597,8 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         expected = oracle_resource_access_level(
             resource, specs, is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN
         )
-        assert self._fresh_uac().access_level_for_resource(resource) == expected
+        resource_access = self._fresh_uac().access_level_for_resource(resource)
+        assert resource_access and resource_access.access_level == expected
 
     @given(data=resource_level_rows(), membership_level=membership_levels_st)
     @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
@@ -670,6 +680,51 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         blocked, _allowed = oracle_blocked_and_allowed_object_ids(object_specs_by_id)
         assert result == ({resource: blocked} if blocked else {})
 
+    @given(scenario=queryset_scenario())
+    @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_hogql_guard_inputs_resolve_the_same_rows_as_the_queryset_filter(self, scenario):
+        # HogQL can't run filter_queryset_by_access_level, so it rebuilds the same decision in SQL from
+        # allowlisted_resource_ids_by_scope, blocked_resource_ids_by_scope and the row's creator (see
+        # build_access_control_guard). Evaluate that decision here and hold it to the REST oracle: a
+        # divergence means HogQL and the API disagree about who can see an object. Members only - HogQL
+        # exempts org admins from object-level filtering outright, while the queryset filter does so
+        # only when its caller passes include_all_if_admin.
+        resource, model_cls, objects, resource_specs = scenario
+        self._set_membership_level(OrganizationMembership.Level.MEMBER)
+
+        object_specs_by_id: dict[str, list[RowSpec]] = {}
+        creator_ids: set[str] = set()
+        for specs, owned in objects:
+            creator = self.user if owned else self.other_user
+            obj = build_instance(model_cls, self.team, creator)
+            self._materialize(specs, resource, obj)
+            object_specs_by_id[str(obj.pk)] = specs
+            if owned:
+                creator_ids.add(str(obj.pk))
+        self._materialize(resource_specs, resource, obj=None)
+
+        uac = self._fresh_uac()
+        allowlisted = uac.allowlisted_resource_ids_by_scope.get(resource)
+        blocked = uac.blocked_resource_ids_by_scope.get(resource, frozenset())
+        model_has_creator = model_has_created_by(model_cls)
+
+        def guard_admits(object_id: str) -> bool:
+            if model_has_creator and object_id in creator_ids:
+                return True
+            if allowlisted:
+                return object_id in allowlisted
+            return object_id not in blocked
+
+        visible = {object_id for object_id in object_specs_by_id if guard_admits(object_id)}
+        assert visible == oracle_visible_object_ids(
+            resource,
+            resource_specs,
+            object_specs_by_id,
+            creator_ids,
+            model_has_creator=model_has_creator,
+            is_org_admin=False,
+        )
+
     @given(
         data=object_resource_and_rows(),
         team_rows=project_rows(),
@@ -687,9 +742,84 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         effective = RESOURCE_INHERITANCE_MAP.get(resource, resource)
         assert effective is not None
         assert uac.access_level_for_object(obj) == highest_access_level(resource)
-        assert uac.access_level_for_resource(resource) == highest_access_level(effective)
+        resource_access = uac.access_level_for_resource(resource)
+        assert resource_access and resource_access.access_level == highest_access_level(effective)
         assert uac.get_user_access_level(obj) == highest_access_level(resource)
         assert uac.check_can_modify_access_levels_for_object(obj) is True
+
+    @given(team_rows=project_rows(), subject_kind=st.sampled_from(["member", "role"]), role_based_access=st.booleans())
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_seeded_subject_agrees_with_its_own_query(self, team_rows, subject_kind, role_based_access):
+        # A subject seeded from a wide pool narrows it in memory (`_applies_to_subject`) where the
+        # unseeded subject narrows in the query (`_filter_options`). The two are written separately
+        # and must never drift: same rows visible, same project resolution.
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+        subject_kwargs = (
+            {"member": self._membership(self.other_user)}
+            if subject_kind == "member"
+            else {"role_id": str(self.role_a.id)}
+        )
+
+        queried = SubjectAccessControl(self.user, self.team, **subject_kwargs)
+        seeded = SubjectAccessControl(self.user, self.team, **subject_kwargs)
+        seeded.preload_access_controls()
+
+        assert {ac.id for ac in seeded._cached_access_controls} == {ac.id for ac in queried._cached_access_controls}
+        assert seeded.get_user_access_level(self.team) == queried.get_user_access_level(self.team)
+        assert seeded.has_project_scoped_access(self.team) == queried.has_project_scoped_access(self.team)
+
+    @given(
+        team_rows=project_rows(),
+        membership_level=membership_levels_st,
+        role_based_access=st.booleans(),
+    )
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_effective_membership_level_matches_oracle(self, team_rows, membership_level, role_based_access):
+        self._set_membership_level(membership_level)
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+
+        expected = oracle_project_membership_level(team_rows, membership_level, role_based_access)
+        assert UserPermissions(self.user, self.team).current_team.effective_membership_level == expected
+
+    @given(
+        team_rows=project_rows(),
+        membership_level=membership_levels_st,
+        role_based_access=st.booleans(),
+    )
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_effective_membership_level_agrees_with_enforced_project_access(
+        self, team_rows, membership_level, role_based_access
+    ):
+        # The two project resolvers must not contradict each other: effective_membership_level
+        # gates ~25 call sites, while get_user_access_level is what PermissionClass 403s on, so a
+        # disagreement means one of them grants access the other denies.
+        #
+        # Scope: object-scope rows only (`project_rows()` draws `("object",)`, so every row carries
+        # `resource_id = str(team.pk)`). Agreement is *not* asserted for resource-level project rows
+        # (`resource="project", resource_id IS NULL`): those make `get_user_access_level` return
+        # `default_access_level("project")` == "admin" via `access_level_for_resource`, while
+        # `effective_membership_level` filters them out on `resource_id`. Only a project admin can
+        # create such a row and the UI never sends `resource: "project"` to `resource_access_controls`,
+        # so that path is left as-is rather than modelled here.
+        self._set_membership_level(membership_level)
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+
+        level = UserPermissions(self.user, self.team).current_team.effective_membership_level
+        enforced = self._fresh_uac().get_user_access_level(self.team)
+
+        assert (level is None) == (enforced == NO_ACCESS_LEVEL)
+        if membership_level == OrganizationMembership.Level.MEMBER:
+            assert (
+                level
+                == {
+                    "none": None,
+                    "member": OrganizationMembership.Level.MEMBER,
+                    "admin": OrganizationMembership.Level.ADMIN,
+                }[cast(str, enforced)]
+            )
 
     @given(data=object_resource_and_rows(), admin_target=st.sampled_from(sorted(MATCHING)))
     @settings(max_examples=50, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)

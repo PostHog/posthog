@@ -122,11 +122,11 @@ _PERSON_ID_CHUNK = 1000
 
 
 class OracleSetTooLarge(Exception):
-    """A leaf's member set exceeded the cap, so the oracle refuses to materialize it in memory."""
+    """An oracle member set exceeded the cap, so the read refuses to materialize it in memory."""
 
-    def __init__(self, event_name: str, limit: int) -> None:
-        super().__init__(f"leaf {event_name!r} matches more than {limit} persons")
-        self.event_name = event_name
+    def __init__(self, label: str, limit: int) -> None:
+        super().__init__(f"{label} matches more than {limit} persons")
+        self.label = label
         self.limit = limit
 
 
@@ -157,7 +157,7 @@ def load_leaf_members(team_id: int, leaf: OracleLeaf, *, at: datetime, tz: ZoneI
         team_id=team_id,
     )
     if len(rows) > limit:
-        raise OracleSetTooLarge(leaf.event_name, limit)
+        raise OracleSetTooLarge(f"leaf {leaf.event_name!r}", limit)
     return {str(row[0]).lower() for row in rows}
 
 

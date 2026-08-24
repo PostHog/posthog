@@ -8,6 +8,7 @@ import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
 import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
 
@@ -42,6 +43,9 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <ImpersonationNotice />
                 <SelfReadOnlyNotice />
                 <WizardSyncFab />
+                {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
+                    but the doc dialog must be able to open from any surface. */}
+                <WizardHandoffDialog />
                 <WizardSyncDebugPanel />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />

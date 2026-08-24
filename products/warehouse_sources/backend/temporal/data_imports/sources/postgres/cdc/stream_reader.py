@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import psycopg
@@ -63,7 +63,7 @@ class PgCDCConnectionParams:
     port: int
     database: str
     user: str
-    password: str
+    password: str = field(repr=False)
     require_ssl: bool = False
     slot_name: str = ""
     publication_name: str = ""
@@ -134,7 +134,10 @@ class PgCDCStreamReader:
                 # sits idle between yields as the caller flushes to S3 and advances the slot —
                 # statement_timeout doesn't apply there because no statement is running. Both are
                 # dropped if the source sits behind a pooler that rejects the libpq `options`
-                # parameter (CDC sources never do).
+                # parameter — CDC sources do sit behind one (a Neon pooled endpoint serves the peek
+                # functions fine), and without the fallback the connection can never be opened at
+                # all. The activity's start-to-close and heartbeat timeouts still bound a stalled
+                # peek when the server-side ceiling is gone.
                 options="-c statement_timeout=1800000 -c idle_in_transaction_session_timeout=0",
             ),
             logger,
@@ -214,14 +217,17 @@ class PgCDCStreamReader:
                 self._last_rows_consumed = 0
                 logger.warning("slot_read_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
                 time.sleep(0.5 * 2**attempt)
-            except psycopg.OperationalError as e:
+            except (psycopg.OperationalError, psycopg.errors.InternalError_) as e:
                 # A transient drop on the peek fetch (pooler/firewall idle cull, failover, network
-                # blip — e.g. "consuming input failed: SSL SYSCALL error: EOF detected") is the same
-                # class connect()/confirm_position() already absorb in-process. Reconnect and
-                # re-peek: the peek is non-consuming, so re-reading from the slot's last confirmed
-                # position is safe. Only retry before the first row lands — once events have been
-                # yielded the caller has buffered them, so a re-peek would duplicate; let it surface
-                # and Temporal replays the whole run from the last confirmed LSN.
+                # blip — e.g. "consuming input failed: SSL SYSCALL error: EOF detected", or Neon's
+                # walsender losing its connection to a safekeeper) is the same class
+                # connect()/confirm_position() already absorb in-process — InternalError_ is the
+                # generic XX000 class those pooler/Neon-internal drops arrive as (see
+                # _is_connection_dropped_error). Reconnect and re-peek: the peek is non-consuming, so
+                # re-reading from the slot's last confirmed position is safe. Only retry before the
+                # first row lands — once events have been yielded the caller has buffered them, so a
+                # re-peek would duplicate; let it surface and Temporal replays the whole run from the
+                # last confirmed LSN.
                 if slot_acquired or not _is_connection_dropped_error(e) or attempt == _SLOT_READ_MAX_ATTEMPTS - 1:
                     raise
                 _safe_close_connection(conn)

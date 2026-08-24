@@ -1,4 +1,12 @@
-from posthog.schema import CalendarHeatmapQuery, ResolvedDateRangeResponse, TrendsQueryResponse
+from typing import Optional
+
+from posthog.schema import (
+    CalendarHeatmapQuery,
+    EventsHeatMapStructuredResult,
+    QueryTiming,
+    ResolvedDateRangeResponse,
+    TrendsQueryResponse,
+)
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
@@ -38,7 +46,21 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
 
         calendar_response = calendar_runner._calculate()
 
-        # Convert calendar response to trends response format
+        return self._wrap_calendar_results(
+            calendar_response.results,
+            timings=calendar_response.timings,
+            hogql=calendar_response.hogql,
+        )
+
+    def _wrap_calendar_results(
+        self,
+        results: EventsHeatMapStructuredResult,
+        *,
+        timings: Optional[list[QueryTiming]] = None,
+        hogql: Optional[str] = None,
+    ) -> TrendsQueryResponse:
+        """Wrap an EventsHeatMapStructuredResult in the TrendsQueryResponse shape
+        the frontend's heatmap visualization consumes."""
         return TrendsQueryResponse(
             results=[
                 {
@@ -51,13 +73,13 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
                     },
                     "label": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
                     "data": [],  # Empty array for non-time-series data
-                    "aggregated_value": calendar_response.results.allAggregations,
-                    "calendar_heatmap_data": calendar_response.results,  # Store the original heatmap data
-                    "count": calendar_response.results.allAggregations,
+                    "aggregated_value": results.allAggregations,
+                    "calendar_heatmap_data": results,  # Store the original heatmap data
+                    "count": results.allAggregations,
                 }
             ],
-            timings=calendar_response.timings,
-            hogql=calendar_response.hogql,
+            timings=timings,
+            hogql=hogql,
             modifiers=self.modifiers,
             resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),

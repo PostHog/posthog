@@ -6,12 +6,11 @@ import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, 
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
 import { urls } from 'scenes/urls'
 
@@ -201,12 +200,21 @@ function SortedBy({
 }
 
 function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
-    const { selectedRecordingsIds, isDeleteSelectedRecordingsDialogOpen, deleteConfirmationText } =
-        useValues(sessionRecordingsPlaylistLogic)
+    const {
+        selectedRecordingsIds,
+        isDeleteSelectedRecordingsDialogOpen,
+        deleteConfirmationText,
+        isDeletingSelectedRecordings,
+    } = useValues(sessionRecordingsPlaylistLogic)
     const { setIsDeleteSelectedRecordingsDialogOpen, setDeleteConfirmationText, handleDeleteSelectedRecordings } =
         useActions(sessionRecordingsPlaylistLogic)
 
+    const isConfirmationValid = matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
+
     const handleClose = (): void => {
+        if (isDeletingSelectedRecordings) {
+            return
+        }
         setIsDeleteSelectedRecordingsDialogOpen(false)
         setDeleteConfirmationText('')
     }
@@ -232,24 +240,32 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                         onChange={setDeleteConfirmationText}
                         placeholder={DELETE_CONFIRMATION_TEXT}
                         className="w-full"
+                        disabled={isDeletingSelectedRecordings}
                         autoFocus
                     />
+                    {deleteConfirmationText.length > 0 && !isConfirmationValid && (
+                        <p className="text-danger text-sm mb-0">
+                            That doesn't match. Please type "{DELETE_CONFIRMATION_TEXT}" to confirm.
+                        </p>
+                    )}
                 </div>
                 <div className="bg-warning-highlight border border-warning rounded p-2 text-sm">
                     This action cannot be undone. Deleting recordings doesn't affect your billing.
                 </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
-                <LemonButton type="secondary" onClick={handleClose}>
+                <LemonButton
+                    type="secondary"
+                    onClick={handleClose}
+                    disabledReason={isDeletingSelectedRecordings ? 'Deleting...' : undefined}
+                >
                     Cancel
                 </LemonButton>
                 <LemonButton
                     type="primary"
-                    disabledReason={
-                        deleteConfirmationText !== DELETE_CONFIRMATION_TEXT
-                            ? 'Please type the correct confirmation text'
-                            : undefined
-                    }
+                    status="danger"
+                    loading={isDeletingSelectedRecordings}
+                    disabledReason={!isConfirmationValid ? 'Please type the correct confirmation text' : undefined}
                     onClick={() => handleDeleteSelectedRecordings(shortId)}
                 >
                     Delete
@@ -483,7 +499,6 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
@@ -492,8 +507,6 @@ export function SessionRecordingsPlaylistTopSettings({
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
     )
-
-    const visionEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION]
 
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
@@ -526,14 +539,12 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
-        if (visionEnabled) {
-            // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-            menuItems.push({
-                key: 'bulk-scan-recordings',
-                label: () => <BulkScanMenuItem />,
-                custom: true,
-            })
-        }
+        // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
+        menuItems.push({
+            key: 'bulk-scan-recordings',
+            label: () => <BulkScanMenuItem />,
+            custom: true,
+        })
 
         menuItems.push({
             label: 'Delete',

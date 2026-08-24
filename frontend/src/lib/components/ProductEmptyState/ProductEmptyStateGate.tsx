@@ -45,16 +45,30 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
     const { config, statusLogic } = emptyState
     useMountedLogic(statusLogic)
     const setupLogic = productSetupStatusLogic({ productKey: config.productKey })
-    const { status, skipped, showEmptyState, mode } = useValues(setupLogic)
+    const { status, skipped, mode } = useValues(setupLogic)
     const { unskipEmptyState } = useActions(setupLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (skipped) {
+    // A lingering local skip is ignored for non-skippable products (the button may have been
+    // shown before the product opted out of skipping). Derived once, because the empty-state
+    // branch below has to reach the same verdict: honoring the skip there but not here would
+    // render the bare scene with neither the setup screen nor the reminder banner, and a
+    // non-skippable product has no button left to clear the stored flag with.
+    const skipHonored = skipped && config.skippable !== false
+
+    if (skipHonored) {
         // Skip bypasses the screen, not detection: render the scene, plus a "Set up" reminder
         // until data lands, so there's always a way back to setup.
         const needsSetup = status === 'needs-setup' || status === 'waiting-for-data'
         const reminder = needsSetup ? (
-            <LemonBanner type="info" action={{ children: `Set up ${config.productName}`, onClick: unskipEmptyState }}>
+            <LemonBanner
+                type="info"
+                action={{
+                    children: `Set up ${config.productName}`,
+                    onClick: unskipEmptyState,
+                    'data-attr': 'product-empty-state-setup-banner',
+                }}
+            >
                 {config.productName} isn't receiving data yet.
             </LemonBanner>
         ) : null
@@ -72,16 +86,18 @@ function ProductEmptyStateGateInner({ emptyState, children }: ProductEmptyStateG
         )
     }
     if (status === 'loading') {
-        // One consistent loading treatment app-wide — the same scene-level spinner
-        // shown while scene chunks load. Statuses are preloaded at app boot (see
-        // productSetupPreloadLogic), so this rarely renders in practice.
+        // One consistent loading treatment app-wide, the same scene-level spinner shown while
+        // scene chunks load. `productSetupPreloadLogic` answers this ahead of time only for
+        // products that declare a `setupProbe` in their manifest, which is an event-based
+        // signal. Entity-count products have none, so for them the spinner is the normal path
+        // on every entry, including every trip back from a detail page.
         return (
             <ProductSceneFrame config={config}>
                 <SpinnerOverlay sceneLevel />
             </ProductSceneFrame>
         )
     }
-    if (showEmptyState) {
+    if (!skipHonored && (status === 'needs-setup' || status === 'waiting-for-data')) {
         return (
             <ProductSceneFrame config={config}>
                 <ProductEmptyState config={config} mode={mode} />

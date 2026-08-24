@@ -6,6 +6,7 @@ from posthog.schema import (
     ChartDisplayType,
     DataWarehouseNode,
     EventsNode,
+    GroupMathType,
     GroupNode,
     PropertyMathType,
 )
@@ -26,6 +27,18 @@ from posthog.models.team.team import Team
 
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
+
+# First-occurrence math, scoped to a person or a group. The `_for_group` variants group by `$group_N`
+# instead of `person_id`; see FirstTimeForUserEventsQueryAlternator.
+FIRST_TIME_FOR_GROUP_MATH_TYPES = frozenset(
+    {GroupMathType.FIRST_TIME_FOR_GROUP, GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP}
+)
+FIRST_TIME_EVER_MATH_TYPES = frozenset(
+    {BaseMathType.FIRST_TIME_FOR_USER, BaseMathType.FIRST_MATCHING_EVENT_FOR_USER} | FIRST_TIME_FOR_GROUP_MATH_TYPES
+)
+FIRST_MATCHING_EVENT_MATH_TYPES = frozenset(
+    {BaseMathType.FIRST_MATCHING_EVENT_FOR_USER, GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP}
+)
 
 ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
     [
@@ -92,7 +105,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     ast.Constant(value=0),
                 ],
             )
-        elif self.series.math == "total" or self.series.math == "first_time_for_user":
+        elif self.series.math in ("total", BaseMathType.FIRST_TIME_FOR_USER, GroupMathType.FIRST_TIME_FOR_GROUP):
             return parse_expr("count()")
         elif self.series.math == "dau":
             # `weekly_active` and `monthly_active` turn into `dau` for intervals longer than their period, hence the
@@ -159,14 +172,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return parse_expr(self._get_person_field())
 
     def requires_query_orchestration(self) -> bool:
-        math_to_return_true = [
-            "weekly_active",
-            "monthly_active",
-            "first_time_for_user",
-            "first_matching_event_for_user",
-        ]
-
-        return self.is_count_per_actor_variant() or self.series.math in math_to_return_true
+        return self.is_count_per_actor_variant() or self.is_active_users_math() or self.is_first_time_ever_math()
 
     def _validate_session_property(self) -> str:
         if not self.series.math_property:
@@ -215,10 +221,17 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math in ["weekly_active", "monthly_active"]
 
     def is_first_time_ever_math(self):
-        return self.series.math in {"first_time_for_user", "first_matching_event_for_user"}
+        return self.series.math in FIRST_TIME_EVER_MATH_TYPES
 
     def is_first_matching_event(self):
-        return self.series.math == "first_matching_event_for_user"
+        return self.series.math in FIRST_MATCHING_EVENT_MATH_TYPES
+
+    def first_time_math_group_type_index(self) -> int | None:
+        """Group type index to group the first-time subquery by, or None for person-scoped first-time math."""
+        if self.series.math in FIRST_TIME_FOR_GROUP_MATH_TYPES:
+            index = self.series.math_group_type_index
+            return int(index) if index is not None else None
+        return None
 
     def get_outer_aggregation(self, field: ast.Expr, is_histogram_breakdown: bool = False) -> ast.Expr:
         """
@@ -730,6 +743,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         events_query = ast.SelectQuery(select=[])
         parent_select = self._first_time_parent_query()
         is_first_matching_event = self.is_first_matching_event()
+        math_group_type_index = self.first_time_math_group_type_index()
 
         class QueryOrchestrator:
             events_query_builder: FirstTimeForUserEventsQueryAlternator
@@ -744,6 +758,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     event_or_action_filter=event_name_filter,
                     ratio=sample_value,
                     is_first_matching_event=is_first_matching_event,
+                    math_group_type_index=math_group_type_index,
                 )
                 self.parent_query_builder = QueryAlternator(parent_select)
 

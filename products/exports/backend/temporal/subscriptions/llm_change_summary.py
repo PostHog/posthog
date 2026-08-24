@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
     INSIGHT_NAME_MAX_LEN,
@@ -27,8 +28,7 @@ from posthog.security.llm_prompt_sanitization import (
 )
 from posthog.utils import get_instance_region
 
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
-from products.product_analytics.backend.api.insight_suggestions import get_query_specific_instructions
+from products.product_analytics.backend.facade.api import get_query_specific_instructions
 
 logger = structlog.get_logger(__name__)
 

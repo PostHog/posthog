@@ -314,12 +314,19 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         getPlaylistSuccess: ({ playlist }) => {
             if (playlist?.type === 'filters') {
-                router.actions.replace(
-                    combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
-                )
+                // The load can resolve after the user has already navigated elsewhere (e.g. to Replay
+                // vision) - only redirect if they're still looking at this playlist's own route.
+                if (
+                    removeProjectIdIfPresent(router.values.location.pathname) ===
+                    removeProjectIdIfPresent(urls.replayPlaylist(props.shortId))
+                ) {
+                    router.actions.replace(
+                        combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
+                    )
+                }
                 return
             }
 

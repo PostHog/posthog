@@ -214,7 +214,7 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
         clients: [
             (s) => [s.overview],
             (overview: MCPActivityOverviewApi | null): EarlyClientRow[] =>
-                (overview?.clients ?? []).map((row) => ({ client: row.client || 'Unknown client', calls: row.calls })),
+                (overview?.clients ?? []).map((row) => ({ client: row.client, calls: row.calls })),
         ],
         recentCalls: [
             (s) => [s.overview],

@@ -29,6 +29,12 @@ pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_fi
 // structural errors. Cohort and team ids are in the companion debug log, not metric
 // labels (cardinality).
 pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
+// Counts evaluated cohorts the two MembershipStampPolicy variants route differently.
+// Labels: direction="would_lose" | "would_gain", active_policy = the policy this process
+// runs, which says whether the reroute is still pending or already applied. Cohort and
+// team ids are in the companion deduped warn log (cardinality).
+pub const FLAG_COHORT_STAMP_POLICY_DIVERGENCE_COUNTER: &str =
+    "flags_cohort_stamp_policy_divergence_total";
 // Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on
 // (team_id, person_uuid)). hit = lookup fully served from cache; miss = a
 // behavioral cohorts DB query was issued (no cache entry, or the entry was
@@ -68,6 +74,13 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+// Incremented once per request that supplied a `$geoip_*` value disagreeing with the MaxMind
+// lookup. Supplied values win over the lookup, so this counts the requests that evaluate
+// differently than they would under lookup-wins precedence. Removable once the precedence
+// change has shipped and settled. Per-team and per-SDK attribution lives in the canonical log
+// line via Loki.
+pub const GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER: &str =
+    "flags_geoip_properties_differ_from_lookup_total";
 
 // Internal batch flag evaluation endpoint (static cohort generation). Dedicated
 // `flags_batch_eval_*` names keep batch traffic separable from live `/flags` metrics.
@@ -320,6 +333,7 @@ pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
 // Tracks the result of hash key override queries to understand cache optimization potential
 // Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
 pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
+pub const FLAG_HASH_KEY_REPLICA_CHECK: &str = "flags_hash_key_override_replica_check_total";
 
 // Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";

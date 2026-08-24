@@ -425,6 +425,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             false as boolean,
             {
                 setIsReady: (_, { isReady }) => isReady,
+                loadHeatmapSuccess: (state, { rawHeatmap }) => (rawHeatmap ? true : state),
+                loadHeatmapFailure: () => true,
             },
         ],
         selectedArea: [
@@ -500,7 +502,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     breakpoint()
 
                     const data = await response.json()
-                    actions.setIsReady(true)
                     return data
                 },
             },
@@ -778,7 +779,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         },
         loadHeatmapFailure: ({ error }) => {
             lemonToast.error(error || 'Heatmap query failed')
-            actions.setIsReady(true)
         },
         loadAreaEventsFailure: ({ error }) => {
             lemonToast.error(error || 'Failed to load events for selected area')

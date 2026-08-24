@@ -11,7 +11,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -39,6 +39,7 @@ import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { useDiscussionTimelineExtras } from './ThreadDiscussions'
 import { reportTimelineExtras } from './ThreadReports'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
@@ -106,6 +107,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
+        editingMessageId,
+        discussionsEnabled,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -126,6 +129,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftModeEnabled,
         dismissKnowledgeGap,
         submitAiReplyFeedback,
+        startEditingMessage,
+        cancelEditingMessage,
+        deleteMessage,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -156,6 +162,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
           }[emailReplyBlockedReason]
         : undefined
 
+    const canEditTicket = accessLevelSatisfied(
+        AccessControlResourceType.Ticket,
+        ticket?.user_access_level ?? AccessControlLevel.None,
+        AccessControlLevel.Editor
+    )
+
     const sendDisabledReason =
         getAccessControlDisabledReason(
             AccessControlResourceType.Ticket,
@@ -173,6 +185,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    // Above the early returns below: this scene renders a spinner and a not-found state before the
+    // thread, and a hook can't be called on only some of those paths.
+    const discussionExtras = useDiscussionTimelineExtras(ticket?.id, discussionsEnabled)
 
     if (ticketLoading) {
         return (
@@ -223,7 +239,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 >
                     {/* Main conversation area */}
                     <ChatView
-                        threadExtras={reportTimelineExtras(linkedReports)}
+                        threadExtras={[...reportTimelineExtras(linkedReports), ...discussionExtras]}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}
@@ -253,6 +269,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         showAiReplyFeedback={aiSuggestionsEnabled}
                         aiReplyFeedbackDisabledReason={sendDisabledReason}
                         onSubmitAiReplyFeedback={submitAiReplyFeedback}
+                        currentUserId={user?.id ?? null}
+                        canEditTicket={canEditTicket}
+                        editingMessageId={editingMessageId}
+                        onEditMessage={startEditingMessage}
+                        onDeleteMessage={deleteMessage}
+                        onCancelEdit={cancelEditingMessage}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -351,6 +373,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <span className="text-muted-alt shrink-0">From</span>
                                     <span className="text-xs truncate text-right" title={ticket.email_from}>
                                         {ticket.email_from}
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">To</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                        {ticket.email_to}
                                     </span>
                                 </div>
                             )}
@@ -502,8 +532,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     }}
                                 />
                             </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Tags</span>
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="text-muted-alt shrink-0">Tags</span>
                                 <TicketTags
                                     tags={tags}
                                     onChange={setTags}

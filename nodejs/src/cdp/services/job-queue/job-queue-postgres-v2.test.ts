@@ -52,7 +52,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
-            emailAssets: [],
+            messageAssets: [],
             ...overrides,
         }
     }
@@ -242,6 +242,20 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(job.fail).toHaveBeenCalledTimes(1)
         })
 
+        it('should call cancel, not ack, on canceled jobs so they never count as completed', async () => {
+            const { queue } = createQueue()
+            const job = createDequeuedJob()
+            ;(queue as any).pendingJobs.set(job.id, job)
+
+            await queue.queueInvocationResults([
+                createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true, canceled: true }),
+            ])
+
+            expect(job.cancel).toHaveBeenCalledTimes(1)
+            expect(job.ack).not.toHaveBeenCalled()
+            expect((queue as any).pendingJobs.has(job.id)).toBe(false)
+        })
+
         it('should call reschedule with serialized state on non-finished, non-errored jobs', async () => {
             const { queue } = createQueue()
             const job = createDequeuedJob()
@@ -324,19 +338,6 @@ describe('CyclotronJobQueuePostgresV2', () => {
             await queue.dequeueInvocations([{ ...baseInvocation, id: uuidv4() }])
 
             expect((queue as any).pendingJobs.size).toBe(0)
-        })
-    })
-
-    describe('cancelInvocations', () => {
-        it('should call cancel and remove from pending', async () => {
-            const { queue } = createQueue()
-            const job = createDequeuedJob()
-            ;(queue as any).pendingJobs.set(job.id, job)
-
-            await queue.cancelInvocations([{ ...baseInvocation, id: job.id }])
-
-            expect(job.cancel).toHaveBeenCalledTimes(1)
-            expect((queue as any).pendingJobs.has(job.id)).toBe(false)
         })
     })
 

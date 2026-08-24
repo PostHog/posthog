@@ -21,6 +21,7 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
+export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
@@ -29,6 +30,11 @@ export { attachedContextLogic } from '../logics/attachedContextLogic'
 export { useAttachedContext } from '../hooks/useAttachedContext'
 export type { UseAttachedContextOptions } from '../hooks/useAttachedContext'
 export { attachedContextItemKey } from '../types/contextTypes'
+// Contextual welcome headlines: a host registers headlines matching what the user is looking at,
+// and the composer's empty state picks from them instead of the generic defaults.
+export { welcomeOverrideLogic } from '../logics/welcomeOverrideLogic'
+export { useWelcomeOverride } from '../hooks/useWelcomeOverride'
+export type { UseWelcomeOverrideOptions } from '../hooks/useWelcomeOverride'
 // The standing "act via tool calls" instruction the sidebar surfaces attach while the user watches a
 // run — the prompt-side half of `useMcpToolApplyBack` (hidden from chips, deduped once per task).
 export { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../utils/posthogContextBlock'

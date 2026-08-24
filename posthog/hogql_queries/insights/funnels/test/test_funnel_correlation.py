@@ -69,10 +69,8 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             funnelCorrelationEventNames=funnelCorrelationEventNames,
             funnelCorrelationEventExcludePropertyNames=funnelCorrelationEventExcludePropertyNames,
         )
-        result, skewed_totals, _, _ = FunnelCorrelationQueryRunner(
-            query=correlation_query, team=self.team
-        )._calculate_internal()
-        return result, skewed_totals
+        calculation = FunnelCorrelationQueryRunner(query=correlation_query, team=self.team)._calculate_internal()
+        return calculation.events, calculation.skewed_totals
 
     def _get_actors_for_event(self, funnels_query: FunnelsQuery, event_name: str, properties=None, success=True):
         serialized_actors = get_actors(
@@ -161,6 +159,50 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("positively_related", events)
         self.assertEqual(events["positively_related"]["success_count"], 5)
         self.assertEqual(events["positively_related"]["correlation_type"], "success")
+
+    def test_days_of_week_does_not_filter_correlation_events(self):
+        # daysOfWeek scopes funnel step attribution, not the correlation event scan. Actors are
+        # already day-filtered, so correlation answers "what else did these people do while
+        # converting" over their whole window — a Saturday event still counts as a correlate.
+        # 2020-01-10 is a Friday, 2020-01-11 a Saturday, 2020-01-13 a Monday.
+        query = FunnelsQuery(
+            series=[EventsNode(event="user signed up"), EventsNode(event="paid")],
+            dateRange=DateRange(date_from="2020-01-06", date_to="2020-01-20", daysOfWeek=[1, 2, 3, 4, 5]),
+        )
+
+        # Converters: both steps on included weekdays, spanning a weekend, plus a Saturday event.
+        for i in range(5):
+            _create_person(distinct_ids=[f"converter_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"converter_{i}",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="weekend_thing",
+                distinct_id=f"converter_{i}",
+                timestamp="2020-01-11T14:00:00Z",
+            )
+            _create_event(team=self.team, event="paid", distinct_id=f"converter_{i}", timestamp="2020-01-13T14:00:00Z")
+
+        # Non-converters, so failure_total is non-zero and odds ratios are computable.
+        for i in range(5):
+            _create_person(distinct_ids=[f"dropper_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"dropper_{i}",
+                timestamp="2020-01-10T14:00:00Z",
+            )
+
+        flush_persons_and_events()
+
+        result, _ = self._get_events_for_query(query)
+        events = {item["event"]: item for item in result}
+        self.assertIn("weekend_thing", events)
+        self.assertEqual(events["weekend_thing"]["success_count"], 5)
 
     def test_funnel_correlation_hogql_aggregation_rejects_injection(self):
         # funnelAggregateByHogQL is user-controlled — a value that isn't a single
@@ -2404,7 +2446,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
             # Should not raise a SQL syntax error from injection
             # (may raise other errors like empty results, but NOT from injected SQL executing)
             try:
-                result, _, _, _ = self._run_correlation_with_names(query, [payload])
+                self._run_correlation_with_names(query, [payload])
                 # If we get here, the query executed safely (payload was escaped)
             except Exception as e:
                 # Acceptable errors: validation errors, empty results
@@ -2425,7 +2467,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
 
         for payload in malicious_inputs:
             try:
-                result, _, _, _ = self._run_event_correlation_with_exclude(query, [payload])
+                self._run_event_correlation_with_exclude(query, [payload])
             except Exception as e:
                 error_msg = str(e).lower()
                 self.assertNotIn("syntax error", error_msg, f"SQL injection may have worked with payload: {payload}")
@@ -2448,7 +2490,7 @@ class TestFunnelCorrelationSQLInjection(ClickhouseTestMixin, APIBaseTest):
 
         for prop_name in special_chars:
             try:
-                result, _, _, _ = self._run_correlation_with_names(query, [prop_name])
+                self._run_correlation_with_names(query, [prop_name])
                 # Query should execute without SQL errors
             except Exception as e:
                 error_msg = str(e).lower()

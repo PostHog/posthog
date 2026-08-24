@@ -13,12 +13,13 @@ from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import sync_to_async
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -103,6 +104,7 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     runtime_adapter: str | None = None
+    runtime: str = "acp"
     """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
     Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
     so a model handed over with no runtime can't be routed and falls back to the server default.
@@ -127,6 +129,10 @@ class CustomPromptSandboxContext:
     capability. Only meaningful when ``repository`` is None — a task with a repository already gets
     the full-permission credential path. Best-effort: if no team GitHub integration exists or the
     mint fails, the sandbox starts without a token."""
+    interaction_origin: str | None = None
+    """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
+    prompt on this, so evals that grade surface-specific behavior must set it to exercise the
+    prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
 
 
 class TurnPollTimeout(RuntimeError):
@@ -205,6 +211,9 @@ async def create_task_and_trigger(
     ai_stage: str | None = None,
     internal: bool = False,
     workflow_id_prefix: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+    mcp_credential_owner_id: int | None = None,
+    mcp_gateway_server_ids: list[str] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -229,6 +238,8 @@ async def create_task_and_trigger(
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         runtime_adapter=context.runtime_adapter,
+        runtime=context.runtime,
+        pending_user_message=description if context.runtime == "pi" else None,
         reasoning_effort=context.reasoning_effort,
         initial_permission_mode=context.initial_permission_mode,
         internal=internal,
@@ -236,6 +247,10 @@ async def create_task_and_trigger(
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
         github_read_access=context.github_read_access,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
+        mcp_credential_owner_id=mcp_credential_owner_id,
+        mcp_gateway_server_ids=mcp_gateway_server_ids,
+        interaction_origin=context.interaction_origin,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -274,6 +289,14 @@ async def _refresh_task_run(task_run_id) -> TaskRun:
         return await sync_to_async(_read)()
 
 
+@frozen
+class TurnPollResult:
+    last_message: str
+    full_log: str | None
+    total_lines: int
+    printed_lines: int
+
+
 async def poll_for_turn(
     task_run,
     *,
@@ -283,7 +306,7 @@ async def poll_for_turn(
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
-) -> tuple[str, str | None, int, int]:
+) -> TurnPollResult:
     """Poll S3 logs until the agent finishes a turn.
 
     `max_poll_seconds` overrides the default poll budget for callers whose activity
@@ -320,7 +343,7 @@ async def poll_for_turn(
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
             # Poll the logs.
-            finished, last_message, full_log, total_lines, empty_end_turn = await sync_to_async(
+            log_state = await sync_to_async(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
@@ -343,9 +366,9 @@ async def poll_for_turn(
         # never clear, starving the dropped-finalization salvage of the silence window it needs. This
         # mirrors the side-channel discounting the tail check already does in
         # _ended_on_pending_finalization.
-        if total_lines > skip_lines:
-            new_lines = (full_log or "").strip().split("\n")[skip_lines:]
-            relevant_growth = (total_lines - skip_lines) - _transient_growth(new_lines)
+        if log_state.total_lines > skip_lines:
+            new_lines = (log_state.full_log or "").strip().split("\n")[skip_lines:]
+            relevant_growth = (log_state.total_lines - skip_lines) - _transient_growth(new_lines)
             if relevant_growth > 0:
                 turn_relevant_lines += relevant_growth
                 last_new_lines_at = elapsed
@@ -356,37 +379,60 @@ async def poll_for_turn(
                 "custom_prompt - poll_for_turn: no new S3 log lines for %ds, run=%s, total_lines=%d",
                 stale_seconds,
                 task_run.id,
-                total_lines,
+                log_state.total_lines,
             )
         # Detect how many lines were printed in this poll
-        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
-        if last_message:
-            latest_assistant_text = last_message
+        printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+        # Fail the turn immediately on a provider refusal — the EmptyAgentTurnError channel gives
+        # it the in-session nudge retry, then the caller's activity retry, instead of a dead poll.
+        if log_state.refused:
+            logger.warning(
+                "custom_prompt - poll_for_turn: agent refused the turn (stopReason=refusal), run=%s total_lines=%d",
+                task_run.id,
+                log_state.total_lines,
+            )
+            raise EmptyAgentTurnError(
+                f"Agent refused the turn (stopReason=refusal) for run={task_run.id}",
+                total_lines=log_state.total_lines,
+                printed_lines=printed_lines,
+            )
+        if log_state.last_message:
+            latest_assistant_text = log_state.last_message
         # If success
-        if finished and last_message:
-            return last_message, full_log, total_lines, printed_lines
+        if log_state.agent_finished and log_state.last_message:
+            return TurnPollResult(
+                last_message=log_state.last_message,
+                full_log=log_state.full_log,
+                total_lines=log_state.total_lines,
+                printed_lines=printed_lines,
+            )
         # Surface empty end_turn to the multi-turn session, so it can retry
         # the prompt instead of us polling until MAX_POLL_SECONDS.
-        if empty_end_turn:
+        if log_state.empty_end_turn:
             # If the agent emitted text in an earlier poll of this same turn, the turn
             # is genuinely complete — end_turn just landed in a later slice.
             if latest_assistant_text is not None:
-                return latest_assistant_text, full_log, total_lines, printed_lines
+                return TurnPollResult(
+                    last_message=latest_assistant_text,
+                    full_log=log_state.full_log,
+                    total_lines=log_state.total_lines,
+                    printed_lines=printed_lines,
+                )
             logger.warning(
                 "custom_prompt - poll_for_turn: empty end_turn detected (no agent_message), run=%s total_lines=%d",
                 task_run.id,
-                total_lines,
+                log_state.total_lines,
             )
             # Actual end_turn with no message, need to retry the step
             raise EmptyAgentTurnError(
                 f"Agent emitted end_turn with no agent_message for run={task_run.id}",
-                total_lines=total_lines,
+                total_lines=log_state.total_lines,
                 printed_lines=printed_lines,
             )
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return fewer lines than the
         # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
         # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
-        skip_lines = max(skip_lines, total_lines)
+        skip_lines = max(skip_lines, log_state.total_lines)
         refreshed = await _refresh_task_run(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
@@ -401,7 +447,7 @@ async def poll_for_turn(
                 task_run.id,
                 elapsed,
                 elapsed - last_new_lines_at,
-                total_lines,
+                log_state.total_lines,
             )
             return await _drain_final_log(
                 task_run,
@@ -473,9 +519,7 @@ async def poll_for_turn(
     )
 
 
-async def _read_turn_log_with_retry(
-    task_run, *, skip_lines: int, context: str
-) -> tuple[bool, str | None, str | None, int, bool]:
+async def _read_turn_log_with_retry(task_run, *, skip_lines: int, context: str) -> TurnLogState:
     """Read the turn log via _check_logs, retrying transient ObjectStorageError up to
     MAX_CONSECUTIVE_STORAGE_ERRORS times (one POLL_INTERVAL_SECONDS apart). Re-raises the error
     if every attempt fails, so a single S3 blip doesn't fail an otherwise-recoverable turn.
@@ -513,7 +557,7 @@ async def _salvage_dropped_finalization(
     stale_seconds: int,
     verbose: bool,
     output_fn: OutputFn,
-) -> tuple[str, str | None, int, int] | None:
+) -> TurnPollResult | None:
     """Recover a turn whose closing end_turn was dropped (final message + null-cost usage_update,
     then silence). Re-reads from the start-of-turn cursor so a chunked response is recovered in full.
 
@@ -527,20 +571,25 @@ async def _salvage_dropped_finalization(
 
     Declining falls back to the caller's timeout failure. A storage outage on the reread propagates
     (like the poll loop and terminal drain) rather than masquerading as a timeout."""
-    finished, last_message, full_log, total_lines, _ = await _read_turn_log_with_retry(
+    log_state = await _read_turn_log_with_retry(
         task_run, skip_lines=original_skip_lines, context="salvage_dropped_finalization"
     )
-    if finished and last_message is not None:
-        printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    if log_state.agent_finished and log_state.last_message is not None:
+        printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
         logger.warning(
             "custom_prompt - salvage_dropped_finalization: end_turn recovered on reread at poll timeout "
             "(%ds) — completing, run=%s total_lines=%d",
             elapsed,
             task_run.id,
-            total_lines,
+            log_state.total_lines,
         )
-        return last_message, full_log, total_lines, printed_lines
-    if last_message is None or not _ended_on_pending_finalization(full_log):
+        return TurnPollResult(
+            last_message=log_state.last_message,
+            full_log=log_state.full_log,
+            total_lines=log_state.total_lines,
+            printed_lines=printed_lines,
+        )
+    if log_state.last_message is None or not _ended_on_pending_finalization(log_state.full_log):
         return None
     # The fingerprint also matches a mid-turn pause between chunks. The log is append-only, so the only
     # benign turn-relevant growth since polling is the finalization usage_update itself landing late
@@ -550,8 +599,8 @@ async def _salvage_dropped_finalization(
     # in this post-poll window; they carry no turn-state and must be discounted, or one arriving
     # alongside the late usage_update would push raw growth past the threshold and wrongly decline the
     # very dropped-finalization case this path recovers.
-    new_lines = (full_log or "").strip().split("\n")[max_total_lines_seen:]
-    relevant_growth = (total_lines - max_total_lines_seen) - _transient_growth(new_lines)
+    new_lines = (log_state.full_log or "").strip().split("\n")[max_total_lines_seen:]
+    relevant_growth = (log_state.total_lines - max_total_lines_seen) - _transient_growth(new_lines)
     if relevant_growth > 1:
         logger.warning(
             "custom_prompt - salvage_dropped_finalization: reread grew %d turn-relevant line(s) past "
@@ -561,16 +610,21 @@ async def _salvage_dropped_finalization(
             task_run.id,
         )
         return None
-    printed_lines = _stream_new_lines(full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    printed_lines = _stream_new_lines(log_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     logger.warning(
         "custom_prompt - salvage_dropped_finalization: end_turn missing, turn-accounting tail present, "
         "stale %ds at poll timeout (%ds) — salvaging last message, run=%s total_lines=%d",
         stale_seconds,
         elapsed,
         task_run.id,
-        total_lines,
+        log_state.total_lines,
     )
-    return last_message, full_log, total_lines, printed_lines
+    return TurnPollResult(
+        last_message=log_state.last_message,
+        full_log=log_state.full_log,
+        total_lines=log_state.total_lines,
+        printed_lines=printed_lines,
+    )
 
 
 async def _drain_final_log(
@@ -582,7 +636,7 @@ async def _drain_final_log(
     original_skip_lines: int,
     verbose: bool,
     output_fn: OutputFn,
-) -> tuple[str, str | None, int, int]:
+) -> TurnPollResult:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
     before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
@@ -594,17 +648,20 @@ async def _drain_final_log(
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
-    _, final_message, final_log, final_lines, final_empty_end_turn = await _read_turn_log_with_retry(
-        task_run, skip_lines=original_skip_lines, context="drain_final_log"
-    )
-    printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
-    if final_message:
-        return final_message, final_log, final_lines, printed_lines
+    final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
+    printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
+    if final_state.last_message:
+        return TurnPollResult(
+            last_message=final_state.last_message,
+            full_log=final_state.full_log,
+            total_lines=final_state.total_lines,
+            printed_lines=printed_lines,
+        )
     # Prefer the agent's own classified error over the generic terminal-status message
     # (Temporal's "Activity task failed"). Only on FAILED — CANCELLED is a user action and
     # COMPLETED-with-no-message is the empty-turn path, neither of which we want to relabel.
     if refreshed_status == TaskRun.Status.FAILED:
-        agent_error = _extract_agent_error(final_log, skip_lines=original_skip_lines)
+        agent_error = _extract_agent_error(final_state.full_log, skip_lines=original_skip_lines)
         if agent_error is not None:
             cause_text = agent_error.describe()
             # Persist the real cause so the TaskRun stops showing "Activity task failed".
@@ -613,7 +670,7 @@ async def _drain_final_log(
                 f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
                 f"(cause: {cause_text})"
             )
-    reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
+    reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
     raise RuntimeError(
         f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
@@ -707,21 +764,48 @@ def _stream_new_lines(
     return max(printed_lines, len(lines))
 
 
-def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | None, int, bool]:
+@frozen
+class TurnLogState:
+    agent_finished: bool
+    last_message: str | None
+    full_log: str | None
+    total_lines: int
+    empty_end_turn: bool
+    refused: bool
+
+
+def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
+    `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
+    state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
     if not log_content.strip():
-        return False, None, None, 0, False
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=None,
+            total_lines=0,
+            empty_end_turn=False,
+            refused=False,
+        )
     all_lines = log_content.strip().split("\n")
     total_lines = len(all_lines)
     # Eventual consistency: if S3 returns fewer lines than expected, no new data
     if total_lines <= skip_lines:
-        return False, None, log_content, total_lines, False
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=log_content,
+            total_lines=total_lines,
+            empty_end_turn=False,
+            refused=False,
+        )
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
+    refused = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
     for line in lines_to_parse:
@@ -736,8 +820,14 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
         if not isinstance(notification, dict):
             continue
         result = notification.get("result")
-        if isinstance(result, dict) and result.get("stopReason") == "end_turn":
+        stop_reason = result.get("stopReason") if isinstance(result, dict) else None
+        if stop_reason == "end_turn":
+            # A successful end_turn outranks a refusal in the same slice, in either order:
+            # once the turn finished, failing it as refused would discard a good response.
             agent_finished = True
+            refused = False
+        elif stop_reason == "refusal" and not agent_finished:
+            refused = True
         if notification.get("method") != "session/update":
             continue
         params = notification.get("params")
@@ -766,10 +856,35 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else None
+    # A refused turn must not surface its partial text — the caller would mistake it for the
+    # turn's real response.
+    if refused:
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=log_content,
+            total_lines=total_lines,
+            empty_end_turn=False,
+            refused=True,
+        )
     # If we found end_turn but no agent message in the new lines, flag it as an empty turn.
     if agent_finished and latest_text is None:
-        return False, None, log_content, total_lines, True
-    return agent_finished, latest_text, log_content, total_lines, False
+        return TurnLogState(
+            agent_finished=False,
+            last_message=None,
+            full_log=log_content,
+            total_lines=total_lines,
+            empty_end_turn=True,
+            refused=False,
+        )
+    return TurnLogState(
+        agent_finished=agent_finished,
+        last_message=latest_text,
+        full_log=log_content,
+        total_lines=total_lines,
+        empty_end_turn=False,
+        refused=False,
+    )
 
 
 def _is_failed_progress(notification: dict) -> bool:

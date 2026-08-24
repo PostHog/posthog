@@ -52,7 +52,7 @@ describe('scannerRunTabLogic', () => {
         logic?.unmount()
     })
 
-    it('keeps the newest observation per session and does not cap the page to the visible-row count', async () => {
+    it('keeps the newest observation per session and leaves retry headroom above the visible-row count', async () => {
         await expectLogic(logic, () => logic.actions.setVisibleSessionIds(['s1', 's2', 's3'])).toDispatchActions([
             'loadObservationsSuccess',
         ])
@@ -71,7 +71,9 @@ describe('scannerRunTabLogic', () => {
         // The connected replayScannerLogic fires its own paged list load; ours is the session_id lookup.
         const lookupUrl = requestedUrls.find((url) => url.includes('session_id='))
         expect(lookupUrl).not.toBeUndefined()
-        expect(lookupUrl).not.toContain('limit=')
+        // On the server's default page size the tail is dropped and those sessions render "Not scanned";
+        // one-per-row would drop them as soon as a retry stacks a second observation onto a session.
+        expect(lookupUrl).toContain('limit=12')
     })
 
     it('releases the pending bridge once the scanned session lands in the lookup', async () => {

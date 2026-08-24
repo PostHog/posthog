@@ -775,6 +775,72 @@ database "posthog" {
     }
   }
 
+  table "logs_volume_buckets" {
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "time_bucket + toIntervalDay(42)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.logs_volume_buckets"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "logs_volume_buckets_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "logs_volume_buckets"
+    }
+  }
+
   table "metric_attributes" {
     order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
     partition_by = "toDate(time_bucket)"
@@ -2173,7 +2239,18 @@ database "posthog" {
     to_table = "posthog.logs34"
     query    = <<SQL
 SELECT
-  kafka_logs_avro.* EXCEPT(created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes),
+  uuid,
+  trace_id,
+  span_id,
+  trace_flags,
+  timestamp,
+  observed_timestamp,
+  body,
+  severity_text,
+  severity_number,
+  service_name,
+  instrumentation_scope,
+  event_name,
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
   mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
@@ -2942,6 +3019,67 @@ SQL
       type = "LowCardinality(String)"
     }
     column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "logs34_to_volume_buckets" {
+    to_table = "posthog.logs_volume_buckets"
+    query    = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text
+    FROM posthog.logs34
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime('UTC')"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
     }
   }

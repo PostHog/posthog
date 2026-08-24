@@ -163,10 +163,16 @@ export type NotebookComponentDefinition = {
     defaultProps?: NotebookComponentProps | (() => NotebookComponentProps)
     validateProps?: (props: NotebookComponentProps) => string[]
     getTitle?: (node: NotebookComponentBlockNode) => string | null | undefined
+    editableTitle?: boolean
+    /** Canonical PostHog URL the block points at (e.g. the insight, recording, or person it renders), opened in a new tab from the toolbar. */
+    getHref?: (node: NotebookComponentBlockNode) => string | null | undefined
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
     exclusiveEditPanel?: boolean
     hideModeActions?: boolean
+    /** Show the filters toggle in view mode too, when the host opts in via `allowViewModeFilters`
+     * (read-only canvases like customer profiles, where filters are the only way to configure a node). */
+    viewModeFilters?: boolean
     insertCommand?: NotebookComponentInsertCommand
 }
 

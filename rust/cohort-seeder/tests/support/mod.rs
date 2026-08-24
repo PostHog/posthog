@@ -152,21 +152,25 @@ pub async fn set_marker_bits(
     Ok(())
 }
 
-/// Insert a row into the schema-local `posthog_cohort` projection for `load_current_behavioral_hashes`.
+/// Insert a row into the schema-local `posthog_cohort` projection for `load_current_shape_hashes`.
+/// The two guard columns are set independently so a read of the wrong one cannot pass unnoticed.
 pub async fn insert_cohort(
     pool: &PgPool,
     id: i32,
     team_id: i32,
     behavioral_hash: Option<&str>,
+    person_hash: Option<&str>,
     deleted: bool,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO posthog_cohort (id, team_id, behavioral_filters_shape_hash, deleted) \
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO posthog_cohort \
+             (id, team_id, behavioral_filters_shape_hash, person_filters_shape_hash, deleted) \
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(id)
     .bind(team_id)
     .bind(behavioral_hash)
+    .bind(person_hash)
     .bind(deleted)
     .execute(pool)
     .await?;
@@ -235,6 +239,33 @@ pub async fn insert_participation(
     .bind(cohort_id)
     .bind(Json(filters))
     .bind(superseded)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// A person run's participation: the person hash is pinned and the behavioral column stays `''`,
+/// exactly as `create_person_backfill_run_for_cohort` writes it.
+pub async fn insert_person_participation(
+    pool: &PgPool,
+    run_id: RunId,
+    team_id: i32,
+    cohort_id: i32,
+    person_hash: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO cohort_backfill_run_cohorts
+            (id, run_id, team_id, cohort_id, filters_shape_hash,
+             behavioral_filters_shape_hash, person_filters_shape_hash, pinned_filters)
+        VALUES ($1, $2, $3, $4, 'full-shape', '', $5, '{}'::jsonb)
+        "#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(run_id)
+    .bind(team_id)
+    .bind(cohort_id)
+    .bind(person_hash)
     .execute(pool)
     .await?;
     Ok(())

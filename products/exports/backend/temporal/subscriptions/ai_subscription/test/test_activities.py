@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    DiagnosticCounts,
     _load_snapshot,
     _persist_ai_report,
     _report_diagnostic_counts,
@@ -22,7 +23,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 _WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
 
@@ -160,7 +161,9 @@ class TestReportDiagnosticCounts:
                 for i, ok in enumerate(oks)
             ),
         )
-        assert _report_diagnostic_counts(result) == (expected_failed, expected_total, expected_types)
+        assert _report_diagnostic_counts(result) == DiagnosticCounts(
+            failed_step_count=expected_failed, total_step_count=expected_total, error_types=expected_types
+        )
 
     def test_distinct_error_types_are_sorted_and_deduped(self):
         result = AiReportResult(
@@ -172,7 +175,9 @@ class TestReportDiagnosticCounts:
                 QueryStepDiagnostic(description="c", hogql="z", ok=False, error_type="ResolutionError"),
             ),
         )
-        assert _report_diagnostic_counts(result) == (3, 3, ["ExposedHogQLError", "ResolutionError"])
+        assert _report_diagnostic_counts(result) == DiagnosticCounts(
+            failed_step_count=3, total_step_count=3, error_types=["ExposedHogQLError", "ResolutionError"]
+        )
 
 
 # On Temporal redispatch the report is already persisted, so the failure shape is read back from the
@@ -192,11 +197,14 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
         prompt=None,
     )
 
-    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == (1, 2, ["ResolutionError"])
+    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == DiagnosticCounts(
+        failed_step_count=1, total_step_count=2, error_types=["ResolutionError"]
+    )
 
 
 async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user) -> None:
     delivery = await _create_delivery(team, user)
     # Empty content_snapshot (nothing persisted yet) and a fully-missing snapshot both report nothing failed.
-    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == (0, 0, [])
-    assert _snapshot_diagnostic_counts(None) == (0, 0, [])
+    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
+    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == empty_counts
+    assert _snapshot_diagnostic_counts(None) == empty_counts

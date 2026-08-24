@@ -32,6 +32,14 @@ interface WebhookSetupFormProps {
     webhookTables?: { name: string; label?: string | null }[]
     webhookResult?: WebhookCreateResult | null
     webhookCreating: boolean
+    /** Whether the manual webhook fields form is currently submitting — guards the Save button against double-submission */
+    webhookFieldsSubmitting?: boolean
+    /**
+     * Why this connection's credentials can never register the webhook, when that's knowable. Set
+     * for OAuth app installations whose granted permissions exclude webhook management: offering
+     * the button there only yields a permission error, so manual setup is the whole flow.
+     */
+    autoCreationBlockedReason?: string | null
     onCreateWebhook: () => void
     /** kea-forms logic and formKey for the manual webhook field inputs form */
     formLogic?: LogicWrapper | BuiltLogic<any>
@@ -48,12 +56,16 @@ export function WebhookSetupForm({
     webhookTables,
     webhookResult,
     webhookCreating,
+    webhookFieldsSubmitting = false,
+    autoCreationBlockedReason,
     onCreateWebhook,
     formLogic,
     formKey,
 }: WebhookSetupFormProps): JSX.Element {
     const webhookFields = sourceConfig?.webhookFields ?? []
-    const manualOnly = sourceConfig?.webhookManualOnly ?? false
+    // A blocked connection is manual-only in practice, so it takes the same path as a source that
+    // never supported auto-creation: generate the URL, then show the manual steps.
+    const manualOnly = (sourceConfig?.webhookManualOnly ?? false) || !!autoCreationBlockedReason
 
     const webhookTablesList =
         webhookTables && webhookTables.length > 0 ? (
@@ -84,10 +96,11 @@ export function WebhookSetupForm({
                     that new data is pushed to PostHog. This means faster syncs and less load on your source.
                 </p>
                 {webhookTablesList}
-                <LemonBanner type="info">
-                    {manualOnly
-                        ? `We'll generate a webhook URL — you'll need to register it manually in your ${sourceName} app settings.`
-                        : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`}
+                <LemonBanner type={autoCreationBlockedReason ? 'warning' : 'info'}>
+                    {autoCreationBlockedReason ||
+                        (manualOnly
+                            ? `We'll generate a webhook URL. You'll need to register it manually in your ${sourceName} app settings.`
+                            : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`)}
                 </LemonBanner>
                 {sourceConfig?.docsUrl && (
                     <p className="text-sm text-muted">
@@ -153,7 +166,7 @@ export function WebhookSetupForm({
                     <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
                         <div className="space-y-3 ph-no-capture">
                             {pendingFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
-                            <LemonButton type="primary" htmlType="submit">
+                            <LemonButton type="primary" htmlType="submit" loading={webhookFieldsSubmitting}>
                                 Save
                             </LemonButton>
                         </div>
@@ -167,9 +180,9 @@ export function WebhookSetupForm({
     return (
         <WebhookSetupCard>
             <h3 className="text-lg font-semibold">Manual webhook setup for {sourceName}</h3>
-            {!manualOnly && (
+            {(!manualOnly || !!autoCreationBlockedReason) && (
                 <LemonBanner type="warning">
-                    {webhookResult?.error || 'Could not create the webhook automatically.'}
+                    {autoCreationBlockedReason || webhookResult?.error || 'Could not create the webhook automatically.'}
                 </LemonBanner>
             )}
             <p>
@@ -187,7 +200,7 @@ export function WebhookSetupForm({
                 <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
                     <div className="space-y-3 ph-no-capture">
                         {webhookFields.map((field: SourceFieldConfig) => sourceFieldToElement(field, sourceConfig))}
-                        <LemonButton type="primary" htmlType="submit">
+                        <LemonButton type="primary" htmlType="submit" loading={webhookFieldsSubmitting}>
                             Save
                         </LemonButton>
                     </div>

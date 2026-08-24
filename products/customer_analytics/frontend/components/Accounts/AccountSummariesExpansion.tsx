@@ -2,10 +2,11 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
@@ -15,13 +16,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountSummariesLogic, NOT_LOADED, SUMMARIES_PAGE_SIZE } from './accountSummariesLogic'
-
-const CADENCE_OPTIONS: { value: SlackSummaryCadenceEnumApi | null; label: string }[] = [
-    { value: null, label: 'Off' },
-    { value: SlackSummaryCadenceEnumApi.Daily, label: 'Daily' },
-    { value: SlackSummaryCadenceEnumApi.Weekly, label: 'Weekly' },
-    { value: SlackSummaryCadenceEnumApi.Monthly, label: 'Monthly' },
-]
+import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
 
 function SummariesEmptyState({
     title,
@@ -42,25 +37,58 @@ function SummariesEmptyState({
     )
 }
 
-function CadencePicker({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, cadenceSaving } = useValues(accountSummariesLogic({ accountId }))
-    const { setCadence } = useActions(accountSummariesLogic({ accountId }))
-    return (
-        <LemonSelect<SlackSummaryCadenceEnumApi | null>
-            size="small"
-            value={summariesResult.cadence}
-            options={CADENCE_OPTIONS}
-            onChange={(value) => setCadence(value)}
-            disabledReason={cadenceSaving ? 'Saving…' : undefined}
-            data-attr="account-summary-cadence-picker"
-        />
-    )
+function backfillDescription(cadence: SlackSummaryCadenceEnumApi | null): string {
+    if (cadence === SlackSummaryCadenceEnumApi.Daily) {
+        return 'Summarizing the last 7 days, one summary per day.'
+    }
+    return cadence === SlackSummaryCadenceEnumApi.Monthly ? 'Summarizing last month.' : 'Summarizing last week.'
 }
 
-function periodLabel(summary: AccountChannelSummaryApi): string {
+export function periodLabel(summary: AccountChannelSummaryApi): string {
     const start = summary.period_start.slice(0, 10)
-    // period_end is exclusive; a daily summary covers a single day.
-    return summary.cadence === 'daily' ? start : `${start} to ${summary.period_end.slice(0, 10)}`
+    // Span, not cadence: an opt-in backfill writes a trailing window under whichever cadence was picked.
+    if (dayjs(summary.period_end).diff(summary.period_start, 'day') <= 1) {
+        // period_end is exclusive, so a single day's end already reads as the next date.
+        return start
+    }
+    return `${start} to ${summary.period_end.slice(0, 10)}`
+}
+
+function MessageCountBadge({ summary }: { summary: AccountChannelSummaryApi }): JSX.Element {
+    const label = `${summary.message_count} message${summary.message_count === 1 ? '' : 's'}`
+    if (!summary.messages?.length) {
+        return <span>{label}</span>
+    }
+    return (
+        // The wrapper span keeps clicks on the badge from toggling the card.
+        <span onClick={(e) => e.stopPropagation()}>
+            <LemonDropdown
+                closeOnClickInside={false}
+                overlay={
+                    <div className="flex flex-col max-h-80 overflow-y-auto py-1">
+                        {summary.messages.map((message, index) => (
+                            <Link
+                                key={index}
+                                to={message.permalink}
+                                target="_blank"
+                                className="px-2 py-1 whitespace-nowrap"
+                            >
+                                {message.author} · <TZLabel time={message.sent_at} />
+                            </Link>
+                        ))}
+                    </div>
+                }
+            >
+                <span
+                    role="button"
+                    className="underline decoration-dotted cursor-pointer"
+                    data-attr="account-summary-message-count"
+                >
+                    {label}
+                </span>
+            </LemonDropdown>
+        </span>
+    )
 }
 
 function SummaryCard({
@@ -86,8 +114,7 @@ function SummaryCard({
                 <LemonTag type="default">{summary.cadence}</LemonTag>
                 <span className="font-semibold">{periodLabel(summary)}</span>
                 <span className="text-muted text-xs ml-auto flex items-center gap-1">
-                    {summary.message_count} message{summary.message_count === 1 ? '' : 's'} · generated{' '}
-                    <TZLabel time={summary.generated_at} />
+                    <MessageCountBadge summary={summary} /> · generated <TZLabel time={summary.generated_at} />
                 </span>
             </div>
             {expanded && (
@@ -100,7 +127,7 @@ function SummaryCard({
 }
 
 export function AccountSummariesExpansion({ accountId }: { accountId: string }): JSX.Element {
-    const { summariesResult, summariesResultLoading, page, expandedSummaryIds } = useValues(
+    const { summariesResult, summariesResultLoading, page, expandedSummaryIds, generatingFirstSummary } = useValues(
         accountSummariesLogic({ accountId })
     )
     const { loadSummariesPage, toggleSummaryExpanded } = useActions(accountSummariesLogic({ accountId }))
@@ -130,6 +157,21 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
     }
 
     if (!summaries || summaries.length === 0) {
+        if (generatingFirstSummary) {
+            return (
+                <SummariesEmptyState
+                    title={
+                        cadence === SlackSummaryCadenceEnumApi.Daily
+                            ? 'Generating your first summaries'
+                            : 'Generating your first summary'
+                    }
+                    detail={`${backfillDescription(cadence)} This usually takes a minute.`}
+                >
+                    <Spinner className="text-xl" />
+                    <AccountSummaryCadencePicker accountId={accountId} />
+                </SummariesEmptyState>
+            )
+        }
         return (
             <SummariesEmptyState
                 title={cadence ? 'No summaries yet' : 'Summaries are off'}
@@ -139,7 +181,7 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
                         : "Get periodic AI summaries of this account's Slack channel, citing the original messages. Pick a cadence to turn them on."
                 }
             >
-                <CadencePicker accountId={accountId} />
+                <AccountSummaryCadencePicker accountId={accountId} />
             </SummariesEmptyState>
         )
     }
@@ -147,10 +189,17 @@ export function AccountSummariesExpansion({ accountId }: { accountId: string }):
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-                <h4 className="mb-0">Channel summaries</h4>
+                <div className="flex items-center gap-2">
+                    <h4 className="mb-0">Channel summaries</h4>
+                    {generatingFirstSummary && (
+                        <span className="text-muted text-sm flex items-center gap-1">
+                            <Spinner /> Generating more
+                        </span>
+                    )}
+                </div>
                 <div className="flex items-center gap-2">
                     <span className="text-muted text-sm">Cadence</span>
-                    <CadencePicker accountId={accountId} />
+                    <AccountSummaryCadencePicker accountId={accountId} />
                 </div>
             </div>
             {summaries.map((summary) => (

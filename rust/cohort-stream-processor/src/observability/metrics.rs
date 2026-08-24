@@ -13,6 +13,19 @@ pub use cohort_core::metrics::{
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
+/// Unix timestamp of the last *successful* catalog refresh (gauge, seconds). Stamped inside
+/// `CatalogHandle::refresh`, so the boot load and the periodic loop both advance it. **Alert on
+/// staleness** via `time() - gauge`: a failed refresh keeps serving the previous snapshot silently,
+/// so cohort edits go invisible with nothing else moving. A gauge written only on success would go
+/// flat rather than climb, and the refresh loop is a detached task — a per-tick age gauge would
+/// freeze if it died. A timestamp keeps aging either way. Absent until the first successful refresh;
+/// the pipeline fails closed until then and the pod is not Ready, so the alert must be a plain
+/// threshold, never `absent()`.
+pub const FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS: &str =
+    "filter_catalog_last_success_timestamp_seconds";
+/// Catalog refresh attempts, labelled by `result` (`success`|`error`) (counter). The `error` series
+/// gives the failure rate; the `success` series proves the loop is still ticking at all.
+pub const FILTER_CATALOG_REFRESH_TOTAL: &str = "filter_catalog_refresh_total";
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
@@ -534,13 +547,17 @@ pub const SEED_IDLE_PROBE_DURATION_SECONDS: &str = "cohort_seed_idle_probe_durat
 /// staleness** — quiet partitions' fences and the live-lag gate both stall when the probe stops.
 pub const SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS: &str =
     "cohort_seed_idle_probe_last_pass_timestamp_seconds";
-/// Reconcile jobs admitted to partition-local queues (counter).
+/// Reconcile jobs admitted to partition-local queues, labelled by `kind` — the tile's shape-hash
+/// kind, `behavioral` or `person_property` (counter).
 pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
-/// Reconcile jobs that emitted their completion marker and released their seed floor (counter).
+/// Reconcile jobs that emitted their completion marker and released their seed floor, labelled by
+/// `kind` (counter). Balances against the enqueued/discarded/superseded series per kind, which is
+/// how a run left short a marker becomes visible.
 pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
-/// Queued jobs replaced by a higher Kafka offset for the same team and cohort (counter).
+/// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
-/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` (counter).
+/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
@@ -550,8 +567,12 @@ pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_to
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
-/// Reconcile completion markers acknowledged by Kafka (counter).
+/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
 pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
+/// Failed completion-marker produces, labelled by `kind` (counter). A permanently failing produce —
+/// a missing or mis-provisioned marker topic — otherwise only shows up as a seed offset that never
+/// advances.
+pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
 
@@ -568,6 +589,22 @@ pub fn install_recorder() -> PrometheusHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_catalog_metric_names_are_stable() {
+        // The staleness alert is written against these literals, so a rename here silently disarms
+        // the only signal that says the catalog stopped tracking cohort edits.
+        assert_eq!(FILTER_CATALOG_TEAMS, "filter_catalog_teams");
+        assert_eq!(
+            FILTER_CATALOG_UNIQUE_CONDITIONS,
+            "filter_catalog_unique_conditions",
+        );
+        assert_eq!(
+            FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS,
+            "filter_catalog_last_success_timestamp_seconds",
+        );
+        assert_eq!(FILTER_CATALOG_REFRESH_TOTAL, "filter_catalog_refresh_total");
+    }
 
     #[test]
     fn cascade_metric_names_are_stable() {
@@ -903,6 +940,10 @@ mod tests {
         assert_eq!(
             RECONCILE_MARKERS_EMITTED_TOTAL,
             "cohort_reconcile_markers_emitted_total",
+        );
+        assert_eq!(
+            RECONCILE_MARKER_PRODUCE_ERRORS,
+            "cohort_reconcile_marker_produce_errors_total",
         );
         assert_eq!(RECONCILE_QUEUE_DEPTH, "cohort_reconcile_queue_depth");
     }

@@ -144,6 +144,11 @@ are common LLM mistakes that HogQL rejects:
 - `properties` (and `person.properties`) is a JSON string column, NOT a Map. Map functions
   (`mapKeys`, `mapValues`, `mapContains`) fail at execution. To enumerate an event's property KEYS
   use `JSONExtractKeys(properties)` — see the property-keys audit pattern below.
+- Wrap a boolean property in `toBool(...)` — `toBool(properties.<name>)`,
+  `toBool(person.properties.<name>)`, keeping whichever namespace the property belongs to — and never
+  compare it to `1` / `'1'` / `'true'`. You are given property names without their types, so a
+  literal comparison bets on one stored encoding; when it bets wrong it matches nothing *without
+  erroring*, and the share built from it reads as a confident 0% instead of a visible failure.
 - Use `arrayFlatten(...)`; `flatten(...)` is not a HogQL function and fails validation.
 - Never nest aggregate functions (e.g. `max(count())`, `sum(uniq(…))`). Compute each aggregate once
   and derive ratios from sibling aggregates in the same SELECT, guarding zero denominators
@@ -369,6 +374,10 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `mapKeys(properties)` with `JSONExtractKeys(properties)` (expand rows with
   `arrayJoin(JSONExtractKeys(properties))`).
 - `flatten(...)` is not a HogQL function; replace it with `arrayFlatten(...)`.
+- Wrap boolean properties in `toBool(...)` (keeping the property's own namespace, e.g.
+  `toBool(person.properties.<name>)`), never `= 1` / `= '1'` / `= 'true'` — a literal comparison
+  matches only one of the encodings these are stored in, and the mismatch returns zero rows without
+  erroring, silently yielding a 0% share.
 - Never nest aggregate functions (e.g. `max(count())`, `sum(uniq(…))`). Compute each aggregate once
   and derive ratios from sibling aggregates in the same SELECT, guarding zero denominators
   (e.g. `countIf(cond) / nullIf(count(), 0)`).

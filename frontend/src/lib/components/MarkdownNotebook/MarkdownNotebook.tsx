@@ -37,6 +37,7 @@ import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
@@ -271,6 +272,12 @@ export type MarkdownNotebookProps = {
     ) => NotebookBlockNode[] | Promise<NotebookBlockNode[] | null> | null
     focusAIPromptRequest?: number
     aiWritingNodeIndexes?: number[]
+    /** In view mode, keep the filters toggle for definitions with `viewModeFilters` — for
+     * read-only canvases where the filters panel is the only way to configure a node. */
+    allowViewModeFilters?: boolean
+    /** Public/shared read-only renders: hide per-block resource links whose relative URLs would
+     * resolve against the viewer's project rather than the author's. */
+    hideResourceLinks?: boolean
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -579,6 +586,8 @@ function MarkdownNotebookEditor({
     convertExternalDataTransferToNodes,
     focusAIPromptRequest,
     aiWritingNodeIndexes,
+    allowViewModeFilters = false,
+    hideResourceLinks = false,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -5736,14 +5745,21 @@ function MarkdownNotebookEditor({
         const componentDefinition =
             node.type === 'component' ? getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName) : undefined
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
+        // View-mode toggles stay local so interacting with a read-only canvas does not edit the document.
         const persistComponentPanelVisibility =
-            node.type === 'component' ? shouldPersistComponentPanelProps(node, componentDefinition) : false
+            mode === 'edit' && node.type === 'component'
+                ? shouldPersistComponentPanelProps(node, componentDefinition)
+                : false
+        const fallbackComponentPanels =
+            mode === 'view' && allowViewModeFilters
+                ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nodeComponentPanels =
             node.type === 'component'
                 ? !persistComponentPanelVisibility && componentPanelCacheEntry?.current
                     ? componentPanelCacheEntry.current
-                    : getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                    : getComponentPanelVisibility(node, fallbackComponentPanels)
+                : fallbackComponentPanels
         const shouldShowInlineInsertMenuButton =
             !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
         const hasInvalidInsertMenuQuery =
@@ -5831,6 +5847,8 @@ function MarkdownNotebookEditor({
                     componentPanels: nodeComponentPanels,
                     rememberedComponentPanels: componentPanelCacheEntry?.remembered,
                     persistComponentPanelVisibility,
+                    allowViewModeFilters,
+                    hideResourceLinks,
                     isSelected: selectedComponentNodeIds.has(node.id),
                     toggleComponentPanel: (panel) => {
                         const nextPanels = {

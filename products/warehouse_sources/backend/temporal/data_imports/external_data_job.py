@@ -9,6 +9,7 @@ from django.conf import settings
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -22,14 +23,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
-from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
-    DuckLakeRegisterDataImportsInputs,
-    DuckLakeRegisterDataImportsWorkflow,
-)
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -38,8 +31,19 @@ from products.data_warehouse.backend.facade.api import (
     create_warehouse_templates_for_source,
     update_external_job_status,
 )
+from products.managed_warehouse.backend.facade.temporal import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsInputs,
+    DuckLakeRegisterDataImportsWorkflow,
+    build_register_data_imports_workflow_id,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_schema import (
+    AUTO_DISABLED_JOB_ERROR,
+    ExternalDataSchema,
+    update_should_sync,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
@@ -155,7 +159,67 @@ Any_Source_Errors: dict[str, str | None] = {
     # it here so every other source stops retrying too. The enriched message names the offending column
     # and shows example cells, so keep the raw error rather than replacing it with a generic one.
     "must be real number, not str": None,
+    # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
+    # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
+    # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is
+    # fixed for the deployment, so every retry replays the identical ValueError. Batch exports already
+    # classifies this the same way (InvalidS3EndpointError). Match the stable "Invalid endpoint:"
+    # prefix, not the URL itself, which can carry deployment host detail.
+    "Invalid endpoint: ": (
+        "The object storage endpoint URL isn't valid. Its hostname contains characters that S3 "
+        "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
+        "then re-enable the sync."
+    ),
 }
+
+
+UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
+
+CANCELLED_RUN_MESSAGE = (
+    "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
+    "it or the source is paused. It will run again on its next schedule."
+)
+
+
+def _customer_facing_error(cause: BaseException | None) -> str:
+    """`latest_error` text a customer reads, without the leaked internal exception class name.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    `ApplicationError.__str__`), so ``str(cause)`` prefixes the customer-facing error with an
+    internal Python class name that means nothing to them: ``RESTClientRetryableError`` for a
+    REST source that exhausted its retries on an HTTP 429/5xx, ``NonReportableError`` for a
+    retryable connection drop, or a raw driver ``OperationalError``. The wrapped ``message``
+    carries the same detail without that prefix. This only affects errors we don't rewrite via
+    the non-retryable map below (retryable exhaustion and unclassified failures); ``internal_error``
+    still records the full ``str(cause)`` for debugging.
+    """
+    # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
+    if cause is None:
+        return UNEXPECTED_ERROR_MESSAGE
+    # A cancelled activity surfaces as a Temporal `CancelledError` whose `message` is the bare word
+    # "Cancelled" — meaningless to a customer, and not a failure they caused (a newer run superseded
+    # this one, the source was paused, or a worker was rolled). Give them something readable.
+    if isinstance(cause, exceptions.CancelledError):
+        return CANCELLED_RUN_MESSAGE
+    message = getattr(cause, "message", None)
+    return message or str(cause)
+
+
+def _fail_stale_running_schema(
+    schema_id: str, team_id: int, latest_error: str | None, logger: FilteringBoundLogger
+) -> None:
+    """Repaint a schema stuck on Running when a run failed without leaving a job to finalize.
+
+    Mirrors `update_external_job_status`: CDC halted markers absorb status updates, so a halted
+    schema is left alone.
+    """
+    schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).first()
+    if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
+        return
+    schema.status = ExternalDataSchema.Status.FAILED
+    schema.latest_error = latest_error
+    schema.save(update_fields=["status", "latest_error", "updated_at"])
+    logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
 
 @dataclasses.dataclass
@@ -190,9 +254,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     rows_tracked = await get_rows(inputs.team_id, inputs.schema_id)
     if rows_tracked > 0 and inputs.status == ExternalDataJob.Status.COMPLETED:
-        msg = f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}"
-        logger.debug(msg)
-        capture_exception(Exception(msg))
+        # `rows_tracked` is decremented by rows actually written, but incremented by
+        # `resource.rows_to_sync`, a pre-extraction COUNT(*) probe (see e.g. `_get_rows_to_sync`)
+        # that can race with concurrent changes on a live source table. A small positive leftover
+        # here is an expected consequence of that estimate rather than a pipeline bug, so log it
+        # instead of capture_exception; finish_row_tracking below clears the key regardless.
+        logger.warning(f"Rows tracked is greater than 0 on a COMPLETED job. rows_tracked={rows_tracked}")
 
     await finish_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -219,11 +286,17 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         job: ExternalDataJob | None = await database_sync_to_async_pool(_resolve_job)()
         if job is None:
             # A FAILED finalization with no resolvable job means an early activity (e.g. create-job)
-            # failed before a row was committed — nothing is stranded and that failure is already
-            # reported on its own, so don't double-alarm. A non-FAILED finalization that can't find
-            # its job is a real anomaly (work we think succeeded has nowhere to record it) — surface it.
+            # failed before a row was committed. That failure is already reported on its own, so
+            # don't double-alarm. But the schema may have been painted Running by whatever triggered
+            # this run, and with no job there is no later finalization to repaint it, so reset it
+            # here or it stays stuck on Running forever. A non-FAILED finalization that can't find
+            # its job is a real anomaly (work we think succeeded has nowhere to record it): surface it.
             logger.warning("No job to update status on", workflow_run_id=inputs.workflow_run_id)
-            if inputs.status != ExternalDataJob.Status.FAILED:
+            if inputs.status == ExternalDataJob.Status.FAILED:
+                await database_sync_to_async_pool(_fail_stale_running_schema)(
+                    inputs.schema_id, inputs.team_id, inputs.latest_error, logger
+                )
+            else:
                 capture_exception(Exception("Data import finalization could not resolve a job to update"))
             return
 
@@ -263,10 +336,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                     "error": inputs.internal_error,
                 },
             )
-            await database_sync_to_async_pool(update_should_sync)(
-                schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
-            )
-
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
@@ -276,6 +345,17 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
+
+            # Computed after the friendly error so the teardown records the same message
+            # the job will show. Excluding this workflow keeps the disable's teardown from
+            # cancelling the very run that is already finishing through its failure path.
+            await database_sync_to_async_pool(update_should_sync)(
+                schema_id=inputs.schema_id,
+                team_id=inputs.team_id,
+                should_sync=False,
+                disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
+                disable_exclude_workflow_id=activity.info().workflow_id,
+            )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
@@ -595,6 +675,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 **timeout_params,
             )  # type: ignore
 
+            # Run-finalization ownership (terminal status write, v3 lock release, post-import
+            # start) — the full contract lives on the PipelineResult docstring. False on every
+            # failure path by construction: a raising activity returns no result, so this line
+            # is never reached and the workflow finalizes in `finally`.
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 
@@ -802,8 +886,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=inputs.external_data_schema_id,
                             prepared_queryable_folder=prepared_queryable_folder,
                         ),
-                        id=(
-                            f"ducklake-register-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}-{job_id}"
+                        id=build_register_data_imports_workflow_id(
+                            team_id=inputs.team_id,
+                            schema_id=str(inputs.external_data_schema_id),
                         ),
                         task_queue=settings.DUCKLAKE_TASK_QUEUE,
                         parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -833,18 +918,21 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
+                # friendly mapping is None keeps its raw message, and the finalization activity won't
+                # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
                 raise
             else:
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = str(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause)
                 raise
         except Exception as e:
             # Catch all
             update_inputs.internal_error = str(e)
-            update_inputs.latest_error = "An unexpected error has ocurred"
+            update_inputs.latest_error = UNEXPECTED_ERROR_MESSAGE
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:

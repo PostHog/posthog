@@ -26,6 +26,8 @@ export interface MetricTileProps {
     changeTooltip?: string
     hoverChangeFromPreviousPoint?: boolean
     sparklineHeight?: number
+    // Dash the sparkline from this index on, for a trailing bucket that is still collecting.
+    sparklineDashedFromIndex?: number
     className?: string
 }
 
@@ -44,6 +46,7 @@ export function MetricTile({
     changeTooltip,
     hoverChangeFromPreviousPoint = false,
     sparklineHeight,
+    sparklineDashedFromIndex,
     className,
 }: MetricTileProps): JSX.Element {
     const hasSparkline = data != null && data.length > 0
@@ -69,6 +72,7 @@ export function MetricTile({
                     hoverChangeFromPreviousPoint={hoverChangeFromPreviousPoint}
                     restingSubtitle={restingSubtitle}
                     sparklineHeight={sparklineHeight}
+                    sparklineDashedFromIndex={sparklineDashedFromIndex}
                 >
                     <MetricHeader>
                         <MetricTitle>{label}</MetricTitle>

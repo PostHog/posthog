@@ -8,12 +8,13 @@ import { JSONViewerTheme } from 'lib/components/JSONViewer'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-const MemoizedJSONViewer = React.memo(({ json }: { json: Record<any, any> }) => {
+const MemoizedJSONViewer = React.memo(({ json }: { json: unknown }) => {
     const { isDarkModeOn } = useValues(themeLogic)
+    const source = typeof json === 'object' && json !== null ? json : { value: json }
 
     return (
         <HighlightedJSONViewer
-            src={json}
+            src={source}
             // Swap the theme because Tooltip inverses colors
             theme={isDarkModeOn ? JSONViewerTheme.LIGHT : JSONViewerTheme.DARK}
         />
@@ -21,11 +22,11 @@ const MemoizedJSONViewer = React.memo(({ json }: { json: Record<any, any> }) => 
 })
 
 export interface JSONColumnProps {
-    children?: Record<any, any> | null
+    children?: unknown
 }
 
 export const JSONColumn = ({ children }: JSONColumnProps): JSX.Element => {
-    if (!children) {
+    if (children === null || children === undefined) {
         return <span>—</span>
     }
 

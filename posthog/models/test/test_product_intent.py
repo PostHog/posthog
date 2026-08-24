@@ -28,7 +28,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -841,6 +841,46 @@ class TestProductIntent(BaseTest):
         ProductIntent.objects.filter(team=self.team, product_type=ProductKey.MCP_ANALYTICS).delete()
 
         assert self.product_intent.has_activated_mcp_analytics() is False
+
+    def _make_metrics_intent(self, contexts: dict) -> ProductIntent:
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.METRICS).delete()
+        return ProductIntent.objects.create(
+            team=self.team,
+            product_type=ProductKey.METRICS,
+            contexts=contexts,
+        )
+
+    @parameterized.expand(
+        [
+            # Charting or querying is only possible once metrics have reached the team,
+            # so any engagement signal is itself proof of ingestion + activation.
+            ("charted", {"metrics_viewer_query_run": 1}, True),
+            ("queried in sql", {"metrics_sql_query_run": 2}, True),
+            (
+                "first-ingested recorded then charted",
+                {"metrics_first_ingested": 1, "metrics_viewer_query_run": 1},
+                True,
+            ),
+            # Pre-existing-metrics teams never record the transition-only first-ingested
+            # context, so engagement alone must still activate them.
+            ("charted without first-ingested intent", {"metrics_viewer_query_run": 3}, True),
+            # Ingestion alone (no engagement) is a connected pipeline, not activation.
+            ("first-ingested but never looked at", {"metrics_first_ingested": 1}, False),
+            ("no engagement at all", {}, False),
+        ]
+    )
+    def test_has_activated_metrics(self, _name: str, contexts: dict, expected: bool) -> None:
+        intent = self._make_metrics_intent(contexts)
+
+        assert intent.has_activated_metrics() is expected
+
+    def test_check_and_update_activation_activates_metrics(self) -> None:
+        # Guards the registration, not the criterion: an unregistered check never runs.
+        intent = self._make_metrics_intent({"metrics_first_ingested": 1, "metrics_viewer_query_run": 1})
+
+        assert intent.check_and_update_activation(skip_reporting=True) is True
+        intent.refresh_from_db()
+        assert intent.activated_at is not None
 
     def test_has_activated_workflows_with_active_workflow(self):
         self.product_intent.product_type = ProductKey.WORKFLOWS

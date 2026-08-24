@@ -10,8 +10,10 @@
  *
  *   - Works on every MCP client today (no protocol-level elicitation
  *     dependency).
- *   - Stateless: the signed hash carries the action context through the
- *     model — any server instance can serve `execute`.
+ *   - The signed hash carries a reference to the action context through
+ *     the model; the payload itself waits in Redis, which execute already
+ *     depends on for single-use enforcement — any server instance sharing
+ *     that Redis can serve `execute`.
  *   - The security model is weaker than client-rendered elicitation
  *     (the LLM controls the `confirmation` argument), but strictly
  *     stronger than a single destructive tool. Honest tradeoff documented
@@ -20,13 +22,17 @@
  * What each helper does:
  *
  *   - `prepareConfirmedAction()` — runs at the top of the `-prepare` tool
- *     handler. Signs the validated args + user identity into a hash and
- *     returns a result the model surfaces to the user.
+ *     handler. Stashes the validated args server-side and signs their
+ *     SHA-256 digest + user identity into a small constant-size hash the
+ *     model surfaces to the user. Args can be arbitrarily large (a scout
+ *     body plus reference files, say) without bloating what the model has
+ *     to relay verbatim between the two calls.
  *   - `executeConfirmedAction()` — runs at the top of the `-execute` tool
- *     handler. Verifies the hash, the literal "confirm" string, and the
- *     single-use nonce ledger. Returns the validated payload (the original
- *     args) for the rest of the handler to act on, or a `ToolErrorResult`
- *     to short-circuit the call.
+ *     handler. Verifies the hash and the literal "confirm" string, then
+ *     fetches-and-burns the stashed payload (the burn is the single-use
+ *     guard) and checks it against the signed digest. Returns the
+ *     validated payload (the original args) for the rest of the handler
+ *     to act on, or a `ToolErrorResult` to short-circuit the call.
  *
  * Failure UX note: the nonce is consumed before the underlying handler
  * runs. If the downstream API call then fails, the user must run
@@ -36,12 +42,24 @@
  * user thought it had been canceled.
  */
 
+import { createHash } from 'node:crypto'
+
 import {
     confirmedActionExecutesTotal,
     confirmedActionPreparesTotal,
     confirmedActionRefusalsTotal,
 } from '@/hono/metrics'
-import { NonceLedger, SignedStateAlreadyConsumed, SignedStateCodec, SignedStateError } from '@/lib/signed-state'
+import { ToolInputValidationError } from '@/lib/errors'
+import {
+    MAX_STASHED_PAYLOAD_BYTES,
+    NonceLedger,
+    PAYLOAD_STASH_TTL_MARGIN_SECONDS,
+    PayloadStash,
+    SignedStateAlreadyConsumed,
+    SignedStateCodec,
+    SignedStateError,
+    STASH_QUOTA_BYTES_PER_WINDOW,
+} from '@/lib/signed-state'
 
 import type { Context } from './types'
 
@@ -77,23 +95,48 @@ export interface PrepareConfirmedActionOptions<P extends Record<string, unknown>
     messageTemplate: string
     /** Codec — instantiated once at startup, reused across requests. */
     codec: SignedStateCodec
+    /** Stash the payload waits in between prepare and execute. Single instance reused across requests. */
+    stash: PayloadStash
     /**
      * Ambient scope resolved from current state at prepare time (e.g. the
-     * active project the action targets). Signed into the hash; `execute`
-     * refuses if the scope active at execute time no longer matches. Omit
-     * for actions with no project/org scope.
+     * active project the action targets). Stashed with the args and
+     * digest-bound into the hash; `execute` refuses if the scope active at
+     * execute time no longer matches. Omit for actions with no project/org
+     * scope.
      */
     boundScope?: ConfirmedActionScope
 }
 
 /**
- * Shape of the signed payload. The runtime wraps the caller's args
- * together with the bound scope so both travel — and are tamper-checked —
- * inside the single opaque `payload` claim the codec signs.
+ * Shape of the stashed payload. The runtime wraps the caller's args
+ * together with the bound scope so both travel — and are digest-checked —
+ * as one serialized unit.
  */
 interface SignedConfirmedActionPayload {
     args: Record<string, unknown>
     scope: ConfirmedActionScope | null
+}
+
+/**
+ * Shape of the `payload` claim signed into the token: a reference to the
+ * stashed payload, not the payload itself. The nonce (a standard claim)
+ * keys the stash entry; the digest tamper-proofs it.
+ */
+interface SignedPayloadReference {
+    digest: string
+}
+
+function isPayloadReference(value: unknown): value is SignedPayloadReference {
+    return (
+        value !== null &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        typeof (value as Partial<SignedPayloadReference>).digest === 'string'
+    )
+}
+
+function sha256Hex(value: string): string {
+    return createHash('sha256').update(value).digest('hex')
 }
 
 export interface PrepareConfirmedActionResult {
@@ -124,13 +167,41 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     const sub = await context.getDistinctId()
     const payload: SignedConfirmedActionPayload = {
         args: options.args,
-        scope: options.boundScope ?? null,
+        scope: withConnectionScope(context, options.boundScope),
     }
-    const { token } = await options.codec.encode({
+    // Digest the exact string that gets stashed — execute re-hashes the
+    // stored string, so serialization only has to be stable across this
+    // one round-trip, not canonical.
+    const serialized = JSON.stringify(payload)
+    const serializedBytes = Buffer.byteLength(serialized, 'utf8')
+    if (serializedBytes > MAX_STASHED_PAYLOAD_BYTES) {
+        confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
+        confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'payload_too_large' })
+        throw new ToolInputValidationError(
+            `${options.purpose} was not prepared: the action arguments are too large to confirm ` +
+                `(${serializedBytes} bytes; limit ${MAX_STASHED_PAYLOAD_BYTES}). Trim the arguments, ` +
+                `for example by shortening bundled file contents, and try again.`
+        )
+    }
+    const stashWindowSeconds = options.codec.ttlSeconds + PAYLOAD_STASH_TTL_MARGIN_SECONDS
+    const quotaTotal = await options.stash.charge(sub, serializedBytes, stashWindowSeconds)
+    if (quotaTotal > STASH_QUOTA_BYTES_PER_WINDOW) {
+        await options.stash.repairQuotaExpiry(sub, stashWindowSeconds)
+        confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
+        confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'stash_quota_exceeded' })
+        throw new ToolInputValidationError(
+            `${options.purpose} was not prepared: too much pending confirmation data for this user ` +
+                `(${quotaTotal} bytes in the current window; limit ${STASH_QUOTA_BYTES_PER_WINDOW}). ` +
+                `Wait a few minutes for pending confirmations to expire and try again.`
+        )
+    }
+    const reference: SignedPayloadReference = { digest: sha256Hex(serialized) }
+    const { token, claims } = await options.codec.encode({
         sub,
         purpose: options.purpose,
-        payload,
+        payload: reference,
     })
+    await options.stash.put(claims.nonce, serialized, options.codec.ttlSeconds + PAYLOAD_STASH_TTL_MARGIN_SECONDS)
     confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'ok' })
     return {
         confirmation_hash: token,
@@ -141,7 +212,9 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
             `Surface the message above to the user. Wait for them to reply with the literal word "${CONFIRMATION_WORD}". ` +
             `Then call the matching \`-execute\` tool with \`${CONFIRMATION_HASH_ARG}\` set to the confirmation_hash from this result, ` +
             `and \`${CONFIRMATION_WORD_ARG}\` set to the user's literal reply. The signed hash already contains the action arguments. ` +
-            `If the user does not reply with "${CONFIRMATION_WORD}", do not call the execute tool.`,
+            `If the user does not reply with "${CONFIRMATION_WORD}", do not call the execute tool. ` +
+            `The confirmation expires ${Math.round(options.codec.ttlSeconds / 60)} minutes after this call. ` +
+            `If the user confirms later than that, call this prepare tool again with the same arguments to get a fresh hash.`,
     }
 }
 
@@ -150,8 +223,10 @@ export interface ExecuteConfirmedActionOptions {
     incomingArgs: { [CONFIRMATION_HASH_ARG]: string; [CONFIRMATION_WORD_ARG]: string }
     /** Same `purpose` value used at prepare time. */
     purpose: string
-    /** Codec + ledger; both single instances reused across requests. */
+    /** Codec + stash + ledger; all single instances reused across requests. */
     codec: SignedStateCodec
+    stash: PayloadStash
+    /** Single-use guard for inline-payload tokens only; stash-referenced tokens burn via `take()`. */
     ledger: NonceLedger
     /**
      * Scope resolved from *current* state at execute time. Compared against
@@ -187,7 +262,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         return refuse(
             options.purpose,
             'wrong_word',
-            `${options.purpose} was not executed — the \`${CONFIRMATION_WORD_ARG}\` argument must be the literal string "${CONFIRMATION_WORD}", typed by the user. The user did not confirm.`
+            `${options.purpose} was not executed: the \`${CONFIRMATION_WORD_ARG}\` argument must be the literal string "${CONFIRMATION_WORD}", typed by the user. The user did not confirm.`
         )
     }
 
@@ -196,48 +271,85 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         claims = await options.codec.decode(hash, sub, options.purpose)
     } catch (err) {
         if (err instanceof SignedStateError) {
-            return refuse(options.purpose, err.kind, `${options.purpose} was not executed — ${reasonFor(err)}.`)
+            return refuse(options.purpose, err.kind, `${options.purpose} was not executed: ${reasonFor(err)}.`)
         }
         throw err
     }
 
-    // Single-use enforcement. Bind the ledger TTL to the token's remaining
-    // life so abandoned nonces self-clean exactly when the token they
-    // protect can no longer be replayed. The remaining TTL comes from the
-    // codec's clock, not the wall clock — clock drift between the signer
-    // and the consumer could otherwise shrink the ledger TTL enough to
-    // re-allow replay.
-    try {
-        await options.ledger.consume(claims.nonce, options.codec.secondsUntilExpiry(claims))
-    } catch (err) {
-        if (err instanceof SignedStateAlreadyConsumed) {
+    let wrapper: Partial<SignedConfirmedActionPayload>
+    if (isPayloadReference(claims.payload)) {
+        // Stash-referenced token: the burn inside `take()` IS the
+        // single-use enforcement — a second execute (or a lost DEL race)
+        // gets `null` here.
+        const stored = await options.stash.take(claims.nonce)
+        if (stored === null) {
             return refuse(
                 options.purpose,
                 'replay',
-                `${options.purpose} was not executed — this confirmation has already been used. Start a new prepare-then-execute cycle if you need to perform the action again.`
+                `${options.purpose} was not executed: this confirmation has already been used or its prepared payload has expired. Start a new prepare-then-execute cycle if you need to perform the action again.`
             )
         }
-        throw err
+        if (sha256Hex(stored) !== claims.payload.digest) {
+            return refuse(
+                options.purpose,
+                'digest_mismatch',
+                `${options.purpose} was not executed: the stored confirmation payload does not match the signed digest. Run the prepare step again.`
+            )
+        }
+        let parsed: unknown
+        try {
+            parsed = JSON.parse(stored)
+        } catch {
+            parsed = null
+        }
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return refuse(
+                options.purpose,
+                'malformed_payload',
+                `${options.purpose} was not executed: confirmation payload is malformed.`
+            )
+        }
+        wrapper = parsed as Partial<SignedConfirmedActionPayload>
+    } else {
+        // Inline-payload token — args signed directly into the claim
+        // instead of stashed. Minted by servers on the older token format;
+        // honored so a confirmation spanning a mixed-version deploy still
+        // executes. Here the ledger supplies the single-use guarantee that
+        // `take()` gives the stash path, with its TTL bound to the token's
+        // remaining life (per the codec's clock, not the wall clock — drift
+        // between signer and consumer could otherwise shrink the ledger TTL
+        // enough to re-allow replay).
+        try {
+            await options.ledger.consume(claims.nonce, options.codec.secondsUntilExpiry(claims))
+        } catch (err) {
+            if (err instanceof SignedStateAlreadyConsumed) {
+                return refuse(
+                    options.purpose,
+                    'replay',
+                    `${options.purpose} was not executed: this confirmation has already been used. Start a new prepare-then-execute cycle if you need to perform the action again.`
+                )
+            }
+            throw err
+        }
+        const verified = claims.payload
+        if (verified === null || typeof verified !== 'object' || Array.isArray(verified)) {
+            return refuse(
+                options.purpose,
+                'malformed_payload',
+                `${options.purpose} was not executed: confirmation payload is malformed.`
+            )
+        }
+        wrapper = verified as Partial<SignedConfirmedActionPayload>
     }
 
-    // The payload was signed at prepare time; treat it as untrusted JSON
-    // and shape-check before returning. The runtime wraps `{ args, scope }`,
-    // so validate the wrapper and the args object it carries.
-    const verified = claims.payload
-    if (verified === null || typeof verified !== 'object' || Array.isArray(verified)) {
-        return refuse(
-            options.purpose,
-            'malformed_payload',
-            `${options.purpose} was not executed — confirmation payload is malformed.`
-        )
-    }
-    const wrapper = verified as Partial<SignedConfirmedActionPayload>
+    // Whichever path produced the wrapper, treat it as untrusted JSON and
+    // shape-check the args object it carries before returning.
     const args = wrapper.args
     if (args === null || typeof args !== 'object' || Array.isArray(args)) {
         return refuse(
             options.purpose,
             'malformed_payload',
-            `${options.purpose} was not executed — confirmation payload is malformed.`
+            `${options.purpose} was not executed: confirmation payload is malformed.`
         )
     }
 
@@ -245,11 +357,11 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
     // signed into the token. If the active scope has since changed (e.g. the
     // agent ran `switch-project` after the user confirmed), the same
     // confirmation must not authorize the action against a different target.
-    if (!scopesMatch(wrapper.scope ?? null, options.expectedScope ?? null)) {
+    if (!scopesMatch(wrapper.scope ?? null, withConnectionScope(context, options.expectedScope))) {
         return refuse(
             options.purpose,
             'scope_mismatch',
-            `${options.purpose} was not executed — the confirmation was issued for a different project or organization than the one currently active. Switch back to the project the action was prepared in, or run the prepare step again in the current one.`
+            `${options.purpose} was not executed: the confirmation was issued for a different project or organization than the one currently active. Switch back to the project the action was prepared in, or run the prepare step again in the current one.`
         )
     }
 
@@ -262,6 +374,26 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
  * execute time. Both are shallow string maps (or `null` when the action is
  * unscoped). A mismatch on any key — or a differing key set — fails closed.
  */
+/**
+ * Fold the connection a context runs through into its bound scope.
+ *
+ * A scope is keyed by project id, which is only unique within a region — two connections can point
+ * at different organizations whose projects happen to share a number, and the signed `sub` is the
+ * local user either way. Without this, a confirmation the user gave for one connection would spend
+ * against the other. Keying on the connection also separates a confirmation prepared through a
+ * connection from one prepared locally, since `scopesMatch` fails closed on a differing key set.
+ */
+function withConnectionScope(context: Context, scope?: ConfirmedActionScope): ConfirmedActionScope | null {
+    if (!context.connection) {
+        return scope ?? null
+    }
+    return {
+        ...scope,
+        connectionId: context.connection.connectionId,
+        connectionLocalProjectId: context.connection.localProjectId,
+    }
+}
+
 function scopesMatch(signed: ConfirmedActionScope | null, expected: ConfirmedActionScope | null): boolean {
     const a = signed ?? {}
     const b = expected ?? {}

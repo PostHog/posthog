@@ -43,7 +43,8 @@
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
-                  arrayMap((current, next) -> if(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), '', 'dormant'), all_activity, following_activity) AS dormant_status,
+                  arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), isNull(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
+                                                        and isNull(toTimeZone(next, 'UTC'))), '', 'dormant'), all_activity, following_activity) AS dormant_status,
                   arrayMap(x -> plus(toTimeZone(x, 'UTC'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods,
                   arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
@@ -126,7 +127,8 @@
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
-                  arrayMap((current, next) -> if(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), '', 'dormant'), all_activity, following_activity) AS dormant_status,
+                  arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), isNull(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
+                                                        and isNull(toTimeZone(next, 'UTC'))), '', 'dormant'), all_activity, following_activity) AS dormant_status,
                   arrayMap(x -> plus(toTimeZone(x, 'UTC'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods,
                   arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
@@ -206,7 +208,8 @@
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
-                  arrayMap((current, next) -> if(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), '', 'dormant'), all_activity, following_activity) AS dormant_status,
+                  arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)), toTimeZone(next, 'UTC')), isNull(plus(toTimeZone(current, 'UTC'), toIntervalDay(1)))
+                                                        and isNull(toTimeZone(next, 'UTC'))), '', 'dormant'), all_activity, following_activity) AS dormant_status,
                   arrayMap(x -> plus(toTimeZone(x, 'UTC'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods,
                   arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,
@@ -286,7 +289,8 @@
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
-                  arrayMap((current, next) -> if(equals(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), toTimeZone(next, 'US/Pacific')), '', 'dormant'), all_activity, following_activity) AS dormant_status,
+                  arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), toTimeZone(next, 'US/Pacific')), isNull(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
+                                                        and isNull(toTimeZone(next, 'US/Pacific'))), '', 'dormant'), all_activity, following_activity) AS dormant_status,
                   arrayMap(x -> plus(toTimeZone(x, 'US/Pacific'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods,
                   arrayMap(x -> 'dormant', dormant_periods) AS dormant_label,
                   arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat,

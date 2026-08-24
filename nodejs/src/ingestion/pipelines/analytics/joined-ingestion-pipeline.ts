@@ -25,7 +25,6 @@ import {
     createApplyEventRestrictionsStep,
     createEnrichSurveyPersonPropertiesStep,
     createSkipCookielessRateLimitToOverflowStep,
-    createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
@@ -33,23 +32,11 @@ import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
-import { AiEventSubpipelineFactory } from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    PersonDistinctIdsOutput,
-    PersonMergeEventsOutput,
-    PersonsOutput,
-} from './outputs'
-import {
-    PerDistinctIdPipelineConfig,
-    PerDistinctIdPipelineInput,
-    createPerDistinctIdPipeline,
-} from './per-distinct-id-pipeline'
+import { EventSubpipelineConfig, EventSubpipelineInput, createEventSubpipeline } from './event-subpipeline'
+import { AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from './outputs'
 import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
@@ -61,10 +48,8 @@ export interface JoinedIngestionPipelineConfig {
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
-    cdpHogWatcherSampleRate: number
     outputs: IngestionOutputs<
         | EventOutput
-        | AiEventOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -90,7 +75,6 @@ export interface JoinedIngestionPipelineDeps {
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
     hogTransformer: HogTransformer
-    aiSubpipelineFactory: AiEventSubpipelineFactory
     eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
@@ -112,7 +96,7 @@ export interface JoinedIngestionPipelineContext {
     message: Message
 }
 
-function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
+function getTokenAndDistinctId(input: EventSubpipelineInput): string {
     const token = input.headers.token ?? ''
     const distinctId = input.event.distinct_id ?? ''
     return `${token}:${distinctId}`
@@ -121,6 +105,7 @@ function getTokenAndDistinctId(input: PerDistinctIdPipelineInput): string {
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
+    CFeed extends object = Record<never, never>,
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
@@ -128,7 +113,6 @@ export function createJoinedIngestionPipeline<
         preservePartitionLocality,
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
-        cdpHogWatcherSampleRate,
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
@@ -149,7 +133,6 @@ export function createJoinedIngestionPipeline<
         cookielessManager,
         groupTypeManager,
         topHog,
-        aiSubpipelineFactory,
     } = deps
 
     const topHogWrapper = createTopHogWrapper(topHog)
@@ -167,22 +150,18 @@ export function createJoinedIngestionPipeline<
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         groupTypeManager,
-        flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
-        hogTransformer,
-        cdpHogWatcherSampleRate,
     }
 
-    const perEventConfig: PerDistinctIdPipelineConfig = {
+    const perEventConfig: EventSubpipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
-        aiSubpipelineFactory,
         teamManager,
         groupTypeManager,
         hogTransformer,
         topHog: topHogWrapper,
     }
 
-    const mergeFoldPlanningStep = createMergeFoldPlanningStep<PerDistinctIdPipelineInput>(perDistinctIdOptions)
+    const mergeFoldPlanningStep = createMergeFoldPlanningStep<EventSubpipelineInput>(perDistinctIdOptions)
 
     return (
         newCommonIngestionPipeline<TInput, TContext, OverflowOutput | AsyncOutput>({
@@ -212,6 +191,7 @@ export function createJoinedIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    pipelineWritesPersons: true,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -222,7 +202,6 @@ export function createJoinedIngestionPipeline<
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
-            .pipe(createValidateAiEventTokensStep())
             .pipe(createEnrichSurveyPersonPropertiesStep())
             .compose((b) => createPostTeamPreprocessingSubpipeline(b, postTeamConfig))
             // Group by token:distinctId and process each group concurrently.
@@ -233,7 +212,7 @@ export function createJoinedIngestionPipeline<
             .concurrentlyPerGroup(getTokenAndDistinctId, (group) =>
                 group
                     .pipeChunk(mergeFoldPlanningStep)
-                    .sequentially((event) => createPerDistinctIdPipeline(event, perEventConfig))
+                    .sequentially((event) => createEventSubpipeline(event, perEventConfig))
             )
             .afterBatch((afterBatch) =>
                 afterBatch
@@ -241,6 +220,6 @@ export function createJoinedIngestionPipeline<
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )
-            .build()
+            .build<CFeed>()
     )
 }

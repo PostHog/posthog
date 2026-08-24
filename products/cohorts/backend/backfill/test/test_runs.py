@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
@@ -8,17 +9,19 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.tasks.calculate_cohort import trigger_cohort_events_backfill_task
-
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    BackfillRunAttempt,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
     create_backfill_run_for_cohort,
     create_person_backfill_run_for_cohort,
     create_person_team_backfill_run,
     create_team_backfill_run,
     supersede_active_runs,
 )
-from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimate, PersonSeedEstimateScanCapExceeded
 from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
     CohortBackfillKind,
@@ -36,14 +39,6 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
 )
 class TestBackfillRuns(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled", return_value=False
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
-
     def _filters(self, event: str = "$pageview", window_days: int = 7) -> dict:
         return {
             "properties": {
@@ -144,6 +139,53 @@ class TestBackfillRuns(BaseTest):
         self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
 
+    def test_attempt_names_active_participation_and_a_missing_cohort(self) -> None:
+        cohort = self._cohort()
+        created = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        self.assertIsNotNone(created.run)
+        self.assertIsNone(created.reason)
+
+        blocked = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
+
+        missing = attempt_backfill_run_for_cohort(self.team.id, cohort.id + 10_000, "cohort_edited")
+        self.assertEqual(missing.reason, BackfillRefusalReason.COHORT_MISSING)
+
+    @parameterized.expand(
+        [
+            ("behavioral", attempt_backfill_run_for_cohort),
+            ("person_property", attempt_person_backfill_run_for_cohort),
+        ]
+    )
+    def test_attempt_names_a_team_outside_the_realtime_allowlist(
+        self, _name: str, attempt: Callable[[int, int, str], BackfillRunAttempt]
+    ) -> None:
+        # A team dropping out of the allowlist is the first gate either creator hits. Unlabelled it
+        # lands in the flat `refused` bucket, which reads as an unclassified refusal.
+        cohort = self._cohort()
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none"):
+            self.assertEqual(
+                attempt(self.team.id, cohort.id, "cohort_created").reason,
+                BackfillRefusalReason.TEAM_NOT_REALTIME,
+            )
+
+    def test_failed_run_frees_the_per_cohort_slot(self) -> None:
+        # The seeder fails a run whose chunk exhausted its retry budget. That only unwedges the
+        # cohort if `failed` stops counting as active here: otherwise the uniqueness slot stays
+        # taken and no replacement run can ever be created for that cohort.
+        cohort = self._cohort()
+        first = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert first is not None
+        self.assertIsNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+
+        first.status = CohortBackfillRunStatus.FAILED
+        first.save(update_fields=["status"])
+
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 2)
+
     def test_active_team_run_prevents_overlapping_cohort_run(self) -> None:
         cohort = self._cohort()
         create_team_backfill_run(self.team.id, "team_enablement")
@@ -158,12 +200,20 @@ class TestBackfillRuns(BaseTest):
         with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
             create_team_backfill_run(self.team.id, "team_enablement")
 
-    def test_celery_task_uses_explicit_team_scope(self) -> None:
+    def test_editing_the_cohort_supersedes_its_active_run(self) -> None:
+        # rust/cohort-seeder claims run rows and replays history from the filters the run pinned, so
+        # if the post_save receiver stops superseding, an edit leaves the seeder on a stale definition.
         cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
 
-        trigger_cohort_events_backfill_task.run(self.team.id, cohort.id, "cohort_created")
+        with self.captureOnCommitCallbacks(execute=True):
+            cohort.filters = self._filters("signup")
+            cohort.save()
 
-        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).filter(cohort=cohort).count(), 1)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
 
 
 @override_settings(
@@ -175,15 +225,6 @@ class TestBackfillRuns(BaseTest):
     BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
 )
 class TestPersonBackfillRuns(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled",
-            return_value=False,
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
-
     def _filters(
         self,
         *,
@@ -283,6 +324,7 @@ class TestPersonBackfillRuns(BaseTest):
                 "person_horizon_days": expected_horizon_days,
             },
         )
+        self.assertIn("person_seed_estimated_topic_bytes", run.preconditions)
         self.assertEqual(participation.filters_shape_hash, cohort.filters_shape_hash)
         self.assertEqual(participation.behavioral_filters_shape_hash, "")
         self.assertEqual(participation.person_filters_shape_hash, cohort.person_filters_shape_hash)
@@ -318,6 +360,115 @@ class TestPersonBackfillRuns(BaseTest):
             cohort_id=cohort.id,
             person_horizon_days=0,
         )
+
+    @parameterized.expand([("over_budget",), ("scan_cap_hit",)])
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_signal_path_refuses_unsized_person_seed(self, _name: str, estimate: mock.Mock) -> None:
+        # A user save replays cost here, so the automated path has to honor the same topic-bytes
+        # budget as the operator creator. The scan's own read cap refuses quietly too: it is
+        # deterministic for the team, so retrying would only repeat the capped scan.
+        if _name == "over_budget":
+            estimate.return_value = self._estimate(estimated_topic_bytes=2_000_000)
+        else:
+            estimate.side_effect = PersonSeedEstimateScanCapExceeded("read cap exceeded")
+        cohort = self._cohort()
+
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_transient_sizing_failure_reaches_the_retry_machinery(self, estimate: mock.Mock) -> None:
+        # A timeout or transport blip is worth retrying; swallowing it would leave the cohort with
+        # no run and nothing scheduled to try again until its next edit.
+        estimate.side_effect = ConnectionError("clickhouse unavailable")
+        cohort = self._cohort()
+
+        with self.assertRaises(ConnectionError):
+            create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_budget_bounds_the_teams_active_person_runs_in_aggregate(self, estimate: mock.Mock) -> None:
+        # The seeder's person scan is team-wide per run and the uniqueness constraint is per cohort,
+        # so runs that each fit the budget stack cost; the gate has to count what is already in
+        # flight for the team.
+        estimate.return_value = self._estimate(estimated_topic_bytes=600_000)
+        first = self._cohort()
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created"))
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_consumed_budget_refuses_before_the_sizing_scan(self, estimate: mock.Mock) -> None:
+        # Dispatch is debounced per cohort, so once in-flight runs consume the whole budget, every
+        # further edited cohort has to refuse before the team-wide sizing scan, not after paying
+        # for one each.
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_000)
+        first = self._cohort()
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        estimate.reset_mock()
+        self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created"))
+
+        estimate.assert_not_called()
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 1)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_both_budget_gates_report_over_budget(self, estimate: mock.Mock) -> None:
+        # The budget refuses in two places — before the sizing scan when in-flight runs already ate
+        # it, and after when the estimate pushes the total over. Both have to name the budget, or
+        # the alert only sees whichever one the team happens to hit.
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_001)
+        first = self._cohort()
+        second = Cohort.objects.create(
+            team=self.team,
+            name="second person cohort",
+            cohort_type=CohortType.REALTIME,
+            filters=self._filters(),
+        )
+
+        post_scan = attempt_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created")
+        self.assertIsNone(post_scan.run)
+        self.assertEqual(post_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+        estimate.return_value = self._estimate(estimated_topic_bytes=1_000_000)
+        self.assertIsNotNone(create_person_backfill_run_for_cohort(self.team.id, first.id, "cohort_created"))
+        estimate.reset_mock()
+        pre_scan = attempt_person_backfill_run_for_cohort(self.team.id, second.id, "cohort_created")
+
+        estimate.assert_not_called()
+        self.assertIsNone(pre_scan.run)
+        self.assertEqual(pre_scan.reason, BackfillRefusalReason.OVER_BUDGET)
+
+    def test_attempt_reports_the_occupied_slot_and_success(self) -> None:
+        cohort = self._cohort()
+
+        with mock.patch(
+            "products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes",
+            return_value=self._estimate(),
+        ):
+            created = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+            self.assertIsNotNone(created.run)
+            self.assertIsNone(created.reason)
+
+            blocked = attempt_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertIsNone(blocked.run)
+        self.assertEqual(blocked.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:
@@ -364,6 +515,62 @@ class TestPersonBackfillRuns(BaseTest):
         }
         self.assertEqual(expected[superseded_kind].status, CohortBackfillRunStatus.SUPERSEDED)
         self.assertEqual(other[superseded_kind].status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    def test_editing_the_person_leaf_supersedes_only_the_person_run(self) -> None:
+        # rust/cohort-seeder replays the person conditions a run pinned and the finalizer stamps
+        # readiness from them, so a person-leaf edit has to supersede that run. The behavioral run
+        # pins leaves this edit does not touch, so it has to survive.
+        cohort = self._cohort()
+        behavioral = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        person = create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert behavioral is not None
+        assert person is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            cohort.filters = self._filters(person_hashes=("person0000000002",))
+            cohort.save()
+
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=person)
+        self.assertEqual(person.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(participation.superseded_at)
+        self.assertEqual(behavioral.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
+    @parameterized.expand(
+        [
+            ("behavioral", create_backfill_run_for_cohort, CohortBackfillKind.BEHAVIORAL),
+            ("person_property", create_person_backfill_run_for_cohort, CohortBackfillKind.PERSON_PROPERTY),
+        ]
+    )
+    def test_seeder_partial_outcome_does_not_wedge_the_cohort(
+        self, _name: str, creator, kind: CohortBackfillKind
+    ) -> None:
+        # The seeder's record_participation_partial supersedes the participation but leaves the run
+        # active, so the run still holds the cohort_bfr_active_cohort_kind_uq slot. The creator has
+        # to refuse on the run, not only the participation, or it raises IntegrityError; and
+        # supersession has to target the run directly, or nothing ever frees the slot while the
+        # finalizer's person gate is closed.
+        cohort = self._cohort()
+        run = creator(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(run=run).update(
+            superseded_at=datetime.now(UTC), error="stage 2 hash mismatch"
+        )
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            status=CohortBackfillRunStatus.RECONCILING
+        )
+
+        # The active-run refusal has to fire in the pre-pass, before the sizing scan: the sibling
+        # IntegrityError catch also returns None, so without this the run-level guard is unpinned.
+        with mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes") as estimate:
+            self.assertIsNone(creator(self.team.id, cohort.id, "cohort_edited"))
+        estimate.assert_not_called()
+
+        supersede_active_runs(self.team.id, [cohort.id], kind=kind)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(creator(self.team.id, cohort.id, "cohort_edited"))
 
     @parameterized.expand(
         [

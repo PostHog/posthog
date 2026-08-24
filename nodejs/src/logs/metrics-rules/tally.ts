@@ -79,7 +79,7 @@ function resolveNumericValue(key: string, record: LogRecord): number | null {
  * bytes (not the bytes themselves), so decode when the length doesn't match; raw-byte
  * buffers (tests, future producers) pass through unchanged.
  */
-function idToHex(buffer: Buffer | null, expectedBytes: number): string | null {
+export function idToHex(buffer: Buffer | null, expectedBytes: number): string | null {
     if (!buffer || buffer.length === 0) {
         return null
     }

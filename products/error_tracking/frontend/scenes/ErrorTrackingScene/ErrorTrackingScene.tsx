@@ -53,7 +53,6 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
-    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
     // Same gate as the settings section: configuration endpoints require error tracking viewer access.
     const configurationAccessDeniedReason = getAccessControlDisabledReason(
         AccessControlResourceType.ErrorTracking,
@@ -82,10 +81,12 @@ export function ErrorTrackingScene(): JSX.Element {
             label: 'Issues',
             content: (
                 <ErrorTrackingSetupPrompt>
-                    <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
+                    <SourceMapsBanner />
                     <IssuesList />
+                    {/* Renders a hidden div — keep it after IssuesList so the sticky bar's
+                        first:-mt-4 can detect whether a banner renders above it */}
+                    <ErrorTrackingIssueFilteringTool />
                 </ErrorTrackingSetupPrompt>
             ),
         },

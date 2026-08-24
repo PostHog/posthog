@@ -1091,12 +1091,12 @@ class TestResolveInstallationOauthContext(BaseTest):
             sensitive_configuration={"access_token": "tok"},
         )
 
-        metadata, client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert metadata["token_endpoint"] == "https://auth.template.example.com/token"
-        assert client_id == "template-client"
-        assert client_secret == "template-secret"
-        assert auth_method == "client_secret_basic"
+        assert ctx.metadata["token_endpoint"] == "https://auth.template.example.com/token"
+        assert ctx.client_id == "template-client"
+        assert ctx.client_secret == "template-secret"
+        assert ctx.token_endpoint_auth_method == "client_secret_basic"
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —
@@ -1125,12 +1125,12 @@ class TestResolveInstallationOauthContext(BaseTest):
             },
         )
 
-        metadata, client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert metadata["token_endpoint"] == "https://auth.dcr-template.example.com/token"
-        assert client_id == "minted-for-user"
-        assert client_secret is None
-        assert auth_method == "none"
+        assert ctx.metadata["token_endpoint"] == "https://auth.dcr-template.example.com/token"
+        assert ctx.client_id == "minted-for-user"
+        assert ctx.client_secret is None
+        assert ctx.token_endpoint_auth_method == "none"
 
     def test_custom_install_returns_per_installation_dcr_creds(self):
         installation = MCPServerInstallation.objects.create(
@@ -1145,12 +1145,12 @@ class TestResolveInstallationOauthContext(BaseTest):
             },
         )
 
-        metadata, client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert metadata["token_endpoint"] == "https://auth.custom.example.com/token"
-        assert client_id == "per-user-client"
-        assert client_secret == "per-user-secret"
-        assert auth_method == "client_secret_basic"
+        assert ctx.metadata["token_endpoint"] == "https://auth.custom.example.com/token"
+        assert ctx.client_id == "per-user-client"
+        assert ctx.client_secret == "per-user-secret"
+        assert ctx.token_endpoint_auth_method == "client_secret_basic"
 
     def test_custom_install_without_secret_returns_none(self):
         installation = MCPServerInstallation.objects.create(
@@ -1162,10 +1162,10 @@ class TestResolveInstallationOauthContext(BaseTest):
             sensitive_configuration={"dcr_client_id": "public-client"},
         )
 
-        _metadata, _client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert client_secret is None
-        assert auth_method == "none"
+        assert ctx.client_secret is None
+        assert ctx.token_endpoint_auth_method == "none"
 
 
 class TestExchangeOauthToken(BaseTest):

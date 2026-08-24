@@ -119,11 +119,13 @@ import {
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
+    TRANSLATION_NEEDED_PLACEHOLDER,
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
 } from './constants'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import type { SurveyDataState } from './surveysLogic'
+import { buildChoiceTranslationMap } from './surveyTranslationUtils'
 import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import type { TeamSdkVersions } from './surveyVersionRequirements'
 import {
@@ -390,20 +392,26 @@ function processChoiceQuestion(
 ): ChoiceQuestionProcessedResponses {
     const totalEntry = entries.find(([l]) => l === '__total__')
     const dataEntries = entries.filter(([l]) => l !== '__total__')
-    const predefined = new Set(question.choices ?? [])
+    const choiceMap = buildChoiceTranslationMap(question)
 
     let total = 0
     const noResponseEntry = entries.find(([l]) => l === '__no_response__')
     const noResponseCount = noResponseEntry ? noResponseEntry[1] : 0
     const filteredEntries = dataEntries.filter(([l]) => l !== '__no_response__')
 
-    const data: ChoiceQuestionResponseData[] = filteredEntries
-        .map(([label, count]) => {
-            if (questionType === SurveyQuestionType.SingleChoice) {
-                total += count
-            }
-            return { label, value: count, isPredefined: predefined.has(label) }
-        })
+    // Normalise each response to its base-language choice so answers given in different
+    // languages aggregate under one option instead of splitting into separate rows.
+    const countsByLabel = new Map<string, number>()
+    for (const [label, count] of filteredEntries) {
+        const normalizedLabel = choiceMap.get(label) ?? label
+        countsByLabel.set(normalizedLabel, (countsByLabel.get(normalizedLabel) ?? 0) + count)
+        if (questionType === SurveyQuestionType.SingleChoice) {
+            total += count
+        }
+    }
+
+    const data: ChoiceQuestionResponseData[] = [...countsByLabel.entries()]
+        .map(([label, value]) => ({ label, value, isPredefined: choiceMap.has(label) }))
         .sort((a, b) => b.value - a.value)
 
     if (questionType === SurveyQuestionType.MultipleChoice && totalEntry) {
@@ -536,7 +544,7 @@ function collectOpenChoiceResponses(
     distinctIdIdx: number,
     timestampIdx: number
 ): ChoiceQuestionResponseData[] {
-    const predefined = new Set(question.choices ?? [])
+    const choiceMap = buildChoiceTranslationMap(question)
     const otherData: ChoiceQuestionResponseData[] = []
 
     for (const row of rows) {
@@ -554,7 +562,7 @@ function collectOpenChoiceResponses(
         }
 
         for (const choice of choices) {
-            if (choice && !predefined.has(choice)) {
+            if (choice && !choiceMap.has(choice)) {
                 otherData.push({
                     label: choice,
                     value: 1,
@@ -3416,12 +3424,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             const defaultHasValue =
                                 defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
 
-                            if (value === '[Translation needed]') {
+                            if (value === TRANSLATION_NEEDED_PLACEHOLDER) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: -1,
                                     field: key,
-                                    error: 'Contains placeholder "[Translation needed]"',
+                                    error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                 })
                             }
                             // Only validate empty translation strings if default has a value
@@ -3517,12 +3525,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             const defaultHasValue =
                                 defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
 
-                            if (value === '[Translation needed]') {
+                            if (value === TRANSLATION_NEEDED_PLACEHOLDER) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
                                     field: key,
-                                    error: 'Contains placeholder "[Translation needed]"',
+                                    error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                 })
                             }
                             // Only validate empty translation strings if default has a value
@@ -3546,12 +3554,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             const linkDefaultHasValue = typeof question.link === 'string' && question.link.trim() !== ''
                             const linkValue = trans.link
 
-                            if (linkValue === '[Translation needed]') {
+                            if (linkValue === TRANSLATION_NEEDED_PLACEHOLDER) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
                                     field: 'link',
-                                    error: 'Contains placeholder "[Translation needed]"',
+                                    error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                 })
                             } else if (typeof linkValue === 'string') {
                                 const trimmedLink = linkValue.trim()
@@ -3577,12 +3585,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         // Check choices array
                         if (isChoiceSurveyQuestion(question) && trans.choices && Array.isArray(trans.choices)) {
                             trans.choices.forEach((choice, choiceIndex) => {
-                                if (choice === '[Translation needed]') {
+                                if (choice === TRANSLATION_NEEDED_PLACEHOLDER) {
                                     errors.push({
                                         language: lang,
                                         questionIndex: qIndex,
                                         field: `choices[${choiceIndex}]`,
-                                        error: 'Contains placeholder "[Translation needed]"',
+                                        error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                     })
                                 }
                                 if (typeof choice === 'string' && choice.trim() === '') {

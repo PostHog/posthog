@@ -152,6 +152,8 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowMode,
                 preservePartitionLocality,
+                // createFetchPersonChunkStep below only reads persons.
+                pipelineWritesPersons: false,
             })
         )
         // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -188,8 +190,13 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
 
     return (
         afterCymbal
-            // Batch fetch person (read-only, no updates)
-            .pipeChunk(createFetchPersonChunkStep(personRepository))
+            // Batch fetch person (read-only, no updates). The personhog client
+            // retries transient gRPC errors for ~150ms; this outer retry
+            // absorbs longer blips that would otherwise crash the worker via
+            // an unhandled rejection.
+            .pipeChunk(createFetchPersonChunkStep(personRepository), {
+                retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
+            })
             // Run Hog transformations (including GeoIP if team has it enabled)
             .pipe(createHogTransformEventStep(hogTransformer))
             // Prepare event for emission
@@ -231,7 +238,7 @@ export async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, 
     const batch = createBatch(messages.map((message) => ({ message })))
     // The consumer drains each batch fully before feeding the next and the hooks
     // always succeed, so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
+    const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`error tracking pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }
