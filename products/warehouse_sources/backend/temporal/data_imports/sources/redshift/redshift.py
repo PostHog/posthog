@@ -779,6 +779,19 @@ class QualifiedRelation:
     name: str
 
 
+@frozen
+class RedshiftTableSetup:
+    """Everything `build_pipeline` learns about a table before it can stream rows."""
+
+    full_table: Table[RedshiftColumn]
+    primary_keys: list[str] | None
+    projected_table: Table[RedshiftColumn]
+    chunk_size: int
+    rows_to_sync: int
+    partition_settings: PartitionSettings | None
+    duplicate_primary_keys: bool
+
+
 class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psycopg.Connection, Any]):
     # `psycopg.Cursor` does not satisfy `_CursorLike` (its `execute`
     # signature uses `params` instead of `args`, and accepts `Query`
@@ -1509,15 +1522,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        def _discover_and_probe() -> tuple[
-            Table[RedshiftColumn],
-            list[str] | None,
-            Table[RedshiftColumn],
-            int,
-            int,
-            PartitionSettings | None,
-            bool,
-        ]:
+        def _discover_and_probe() -> RedshiftTableSetup:
             with self.connect(config) as connection:
                 # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
                 # that fails — a permission error, an EXPLAIN the cluster rejects, a cancelled COUNT(*) —
@@ -1612,15 +1617,27 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                                 f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) is set as a SORTKEY on the table"
                             )
                         raise
-            return full_table, primary_keys, table, chunk_size, rows_to_sync, partition_settings, duplicate_primary_keys
+            return RedshiftTableSetup(
+                full_table=full_table,
+                primary_keys=primary_keys,
+                projected_table=table,
+                chunk_size=chunk_size,
+                rows_to_sync=rows_to_sync,
+                partition_settings=partition_settings,
+                duplicate_primary_keys=duplicate_primary_keys,
+            )
 
         # A fresh connection can still drop before setup finishes (network blip, cluster
         # pause/resize) — retry the whole discovery+probe phase (reopening the connection) rather
         # than let it fail through to a full Temporal activity retry, which restarts the sync
         # from scratch. See `_retry_on_transient_connection_drop`.
-        full_table, primary_keys, table, chunk_size, rows_to_sync, partition_settings, duplicate_primary_keys = (
-            _retry_on_transient_connection_drop(_discover_and_probe, logger)
-        )
+        setup = _retry_on_transient_connection_drop(_discover_and_probe, logger)
+        primary_keys = setup.primary_keys
+        table = setup.projected_table
+        chunk_size = setup.chunk_size
+        rows_to_sync = setup.rows_to_sync
+        partition_settings = setup.partition_settings
+        duplicate_primary_keys = setup.duplicate_primary_keys
 
         def get_rows() -> Iterator[Any]:
             arrow_schema = table.to_arrow_schema()
