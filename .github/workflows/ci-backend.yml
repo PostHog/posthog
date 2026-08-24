@@ -2568,7 +2568,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "${{ github.event_name }}" != "pull_request" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2661,6 +2661,14 @@ jobs:
                         echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      fi
+
+                      # The legacy-mode safeguard leg runs only where a regression must not
+                      # land: merge queue and master. PR lanes run the customer-default mode
+                      # only, so a PR pays no shards for the legacy mode. Compat keeps its
+                      # own legacy-mode rows in every lane — it guards old servers, not this.
+                      if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+                          CORE_POE_SHARDS=0
                       fi
 
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
