@@ -73,9 +73,6 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -87,9 +84,6 @@ database "posthog" {
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
       broker_list = "warpstream_ingestion"
@@ -1076,9 +1070,6 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -1090,9 +1081,6 @@ database "posthog" {
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -1856,12 +1844,10 @@ SELECT
   team_id,
   organization_id,
   usage_key,
-  mode,
   unit,
   quantity,
   timestamp,
   inserted_at,
-  dimensions,
   _timestamp,
   _offset,
   _partition
@@ -1886,9 +1872,6 @@ SQL
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -1900,9 +1883,6 @@ SQL
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"

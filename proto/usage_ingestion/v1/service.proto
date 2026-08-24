@@ -12,12 +12,6 @@ service UsageIngestion {
   rpc IngestBillingUsage(IngestBillingUsageRequest) returns (IngestBillingUsageResponse);
 }
 
-enum BillingUsageMode {
-  BILLING_USAGE_MODE_UNSPECIFIED = 0;
-  BILLING_USAGE_MODE_DELTA = 1;
-  BILLING_USAGE_MODE_SNAPSHOT = 2;
-}
-
 message BillingUsageRecord {
   // (team_id, toDate(timestamp), producer_id, usage_key, record_id) is the record's
   // identity, so a retry reuses all five and collapses to one row. Correcting a quantity
@@ -30,7 +24,6 @@ message BillingUsageRecord {
   int64 team_id = 3;
 
   string usage_key = 4;
-  BillingUsageMode mode = 5;
   string unit = 6;
   int64 quantity = 7;
   // Stamp this from the producer's own clock when it emits, never from a customer
@@ -39,7 +32,7 @@ message BillingUsageRecord {
   int64 timestamp_ms = 9;
   map<string, string> dimensions = 13;
 
-  reserved 8, 10, 11, 12; // version, source_ref, user_id, variant
+  reserved 5, 8, 10, 11, 12; // mode, version, source_ref, user_id, variant
 }
 
 message IngestBillingUsageRequest {

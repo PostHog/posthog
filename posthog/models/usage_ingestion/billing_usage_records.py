@@ -30,9 +30,6 @@ def billing_usage_records_data_table_engine() -> ReplacingMergeTree:
 # Every producer stamps `timestamp` from its own clock when it flushes, never from anything a
 # customer sends, which is what lets toDate(timestamp) sit in the sorting key. Sourcing it from
 # event data would hand a customer control over whether their records deduplicate.
-#
-# dimensions sits outside the sort key, so two sends of one identity collapse to whichever
-# inserted last: a producer's dimensions have to be a function of its record_id.
 BASE_BILLING_USAGE_RECORDS_COLUMNS = """
     schema_version UInt8,
     record_id String,
@@ -40,12 +37,10 @@ BASE_BILLING_USAGE_RECORDS_COLUMNS = """
     team_id Int64,
     organization_id UUID,
     usage_key LowCardinality(String),
-    mode Enum8('delta' = 1, 'snapshot' = 2),
     unit LowCardinality(String),
     quantity Int64,
     timestamp DateTime64(6, 'UTC'),
-    inserted_at DateTime64(6, 'UTC'),
-    dimensions Map(LowCardinality(String), String)
+    inserted_at DateTime64(6, 'UTC')
 """.strip()
 
 
@@ -112,12 +107,10 @@ AS SELECT
     team_id,
     organization_id,
     usage_key,
-    mode,
     unit,
     quantity,
     timestamp,
     inserted_at,
-    dimensions,
     _timestamp,
     _offset,
     _partition

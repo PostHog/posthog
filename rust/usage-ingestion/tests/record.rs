@@ -1,6 +1,6 @@
 use chrono::Utc;
 use usage_ingestion::record::{KafkaBillingUsageRecord, ValidationError};
-use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageMode, BillingUsageRecord};
+use usage_ingestion_proto::usage_ingestion::v1::BillingUsageRecord;
 use uuid::Uuid;
 
 fn record() -> BillingUsageRecord {
@@ -9,7 +9,6 @@ fn record() -> BillingUsageRecord {
         producer_id: "feature-flags".to_string(),
         team_id: 42,
         usage_key: "feature_flag_requests".to_string(),
-        mode: BillingUsageMode::Delta as i32,
         unit: "request".to_string(),
         quantity: 2,
         timestamp_ms: 1_700_000_000_000,
@@ -24,7 +23,6 @@ fn converts_a_valid_record_to_clickhouse_json_shape() {
         KafkaBillingUsageRecord::from_proto(record(), organization_id, Utc::now()).unwrap();
 
     assert_eq!(result.organization_id, organization_id);
-    assert_eq!(result.mode, "delta");
     assert_eq!(result.timestamp, "2023-11-14T22:13:20.000Z");
 }
 
@@ -49,15 +47,19 @@ fn rejects_timestamps_outside_the_clickhouse_range() {
     }
 }
 
+/// Every record is a delta, so a zero or negative quantity bills nothing and means nothing.
 #[test]
-fn rejects_zero_delta_quantity() {
-    let mut invalid = record();
-    invalid.quantity = 0;
+fn rejects_quantities_that_are_not_positive() {
+    for quantity in [0, -1] {
+        let mut invalid = record();
+        invalid.quantity = quantity;
 
-    assert_eq!(
-        KafkaBillingUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
-        ValidationError::InvalidDeltaQuantity
-    );
+        assert_eq!(
+            KafkaBillingUsageRecord::from_proto(invalid, Uuid::new_v4(), Utc::now()).unwrap_err(),
+            ValidationError::InvalidQuantity,
+            "quantity {quantity} should be rejected"
+        );
+    }
 }
 
 /// The analytics producers compose a record_id from the events table's dedup identity, whose
