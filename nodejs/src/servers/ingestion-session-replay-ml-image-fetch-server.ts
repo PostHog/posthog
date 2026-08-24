@@ -7,17 +7,23 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
+    KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
 } from '~/common/config/kafka-topics'
-import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaConsumerV2, KafkaConsumerV2Config } from '~/common/kafka/consumer/consumer-v2'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
+import {
+    ConfigurationPolicyService,
+    HttpConfigurationFetcher,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
 import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
+import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
@@ -29,10 +35,6 @@ import {
     IngestionSessionReplayMlMirrorServerConfig,
     buildMlMirrorServerConfig,
 } from './ingestion-session-replay-ml-mirror-server'
-
-// The poll loop only heartbeats between batches, so a slow batch is refreshed from inside it. Must
-// stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s), which binds long before max.poll.interval.ms.
-const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
 
 /**
  * How long the store may spend on one batch, well inside Kafka's max.poll.interval.ms of 300s.
@@ -58,14 +60,19 @@ function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
     return anonymizer
 }
 
-export function buildFrontierPublisher(producer: KafkaProducerWrapper): FrontierPublisher {
+export function buildFrontierPublisher(
+    producer: KafkaProducerWrapper,
+    maxConcurrentImagePublishes: number
+): FrontierPublisher {
     return new FrontierPublisher(producer, {
         frontierTopic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
+        scrubTopic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
         delayTiers: [
             { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M, delayMs: 60_000 },
             { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M, delayMs: 600_000 },
             { topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H, delayMs: 3_600_000 },
         ],
+        maxConcurrentImagePublishes,
     })
 }
 
@@ -75,14 +82,23 @@ export function buildFetchRunner(
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
-        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
-        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
-        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
-        breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES,
-        breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS,
-        breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS,
-        maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
+        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND,
+        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST,
+        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
+        breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_FAILURES,
+        breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_COOLDOWN_MS,
+        breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BREAKER_MAX_COOLDOWN_MS,
+        maxTrackedRegistrableDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS,
+        maxTrackedOrigins: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
     })
+    const scheduler = new OriginRequestScheduler(budget, config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS)
+    const configurationPolicy = new ConfigurationPolicyService(
+        new HttpConfigurationFetcher(
+            webBotAuthSigner,
+            scheduler,
+            config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS
+        )
+    )
     return new FetchRunner(
         new HttpImageFetcher(
             {
@@ -94,20 +110,25 @@ export function buildFetchRunner(
             webBotAuthSigner
         ),
         budget,
+        scheduler,
+        configurationPolicy,
         {
-            maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
+            maxConcurrentPerRegistrableDomain:
+                config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
             maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
             batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
             maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
             requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
             maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
-            defaultRetryAfterMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS,
+            seenTtlSeconds: config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
         },
         publisher
     )
 }
 
-export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
+export function buildImageFetchConsumerConfig(
+    config: IngestionSessionReplayMlMirrorServerConfig
+): KafkaConsumerV2Config {
     return {
         topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
         groupId: config.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID,
@@ -153,11 +174,6 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         assertUrlPolicyLoaded()
 
         const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
-        if (!dryRun) {
-            throw new Error(
-                'SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane obeys no robots.txt and produces no images'
-            )
-        }
 
         const tableName = this.config.AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE
         if (!tableName) {
@@ -187,27 +203,27 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         // one that clears the flag.
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const publisher = buildFrontierPublisher(
-            this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
+            this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER),
+            this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_PENDING_PUBLISHES
         )
 
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
             publisher,
             {
-                maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
-                dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
             },
-            dryRun ? undefined : buildFetchRunner(this.config, publisher)
+            buildFetchRunner(this.config, publisher)
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
-        const consumer = new KafkaConsumer(buildImageFetchConsumerConfig(this.config))
-        await consumer.connect((messages) => {
-            const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
-            return fetchConsumer.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES + 64 * 1024
+        const consumer = new KafkaConsumerV2(buildImageFetchConsumerConfig(this.config), {
+            'fetch.message.max.bytes': maximumRecordBytes,
+            'max.partition.fetch.bytes': maximumRecordBytes,
         })
+        await consumer.connect((messages) => fetchConsumer.handleBatch(messages, Date.now()))
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',

@@ -9,6 +9,7 @@ import temporalio
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
@@ -31,8 +32,14 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     run_multi_turn_research,
 )
-from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
-from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerResolutionDiagnostics,
+    resolve_suggested_reviewers_with_diagnostics,
+)
+from products.signals.backend.report_generation.reviewer_telemetry import (
+    capture_suggested_reviewers_resolved,
+    capture_suggested_reviewers_unresolved,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -210,16 +217,22 @@ class ArtefactDraft:
     attribution: ArtefactAttribution
 
 
+@frozen
+class _PipelineReviewerResolution:
+    reviewers: list[ReviewerContent]
+    diagnostics: ReviewerResolutionDiagnostics
+
+
 def _build_reviewers_content(
     team_id: int,
     repository: str,
     findings: list[SignalFinding],
-) -> list[ReviewerContent]:
+) -> _PipelineReviewerResolution:
     """Collect relevant commit SHAs from research findings and resolve them to GitHub reviewers.
 
     Deduplicates commit hashes across all findings (keeping the first reason seen per SHA),
-    then calls resolve_suggested_reviewers to identify the authors/committers of those commits
-    and returns them as serializable ReviewerContent dicts.
+    then calls the resolver to identify the authors/committers of those commits and returns
+    them as serializable ReviewerContent dicts, plus the diagnostics explaining an empty list.
 
     The returned list is stored as a ``suggested_reviewers`` artefact keyed only by
     github_login — no PostHog user IDs are persisted. This is intentional:
@@ -237,15 +250,10 @@ def _build_reviewers_content(
             if sha and sha not in commit_hashes_with_reasons:
                 commit_hashes_with_reasons[sha] = str(reason) if reason else ""
 
-    if not commit_hashes_with_reasons or not repository:
-        return []
-
-    resolved = resolve_suggested_reviewers(team_id, repository, commit_hashes_with_reasons)
-    if not resolved:
-        return []
+    resolution = resolve_suggested_reviewers_with_diagnostics(team_id, repository, commit_hashes_with_reasons)
 
     reviewers_content: list[ReviewerContent] = []
-    for reviewer in resolved:
+    for reviewer in resolution.reviewers:
         reviewers_content.append(
             ReviewerContent(
                 github_login=reviewer.login.lower(),
@@ -256,7 +264,34 @@ def _build_reviewers_content(
                 is_skill_owner=False,
             )
         )
-    return reviewers_content
+    return _PipelineReviewerResolution(reviewers=reviewers_content, diagnostics=resolution.diagnostics)
+
+
+def _report_has_live_suggested_reviewers(report_id: str) -> bool:
+    """Whether the report's live (latest) ``suggested_reviewers`` artefact still names anyone.
+
+    Unlike the artefacts this pipeline writes, this one can also come from a user edit or the API,
+    so unparseable content is treated as "someone is still assigned": the caller only uses this to
+    decide whether it may call the report reviewerless, and it must not claim that on a guess.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return False
+    try:
+        return bool(SuggestedReviewers.model_validate_json(artefact.content).root)
+    except ValidationError:
+        logger.warning(
+            "Could not parse the report's suggested_reviewers artefact",
+            report_id=report_id,
+            artefact_id=str(artefact.id),
+        )
+        return True
 
 
 def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
@@ -319,11 +354,13 @@ async def _persist_agentic_report_artefacts(
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
-    reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
+    findings = result.effective_findings()
+    reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
         team_id=team_id,
         repository=repo_selection.repository or "",
-        findings=result.effective_findings(),
+        findings=findings,
     )
+    reviewers_content = reviewer_resolution.reviewers
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
     # persisted row. Reviewers are derived purely from findings, so they're only re-persisted
@@ -377,6 +414,29 @@ async def _persist_agentic_report_artefacts(
             github_logins=[reviewer["github_login"] for reviewer in reviewers_content],
             source="pipeline",
         )
+    elif not reviewers_content:
+        # An empty list persists nothing, so without this the report's lack of a reviewer is
+        # indistinguishable from never having been researched. A re-promotion that resolves
+        # nobody leaves the previously-persisted list as the report's live reviewer set, though —
+        # that report isn't reviewerless, so firing here would make the latest-event-per-report
+        # read contradict the artefact.
+        keeps_previous_reviewers = await database_sync_to_async(
+            _report_has_live_suggested_reviewers, thread_sensitive=False
+        )(report_id)
+        if keeps_previous_reviewers:
+            logger.info(
+                "Reviewer resolution came back empty but the report keeps its previous reviewers",
+                report_id=report_id,
+                outcome=reviewer_resolution.diagnostics.outcome,
+            )
+        else:
+            await database_sync_to_async(capture_suggested_reviewers_unresolved, thread_sensitive=False)(
+                team_id=team_id,
+                report_id=report_id,
+                diagnostics=reviewer_resolution.diagnostics,
+                finding_count=len(findings),
+                has_new_finding=has_new_finding,
+            )
 
     # Backfill the research task's title now that research has produced the report title. At
     # task-creation time the report has no title yet (research is what produces it), so the task

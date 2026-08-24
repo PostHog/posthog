@@ -1,9 +1,11 @@
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { Person } from '~/types'
 
 export interface EventUsageBatchContext {
     eventUsageBatch: UsageRecordBatch
@@ -26,6 +28,7 @@ export interface RecordEventUsageInput {
     preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
+    person?: Person
 }
 
 /**
@@ -56,9 +59,10 @@ export interface EventUsageRecordContext {
  * One record per event. Its identity travels inside the event, so a replay reproduces it
  * whatever the consumer's batching, which an offset-derived identity cannot.
  *
- * Person processing bills a second record under its own usage key. It shares the identity,
- * which the usage key separates, and it waits on the same acknowledgement: an event that
- * never lands should not bill for the person work either.
+ * Person processing bills a second record under its own usage key, matching the nightly report,
+ * which counts the same event under both meters. It shares the identity, which the usage key
+ * separates, and it waits on the same acknowledgement: an event that never lands should not bill
+ * for the person work either.
  *
  * TODO: decide how usage records should treat events dated in the past. This step bills every
  * billable event at the moment it is processed, including a historical migration. The nightly
@@ -81,7 +85,10 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
         const { teamId } = input.preparedEvent
         const recordId = analyticsRecordId(input.preparedEvent)
         const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId }]
-        if (input.processPerson) {
+        // The report counts `person_mode IN ('full', 'force_upgrade')`, which is the mode stored on
+        // the event rather than the client's request. A force upgrade only fires when the client
+        // asked for propertyless, so branching on `processPerson` would miss exactly those events.
+        if (resolvePersonMode(input.person, input.processPerson ?? false) !== 'propertyless') {
             eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))

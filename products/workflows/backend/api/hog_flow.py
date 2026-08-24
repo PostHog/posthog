@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from time import monotonic
 from typing import Any, NamedTuple, Optional, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.core.cache import cache
@@ -31,6 +32,10 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.schema import ProductKey
+
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_expr
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
@@ -155,6 +160,9 @@ logger = structlog.get_logger(__name__)
 # wait_until_condition's max_wait_duration reaches the same parser via conditional_branch.ts, so it
 # is held to the same format.
 DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhms]$")
+
+# A delay_until offset is the same shape, signed, so it can point before the date it is offsetting.
+DELAY_OFFSET_REGEX = re.compile(r"^-?\d*\.?\d+[dhms]$")
 
 
 def _is_valid_duration(value: Any) -> bool:
@@ -1064,9 +1072,21 @@ class HogFlowActionSerializer(serializers.Serializer):
             "so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). "
             "Dictionary input values are template strings too — write booleans/numbers as single-expression "
             "templates ('{true}', '{42}'), which evaluate to the typed value. "
-            "delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). "
-            "Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
-            "Max 30d. "
+            "delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of "
+            "delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. "
+            "Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are "
+            "SILENTLY CLAMPED. Max 30d. "
+            "delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date "
+            "expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the "
+            "same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours "
+            "after). expression is compiled server-side, so any bytecode sent with it is discarded. "
+            "A person property is person.properties.<key>; an event property is properties.<key>, as the "
+            "'event.' prefix resolves to nothing and aborts the run. "
+            "Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and "
+            "fallback_timezone decide which zone a date with no offset of its own is read in; a date that "
+            "states an offset, and unix seconds, ignore them. Default UTC. "
+            "Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how "
+            "far past the step's start the wait may run. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
             "random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' "
             "edge with index:N; percentages are relative weights, so they should sum to 100 but a total above "
@@ -1471,10 +1491,82 @@ class HogFlowActionSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"config": _duration_error("max_wait_duration")})
 
         if data.get("type") == "delay":
-            if strict and not _is_valid_duration(data.get("config", {}).get("delay_duration")):
-                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            self._validate_delay(data, strict)
 
         return data
+
+    def _validate_delay(self, data: dict, strict: bool) -> None:
+        """A delay waits either a fixed span or until a date carried by the person or event, never both."""
+        config = data.get("config") or {}
+        delay_until = config.get("delay_until")
+
+        if delay_until is None:
+            if strict and not _is_valid_duration(config.get("delay_duration")):
+                raise serializers.ValidationError({"config": _duration_error("delay_duration")})
+            return
+
+        if config.get("delay_duration"):
+            raise serializers.ValidationError(
+                {"config": "A delay takes either delay_duration or delay_until, not both."}
+            )
+        if not isinstance(delay_until, dict):
+            raise serializers.ValidationError({"config": "delay_until must be an object with an 'expression'."})
+
+        # Client bytecode is dropped on every path, strict or not, as the executor runs whatever it finds.
+        stored = {k: v for k, v in delay_until.items() if k not in ("bytecode", "bytecode_error")}
+        data["config"]["delay_until"] = stored
+
+        expression = delay_until.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            if strict:
+                raise serializers.ValidationError({"config": "delay_until.expression is required and must be SQL."})
+            # The builder writes the mode before the date is picked, so a draft can legitimately be
+            # half-configured. Nothing further is checkable without an expression.
+            return
+
+        offset = delay_until.get("offset")
+        if strict and offset is not None and not (isinstance(offset, str) and DELAY_OFFSET_REGEX.match(offset)):
+            raise serializers.ValidationError(
+                {
+                    "config": (
+                        "delay_until.offset must be a string matching ^-?\\d*\\.?\\d+[dhms]$ "
+                        "(e.g. '-1d' for a day before the date, '2h' for two hours after)."
+                    )
+                }
+            )
+
+        max_delay_duration = config.get("max_delay_duration")
+        if strict and max_delay_duration is not None and not _is_valid_duration(max_delay_duration):
+            raise serializers.ValidationError({"config": _duration_error("max_delay_duration")})
+
+        use_person_timezone = delay_until.get("use_person_timezone")
+        if strict and use_person_timezone is not None and not isinstance(use_person_timezone, bool):
+            # The executor only checks whether this is truthy, so a string like "no" would switch the
+            # person's timezone on rather than off.
+            raise serializers.ValidationError({"config": "delay_until.use_person_timezone must be true or false."})
+
+        # An unknown zone would silently fall back to UTC in the executor, which is the wrong local day
+        # for most of the world - the mistake this setting exists to prevent.
+        for field in ("timezone", "fallback_timezone"):
+            value = delay_until.get(field)
+            if not strict or value is None:
+                continue
+            try:
+                ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError, TypeError):
+                raise serializers.ValidationError(
+                    {"config": f"delay_until.{field} must be an IANA timezone name, e.g. 'Europe/Berlin'."}
+                )
+
+        # Compiled here rather than trusted from the client. Compiling also surfaces a broken expression
+        # at save time instead of at the first run that reaches it.
+        try:
+            stored["bytecode"] = create_bytecode(
+                parse_expr(expression), context=HogQLContext(team_id=self.context["get_team"]().id)
+            ).bytecode
+        except Exception as e:
+            if strict:
+                raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
 
 
 class HogFlowVariableSerializer(serializers.ListSerializer):
