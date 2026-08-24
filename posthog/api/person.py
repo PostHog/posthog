@@ -645,9 +645,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
         elif search:
             exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
-            API_PERSON_LIST_SEARCH_COUNTER.labels(
-                answered_by="exact_identifier" if exact_uuids else "clickhouse"
-            ).inc()
+            API_PERSON_LIST_SEARCH_COUNTER.labels(answered_by="exact_identifier" if exact_uuids else "clickhouse").inc()
             if exact_uuids:
                 return self._person_list_response(
                     request,
