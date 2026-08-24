@@ -115,6 +115,9 @@ jobs:
             - name: Turbo-discover sizing tests (Node)
               run: node --test .github/scripts/turbo-discover-sizing.test.js
 
+            - name: Turbo-discover staleness tests (Node)
+              run: node --test .github/scripts/turbo-discover-staleness.test.js
+
             - name: Selected Django shards tests (Node)
               run: node --test .github/scripts/selected-django-shards.test.js
 
