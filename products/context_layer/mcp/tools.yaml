@@ -1,0 +1,113 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Context wiki
+feature: context_layer
+url_prefix: /
+ui_apps: {}
+tools:
+    context-layer-agent-commits-create:
+        operation: context_layer_agent_commits_create
+        enabled: false
+    context-layer-commits-create:
+        operation: context_layer_commits_create
+        enabled: false
+    context-layer-enable-create:
+        operation: context_layer_enable_create
+        enabled: false
+    context-layer-export-retrieve:
+        operation: context_layer_export_retrieve
+        enabled: false
+    context-layer-status-retrieve:
+        operation: context_layer_status_retrieve
+        enabled: false
+    context-layer-tree-retrieve:
+        operation: context_layer_tree_retrieve
+        enabled: false
+    context-layer-wiki-report-retrieve:
+        operation: context_layer_wiki_report_retrieve
+        enabled: false
+    context-wiki-channel-resolve:
+        operation: context_layer_channel_pages_retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve a channel context page
+        description: >
+            Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path
+            with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.
+        feature_flag: context-layer
+    context-wiki-page-retrieve:
+        operation: context_layer_pages_retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a context wiki page
+        description: >
+            Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha;
+            pass that head_sha as base_head when updating the page.
+        feature_flag: context-layer
+    context-wiki-page-update:
+        operation: context_layer_pages_update
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update a context wiki page
+        description: >
+            Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as
+            base_head. A concurrent wiki change returns a conflict instead of being overwritten.
+        feature_flag: context-layer
+    loop-context-wiki-channel-resolve:
+        operation: context_layer_agent_channel_pages_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Resolve a loop context wiki page
+        description: Resolve a channel id to its context wiki page path for an unattended loop run.
+        feature_flag: context-layer
+    loop-context-wiki-page-retrieve:
+        operation: context_layer_agent_pages_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a loop context wiki page
+        description: Read a context wiki page and its head_sha for an unattended loop run.
+        feature_flag: context-layer
+    loop-context-wiki-page-update:
+        operation: context_layer_agent_pages_update
+        enabled: true
+        scopes:
+            - task:write
+            - loop_context_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update a loop context wiki page
+        description: Replace a context wiki page using base_head concurrency for an unattended loop run.
+        feature_flag: context-layer

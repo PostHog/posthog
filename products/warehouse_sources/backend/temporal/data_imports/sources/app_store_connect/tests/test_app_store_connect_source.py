@@ -117,6 +117,34 @@ class TestAppStoreConnectSource:
             if kind == "analytics_report":
                 assert [field["field"] for field in schema.incremental_fields] == ["processing_date"]
 
+    @parameterized.expand(
+        [
+            ("analytics_app_sessions_detailed", "analytics_app_sessions"),
+            ("analytics_app_store_downloads_detailed", "analytics_app_store_downloads"),
+            ("analytics_installations_deletions_detailed", "analytics_installations_deletions"),
+            ("analytics_discovery_engagement_detailed", "analytics_discovery_engagement"),
+        ]
+    )
+    def test_detailed_analytics_streams_extend_their_standard_siblings(self, detailed: str, standard: str) -> None:
+        source = AppStoreConnectSource()
+
+        assert detailed in {schema.name for schema in source.get_schemas(_config(), team_id=1)}
+        # Apple files both variants of a report under the same category; a mismatch would make the
+        # per-request report list come back empty and the table sync nothing, without an error.
+        assert (
+            APP_STORE_CONNECT_ENDPOINTS[detailed].analytics_report_category
+            == APP_STORE_CONNECT_ENDPOINTS[standard].analytics_report_category
+        )
+
+        descriptions = source.get_canonical_descriptions()
+        # A Detailed report is its Standard sibling plus exactly the three acquisition
+        # attribution columns Apple publishes in no Standard report.
+        assert set(descriptions[detailed]["columns"]) == set(descriptions[standard]["columns"]) | {
+            "campaign",
+            "page_title",
+            "source_info",
+        }
+
     def test_canonical_descriptions_cover_the_catalog(self) -> None:
         descriptions = AppStoreConnectSource().get_canonical_descriptions()
 
