@@ -479,6 +479,19 @@ describe('hog-charts scales', () => {
             expect(result.yAxes!.y1.scale.domain()[1]).toBe(1000)
         })
 
+        // A reference line outside its axis's domain doesn't render, so an axis whose meaning fixes
+        // its range (a 0-1 probability) has to say so — the chart-level valueDomain above only
+        // reaches the primary axis.
+        it('honors a secondary axis own valueDomain', () => {
+            const value = makeSeries({ key: 'value', data: [0, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const score = makeSeries({ key: 'score', data: [0, 0.25], yAxisId: 'y1' })
+            const result = createScales([value, score], ['a', 'b'], dimensions, {
+                axes: [{ id: 'y1', valueDomain: { min: 0, max: 1 } }],
+            })
+            expect(result.yAxes!.y1.scale.domain()).toEqual([0, 1])
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(1000)
+        })
+
         it.each([
             ['DEFAULT_Y_AXIS_ID first', [DEFAULT_Y_AXIS_ID, 'y1']],
             ['non-default first', ['y1', DEFAULT_Y_AXIS_ID]],
@@ -717,6 +730,16 @@ describe('hog-charts scales', () => {
             expect(result.get('s2')!.bottom).toEqual([10])
             expect(result.get('s3')!.top).toEqual([60])
             expect(result.get('s3')!.bottom).toEqual([30])
+        })
+
+        it('stacks a series whose key collides with Object.prototype (e.g. __proto__)', () => {
+            const s1 = makeSeries({ key: '__proto__', data: [10, 20] })
+            const s2 = makeSeries({ key: 's2', data: [5, 15] })
+            const result = computeStackData([s1, s2], ['a', 'b'])
+
+            expect(result.get('__proto__')!.top).toEqual([10, 20])
+            expect(result.get('s2')!.top).toEqual([15, 35])
+            expect(result.get('s2')!.bottom).toEqual([10, 20])
         })
 
         it('excludes visibility.excluded series from the stack', () => {

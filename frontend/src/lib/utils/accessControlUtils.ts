@@ -364,5 +364,8 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     if (resource === AccessControlResourceType.Metrics) {
         return 'Controls access to the metrics product and its API. It does not restrict querying the underlying metrics tables with SQL.'
     }
+    if (resource === AccessControlResourceType.LlmAnalytics) {
+        return 'Covers traces, datasets, provider keys, and the model picker.'
+    }
     return null
 }

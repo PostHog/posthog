@@ -324,8 +324,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     </LemonButton>
                     {activeTab !== 'runs' && (
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={evaluation.user_access_level ?? undefined}
                         >
                             <LemonButton
                                 type="primary"
@@ -450,6 +451,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                             content: (
                                 <EvaluationReportsTab
                                     evaluationId={evaluation.id}
+                                    userAccessLevel={evaluation.user_access_level ?? undefined}
                                     onConfigureClick={() => setActiveTab('configuration')}
                                 />
                             ),
