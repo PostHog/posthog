@@ -12,6 +12,7 @@ import {
     renderDisplayTypeLabel,
 } from '~/queries/nodes/DataVisualization/Components/tableDisplayOptions'
 import { Column } from '~/queries/nodes/DataVisualization/types'
+import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
 import { DataVisualizationNode, Node } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
@@ -59,72 +60,16 @@ const MANUAL_SETUP_REASON = 'Open the insight to pick which column goes on each 
 const NO_NUMERIC_COLUMN_REASON = 'This insight has no numeric column to plot'
 const NO_X_AXIS_COLUMN_REASON = 'This insight has no column left to label the x axis'
 
-function resolveDisplayType(displayType: ChartDisplayType, autoVisualizationType: ChartDisplayType): ChartDisplayType {
-    return displayType === ChartDisplayType.Auto ? autoVisualizationType : displayType
-}
-
-// The editor moves the first numeric column onto the x axis when every column is numeric, but only
-// for a line or an area chart. The card follows that, so the same pick saves the same axes on both.
-const PROMOTES_FIRST_NUMERIC_TO_X = [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph]
-
-function axesFor(columns: Column[], drawnAs: ChartDisplayType): { xAxis: string | null; yAxis: string[] } {
-    const defaults = deriveDefaultAxes(columns)
-    const allNumeric = columns.length > 1 && columns.every((column) => column.type.isNumerical)
-
-    if (defaults.xAxis || !allNumeric || !PROMOTES_FIRST_NUMERIC_TO_X.includes(drawnAs)) {
-        return defaults
-    }
-
-    const [first, ...rest] = columns
-    return { xAxis: first.name, yAxis: rest.map((column) => column.name) }
-}
-
-// A chart reads its columns out of chartSettings, and loading the saved query resets the axes to
-// whatever it carries. So a query saved as a table has to gain axes here, or the chart draws empty.
-export function withAxes(
-    query: DataVisualizationNode,
-    columns: Column[],
-    autoVisualizationType: ChartDisplayType
-): DataVisualizationNode {
-    const drawnAs = query.display ? resolveDisplayType(query.display, autoVisualizationType) : undefined
-    if (!drawnAs || CARD_SUPPORT[drawnAs] !== 'axes') {
-        return query
-    }
-
-    const { xAxis, yAxis } = axesFor(columns, drawnAs)
-    // Fill only the side the query is missing, so axes the user chose stay untouched.
-    const nextXAxis = query.chartSettings?.xAxis ?? (xAxis ? { column: xAxis } : undefined)
-    const keptYAxis = query.chartSettings?.yAxis?.length
-        ? query.chartSettings.yAxis
-        : yAxis.map((column) => ({ column }))
-    // The editor takes the promoted column back off the y series, so a column never plots against
-    // itself. Do the same here rather than keeping whatever the query carried.
-    const nextYAxis = keptYAxis.filter((series) => series.column !== nextXAxis?.column)
-
-    if (!nextXAxis || nextYAxis.length === 0) {
-        return query
-    }
-
-    const chartSettings = { ...query.chartSettings, xAxis: nextXAxis, yAxis: nextYAxis }
-
-    // A newly picked pie labels its slices in the editor. Without this it falls back to the legacy
-    // value-on-slice rendering, so the same pick would draw differently on the two surfaces.
-    if (drawnAs === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
-        chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
-    }
-
-    return { ...query, chartSettings }
-}
-
-// The one rule for what a card can switch a SQL insight to. It answers by running the save it would
-// perform, so an offered type is always one the card can complete.
+// The one rule for what a card can switch a SQL insight to. It answers by running the setup the save
+// would perform, so an offered type is always one the card can complete.
 export function cardVisualizationDisabledReason(
     displayType: ChartDisplayType,
     query: DataVisualizationNode,
     columns: Column[],
+    response: Record<string, any> | null,
     autoVisualizationType: ChartDisplayType
 ): string | undefined {
-    const drawnAs = resolveDisplayType(displayType, autoVisualizationType)
+    const drawnAs = displayType === ChartDisplayType.Auto ? autoVisualizationType : displayType
 
     if (CARD_SUPPORT[drawnAs] === 'manual') {
         return displayType === ChartDisplayType.Auto
@@ -136,7 +81,7 @@ export function cardVisualizationDisabledReason(
         return undefined
     }
 
-    const saved = withAxes({ ...query, display: displayType }, columns, autoVisualizationType)
+    const saved = applyVisualizationType(query, displayType, columns, response)
     if (saved.chartSettings?.xAxis && saved.chartSettings.yAxis?.length) {
         return undefined
     }
@@ -169,8 +114,8 @@ export function SqlVisualizationPicker({
 
     const disabledReasonFor = useCallback(
         (displayType: ChartDisplayType) =>
-            cardVisualizationDisabledReason(displayType, query, columns, autoVisualizationType),
-        [query, columns, autoVisualizationType]
+            cardVisualizationDisabledReason(displayType, query, columns, response, autoVisualizationType),
+        [query, columns, response, autoVisualizationType]
     )
     const options = useMemo(
         () => getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, disabledReasonFor),
@@ -196,7 +141,7 @@ export function SqlVisualizationPicker({
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             onChange={(value) => {
                 setPending(value)
-                persistDisplayOptions(withAxes({ ...query, display: value }, columns, autoVisualizationType))
+                persistDisplayOptions(applyVisualizationType(query, value, columns, response))
             }}
             options={options}
             dropdownMatchSelectWidth={false}

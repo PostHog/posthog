@@ -1,9 +1,10 @@
 import { columnsFromResponse, getAutoVisualizationType } from '~/queries/nodes/DataVisualization/columnUtils'
 import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Components/tableDisplayOptions'
+import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { cardVisualizationDisabledReason, withAxes } from './SqlVisualizationPicker'
+import { cardVisualizationDisabledReason } from './SqlVisualizationPicker'
 
 describe('SqlVisualizationPicker support rules', () => {
     const responses = {
@@ -66,7 +67,7 @@ describe('SqlVisualizationPicker support rules', () => {
             const numericalColumns = columns.filter((column) => column.type.isNumerical)
 
             const options = getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, (displayType) =>
-                cardVisualizationDisabledReason(displayType, baseQuery, columns, autoVisualizationType)
+                cardVisualizationDisabledReason(displayType, baseQuery, columns, response, autoVisualizationType)
             )
 
             const enabled = options
@@ -77,7 +78,7 @@ describe('SqlVisualizationPicker support rules', () => {
             expect(enabled.length).toBeGreaterThan(0)
 
             for (const displayType of enabled) {
-                const saved = withAxes({ ...baseQuery, display: displayType }, columns, autoVisualizationType)
+                const saved = applyVisualizationType(baseQuery, displayType, columns, response)
                 const resolved =
                     displayType === ChartDisplayType.Auto ? autoVisualizationType : (displayType as ChartDisplayType)
 
@@ -101,7 +102,7 @@ describe('SqlVisualizationPicker support rules', () => {
 
         expect(autoVisualizationType).toEqual(ChartDisplayType.TwoDimensionalHeatmap)
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.Auto, baseQuery, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(ChartDisplayType.Auto, baseQuery, columns, response, autoVisualizationType)
         ).toContain('Open the insight')
     })
 
@@ -117,17 +118,14 @@ describe('SqlVisualizationPicker support rules', () => {
                 ChartDisplayType.ActionsLineGraph,
                 baseQuery,
                 columns,
+                response,
                 autoVisualizationType
             )
         ).toBeUndefined()
 
-        const saved = withAxes(
-            { ...baseQuery, display: ChartDisplayType.ActionsLineGraph },
-            columns,
-            autoVisualizationType
-        )
+        const saved = applyVisualizationType(baseQuery, ChartDisplayType.ActionsLineGraph, columns, response)
         expect(saved.chartSettings?.xAxis?.column).toEqual('users')
-        expect(saved.chartSettings?.yAxis).toEqual([{ column: 'events' }])
+        expect(saved.chartSettings?.yAxis?.map((series) => series.column)).toEqual(['events'])
     })
 
     it('offers a chart type the insight already has axes for, even when the columns alone would not', () => {
@@ -140,10 +138,22 @@ describe('SqlVisualizationPicker support rules', () => {
         } as DataVisualizationNode
 
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.ActionsBar, baseQuery, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(
+                ChartDisplayType.ActionsBar,
+                baseQuery,
+                columns,
+                response,
+                autoVisualizationType
+            )
         ).toEqual('This insight has no numeric column to plot')
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.ActionsBar, alreadyAxed, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(
+                ChartDisplayType.ActionsBar,
+                alreadyAxed,
+                columns,
+                response,
+                autoVisualizationType
+            )
         ).toBeUndefined()
     })
 
@@ -153,10 +163,22 @@ describe('SqlVisualizationPicker support rules', () => {
         const autoVisualizationType = getAutoVisualizationType(columns, response)
 
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.ActionsTable, baseQuery, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(
+                ChartDisplayType.ActionsTable,
+                baseQuery,
+                columns,
+                response,
+                autoVisualizationType
+            )
         ).toBeUndefined()
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.BoldNumber, baseQuery, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(
+                ChartDisplayType.BoldNumber,
+                baseQuery,
+                columns,
+                response,
+                autoVisualizationType
+            )
         ).toBeUndefined()
     })
 
@@ -166,17 +188,16 @@ describe('SqlVisualizationPicker support rules', () => {
     it('does not leave the promoted x column on the y axis', () => {
         const response = responses['all numeric, which the editor plots by promoting the first column to the x axis']
         const columns = columnsFromResponse(response)
-        const autoVisualizationType = getAutoVisualizationType(columns, response)
         const alreadyPlotted = {
             ...baseQuery,
             display: ChartDisplayType.ActionsLineGraph,
             chartSettings: { yAxis: [{ column: 'users' }, { column: 'events' }] },
         } as DataVisualizationNode
 
-        const saved = withAxes(alreadyPlotted, columns, autoVisualizationType)
+        const saved = applyVisualizationType(alreadyPlotted, ChartDisplayType.ActionsLineGraph, columns, response)
 
         expect(saved.chartSettings?.xAxis?.column).toEqual('users')
-        expect(saved.chartSettings?.yAxis).toEqual([{ column: 'events' }])
+        expect(saved.chartSettings?.yAxis?.map((series) => series.column)).toEqual(['events'])
     })
 
     // The editor labels the slices of a newly picked pie. Without it the card's pie falls back to
@@ -184,9 +205,8 @@ describe('SqlVisualizationPicker support rules', () => {
     it('labels the slices of a newly picked pie, as the editor does', () => {
         const response = responses['date and numeric']
         const columns = columnsFromResponse(response)
-        const autoVisualizationType = getAutoVisualizationType(columns, response)
 
-        const saved = withAxes({ ...baseQuery, display: ChartDisplayType.ActionsPie }, columns, autoVisualizationType)
+        const saved = applyVisualizationType(baseQuery, ChartDisplayType.ActionsPie, columns, response)
 
         expect(saved.chartSettings?.pie?.sliceContent).toEqual('labels')
     })
@@ -194,14 +214,13 @@ describe('SqlVisualizationPicker support rules', () => {
     it('leaves the slice style of a pie the insight already has', () => {
         const response = responses['date and numeric']
         const columns = columnsFromResponse(response)
-        const autoVisualizationType = getAutoVisualizationType(columns, response)
         const existingPie = {
             ...baseQuery,
             display: ChartDisplayType.ActionsPie,
             chartSettings: { pie: { sliceContent: 'value' } },
         } as unknown as DataVisualizationNode
 
-        const saved = withAxes(existingPie, columns, autoVisualizationType)
+        const saved = applyVisualizationType(existingPie, ChartDisplayType.ActionsPie, columns, response)
 
         expect(saved.chartSettings?.pie?.sliceContent).toEqual('value')
     })

@@ -61,6 +61,11 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { columnsFromResponse, deriveDefaultAxes, getAutoVisualizationType } from './columnUtils'
 import { Column, ColumnScalar, FORMATTING_TEMPLATES } from './types'
+import {
+    getHeatmapAutoSettings,
+    resolveScatterXAxisColumn,
+    shouldPromoteFirstNumericToX,
+} from './visualizationTypeSetup'
 
 export enum SideBarTab {
     Series = 'series',
@@ -220,27 +225,6 @@ export const convertTableValue = (
     return value
 }
 
-const getHeatmapAutoSettings = (columns: Column[], heatmapSettings: HeatmapSettings): Partial<HeatmapSettings> => {
-    const stringColumns = columns.filter((column) => column.type.name === 'STRING')
-    const numericalColumns = columns.filter((column) => column.type.isNumerical)
-
-    const nextSettings: Partial<HeatmapSettings> = {}
-
-    if (!heatmapSettings.xAxisColumn && stringColumns[0]) {
-        nextSettings.xAxisColumn = stringColumns[0].name
-    }
-
-    if (!heatmapSettings.yAxisColumn && stringColumns[1]) {
-        nextSettings.yAxisColumn = stringColumns[1].name
-    }
-
-    if (!heatmapSettings.valueColumn && numericalColumns[0]) {
-        nextSettings.valueColumn = numericalColumns[0].name
-    }
-
-    return nextSettings
-}
-
 const applyAutoHeatmapSettings = (
     actions: { updateChartSettings: (settings: ChartSettings) => void },
     columns: Column[],
@@ -309,55 +293,21 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
     }
 }
 
+const selectedYAxisNames = (selectedYAxis: (SelectedYAxis | null)[] | null): string[] =>
+    (selectedYAxis ?? []).map((series) => series?.name).filter((name): name is string => !!name)
+
 const shouldUseFirstNumericColumnAsContinuousChartXAxis = (
     columns: Column[],
     numericalColumns: Column[],
     selectedXAxis: string | null,
     selectedYAxis: (SelectedYAxis | null)[] | null
 ): boolean => {
-    if (selectedXAxis !== null || columns.length < 2 || numericalColumns.length < 2) {
+    // A null entry in selectedYAxis is a series the user has not picked a column for yet, and the
+    // shared rule counts columns, so an unfilled row has to keep its place in the count.
+    if (selectedYAxis && selectedYAxis.length !== selectedYAxisNames(selectedYAxis).length) {
         return false
     }
-
-    if (!columns.every((column) => column.type.isNumerical)) {
-        return false
-    }
-
-    if (!selectedYAxis || selectedYAxis.length !== numericalColumns.length) {
-        return false
-    }
-
-    const selectedYAxisNames = new Set(selectedYAxis.map((series) => series?.name))
-
-    return numericalColumns.every((column) => selectedYAxisNames.has(column.name))
-}
-
-/**
- * A scatter plots two measures against each other, so its x axis has to hold a numeric column.
- * Returns the column that should sit on the x axis: the current one when it's already numeric,
- * otherwise a numeric column to move there, preferring one that isn't already a y-series so the
- * chart isn't left with nothing on either axis. Returns null only when a scatter can't be plotted
- * (fewer than two numeric columns). The caller drops the chosen column from the y-series if it's
- * also there, so a column never plots against itself.
- */
-const resolveScatterXAxisColumn = (
-    columns: Column[],
-    numericalColumns: Column[],
-    selectedXAxis: string | null,
-    selectedYAxis: (SelectedYAxis | null)[] | null
-): Column | null => {
-    // Two numeric columns at minimum — taking the only one for the x axis leaves nothing to plot.
-    if (numericalColumns.length < 2) {
-        return null
-    }
-
-    const currentXAxis = columns.find((column) => column.name === selectedXAxis)
-    if (currentXAxis?.type.isNumerical) {
-        return currentXAxis
-    }
-
-    const selectedYAxisNames = new Set((selectedYAxis ?? []).map((series) => series?.name))
-    return numericalColumns.find((column) => !selectedYAxisNames.has(column.name)) ?? numericalColumns[0]
+    return shouldPromoteFirstNumericToX(columns, numericalColumns, selectedXAxis, selectedYAxisNames(selectedYAxis))
 }
 
 /**
@@ -376,7 +326,12 @@ const applyScatterXAxis = (
     selectedYAxis: (SelectedYAxis | null)[] | null
 ): void => {
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
-    const xAxisColumn = resolveScatterXAxisColumn(columns, numericalColumns, selectedXAxis, selectedYAxis)
+    const xAxisColumn = resolveScatterXAxisColumn(
+        columns,
+        numericalColumns,
+        selectedXAxis,
+        selectedYAxisNames(selectedYAxis)
+    )
     if (!xAxisColumn) {
         return
     }

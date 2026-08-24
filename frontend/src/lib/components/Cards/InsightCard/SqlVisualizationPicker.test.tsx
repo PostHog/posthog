@@ -46,11 +46,10 @@ describe('SqlVisualizationPicker', () => {
         await openPicker(container)
         await pick('Line chart')
 
-        expect(persistDisplayOptions).toHaveBeenCalledWith({
-            ...query,
-            display: ChartDisplayType.ActionsLineGraph,
-            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'total' }] },
-        })
+        const saved = persistDisplayOptions.mock.calls[0][0]
+        expect(saved.display).toEqual(ChartDisplayType.ActionsLineGraph)
+        expect(saved.chartSettings.xAxis).toEqual({ column: 'day' })
+        expect(saved.chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
     })
 
     // Auto is the first option and resolves to a real chart, so it needs axes like the type it
@@ -64,11 +63,10 @@ describe('SqlVisualizationPicker', () => {
         await openPicker(container)
         await pick('Auto (Line chart)')
 
-        expect(persistDisplayOptions).toHaveBeenCalledWith({
-            ...query,
-            display: ChartDisplayType.Auto,
-            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'total' }] },
-        })
+        const saved = persistDisplayOptions.mock.calls[0][0]
+        expect(saved.display).toEqual(ChartDisplayType.Auto)
+        expect(saved.chartSettings.xAxis).toEqual({ column: 'day' })
+        expect(saved.chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
     })
 
     it('keeps axes the insight already has', async () => {
