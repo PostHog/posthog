@@ -14,7 +14,7 @@ import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
-import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
+import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -511,6 +511,24 @@ const AgentRow = memo(function AgentRow({
     )
 })
 
+/**
+ * Heading for one group of sources. Styled like the section headers on the report list so the split
+ * between PostHog products and connected tools reads as two sections, not as two more rows.
+ */
+function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-secondary">
+                    {group.label}
+                </span>
+                <div className="h-px flex-1 bg-border-primary" />
+            </div>
+            <span className="text-xs text-tertiary">{group.description}</span>
+        </div>
+    )
+}
+
 export function AgentsRoster(): JSX.Element {
     const {
         conversationsConfig,
@@ -772,8 +790,8 @@ export function AgentsRoster(): JSX.Element {
             </div>
 
             {visibleGroups.map((group) => (
-                <div key={group.label} className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-muted">{group.label}</span>
+                <div key={group.label} className="flex flex-col gap-2 pt-2">
+                    <AgentRosterGroupHeader group={group} />
                     <div className="-mx-2 divide-y divide-primary">
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
@@ -847,8 +865,8 @@ export function AgentsRosterSkeleton(): JSX.Element {
         <div className="flex flex-col gap-3">
             <LemonSkeleton className="h-3 w-48" />
             {AGENT_ROSTER_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-1">
-                    <LemonSkeleton className="h-3 w-24" />
+                <div key={group.label} className="flex flex-col gap-2 pt-2">
+                    <AgentRosterGroupHeader group={group} />
                     <div className="-mx-2 divide-y divide-primary">
                         {group.agents.map((agent) => (
                             <AgentRowSkeleton key={agent.source} />
