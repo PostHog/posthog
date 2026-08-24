@@ -108,13 +108,13 @@ class TestDesktopAccessResolver:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("status_code", [401, 403])
-    async def test_credential_rejection_is_cached(self, status_code: int) -> None:
+    async def test_credential_rejection_is_cached_as_denial(self, status_code: int) -> None:
         settings = get_settings()
         redis = _FakeRedis()
         http = _make_http_client(_make_response(status_code))
         resolver = _make_resolver(redis, http)
 
-        expected = DesktopAccessDecision(status="unavailable")
+        expected = DesktopAccessDecision(status="blocked")
         assert await resolver.resolve_access(7, 42, "Bearer restricted") == expected
         assert await resolver.resolve_access(7, 42, "Bearer restricted") == expected
 
@@ -138,7 +138,7 @@ class TestDesktopAccessResolver:
         assert (await resolver.resolve_access(7, 42, "Bearer unrestricted")).allowed is True
         assert (await resolver.resolve_access(7, 43, "Bearer unrestricted")).allowed is True
         assert (await resolver.resolve_access(8, 42, "Bearer unrestricted")).allowed is True
-        assert (await resolver.resolve_access(7, 42, "Bearer restricted")).resolution_failed is True
+        assert (await resolver.resolve_access(7, 42, "Bearer restricted")).allowed is False
 
         assert http.get.await_count == 4
         assert len(redis.store) == 4

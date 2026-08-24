@@ -64,7 +64,7 @@ class DesktopAccessResolver:
             decision = await self._fetch_access(team_id, auth_header)
         except _CredentialRejectedError:
             logger.warning("desktop_access_credential_rejected", user_id=user_id, team_id=team_id)
-            decision = DesktopAccessDecision(status="unavailable")
+            decision = DesktopAccessDecision(status="blocked")
             await self._set_cached(
                 user_id,
                 team_id,

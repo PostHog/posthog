@@ -45,6 +45,8 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 | OpenAI models through Anthropic Messages                                                          | Go does not provide this reverse translation.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Python product usage status                                                                       | The Python product usage and quota API is different from Go request usage and wallet APIs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
+For PostHog Desktop, the Python gateway maps Django credential rejections to generic access denials. Transport, server, and malformed-response failures remain retryable service errors.
+
 ### 🔎 Verify before switching
 
 These are compatibility checks, not automatic blockers:
@@ -91,7 +93,7 @@ Run `/auditing-llm-gateway-parity` after either gateway changes auth, attributio
 
 Last verified on 2026-08-24 against:
 
-- `PostHog/posthog` working tree based on master at `64a168b617f22bbf14d31d08a7cebfd7fd789fb0`
+- `PostHog/posthog` working tree compared with master at `e579a630700a93bc6a325758015c5e1227f05267`
 - `PostHog/ai-gateway` main at `9a9826ea448b3f5fcddeb8bc09ef187963a93902`
 
 ## References
