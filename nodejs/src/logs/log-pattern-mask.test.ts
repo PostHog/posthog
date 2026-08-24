@@ -113,6 +113,14 @@ describe('log-pattern-mask', () => {
                 const expected = `<JSON:${keys.slice(0, 32).join(',')},+8>`
                 expect(patternOf(forward)).toEqual(expected)
                 expect(patternOf(reversed)).toEqual(expected)
+                // The key-count metric sees the uncapped count.
+                expect(computeLogPattern(forward, NO_CAP, NO_CAP).jsonKeyCount).toEqual(40)
+            })
+
+            it('reports the key count only for key-set patterns', () => {
+                expect(computeLogPattern('{"a":1}', NO_CAP, NO_CAP).jsonKeyCount).toEqual(1)
+                expect(computeLogPattern('[1,2]', NO_CAP, NO_CAP).jsonKeyCount).toBeUndefined()
+                expect(computeLogPattern('{"message":"hi"}', NO_CAP, NO_CAP).jsonKeyCount).toBeUndefined()
             })
 
             it('renders an empty object as an empty key set', () => {

@@ -84,6 +84,8 @@ export type LogPatternResult = {
     inputCapped: boolean
     /** Masked length before truncation. */
     maskedLength: number
+    /** Top-level key count when the pattern is a key-set identity; absent otherwise. */
+    jsonKeyCount?: number
     ruleFires: number[]
 }
 
@@ -144,12 +146,14 @@ export function computeLogPattern(
         case 'json_object_or_array': {
             const message = extractJsonMessage(parsed.value)
             if (message === null) {
-                const pattern = Array.isArray(parsed.value) ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
+                const isArray = Array.isArray(parsed.value)
+                const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
                 return {
                     pattern: pattern.length > maxOutputChars ? pattern.slice(0, maxOutputChars) : pattern,
                     bodyKind,
                     inputCapped,
                     maskedLength: pattern.length,
+                    ...(isArray ? {} : { jsonKeyCount: Object.keys(parsed.value).length }),
                     ruleFires: [],
                 }
             }

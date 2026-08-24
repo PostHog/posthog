@@ -24,6 +24,12 @@ export const logsPatternMaskedLengthHistogram = new Histogram({
     buckets: [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
 })
 
+export const logsPatternKeySetKeysHistogram = new Histogram({
+    name: 'logs_ingestion_pattern_keyset_keys',
+    help: 'Top-level key count of message-less JSON objects. Everything above the 32 bucket was capped; validates the key-set cap from data.',
+    buckets: [1, 2, 4, 8, 16, 24, 32, 48, 64, 128],
+})
+
 export const logsPatternMaskingDurationHistogram = new Histogram({
     name: 'logs_ingestion_pattern_masking_duration_seconds',
     help: 'Per-record pattern masking duration.',
@@ -86,6 +92,9 @@ function measureBatch(records: LogRecord[], inputCap: number, outputCap: number)
         logsPatternMaskingDurationHistogram.observe((performance.now() - start) / 1000)
 
         logsPatternMaskedLengthHistogram.observe(result.maskedLength)
+        if (result.jsonKeyCount !== undefined) {
+            logsPatternKeySetKeysHistogram.observe(result.jsonKeyCount)
+        }
         kindCounts.set(result.bodyKind, (kindCounts.get(result.bodyKind) ?? 0) + 1)
         for (let i = 0; i < result.ruleFires.length; i++) {
             ruleFires[i] += result.ruleFires[i]
