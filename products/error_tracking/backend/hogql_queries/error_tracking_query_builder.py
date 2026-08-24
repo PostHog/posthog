@@ -295,9 +295,8 @@ class ErrorTrackingQueryBuilder:
                     ),
                 )
             )
-            # Same HLL tradeoff as `sessions`. Input semantics preserved
-            # (resolved person_id with distinct_id fallback) so the user
-            # population is unchanged — only the counting algorithm changed.
+            # Same HLL tradeoff as `sessions`. Use the raw event person id so
+            # counting users never requires the person override join.
             exprs.append(
                 ast.Alias(
                     alias="users_state",
@@ -311,7 +310,10 @@ class ErrorTrackingQueryBuilder:
                                         ast.Call(
                                             name="nullIf",
                                             args=[
-                                                ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
+                                                ast.Call(
+                                                    name="toString",
+                                                    args=[ast.Field(chain=["e", "event_person_id"])],
+                                                ),
                                                 ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                             ],
                                         ),
@@ -587,7 +589,10 @@ class ErrorTrackingQueryBuilder:
                                     ast.Call(
                                         name="nullIf",
                                         args=[
-                                            ast.Call(name="toString", args=[ast.Field(chain=["e", "person_id"])]),
+                                            ast.Call(
+                                                name="toString",
+                                                args=[ast.Field(chain=["e", "event_person_id"])],
+                                            ),
                                             ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                         ],
                                     ),

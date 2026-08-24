@@ -12,7 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -90,21 +90,18 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
 
-    def test_bundles_the_extended_platform_libraries(self) -> None:
-        source = """
-import { useVirtualizer } from "@tanstack/react-virtual"
-import { useForm } from "react-hook-form"
-import { groupBy } from "lodash-es"
-import ReactMarkdown from "react-markdown"
-import Papa from "papaparse"
-void useVirtualizer
-void useForm
-void groupBy
-void ReactMarkdown
-void Papa
-"""
+    def test_bundles_every_allowlisted_platform_library(self) -> None:
+        # Transitive versions are not pinned, so a caret range can drift onto a
+        # dependency that dropped an export and break every canvas importing the
+        # library, while source validation still passes because the specifier is
+        # allowlisted. Namespace imports keep the whole module graph reachable,
+        # so a missing deep export fails here instead of in a user's publish.
+        imports: list[str] = []
+        for index, specifier in enumerate(sorted(allowed_import_specifiers())):
+            imports.append(f'import * as library{index} from "{specifier}"')
+            imports.append(f"void library{index}")
 
-        project = self._project(source)
+        project = self._project("\n".join(imports))
         project["dependencies"] = platform_dependencies()
         result = run_cloud_builder(project)
 
