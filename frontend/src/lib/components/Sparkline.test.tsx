@@ -33,32 +33,16 @@ function renderSparkline(props: SparklineProps): void {
     render(<Sparkline {...props} />)
 }
 
-// Quill charts label their main canvas for a11y and add an aria-hidden hover-overlay canvas;
-// the legacy Chart.js canvas carries neither attribute.
+// Quill's data canvas is the labeled one; its hover overlay is aria-hidden.
 const quillCanvas = (): Element | null => document.querySelector('canvas[aria-label]')
-const legacyCanvas = (): Element | null => document.querySelector('canvas:not([aria-label]):not([aria-hidden])')
 
 const DATA = [10, 5, 3, 30]
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu']
 
 describe('Sparkline', () => {
-    it('renders via quill when only simple props are used', () => {
+    it('renders a quill chart', () => {
         renderSparkline({ data: DATA, labels: LABELS })
         expect(quillCanvas()).toBeTruthy()
-        expect(legacyCanvas()).toBeNull()
-    })
-
-    it.each<{ feature: string; props: Partial<SparklineProps> }>([
-        { feature: 'onSelectionChange', props: { onSelectionChange: () => {} } },
-        { feature: 'highlightedRange', props: { highlightedRange: { xMin: 'Mon', xMax: 'Tue' } } },
-        { feature: 'incompleteBars', props: { incompleteBars: { indices: [3] } } },
-        { feature: 'referenceLines', props: { referenceLines: [{ value: 20 }] } },
-        { feature: 'withXScale', props: { withXScale: (x) => x } },
-        { feature: 'withYScale', props: { withYScale: (y) => y } },
-    ])('keeps Chart.js when $feature is passed', ({ props }) => {
-        renderSparkline({ data: DATA, labels: LABELS, ...props })
-        expect(legacyCanvas()).toBeTruthy()
-        expect(quillCanvas()).toBeNull()
     })
 
     it.each<{ shape: string; data: SparklineProps['data']; seriesCount: number }>([
@@ -77,8 +61,7 @@ describe('Sparkline', () => {
     })
 
     it('wires tooltip formatting and zero-row filtering through to the quill tooltip', async () => {
-        // Line type: bar charts hit-test the cursor against filled segments before showing a
-        // tooltip, while lines surface all series — and the tooltip wiring under test is shared.
+        // Bar tooltips need the cursor inside a filled segment, so hover a line chart instead.
         renderSparkline({
             data: [
                 { name: 'volume', values: [10, 0, 3, 30] },
@@ -96,7 +79,7 @@ describe('Sparkline', () => {
         // The portal mounts before its content commits, so poll until the header lands.
         await waitFor(() => expect(tooltip.label()).toBe('Day: Wed'))
         expect(tooltip.value('volume')).toBe('$3.00')
-        expect(tooltip.rows()).toEqual(['volume']) // the zero 'errors' row is hidden
+        expect(tooltip.rows()).toEqual(['volume'])
     })
 
     it('shows a skeleton instead of a chart while loading', () => {
