@@ -25,6 +25,16 @@ class TestLinearIntegrationModel(BaseTest):
             with self.assertRaises(ValidationError):
                 linear.search_issues("boom")
 
+    def test_search_issues_lists_recent_issues_for_blank_query(self):
+        # searchIssues requires a term, so a blank picker query must use the plain issues
+        # listing instead of silently returning nothing.
+        linear = LinearIntegration(self.create_integration())
+        body = {"data": {"issues": {"nodes": [{"identifier": "ENG-7", "title": "Recent", "url": "https://l/7"}]}}}
+        with patch.object(linear, "query", return_value=body) as mock_query:
+            results = linear.search_issues("   ")
+        assert [result["id"] for result in results] == ["ENG-7"]
+        assert "searchIssues" not in mock_query.call_args.args[0]
+
     @parameterized.expand(
         [
             ("top_level_errors", {"errors": [{"message": "forbidden"}]}),
