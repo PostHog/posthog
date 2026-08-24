@@ -21,7 +21,7 @@ import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic
 import { issueFilterPreviewLogic, IssueFilterPreview } from './components/IssueFilterPreview/issueFilterPreviewLogic'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ISSUE_ID = 'issue-id'
+const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
 const FINGERPRINT = String(TEST_EVENTS.javascript_resolved.properties.$exception_fingerprint)
 const STORY_FINGERPRINTS = [FINGERPRINT, ...Array.from({ length: 11 }, (_, index) => `story-fingerprint-${index + 1}`)]
 const STORY_FINGERPRINT_PROJECTION_RESPONSE = {
@@ -319,7 +319,9 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const ListPage: Story = {}
+export const ListPage: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES] },
+}
 
 // An unresolved source maps recommendation renders the wizard banner above the
 // issue list without the sticky filters bar overlapping its bottom edge
@@ -435,7 +437,10 @@ export const ListPageWithIngestionWarning: Story = {
 }
 export const GroupPage: Story = {
     name: 'Issue scene',
-    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_SEVERITY_RULES],
+    },
 }
 
 export const GroupPageContentSizedBreakdownPanel: Story = {

@@ -71,6 +71,7 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
+import { WorkerIngestServer } from '../ingestion/api/grpc-server'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
@@ -98,6 +99,7 @@ import {
     RedisPool,
 } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
+import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
@@ -211,20 +213,21 @@ export class IngestionApiServer implements NodeServer {
     // (moved to caller-side production so create and flush share one path).
     private ingestionOutputs?: FlushBatchStoresOutputs
 
-    private joinedPipeline!: ReturnType<
+    private httpPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
     >
+    private grpcServer?: WorkerIngestServer
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
     private topHog!: TopHog
     // Set in startServices when INGESTION_API_FEED_ORDER_SENTINEL_ENABLED.
     private feedOrderSentinel?: FeedOrderSentinel
 
-    // Latched on the first unexpected pipeline error. The joinedPipeline is a
-    // single long-lived instance shared across all requests; a throw can leave
-    // it permanently poisoned (e.g. a group exhausted retries), so we mirror the
-    // Kafka consumer's contract of crashing and rebuilding rather than serving a
-    // wedged pipeline forever.
+    // Latched on the first unexpected pipeline error. The pipeline is a single
+    // long-lived instance shared across all requests; a throw can leave it
+    // permanently poisoned (e.g. a group exhausted retries), so we mirror the
+    // Kafka consumer's contract of crashing and rebuilding rather than serving
+    // a wedged pipeline forever.
     private fatalError?: Error
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
@@ -503,15 +506,49 @@ export class IngestionApiServer implements NodeServer {
             groupTypeManager,
             topHog: this.topHog,
         }
-        this.joinedPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
-
-        // 8. Register the ingest endpoint and service
+        // 8. Register the ingest transports. HTTP always serves; gRPC is
+        // additive behind its flag, so consumers can migrate gradually.
         if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
             this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
         }
+        this.httpPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
         this.lifecycle.expressApp.post('/ingest', async (req, res) => {
             await this.handleIngestRequest(req, res)
         })
+        if (this.config.INGESTION_API_GRPC_ENABLED) {
+            // Own pipeline instance: sharing httpPipeline would let an HTTP
+            // handler's next() consume a gRPC batch's completion (and its ack).
+            const grpcPipeline = createJoinedIngestionPipeline<
+                JoinedIngestionPipelineInput,
+                JoinedIngestionPipelineContext,
+                GrpcBatchContext
+            >(joinedPipelineConfig, joinedPipelineDeps)
+            this.grpcServer = new WorkerIngestServer(
+                {
+                    port: this.config.INGESTION_API_GRPC_PORT,
+                    maxConcurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+                    maxStreams: this.config.INGESTION_API_GRPC_MAX_STREAMS,
+                    maxSessions: this.config.INGESTION_API_GRPC_MAX_SESSIONS,
+                    maxStreamsPerSession: this.config.INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION,
+                    sessionMemoryMb: this.config.INGESTION_API_GRPC_SESSION_MEMORY_MB,
+                    sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
+                    readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
+                    drainTimeoutMs: this.config.INGESTION_API_GRPC_DRAIN_TIMEOUT_MS,
+                },
+                {
+                    driver: new GrpcStreamIngestDriver(grpcPipeline, this.promiseScheduler),
+                    feedOrderSentinel: this.feedOrderSentinel,
+                    onFatal: (error) => {
+                        // Same crash-and-rebuild contract as the HTTP path.
+                        if (!this.fatalError) {
+                            this.fatalError = error
+                            void this.stop(error)
+                        }
+                    },
+                }
+            )
+            await this.grpcServer.start()
+        }
 
         const service: PluginServerService = {
             id: 'ingestion-api',
@@ -557,7 +594,7 @@ export class IngestionApiServer implements NodeServer {
             // stage processes each key in feed order, so this measures the
             // "processed in order per distinct_id" invariant.
             this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
-            const feedResult = await this.joinedPipeline.feed(batch)
+            const feedResult = await this.httpPipeline.feed(batch, {})
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
                 // behavior — the Rust consumer holds a per-worker Semaphore
@@ -594,9 +631,9 @@ export class IngestionApiServer implements NodeServer {
             // The pipeline handles its own side effects (scheduling them on
             // the promise scheduler), so draining results is all that's left
             // to do.
-            let result = await this.joinedPipeline.next()
+            let result = await this.httpPipeline.next()
             while (result !== null) {
-                result = await this.joinedPipeline.next()
+                result = await this.httpPipeline.next()
             }
 
             // Wait for all side effects — the HTTP response is the ACK to the
@@ -652,6 +689,9 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
+                // Stop accepting stream traffic before draining stores, so no
+                // new batches land mid-teardown.
+                await this.grpcServer?.stop()
                 // No Kafka offsets in this server — drain buffered writes before
                 // shutdown so shutdown() can assert a clean cache.
                 if (this.personsStore) {

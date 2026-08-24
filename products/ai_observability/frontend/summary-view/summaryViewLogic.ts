@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 
 import { ApiError, isTransientServerError } from 'lib/api-error'
-import { dayjs } from 'lib/dayjs'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,6 +10,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { EnrichedTraceTreeNode } from '../aiObservabilityTraceDataLogic'
 import { llmAnalyticsSummarizationCreate } from '../generated/api'
 import type { StructuredSummaryApi, SummarizeRequestApi, SummarizeResponseApi } from '../generated/api.schemas'
+import { getSummarizationLookupDateRange } from '../utils'
 
 export type SummaryMode = NonNullable<SummarizeRequestApi['mode']>
 
@@ -103,21 +103,6 @@ export type summaryViewLogicType = MakeLogicType<
     SummaryViewLogicProps,
     summaryViewLogicMeta
 >
-
-/**
- * Days either side of the entity's own timestamp to search for it, instead of the endpoint's 30-day
- * default. Narrow keeps the lookup off traces that reuse a customer-supplied ID, and a single trace
- * rarely spans longer than this.
- */
-const LOOKUP_WINDOW_DAYS = 1
-
-function lookupWindow(createdAt: string): Pick<SummarizeRequestApi, 'date_from' | 'date_to'> {
-    const timestamp = dayjs(createdAt)
-    return {
-        date_from: timestamp.subtract(LOOKUP_WINDOW_DAYS, 'day').toISOString(),
-        date_to: timestamp.add(LOOKUP_WINDOW_DAYS, 'day').toISOString(),
-    }
-}
 
 const GENERIC_SUMMARY_ERROR = "Couldn't generate a summary. Try again, and if it keeps happening contact support."
 
@@ -258,7 +243,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                     mode,
                     force_refresh: forceRefresh,
                     ...(props.trace ? { trace_id: entity.id } : { generation_id: entity.id }),
-                    ...lookupWindow(entity.createdAt),
+                    ...getSummarizationLookupDateRange(entity.createdAt),
                 }
 
                 const data = await llmAnalyticsSummarizationCreate(String(teamId), request).catch((error: unknown) => {

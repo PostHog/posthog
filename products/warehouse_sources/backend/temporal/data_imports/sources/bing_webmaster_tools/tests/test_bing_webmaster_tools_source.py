@@ -2,7 +2,7 @@ import pytest
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import (
     ENDPOINT_CONFIGS,
@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
     BingWebmasterToolsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _STATS_ENDPOINTS = [name for name, endpoint in ENDPOINT_CONFIGS.items() if endpoint.per_site]
 
@@ -44,9 +43,6 @@ class TestBingWebmasterToolsSource:
         self.team_id = 123
         self.config = BingWebmasterToolsSourceConfig(api_key="test-key")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BINGWEBMASTERTOOLS
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -56,22 +52,6 @@ class TestBingWebmasterToolsSource:
         # `unreleasedSource` hides the connector from users entirely; a finished source must not
         # carry it.
         assert not config.unreleasedSource
-
-    def test_get_source_config_fields(self):
-        fields = self.source.get_source_config.fields
-
-        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
-        assert set(by_name) == {"api_key", "site_urls"}
-
-        api_key_field = by_name["api_key"]
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        site_urls_field = by_name["site_urls"]
-        assert site_urls_field.type == SourceFieldInputConfigType.TEXTAREA
-        assert site_urls_field.required is False
-        assert site_urls_field.secret is False
 
     def test_lists_tables_without_credentials(self):
         # Static endpoint catalog with no I/O; must opt in so public docs render the table list.

@@ -3,12 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   channelsLayout: true,
+  /** With tabs on, ⌘1-9 switches tabs and this component yields the keys. */
+  spacesTabs: false,
   slots: [] as { id: string; name: string; path: string }[],
   navigateToChannel: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
+}));
+vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+  useSpacesTabs: () => mocks.spacesTabs,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useStarredChannelSlots", () => ({
   useStarredChannelSlots: () => ({
@@ -40,6 +45,7 @@ function press(digit: string, modifiers: Partial<KeyboardEventInit> = {}) {
 describe("ChannelHotkeys", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.spacesTabs = false;
     mocks.channelsLayout = true;
     mocks.slots = [
       { id: "me-id", name: "me", path: "/me" },
@@ -84,6 +90,16 @@ describe("ChannelHotkeys", () => {
     mocks.slots = [{ id: "me-id", name: "me", path: "/me" }];
     render(<ChannelHotkeys />);
     press("5", { metaKey: true });
+    expect(mocks.navigateToChannel).not.toHaveBeenCalled();
+  });
+
+  it("yields the keys to the tab strip when tabs are on", () => {
+    mocks.spacesTabs = true;
+    mocks.slots = [{ id: "personal", name: "me", path: "/spaces/personal" }];
+    render(<ChannelHotkeys />);
+
+    press("1");
+
     expect(mocks.navigateToChannel).not.toHaveBeenCalled();
   });
 
