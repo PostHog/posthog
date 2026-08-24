@@ -152,6 +152,8 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                 overflowMode,
                 preservePartitionLocality,
+                // createFetchPersonChunkStep below only reads persons.
+                pipelineWritesPersons: false,
             })
         )
         // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -236,7 +238,7 @@ export async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, 
     const batch = createBatch(messages.map((message) => ({ message })))
     // The consumer drains each batch fully before feeding the next and the hooks
     // always succeed, so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch)
+    const feedResult = await pipeline.feed(batch, {})
     if (!feedResult.ok) {
         throw new Error(`error tracking pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
     }

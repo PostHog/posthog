@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-20 10:08:39 UTC
+// Generated at: 2026-08-24 10:14:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -53,6 +53,7 @@ export type CanonicalProvider =
     | 'crusoe-bf16'
     | 'crusoe-fp8'
     | 'darkbloom'
+    | 'darkbloom-fp4'
     | 'decart-fp4'
     | 'deepinfra'
     | 'deepinfra-base'
@@ -70,6 +71,7 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
+    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -160,7 +162,6 @@ export type CanonicalProvider =
     | 'relace-fp8'
     | 'sail-research-fp4'
     | 'sail-research-fp8'
-    | 'sail-research-int4'
     | 'sakana'
     | 'sambanova'
     | 'sambanova-fp8'
@@ -169,10 +170,12 @@ export type CanonicalProvider =
     | 'siliconflow'
     | 'siliconflow-fp8'
     | 'siliconflow-int4'
+    | 'stealth'
     | 'stepfun-fp8'
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
+    | 'thinkingmachines-nvfp4'
     | 'together'
     | 'upstage'
     | 'venice'

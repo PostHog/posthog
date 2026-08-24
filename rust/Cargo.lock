@@ -2235,12 +2235,14 @@ dependencies = [
  "limiters",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prometheus-rw-proto",
  "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
  "serde_json",
  "siphasher 1.0.2",
+ "snap",
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
@@ -3380,6 +3382,7 @@ dependencies = [
  "proguard",
  "rand 0.8.5",
  "rdkafka",
+ "redis",
  "regex",
  "reqwest 0.12.28",
  "rustls 0.23.37",
@@ -6058,6 +6061,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ingestion-worker-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8577,6 +8589,7 @@ dependencies = [
  "axum 0.7.9",
  "bytes",
  "common-alloc",
+ "common-metrics",
  "dashmap 6.1.0",
  "envconfig",
  "flate2",
@@ -8963,7 +8976,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8975,6 +8988,7 @@ dependencies = [
  "libdeflater",
  "lz4",
  "memchr",
+ "percent-encoding",
  "public-suffix",
  "serde",
  "serde_json",
@@ -8986,9 +9000,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c087af2df10d14fbb44f303298896bb40d751831ed72ed69a560c75fa175c4"
+checksum = "e86860dfb7b437630469c51102c078b34b6c6c90eefb889256ee46f70198796f"
 dependencies = [
  "backtrace",
  "brotli",
@@ -9191,6 +9205,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus-rw-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
 name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
@@ -9200,6 +9222,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-database",
  "common-kafka",
  "common-metrics",
  "envconfig",

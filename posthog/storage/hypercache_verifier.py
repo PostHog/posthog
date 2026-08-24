@@ -95,7 +95,7 @@ def _fetch_team_batch(base_qs: QuerySet[Team], last_id: int, chunk_size: int) ->
         ) from e
 
 
-@dataclass
+@dataclass(frozen=False)
 class VerificationResult:
     """Result of verifying all teams' caches."""
 
@@ -110,6 +110,10 @@ class VerificationResult:
     skipped_team_ids: list[int] = field(default_factory=list)
     # Per-run logging cap state, not a verification outcome.
     fix_detail_info_logs_emitted: int = 0
+    # True when the sweep hit its monotonic deadline and wound down before
+    # covering every team, so the caller can record the wind-down. Per-run state,
+    # not a verification outcome.
+    wound_down_early: bool = False
 
     @property
     def total_fixed(self) -> int:
@@ -141,6 +145,8 @@ def verify_and_fix_all_teams(
     verify_team_fn: VerifyTeamFn,
     cache_type: str,
     chunk_size: int | None = None,
+    *,
+    stop_time: float | None = None,
 ) -> VerificationResult:
     """
     Verify caches for teams in the configured scope and auto-fix any issues.
@@ -159,6 +165,9 @@ def verify_and_fix_all_teams(
         cache_type: Name for metrics/logging (e.g., "team_metadata", "flags")
         chunk_size: Number of teams to process per batch. Defaults to
             settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE (the more conservative setting).
+        stop_time: Monotonic deadline (from ``time.monotonic()``). When set, the sweep
+            winds down at the first batch boundary past it, returning a partial result
+            instead of running until Celery's hard time limit SIGKILLs the worker.
 
     Returns:
         VerificationResult with stats and list of fixed team IDs
@@ -218,6 +227,24 @@ def verify_and_fix_all_teams(
                 fix_failures_total=result.fix_failed,
                 last_team_id=teams[-1].id,
             )
+
+        # Wind down at a batch boundary once the deadline passes, so the run ends
+        # cleanly and records the wind-down instead of being SIGKILLed mid-batch past
+        # the hard time limit (which reports nothing). The cursor is not persisted, so
+        # the next cycle restarts from id 0 rather than resuming here: a run that winds
+        # down repeatedly leaves the same tail of high-id teams unverified until it can
+        # finish within the deadline. Only wind down when teams actually remain: a
+        # deadline that trips on the final batch has already covered every team, so it
+        # completed rather than winding down early.
+        if stop_time is not None and time.monotonic() > stop_time and _fetch_team_batch(base_qs, teams[-1].id, 1):
+            result.wound_down_early = True
+            logger.warning(
+                "Cache verification wound down early, deadline reached",
+                cache_type=cache_type,
+                teams_verified_total=result.total,
+                last_team_id=teams[-1].id,
+            )
+            break
 
         last_id = teams[-1].id
 
@@ -430,6 +457,7 @@ def _run_verification_for_cache(
     verify_team_fn: VerifyTeamFn,
     cache_type: str,
     chunk_size: int,
+    stop_time: float | None = None,
 ) -> VerificationResult:
     """
     Run verification for a single cache type and log results.
@@ -439,6 +467,8 @@ def _run_verification_for_cache(
         verify_team_fn: Function to verify a single team
         cache_type: Name for metrics/logging
         chunk_size: Number of teams to process per batch
+        stop_time: Monotonic deadline forwarded to verify_and_fix_all_teams for
+            early wind-down.
 
     Returns:
         VerificationResult with stats
@@ -451,6 +481,7 @@ def _run_verification_for_cache(
         verify_team_fn=verify_team_fn,
         cache_type=cache_type,
         chunk_size=chunk_size,
+        stop_time=stop_time,
     )
 
     duration = time.time() - start_time

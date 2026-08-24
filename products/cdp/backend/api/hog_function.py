@@ -26,20 +26,18 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import (
-    LEGACY_INSIGHT_ALERT_EVENT,
-    MANAGED_ALERT_EVENT_PATTERN,
-    is_managed_alert_internal_event,
-)
+from posthog.cdp.internal_events import is_managed_alert_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
+    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
+    masked_secret_input_keys,
 )
 from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
 from posthog.exceptions_capture import capture_exception
@@ -68,7 +66,6 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 from products.cdp.backend.models.plugin import TranspilerError
-from products.cdp.backend.services.revisions import use_destinations_revisions
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -105,8 +102,6 @@ _DERIVED_CONTENT_FIELDS = frozenset({"bytecode", "transpiled"})
 # validated_data says nothing about what the caller actually asked to change.
 _INJECTED_UPDATE_FIELDS = frozenset({"team", "type", "template_id"})
 
-DRAFTS_DISABLED_MESSAGE = "Drafts aren't enabled for this project yet."
-REVISIONS_DISABLED_MESSAGE = "Revision history isn't enabled for this project yet."
 ENABLE_WITH_OPEN_DRAFT_MESSAGE = (
     "This function has config staged for review. Publish or discard it before enabling, so you don't "
     "turn on config nobody looked at."
@@ -159,6 +154,24 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     # values in `inputs`, and this snapshot feeds revision content, which must never carry secrets.
     split_content_secrets(snapshot)
     return snapshot
+
+
+def _named_warehouse_tables(entries: Any) -> list[Any]:
+    """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row.
+
+    Matches the placeholder rule `HogFunctionFiltersSerializer.validate` applies moments later
+    (posthog/cdp/validation.py): it drops any entry named "Select a table" outright, regardless of
+    whether that entry also carries a `table_name`. Checking `table_name` alone here would accept
+    `{"name": "Select a table", "table_name": "x"}` — the serializer would still strip it a moment
+    later, leaving `data_warehouse: []` stored despite this check having passed.
+    """
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("table_name") and entry.get("name") != "Select a table"
+    ]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
@@ -484,9 +497,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             to_bool(data["enabled"]) if data.get("enabled") is not None else (instance.enabled if instance else False)
         )
         self.context["function_will_be_enabled"] = False if deleted else enabled
-        # Warehouse-table sources deliver the synced row under event.properties, so input templates
-        # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
-        self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
+        # Warehouse sources deliver the row under event.properties, so input templates may use the
+        # `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
+        self.context["is_dwh_source"] = data["filters"].get("source") in DATA_WAREHOUSE_SOURCES
+        # Materialized views are a newer source than warehouse tables, so nothing was saved before
+        # the consumer matched on the selected table. That lets us require a selection here, where
+        # an empty list still has to mean "every table" for the older source.
+        #
+        # Counts entries that name a table rather than entries that exist: the filters serializer
+        # drops the picker's "Select a table" placeholder, so a placeholder-only list arrives here
+        # non-empty and leaves it empty, which the consumer reads as "every view".
+        if (
+            data["filters"].get("source") == "data-warehouse-view"
+            and self.context["function_will_be_enabled"]
+            and not _named_warehouse_tables(data["filters"].get("data_warehouse"))
+        ):
+            raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = None
@@ -860,6 +886,21 @@ class HogFunctionRearrangeSerializer(serializers.Serializer):
     )
 
 
+class HogFunctionMaskedSecretSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the hog function.")
+    name = serializers.CharField(help_text="Name of the hog function.")
+    type = serializers.CharField(help_text="Hog function type, for example 'destination'.")
+    enabled = serializers.BooleanField(help_text="Whether the hog function is enabled.")
+    input_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the live secret inputs to enter again. Only keys are returned, never values.",
+    )
+    draft_input_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the staged draft's secret inputs to enter again. Only keys are returned.",
+    )
+
+
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -889,6 +930,7 @@ class HogFunctionViewSet(
         "metrics_totals",
         "revisions",
         "revision_detail",
+        "masked_secrets",
     ]
     scope_object_write_actions = [
         "create",
@@ -951,12 +993,6 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
-        # Managed alert destinations are single-event by construction, so events[0] is sufficient here.
-        queryset = queryset.filter(
-            Q(filters__events__0__id__isnull=True)
-            | Q(filters__events__0__id=LEGACY_INSIGHT_ALERT_EVENT)
-            | ~Q(filters__events__0__id__regex=MANAGED_ALERT_EVENT_PATTERN)
-        )
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
@@ -1030,13 +1066,52 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id, team_id=self.team_id)
 
+    @extend_schema(
+        operation_id="hog_functions_masked_secrets_retrieve",
+        responses=HogFunctionMaskedSecretSerializer(many=True),
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[])
+    def masked_secrets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Hog functions storing the secret mask in place of a real credential.
+
+        Such a function authenticates against nothing and fails every send. The original value
+        cannot be restored from our side, so each listed input has to be entered again.
+        """
+        affected = []
+        # Access filtering runs only for the `list` action, and a detail route relies on object
+        # permissions instead - a collection action like this one gets neither. Without this a
+        # member restricted to some functions would learn which of the others hold a broken
+        # credential, and under which input keys.
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            self.get_queryset(), resource="hog_function"
+        )
+        # Only the columns the scan reads: the rest include large text/JSON fields (hog, bytecode,
+        # transpiled, draft, ...) that would be transferred and deserialized for every row for nothing.
+        scan = accessible.only("id", "name", "type", "enabled", "encrypted_inputs", "draft_encrypted_inputs")
+        for hog_function in scan.order_by("-updated_at").iterator(chunk_size=100):
+            input_keys = masked_secret_input_keys(hog_function.encrypted_inputs)
+            draft_input_keys = masked_secret_input_keys(hog_function.draft_encrypted_inputs)
+            if not input_keys and not draft_input_keys:
+                continue
+            affected.append(
+                {
+                    "id": hog_function.id,
+                    "name": hog_function.name or "",
+                    "type": hog_function.type or "",
+                    "enabled": hog_function.enabled,
+                    "input_keys": input_keys,
+                    "draft_input_keys": draft_input_keys,
+                }
+            )
+
+        return Response(HogFunctionMaskedSecretSerializer(affected, many=True).data)
+
     def _draft_test_configuration(self, hog_function: Optional[HogFunction]) -> dict:
         """The staged draft as a test-invocable configuration: live config with the draft's content
         fields on top, staged secrets rehydrated in plaintext so the test exercises what publish
         would ship. Secrets the draft doesn't stage stay as `{"secret": true}` markers, which
         validation recovers from the live encrypted inputs."""
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
         if hog_function is None or not hog_function.draft:
             raise exceptions.ValidationError({"use_draft": "This function has no staged draft to test."})
 
@@ -1163,7 +1238,6 @@ class HogFunctionViewSet(
             serializer.validated_data.get("enabled")
             and (serializer.validated_data.get("type") or HogFunctionType.DESTINATION) == HogFunctionType.DESTINATION
             and self._is_agent_request(self.request)
-            and use_destinations_revisions(self.team)
         ):
             raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
@@ -1185,14 +1259,14 @@ class HogFunctionViewSet(
         # with the live ones.
         return set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS)
 
-    def _should_route_to_draft(self, serializer: BaseSerializer, revisions_enabled: bool) -> bool:
+    def _should_route_to_draft(self, serializer: BaseSerializer) -> bool:
         # Guardrail for agent callers (MCP and the surfaces that wrap it; the web builder and raw API
         # keys are unaffected). An agent editing a destination that is running right now stages a
         # draft for a human to publish instead of changing what workers execute on the spot.
         # Destinations only for now: transformations add execution-order semantics, site_* types add
         # transpiled-JS concerns, and internal_destination rows are written by other products' code
         # rather than by agents.
-        if not revisions_enabled or not self._is_agent_request(self.request):
+        if not self._is_agent_request(self.request):
             return False
         instance = serializer.instance
         if not isinstance(instance, HogFunction) or not instance.enabled:
@@ -1269,18 +1343,15 @@ class HogFunctionViewSet(
 
     def perform_update(self, serializer):
         instance_id = serializer.instance.id
-        # Resolved before the write transaction: the flag check can hit the network and must not
-        # extend the row lock.
-        revisions_enabled = use_destinations_revisions(self.team)
-        route_to_draft = self._should_route_to_draft(serializer, revisions_enabled)
+        # Resolved before the write transaction so the routing decision doesn't extend the row lock.
+        route_to_draft = self._should_route_to_draft(serializer)
 
         # Enabling with a draft open would turn on the live config while the reviewed one sits
         # unpublished. Make the caller resolve the draft first rather than picking for them.
         # Checked on the validated value: BooleanField coerces "true"/"True", and the raw payload
         # wouldn't catch those.
         if (
-            revisions_enabled
-            and serializer.validated_data.get("enabled") is True
+            serializer.validated_data.get("enabled") is True
             and isinstance(serializer.instance, HogFunction)
             and serializer.instance.draft
             and not serializer.instance.enabled
@@ -1344,7 +1415,7 @@ class HogFunctionViewSet(
             else:
                 before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()
-                if locked is not None and before_content is not None and revisions_enabled:
+                if locked is not None and before_content is not None:
                     self._record_revision(serializer.instance, locked, before_content)
 
         log_activity_from_viewset(
@@ -1361,9 +1432,6 @@ class HogFunctionViewSet(
     def publish(self, request: Request, *args, **kwargs):
         # Promote the staged draft to the live config. Two-step by design: a call without confirm only
         # echoes what would change, so callers — especially agents — never publish blind.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
-
         param_serializer = HogFunctionPublishRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 
@@ -1470,9 +1538,6 @@ class HogFunctionViewSet(
     @action(detail=True, methods=["POST"])
     def discard_draft(self, request: Request, *args, **kwargs):
         # Throw away the staged draft. Idempotent: discarding when nothing is staged is a no-op.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
-
         instance = self.get_object()
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
@@ -1505,8 +1570,6 @@ class HogFunctionViewSet(
     def revisions(self, request: Request, *args, **kwargs):
         # Version history: one snapshot per live-config change, newest first. Config is fetched
         # per-version via the detail endpoint — the list stays light.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
         queryset = (
             HogFunctionRevision.objects.filter(hog_function=instance).order_by("-version").select_related("created_by")
@@ -1521,8 +1584,6 @@ class HogFunctionViewSet(
     )
     @action(detail=True, methods=["GET"], url_path=r"revisions/(?P<version>\d+)", filter_backends=[])
     def revision_detail(self, request: Request, version: Optional[str] = None, *args, **kwargs):
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         instance = self.get_object()
         try:
             revision = HogFunctionRevision.objects.get(hog_function=instance, version=int(version or 0))
@@ -1543,8 +1604,6 @@ class HogFunctionViewSet(
         # Rollback (or roll-forward) = copy the revision's config into the draft, then go through the
         # normal publish preview + confirm. Nothing here touches the live config, so a rollback is
         # reviewed like any other change.
-        if not use_destinations_revisions(self.team):
-            raise exceptions.ValidationError(REVISIONS_DISABLED_MESSAGE)
         param_serializer = HogFunctionRevisionRestoreRequestSerializer(data=request.data)
         param_serializer.is_valid(raise_exception=True)
 

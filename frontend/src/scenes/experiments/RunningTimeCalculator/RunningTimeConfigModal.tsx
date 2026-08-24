@@ -102,7 +102,18 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     fullWidth
                                     options={METRIC_TYPE_OPTIONS}
                                     value={config.metricType}
-                                    onChange={(value) => setConfig({ metricType: value as ManualCalculatorMetricType })}
+                                    onChange={(value) => {
+                                        const metricType = value as ManualCalculatorMetricType
+                                        // Switching to funnel reinterprets baselineValue as a conversion rate, so carry
+                                        // the same 100% clamp the baseline input applies. Otherwise a large mean value
+                                        // survives the switch as an out-of-range rate.
+                                        setConfig({
+                                            metricType,
+                                            ...(metricType === 'funnel' && config.baselineValue > 100
+                                                ? { baselineValue: 100 }
+                                                : {}),
+                                        })
+                                    }}
                                 />
                             </div>
 
@@ -112,7 +123,16 @@ export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTi
                                     <LemonInput
                                         type="number"
                                         value={config.baselineValue}
-                                        onChange={(value) => setConfig({ baselineValue: value as number })}
+                                        onChange={(value) => {
+                                            const next = value as number
+                                            // A funnel conversion rate above 100% is impossible and makes the
+                                            // sample-size math produce a negative estimate. Clamp it for real,
+                                            // since the `max` prop below only guides the stepper.
+                                            setConfig({
+                                                baselineValue:
+                                                    config.metricType === 'funnel' && next > 100 ? 100 : next,
+                                            })
+                                        }}
                                         min={0}
                                         max={config.metricType === 'funnel' ? 100 : undefined}
                                         step={config.metricType === 'funnel' ? 0.1 : 1}
