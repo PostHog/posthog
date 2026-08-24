@@ -62,6 +62,7 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
+from posthog.cdp.internal_events import is_managed_alert_internal_event
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
@@ -1425,6 +1426,16 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # scan so a malformed value (null, a number) reaches that check instead of raising
                 # TypeError here, which would escape DRF and 500 the request.
                 events = filters.get("events")
+                # Alert-owned events carry one alert's payload and are scoped to that alert by an
+                # alert_id filter the alert API writes. A workflow trigger has no such binding, so
+                # matching on the event name alone would forward every alert in the project.
+                # HogFunctionSerializer refuses these for the same reason.
+                if isinstance(events, list) and any(
+                    isinstance(event, dict) and is_managed_alert_internal_event(event.get("id")) for event in events
+                ):
+                    raise serializers.ValidationError(
+                        {"filters": "Alert events are managed through the alert API and cannot trigger a workflow."}
+                    )
                 is_slack_message = isinstance(events, list) and any(
                     isinstance(event, dict) and event.get("id") == "$slack_message_received" for event in events
                 )

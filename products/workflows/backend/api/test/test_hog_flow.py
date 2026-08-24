@@ -2501,6 +2501,53 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(
+        [
+            ("logs_firing", "$logs_alert_firing"),
+            ("logs_resolved", "$logs_alert_resolved"),
+            ("billing_firing", "$billing_alert_firing"),
+        ]
+    )
+    def test_hog_flow_internal_event_trigger_rejects_alert_events(self, _name, event_id):
+        # An alert-owned event carries one alert's payload, and the alert API scopes its
+        # destinations with an alert_id filter. A workflow trigger has no such binding, so
+        # matching the event name alone would forward every alert in the project.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {"source": "internal-events", "events": [{"id": event_id, "type": "events"}]},
+            },
+        }
+        hog_flow = {"name": "Alert scraping flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "alert api" in response.json()["detail"].lower()
+
+    def test_hog_flow_internal_event_trigger_allows_the_legacy_insight_alert_event(self):
+        # $insight_alert_firing is exempt from the managed-alert boundary, so it stays reachable.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                },
+            },
+        }
+        hog_flow = {"name": "Insight alert flow", "status": "draft", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
         trigger_action = {
             "id": "trigger_node",
