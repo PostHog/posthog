@@ -1,4 +1,5 @@
 import {
+  buildsImage,
   type EnvironmentSetupPlan,
   emptyEnvironmentSetupPlan,
   planEnvironmentInput,
@@ -113,6 +114,11 @@ function LoadedSetupFlow({
       image: {
         ...image,
         create: async (imagePlan) => {
+          // Re-check the current plan before reusing a cached image. If a
+          // failed submit created one and the user then switched to the
+          // standard or an existing base, reusing it would point the
+          // environment at an abandoned draft.
+          if (!buildsImage(imagePlan)) return null;
           if (createdImageRef.current !== null) return createdImageRef.current;
           const created = await image.create(imagePlan);
           createdImageRef.current = created;
