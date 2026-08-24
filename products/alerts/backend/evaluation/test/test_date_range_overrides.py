@@ -14,14 +14,10 @@ from posthog.tasks.alerts.trends import (
     query_excludes_incomplete_periods,
 )
 
-from products.alerts.backend.evaluation.contract import AlertExecutionSettings
 from products.alerts.backend.evaluation.funnels import _trailing_date_range_override
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 
 TRENDS_CALC_PATH = "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight"
-_IF_STALE = AlertExecutionSettings(
-    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, max_cache_age_seconds=None
-)
 
 
 class TestDateRangeOverrides(TestCase):
@@ -109,7 +105,7 @@ class TestTrendsExtractorIncompletePeriods(TestCase):
                 _trends_alert(condition_type),
                 MagicMock(),
                 _clipped_trends_query(),
-                _IF_STALE,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
         series = result.series[0]
         self.assertEqual(series.current_index, 2)
@@ -125,5 +121,5 @@ class TestTrendsExtractorIncompletePeriods(TestCase):
                     _trends_alert(AlertConditionType.ABSOLUTE_VALUE, check_ongoing=True),
                     MagicMock(),
                     _clipped_trends_query(),
-                    _IF_STALE,
+                    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 )

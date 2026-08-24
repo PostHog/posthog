@@ -5,6 +5,7 @@ import numpy as np
 
 from posthog.schema import TrendsAlertConfig, TrendsQuery
 
+from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import EventSource
@@ -32,7 +33,6 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.alerts.backend.evaluation.contract import (
-    AlertExecutionSettings,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -48,8 +48,9 @@ def extract_detector_series(
     team: Any,
     query: TrendsQuery,
     detector_config: dict[str, Any],
-    settings: AlertExecutionSettings,
+    execution_mode: ExecutionMode,
     *,
+    max_cache_age_seconds: int | None = None,
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
@@ -82,8 +83,8 @@ def extract_detector_series(
     calculation_result = calculate_for_query_based_insight(
         insight,
         team=team,
-        execution_mode=settings.execution_mode,
-        max_cache_age_seconds=settings.max_cache_age_seconds,
+        execution_mode=execution_mode,
+        max_cache_age_seconds=max_cache_age_seconds,
         user=user,
         filters_override=filters_override,
         analytics_props={"source": EventSource.ALERT},
@@ -203,7 +204,12 @@ class TrendsDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, settings: AlertExecutionSettings
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        max_cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
@@ -215,25 +221,23 @@ class TrendsDetectorExtractor:
             alert.team,
             trends_query,
             detector_config,
-            settings,
+            execution_mode,
+            max_cache_age_seconds=max_cache_age_seconds,
             series_index=series_index,
             user=alert.created_by,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
-        # Simulation isn't cadence-bound, so high_frequency=False and no freshness ceiling; the
+        # Simulation isn't cadence-bound, so high_frequency=False and no freshness bound; the
         # interval still forces fresh on HOUR.
-        settings = AlertExecutionSettings(
-            execution_mode=execution_mode_for_alert(trends_query.interval, high_frequency=False),
-            max_cache_age_seconds=None,
-        )
+        execution_mode = execution_mode_for_alert(trends_query.interval, high_frequency=False)
         result = extract_detector_series(
             insight,
             ctx.team,
             trends_query,
             ctx.detector_config,
-            settings,
+            execution_mode,
             series_index=ctx.series_index,
             date_from=ctx.date_from,
             user=ctx.user,

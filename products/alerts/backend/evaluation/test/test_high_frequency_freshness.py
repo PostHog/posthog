@@ -20,13 +20,9 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 
-from products.alerts.backend.evaluation.contract import (
-    AlertExecutionSettings,
-    execution_mode_for_alert,
-    execution_settings_for_alert,
-)
+from products.alerts.backend.evaluation.contract import execution_mode_for_alert, max_cache_age_for_cadence
 from products.alerts.backend.evaluation.detector import extract_detector_series
-from products.alerts.backend.evaluation.dispatcher import _resolve_execution_settings
+from products.alerts.backend.evaluation.dispatcher import _resolve_execution_mode
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
@@ -102,15 +98,12 @@ def test_is_high_frequency_interval_property(interval, expected):
         (None, None),
     ],
 )
-def test_execution_settings_ceiling_is_half_a_cadence(cadence, expected_seconds):
-    settings = execution_settings_for_alert(
-        IntervalType.DAY, high_frequency=False, cadence=cadence.value if cadence else None
-    )
-    assert settings.max_cache_age_seconds == expected_seconds
+def test_max_cache_age_is_half_a_cadence(cadence, expected_seconds):
+    assert max_cache_age_for_cadence(cadence.value if cadence else None) == expected_seconds
 
 
-# The freshness decision lives in the dispatcher's _resolve_execution_settings — one site for every
-# kind. Only trends/detector escalate on hourly buckets (real time axis); funnels/hogql have none, so
+# The mode decision lives in the dispatcher's _resolve_execution_mode — one site for every kind.
+# Only trends/detector escalate on hourly buckets (real time axis); funnels/hogql have none, so
 # for them the every-15-minutes cadence is the only fresh-recompute trigger.
 @pytest.mark.parametrize(
     "kind,interval,high_frequency,expected",
@@ -126,35 +119,38 @@ def test_execution_settings_ceiling_is_half_a_cadence(cadence, expected_seconds)
         (NodeKind.HOG_QL_QUERY, None, True, ALWAYS),
     ],
 )
-def test_resolve_execution_settings(kind, interval, high_frequency, expected):
+def test_resolve_execution_mode(kind, interval, high_frequency, expected):
     alert = MagicMock()
     alert.is_high_frequency_interval = high_frequency
-    alert.calculation_interval = AlertCalculationInterval.DAILY.value
     query = {"kind": kind, "interval": interval} if interval is not None else {"kind": kind}
-    assert _resolve_execution_settings(alert, kind, query).execution_mode == expected
+    assert _resolve_execution_mode(alert, kind, query) == expected
 
 
-def _trends_forward(settings):
-    TrendsExtractor().extract(_trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), settings)
+def _trends_forward(mode, max_age):
+    TrendsExtractor().extract(
+        _trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), mode, max_cache_age_seconds=max_age
+    )
 
 
-def _detector_forward(settings):
-    extract_detector_series(MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, settings)
+def _detector_forward(mode, max_age):
+    extract_detector_series(
+        MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, mode, max_cache_age_seconds=max_age
+    )
 
 
-def _funnels_forward(settings):
+def _funnels_forward(mode, max_age):
     alert = MagicMock()
     alert.config = {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None}
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     query = {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "step_a"}]}
-    FunnelsExtractor().extract(alert, MagicMock(), query, settings)
+    FunnelsExtractor().extract(alert, MagicMock(), query, mode, max_cache_age_seconds=max_age)
 
 
-def _hogql_forward(settings):
+def _hogql_forward(mode, max_age):
     alert = MagicMock()
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
-    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), settings)
+    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode, max_cache_age_seconds=max_age)
 
 
 # (calc-path to patch, the result that path returns, a thunk that drives the extractor for one kind).
@@ -186,20 +182,14 @@ EXTRACTOR_FORWARDING_CASES = [
 ]
 
 
-# Every extractor forwards the settings it's handed (the dispatcher decides them) straight to the
-# query layer. The ceiling has to travel with the mode: an extractor that forwards one and drops the
-# other silently lets its checks evaluate a result older than the cadence that asked for it.
-@pytest.mark.parametrize(
-    "settings",
-    [
-        AlertExecutionSettings(execution_mode=ALWAYS, max_cache_age_seconds=None),
-        AlertExecutionSettings(execution_mode=IF_STALE, max_cache_age_seconds=60 * 60),
-    ],
-)
+# Every extractor forwards what the dispatcher hands it straight to the query layer. Both values
+# have to travel: max_cache_age_seconds defaults to None, so an extractor that takes it and forgets
+# to pass it on silently lets its checks evaluate a result older than the cadence asked for.
+@pytest.mark.parametrize("mode,max_age", [(ALWAYS, None), (IF_STALE, 30 * 60)])
 @pytest.mark.parametrize("calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
-def test_extractor_forwards_execution_settings(calc_path, calc_result, forward, settings):
+def test_extractor_forwards_freshness(calc_path, calc_result, forward, mode, max_age):
     with patch(calc_path) as mock_calc:
         mock_calc.return_value = calc_result
-        forward(settings)
-        assert mock_calc.call_args.kwargs["execution_mode"] == settings.execution_mode
-        assert mock_calc.call_args.kwargs["max_cache_age_seconds"] == settings.max_cache_age_seconds
+        forward(mode, max_age)
+        assert mock_calc.call_args.kwargs["execution_mode"] == mode
+        assert mock_calc.call_args.kwargs["max_cache_age_seconds"] == max_age

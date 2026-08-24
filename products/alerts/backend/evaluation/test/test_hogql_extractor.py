@@ -14,7 +14,7 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode
 
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, evaluate_threshold
-from products.alerts.backend.evaluation.contract import AlertExecutionSettings, AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.hogql import (
     ANY_ROW_MAX_ROWS,
     LAST_ROW_MAX_ROWS,
@@ -23,9 +23,7 @@ from products.alerts.backend.evaluation.hogql import (
 )
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
-_IF_STALE = AlertExecutionSettings(
-    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, max_cache_age_seconds=None
-)
+_IF_STALE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 ABSOLUTE = AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE)
 

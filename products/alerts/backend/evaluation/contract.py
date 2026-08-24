@@ -5,7 +5,6 @@ from typing import Any, Protocol
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
-from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -103,40 +102,24 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
-@frozen
-class AlertExecutionSettings:
-    """Execution mode plus the cache-age ceiling that bounds it.
+def max_cache_age_for_cadence(cadence: str | None) -> int | None:
+    """The oldest cached result an alert on this cadence may evaluate, in seconds.
 
-    ``max_cache_age_seconds`` is not optional garnish: dropping it when threading the mode into
-    ``calculate_for_query_based_insight`` lets a check evaluate a result older than the cadence
-    that asked for it. Grouped with the mode so a call site has to discard it visibly.
+    ``execution_mode_for_alert`` keys freshness off the insight's bucket granularity, which says
+    nothing about how often the alert runs. A single-number display forces ``day`` on the date
+    range whatever the insight's own interval says, so its check would accept a six-hour-old
+    value. This bound adds the guarantee the cadence implies, and only ever tightens, so a query
+    whose own policy is already stricter keeps it.
+
+    Half a cadence, not a whole one. Consecutive checks land slightly under one cadence apart
+    (each is scheduled from the previous check's due time, and the work takes a moment), so a
+    full-cadence bound leaves every second check reusing the previous check's result. Halving it
+    means each check recomputes without raising the ceiling on query volume: that is bounded by
+    the number of checks either way.
     """
-
-    execution_mode: ExecutionMode
-    max_cache_age_seconds: int | None
-
-
-def execution_settings_for_alert(
-    interval: IntervalType | None, *, high_frequency: bool, cadence: str | None
-) -> AlertExecutionSettings:
-    """Resolve how fresh an alert check's query result has to be.
-
-    The mode alone keys freshness off the insight's bucket granularity, which says nothing about
-    how often the alert runs. A single-number display forces ``day`` on the date range whatever the
-    insight's own interval says, so its check would accept a six-hour-old value. The ceiling adds
-    the guarantee the cadence implies, and only ever tightens, so a query whose own policy is
-    already stricter keeps it.
-
-    The ceiling is half a cadence, not a whole one. Consecutive checks land slightly under one
-    cadence apart (each is scheduled from the previous check's due time, and the work takes a
-    moment), so a full-cadence ceiling leaves every second check reusing the previous check's
-    result. Halving it means each check recomputes without raising the ceiling on query volume:
-    that is bounded by the number of checks either way.
-    """
-    return AlertExecutionSettings(
-        execution_mode=execution_mode_for_alert(interval, high_frequency=high_frequency),
-        max_cache_age_seconds=cadence_seconds(to_calendar_interval(cadence)) // 2 if cadence else None,
-    )
+    if not cadence:
+        return None
+    return cadence_seconds(to_calendar_interval(cadence)) // 2
 
 
 @dataclass
@@ -154,10 +137,18 @@ class SimulationContext:
 
 
 class Extractor(Protocol):
-    # The dispatcher resolves settings once (via execution_settings_for_alert) and passes them in, so
-    # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
+    # The dispatcher resolves both freshness inputs once and passes them in, so the cache/recompute
+    # decision lives at one site instead of being re-derived in each extractor. max_cache_age_seconds
+    # defaults to None (no bound) only so tests can drive an extractor without a cadence; the
+    # dispatcher always supplies it, and test_extractor_forwards_freshness pins that every kind
+    # passes it through to the query layer.
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: object, settings: AlertExecutionSettings
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: object,
+        execution_mode: ExecutionMode,
+        max_cache_age_seconds: int | None = None,
     ) -> ExtractionResult: ...
 
 

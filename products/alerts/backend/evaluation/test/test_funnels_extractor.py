@@ -5,13 +5,11 @@ from posthog.schema import AlertConditionType
 
 from posthog.api.services.query import ExecutionMode
 
-from products.alerts.backend.evaluation.contract import AlertExecutionSettings, AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 
 CALC_PATH = "products.alerts.backend.evaluation.funnels.calculate_for_query_based_insight"
-IF_STALE = AlertExecutionSettings(
-    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, max_cache_age_seconds=None
-)
+IF_STALE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 def _steps(*counts: int) -> list[dict]:
