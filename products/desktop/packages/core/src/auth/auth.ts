@@ -131,18 +131,24 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     return { ...this.state };
   }
   async login(region: CloudRegion): Promise<AuthState> {
+    this.sessionGeneration += 1;
+    const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
       () => this.oauthFlow.startFlow(region),
       region,
       "OAuth flow failed",
+      sessionGeneration,
     );
     return this.getState();
   }
   async signup(region: CloudRegion): Promise<AuthState> {
+    this.sessionGeneration += 1;
+    const sessionGeneration = this.sessionGeneration;
     await this.authenticateWithFlow(
       () => this.oauthFlow.startSignupFlow(region),
       region,
       "Signup failed",
+      sessionGeneration,
     );
     return this.getState();
   }
@@ -635,6 +641,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     // concurrent callers dedupe onto one refresh. Resolving the stored session
     // (now async) must happen INSIDE refreshAndSync, else two callers both
     // refresh and burn the rotating token twice.
+    const sessionGeneration = this.sessionGeneration;
     const refreshAndSync = async (): Promise<InMemorySession> => {
       const sessionInput = await this.getSessionInputForRefresh();
       let session: InMemorySession;
@@ -655,7 +662,13 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         }
         throw error;
       }
-      await this.syncAuthenticatedSession(session);
+      const synchronized = await this.syncAuthenticatedSession(
+        session,
+        sessionGeneration,
+      );
+      if (!synchronized) {
+        throw new NotAuthenticatedError();
+      }
       return session;
     };
 
@@ -1013,6 +1026,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }>,
     region: CloudRegion,
     fallbackError: string,
+    sessionGeneration: number,
   ): Promise<void> {
     const result = await runFlow();
     if (!result.success || !result.data) {
@@ -1023,14 +1037,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       cloudRegion: region,
       selectedProjectId: this.state.currentProjectId,
     });
-    await this.syncAuthenticatedSession(session);
+    await this.syncAuthenticatedSession(session, sessionGeneration);
   }
   private async syncAuthenticatedSession(
     session: InMemorySession,
-  ): Promise<void> {
-    this.sessionGeneration += 1;
-    const sessionGeneration = this.sessionGeneration;
-    this.persistProjectPreference(session);
+    sessionGeneration: number,
+  ): Promise<boolean> {
+    if (this.sessionGeneration !== sessionGeneration) {
+      return false;
+    }
     if (session.refreshToken) {
       const persisted = await this.persistSession(
         {
@@ -1041,15 +1056,16 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         () => this.sessionGeneration === sessionGeneration,
       );
       if (!persisted) {
-        return;
+        return false;
       }
     } else {
       this.authSession.clearCurrent();
     }
 
     if (this.sessionGeneration !== sessionGeneration) {
-      return;
+      return false;
     }
+    this.persistProjectPreference(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1071,9 +1087,16 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     });
     await this.updateDesktopAccessFromSession(session);
 
+    if (
+      this.sessionGeneration !== sessionGeneration ||
+      this.session !== session
+    ) {
+      return false;
+    }
     if (session.orgProjectsIncomplete) {
       void this.refreshOrgProjects();
     }
+    return true;
   }
   private async persistSession(
     input: {

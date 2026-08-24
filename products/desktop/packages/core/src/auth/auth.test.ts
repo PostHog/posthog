@@ -214,15 +214,13 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(
-    cipher: IAuthTokenCipher = identityCipher,
-  ): AuthService {
+  function createService(): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
       oauthFlow as unknown as IAuthOAuthFlowService,
       connectivity,
-      cipher,
+      identityCipher,
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
       null,
@@ -865,32 +863,49 @@ describe("AuthService", () => {
     expect(preferencePort.get("user-1", "us")?.lastSelectedProjectId).toBe(99);
   });
 
-  it("does not restore a session when logout races with login persistence", async () => {
-    oauthFlow.startFlow.mockResolvedValue(
-      mockTokenResponse({
-        accessToken: "initial-access-token",
-        refreshToken: "initial-refresh-token",
-      }),
+  it("does not restore a session when logout races with an OAuth login", async () => {
+    let releaseOAuthFlow = (): void => {};
+    oauthFlow.startFlow.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseOAuthFlow = () =>
+            resolve(
+              mockTokenResponse({
+                accessToken: "initial-access-token",
+                refreshToken: "initial-refresh-token",
+              }),
+            );
+        }),
     );
     stubAuthFetch();
-
-    let releaseEncryption = (): void => {};
-    const gatedCipher: IAuthTokenCipher = {
-      encrypt: (plaintext) =>
-        new Promise<string>((resolve) => {
-          releaseEncryption = () => resolve(plaintext);
-        }),
-      decrypt: (encrypted) => Promise.resolve(encrypted),
-    };
-    service = createService(gatedCipher);
-    service.init();
     await service.initialize();
 
     const login = service.login("us");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await service.logout();
-    releaseEncryption();
+    releaseOAuthFlow();
     await login;
+
+    expect(service.getState().status).toBe("anonymous");
+    expect(sessionPort.getCurrent()).toBeNull();
+  });
+
+  it("does not restore a stored session when logout races with refresh", async () => {
+    seedStoredSession();
+    let releaseRefresh = (): void => {};
+    oauthFlow.refreshToken.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseRefresh = () => resolve(mockTokenResponse());
+        }),
+    );
+    stubAuthFetch();
+
+    const initialize = service.initialize();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await service.logout();
+    releaseRefresh();
+    await initialize;
 
     expect(service.getState().status).toBe("anonymous");
     expect(sessionPort.getCurrent()).toBeNull();
