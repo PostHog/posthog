@@ -128,4 +128,33 @@ describe("ToolCallBlock codex routing", () => {
     expect(screen.getByText("Wait for subagents")).toBeInTheDocument();
     expect(screen.queryByText(/^Subagent/)).not.toBeInTheDocument();
   });
+
+  it("shows the failure instead of live buttons when a show_actions call is denied", () => {
+    renderBlock({
+      toolCallId: "tc-show-denied",
+      title: "show_actions",
+      kind: "other",
+      status: "failed",
+      rawInput: {
+        actions: [
+          { kind: "open_space", label: "Open the space", channel_id: "chan" },
+        ],
+      },
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: "This tool has been blocked." },
+        },
+      ],
+      _meta: posthogToolMeta({
+        toolName: "mcp__local__show_actions",
+        mcp: { server: "local", tool: "show_actions" },
+      }),
+    });
+
+    // The standard tool view renders its failure marker...
+    expect(screen.getByText("(Failed)")).toBeInTheDocument();
+    // ...rather than the clickable button the block was supposed to withhold.
+    expect(screen.queryByText("Open the space")).toBeNull();
+  });
 });

@@ -200,6 +200,31 @@ export function scoutSubtitle(
     return description ? { text: truncate(description), tone: 'muted' } : null
 }
 
+/** A scout waiting on a decision, paired with the reason the scheduler recorded. */
+export interface NeedsYouScout {
+    name: string
+    reason: string
+}
+
+/**
+ * The scouts behind the roster's "need you" count, so the header can say which ones and why rather
+ * than only how many. Alphabetical, and unnarrowed by the roster's search — it backs a stat that
+ * counts the whole fleet.
+ */
+export function listNeedsYouScouts(
+    configs: SignalScoutConfig[],
+    rollups: Map<string, ScoutRollup>,
+    now: Date
+): NeedsYouScout[] {
+    return [...configs]
+        .filter((config) => scoutGroup(config, rollups.get(config.skill_name), now) === 'needs_you')
+        .sort(compareScoutsByName)
+        .map((config) => ({
+            name: prettifyScoutSkillName(config.skill_name),
+            reason: scoutSubtitle(config, rollups.get(config.skill_name), now)?.text ?? 'Waiting on a decision',
+        }))
+}
+
 /**
  * When this scout is next due, or null when that can't be said: no run yet (the coordinator picks
  * it up on its next tick), a paused scout, or an expression that doesn't parse.

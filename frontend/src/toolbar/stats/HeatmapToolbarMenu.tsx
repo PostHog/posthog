@@ -19,6 +19,7 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
@@ -85,6 +86,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
     const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
     const areaFilterFlagEnabled = useToolbarFeatureFlag('toolbar-heatmap-area-filter')
+
+    const { captureResultLoading, isAuthenticated, captureProgress } = useValues(heatmapCaptureLogic)
+    const { saveToPostHog } = useActions(heatmapCaptureLogic)
 
     const {
         matchLinksByHref,
@@ -244,6 +248,28 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 heatmapFixedPositionMode={heatmapFixedPositionMode}
                                 setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                             />
+
+                            <div className="pt-2 border-t mt-2">
+                                <LemonButton
+                                    type="primary"
+                                    fullWidth
+                                    center
+                                    data-attr="heatmap-save-to-posthog"
+                                    loading={captureResultLoading}
+                                    disabledReason={
+                                        !isAuthenticated ? 'Log in to PostHog to save this heatmap' : undefined
+                                    }
+                                    onClick={() => saveToPostHog()}
+                                >
+                                    {captureResultLoading && captureProgress
+                                        ? `Capturing screen widths (${captureProgress.done}/${captureProgress.total})`
+                                        : 'Save to PostHog'}
+                                </LemonButton>
+                                <p className="text-xs text-muted mt-2 mb-0">
+                                    Captures this page at several screen widths and saves them with the heatmap, so you
+                                    can open it in PostHog later. Works even when the page is behind a login.
+                                </p>
+                            </div>
                         </>
                     )}
                 </div>
