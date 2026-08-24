@@ -33,6 +33,7 @@ describe('FlagEvaluationsService', () => {
             ['the lane is async', envConfig('dual_write', '*', '', 'topic', 'async'), false],
             ['the lane is overflow', envConfig('dual_write', '*', '', 'topic', 'overflow'), true],
             ['no lane is set (local dev)', envConfig('dual_write', '*', '', 'topic', null), true],
+            ['the teams allowlist is empty', envConfig('dual_write', ''), false],
         ])('builds a service when %s -> %s', (_name, config, expected) => {
             expect(createFlagEvaluationsService(config) !== undefined).toBe(expected)
         })
@@ -45,7 +46,6 @@ describe('FlagEvaluationsService', () => {
             ['1,2', '', 2, true],
             ['1,2', '', 3, false],
             ['1,2', '2', 2, false],
-            ['', '', 1, false],
         ])('teams=%s excluded=%s team=%i -> %s', (teams, excluded, teamId, expected) => {
             const service = createFlagEvaluationsService(envConfig('dual_write', teams, excluded))
 

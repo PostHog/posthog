@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { FlagEvaluationsOutput } from '~/common/outputs'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { isOkResult } from '~/ingestion/framework/results'
@@ -211,6 +212,26 @@ describe('createForkFlagEvaluationsStep', () => {
             if (isOkResult(result)) {
                 await result.sideEffects[0]
             }
+            expect((await flagEvaluationsPendingAcks.get()).values[0].value).toBe(0)
+        })
+
+        it('does not block the batch when the row exceeds the broker message limit', async () => {
+            const { step, outputs } = createStep(enabledService())
+            outputs.queueMessages.mockRejectedValue(new MessageSizeTooLarge('too large', new Error('too large')))
+            const input = createInput()
+
+            const result = await step(input)
+
+            // An oversized row is the same size on redelivery, so gating the offset
+            // commit on it would replay the partition forever. emit-event skips an
+            // oversized event for the same reason.
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                await expect(result.sideEffects[0]).resolves.toBeUndefined()
+            }
+            expect((await flagEvaluationsEventsTotal.get()).values).toContainEqual(
+                expect.objectContaining({ labels: { outcome: 'continued_message_too_large' }, value: 1 })
+            )
             expect((await flagEvaluationsPendingAcks.get()).values[0].value).toBe(0)
         })
 

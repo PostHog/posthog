@@ -3,6 +3,7 @@ import { Counter, Gauge } from 'prom-client'
 import { FLAG_EVALUATIONS_OUTPUT, FlagEvaluationsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { logger } from '~/common/utils/logger'
 import { mapProcessedEventToFlagEvaluationRow } from '~/ingestion/common/flag-evaluations/flag-evaluation-row'
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
@@ -97,19 +98,29 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             flagEvaluationsPendingAcks.inc(messages.length)
             // Count on the ack, not the enqueue, so a failed produce is not reported as
             // dual-written. Neither arm runs while the ack is merely pending, which is
-            // why the stall needs its own gauge. The rejection arm only records the
-            // outcome; the raw ack in side effects still carries the error.
-            void ack.then(
+            // why the stall needs its own gauge.
+            const settled = ack.then(
                 () => {
                     flagEvaluationsPendingAcks.dec(messages.length)
                     flagEvaluationsEventsTotal.labels('dual_written').inc(messages.length)
                 },
-                () => {
+                (error: unknown) => {
                     flagEvaluationsPendingAcks.dec(messages.length)
+                    if (error instanceof MessageSizeTooLarge) {
+                        // A row over the broker's limit is the same size on redelivery, so
+                        // gating the offset commit on it would replay the partition forever.
+                        // emit-event skips an oversized event for that reason; drop the
+                        // shadow row and let the event continue.
+                        flagEvaluationsEventsTotal.labels('continued_message_too_large').inc(messages.length)
+                        return
+                    }
+                    // Transient broker failures stay blocking: this rejection is what
+                    // holds the batch's offset commit until the produce lands.
                     flagEvaluationsEventsTotal.labels('produce_failed').inc(messages.length)
+                    throw error
                 }
             )
-            return Promise.resolve(ok(input, [ack]))
+            return Promise.resolve(ok(input, [settled]))
         } catch (error) {
             logger.warn('Failed to fork $feature_flag_called event to flag_evaluations, continuing', {
                 teamId: input.teamId,

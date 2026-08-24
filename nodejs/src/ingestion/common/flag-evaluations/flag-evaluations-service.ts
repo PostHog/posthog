@@ -101,8 +101,12 @@ export function createFlagEvaluationsService(envConfig: FlagEvaluationsEnvConfig
         logger.warn('INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS is "*", disabling the flag evaluations fork')
         return undefined
     }
-    return new FlagEvaluationsService({
-        teams: parseTeamsList(envConfig.INGESTION_FLAG_EVALUATIONS_TEAMS),
-        excludedTeams,
-    })
+    const teams = parseTeamsList(envConfig.INGESTION_FLAG_EVALUATIONS_TEAMS)
+    if (teams !== '*' && teams.length === 0) {
+        // Same shape as the empty-topic case: an allowlist naming nobody is off, so
+        // compose the step out rather than paying it per event to gate every team away.
+        logger.warn('INGESTION_FLAG_EVALUATIONS_MODE is set but INGESTION_FLAG_EVALUATIONS_TEAMS is empty, not forking')
+        return undefined
+    }
+    return new FlagEvaluationsService({ teams, excludedTeams })
 }
