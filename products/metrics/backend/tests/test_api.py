@@ -111,6 +111,7 @@ class TestMetricsAccessControl(APIBaseTest):
             ("attribute_values", "GET", {}),
             ("query", "POST", {}),
             ("samples", "POST", {}),
+            ("explain", "POST", {}),
             ("characterize", "POST", {}),
         ]
     )

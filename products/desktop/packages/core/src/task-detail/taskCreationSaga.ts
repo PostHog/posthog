@@ -19,6 +19,7 @@ import {
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import type { FileReadClient } from "../files/identifiers";
 import type { PiRunner } from "../pi-runtime/piRunner";
 import type { TaskCreationApiClient } from "./taskCreationApiClient";
 import type {
@@ -26,6 +27,7 @@ import type {
   ImportedClaudeCliSession,
   ITaskCreationHost,
 } from "./taskCreationHost";
+import { buildTaskNamingSource } from "./taskDescription";
 import { resolveTaskRepository } from "./taskRepository";
 
 export interface TaskCreationDeps {
@@ -33,6 +35,7 @@ export interface TaskCreationDeps {
   host: ITaskCreationHost;
   sessionService: SessionService;
   piRunner: PiRunner;
+  fileReadClient: FileReadClient;
   onTaskReady?: (output: TaskCreationOutput) => void;
   track: (event: string, props?: Record<string, unknown>) => void;
 }
@@ -797,10 +800,16 @@ export class TaskCreationSaga extends Saga<
       name: "task_creation",
       execute: async () => {
         const description = input.taskDescription ?? input.content ?? "";
+        const namingSource = await buildTaskNamingSource(
+          description,
+          input.filePaths ?? [],
+          this.deps.fileReadClient,
+        );
         const canActivateWarmRun =
           input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
         const result = await this.deps.posthogClient.createTask({
           description,
+          naming_source: namingSource,
           repository: input.repositories
             ? undefined
             : (repository ?? undefined),

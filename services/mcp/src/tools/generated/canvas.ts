@@ -26,6 +26,10 @@ import {
     CanvasesPublishCurrentVersionCreateParams,
     CanvasesSourceRetrieveParams,
     CanvasesSourceRetrieveQueryParams,
+    CanvasesStateRetrieveParams,
+    CanvasesStateRetrieveQueryParams,
+    CanvasesStateSetBody,
+    CanvasesStateSetParams,
     CanvasesValidateCreateBody,
     CanvasesValidateCreateParams,
 } from '@/generated/canvas/api'
@@ -380,6 +384,52 @@ const canvasSourceRetrieve = (): ToolBase<typeof CanvasSourceRetrieveSchema, Sch
     },
 })
 
+const CanvasStateRetrieveSchema = CanvasesStateRetrieveParams.omit({ project_id: true }).extend(
+    CanvasesStateRetrieveQueryParams.shape
+)
+
+const canvasStateRetrieve = (): ToolBase<typeof CanvasStateRetrieveSchema, Schemas.CanvasStateResponse> => ({
+    name: 'canvas-state-retrieve',
+    schema: CanvasStateRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasStateRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasStateResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/`,
+            query: {
+                scope: params.scope,
+            },
+        })
+        return result
+    },
+})
+
+const CanvasStateSetSchema = CanvasesStateSetParams.omit({ project_id: true }).extend(CanvasesStateSetBody.shape)
+
+const canvasStateSet = (): ToolBase<typeof CanvasStateSetSchema, Schemas.CanvasStateEntry> => ({
+    name: 'canvas-state-set',
+    schema: CanvasStateSetSchema,
+    handler: async (context: Context, params: z.infer<typeof CanvasStateSetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.value !== undefined) {
+            body['value'] = params.value
+        }
+        const result = await context.api.request<Schemas.CanvasStateEntry>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/state/set/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CanvasValidateCreateSchema = CanvasesValidateCreateParams.omit({ project_id: true })
     .extend(CanvasesValidateCreateBody.shape)
     .extend({ id: CanvasesValidateCreateParams.shape['id'].describe('ID of the canvas the project is for.') })
@@ -416,5 +466,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-publish-create': canvasPublishCreate,
     'canvas-publish-current-version': canvasPublishCurrentVersion,
     'canvas-source-retrieve': canvasSourceRetrieve,
+    'canvas-state-retrieve': canvasStateRetrieve,
+    'canvas-state-set': canvasStateSet,
     'canvas-validate-create': canvasValidateCreate,
 }

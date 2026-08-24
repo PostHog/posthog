@@ -44,10 +44,17 @@ export type HogFunctionMasking = {
     threshold: number | null
 }
 
+export type HogFunctionFilterDataWarehouse = {
+    table_name?: string
+}
+
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
+    // consumer has to match on it directly.
+    data_warehouse?: HogFunctionFilterDataWarehouse[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
@@ -469,6 +476,9 @@ export type HogFunctionInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

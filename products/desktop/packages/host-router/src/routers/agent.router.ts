@@ -24,6 +24,8 @@ import {
   rtkStatusOutput,
   sessionResponseSchema,
   setConfigOptionInput,
+  sideQuestionInput,
+  sideQuestionOutput,
   startSessionInput,
   subscribeSessionInput,
 } from "@posthog/workspace-server/services/agent/schemas";
@@ -49,6 +51,15 @@ export const agentRouter = router({
         .prompt(input.sessionId, input.prompt as ContentBlock[], {
           steer: input.steer,
         }),
+    ),
+
+  sideQuestion: publicProcedure
+    .input(sideQuestionInput)
+    .output(sideQuestionOutput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .sideQuestion(input.sessionId, input.question),
     ),
 
   cancel: publicProcedure

@@ -406,6 +406,11 @@ class TestReportWindows:
         else:
             assert resolved == (expected or today - timedelta(days=DEFAULT_INITIAL_LOOKBACK_DAYS))
 
+    def test_max_initial_lookback_stays_within_apples_daily_report_limit(self) -> None:
+        # Apple's Reporting API rejects a DAILY-granularity report whose startTime is more than
+        # 24 months in the past with a 400 — this guards against re-widening the floor past it.
+        assert MAX_INITIAL_LOOKBACK_DAYS <= 24 * 30
+
 
 class TestFlattenReportRows:
     def test_granularity_buckets_become_one_row_per_day(self) -> None:
