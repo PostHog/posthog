@@ -89,10 +89,10 @@ Toggling the list without navigating is a pure store write today. It gains a `ro
 the current entry.
 
 ### Rail memory, per tab
-`railHistoryStore` does not die, it narrows. Each tab remembers where each rail destination was
+The global `railHistoryStore` dies and its behavior narrows. Each tab remembers where each rail destination was
 *within that tab*, so clicking Inbox navigates the active tab to that tab's last inbox href rather than
-to `/inbox`. No cross-tab movement, no dedup, no teleport. `RailVisit` is already `{href, spaces:{listOpen, spaceId}}`,
-which is the per-tab `viewState` record being added anyway, so `lastByPane` moves into it unchanged.
+to `/inbox`. No cross-tab movement, no dedup, no teleport. `RailVisit` becomes part of the per-tab
+`viewState` record, so `lastByPane` moves into it unchanged.
 A window-global memory would let tab 1's rail click restore an href tab 2 established, which is
 cross-tab state bleed in another costume.
 

@@ -7,7 +7,6 @@ import {
 import { useAuthUiStateStore } from "@posthog/ui/features/auth/authUiStateStore";
 import type { IAuthSideEffects } from "@posthog/ui/features/auth/identifiers";
 import { resetCurrentChannel } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { resetRailHistory } from "@posthog/ui/features/canvas/stores/railHistoryStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { resetSessionService } from "@posthog/ui/features/sessions/sessionServiceHost";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -35,7 +34,6 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
     // Before openTaskInput, which files a new task into the scoped channel —
     // a channel id from the project we just left.
     resetCurrentChannel();
-    resetRailHistory();
     openTaskInput();
   }
 
@@ -47,7 +45,6 @@ export class RendererAuthSideEffects implements IAuthSideEffects {
       useAuthUiStateStore.getState().setStaleRegion(previousRegion);
     }
     resetCurrentChannel();
-    resetRailHistory();
     openTaskInput();
     useOnboardingStore.getState().resetSelections();
   }

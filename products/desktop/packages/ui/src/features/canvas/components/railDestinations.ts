@@ -208,6 +208,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Context",
     analyticsId: "contexts",
     Icon: BookOpenTextIcon,
+    href: "/spaces/context",
     onPick: navigateToSpacesContext,
     enabled: (flags) => flags.context,
   },
