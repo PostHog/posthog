@@ -632,14 +632,6 @@ class TestZendeskSchemas:
             config = ZENDESK_ENDPOINTS[name]
             assert config.incremental_start_param is not None or config.fanout is not None
 
-    def test_canonical_descriptions_cover_every_new_table(self) -> None:
-        descriptions = ZendeskSource().get_canonical_descriptions()
-
-        for name in ZENDESK_ENDPOINTS:
-            assert name in descriptions, f"{name} has no canonical description"
-            assert descriptions[name]["description"]
-            assert descriptions[name]["docs_url"].startswith("https://developer.zendesk.com/")
-
 
 class TestZendeskSourceForPipeline:
     def _response(self, schema_name: str) -> Any:

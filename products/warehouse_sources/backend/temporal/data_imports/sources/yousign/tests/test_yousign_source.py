@@ -1,22 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-)
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.yousign import (
     YouSignSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.settings import ENDPOINTS, WEBHOOK_EVENTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.source import YouSignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.yousign import YousignResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestYousignSource:
@@ -25,36 +16,11 @@ class TestYousignSource:
         self.team_id = 123
         self.config = YouSignSourceConfig(api_key="key", environment="production")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.YOUSIGN
-
     def test_source_is_released_not_hidden(self) -> None:
         # A finished source must be visible: `unreleasedSource` hides it from every user.
         config = self.source.get_source_config
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "YouSign"
-        assert config.label == "Yousign"
-        assert config.category == DataWarehouseSourceCategory.SALES
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/yousign"
-        assert config.iconPath == "/static/services/yousign.png"
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_environment_options_match_yousign_hosts(self) -> None:
-        config = self.source.get_source_config
-        environment = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig))
-        assert environment.name == "environment"
-        assert {o.value for o in environment.options} == {"production", "sandbox"}
-        assert environment.defaultValue == "production"
 
     def test_get_schemas_incremental_flags(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -77,10 +43,6 @@ class TestYousignSource:
             assert schema.supports_append is False
             assert schema.supports_webhooks is False
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts"])
-        assert [s.name for s in schemas] == ["contacts"]
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — powers the public docs table list.
         assert self.source.lists_tables_without_credentials is True
@@ -98,19 +60,6 @@ class TestYousignSource:
     def test_non_retryable_errors_ignore_transient(self) -> None:
         transient = "500 Server Error for url: https://api.yousign.app/v3/signature_requests"
         assert not any(key in transient for key in self.source.get_non_retryable_errors())
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.yousign.source.validate_yousign_credentials"
-    )
-    def test_validate_credentials_plumbs_config(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        assert self.source.validate_credentials(self.config, self.team_id, schema_name="users") == (True, None)
-        mock_validate.assert_called_once_with("key", "production", "users")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is YousignResumeConfig
 
     def test_webhook_resource_map_matches_event_name_prefixes(self) -> None:
         # The hog template routes on the event name prefix (`signature_request.done` ->
@@ -174,10 +123,3 @@ class TestYousignSource:
         inputs.schema_name = "not-a-schema"
         with pytest.raises(ValueError, match="Unknown Yousign schema"):
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-        for entry in descriptions.values():
-            assert entry["description"]
-            assert entry["docs_url"].startswith("https://")

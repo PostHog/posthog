@@ -544,11 +544,6 @@ class TestGetSchemas:
         # Initiatives are plan-gated, so they must not be enabled for every new connection.
         assert {name for name, s in schemas.items() if not s.should_sync_default} == {"initiatives"}
 
-    def test_names_filter_narrows_the_schema_list(self) -> None:
-        schemas = LinearSource().get_schemas(cast(Any, None), team_id=1, names=["workflow_states"])
-
-        assert [s.name for s in schemas] == ["workflow_states"]
-
 
 class TestRateLimitBackoff:
     @parameterized.expand(

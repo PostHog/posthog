@@ -384,6 +384,48 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('analysis artifact guidance', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                name: 'analytics learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+            },
+        ]
+
+        it.each(surfaces)('$name routes deep dives to notebooks and tracking to dashboards', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const result = render(formatter, fullCtx)
+            expect(result).toContain('### Where an analysis lands')
+            expect(result).toContain('**Notebook**')
+            expect(result).toContain('**Dashboard**')
+        })
+
+        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // for clients that aren't advertised the cell tools.
+        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### Python in an analysis')
+            expect(cellsOn).toContain("cell_type: 'python'")
+
+            const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### Python in an analysis')
+            expect(cellsOff).toBe(render(formatter, fullCtx))
+        })
+    })
+
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
     // `instructions` field, that payload carries exactly one thing — the tool-domain index
     // (including the `query` domain) — because clients hard-truncate it. Everything else,
