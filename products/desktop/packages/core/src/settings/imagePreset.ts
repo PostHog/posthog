@@ -440,7 +440,12 @@ export function imagePresetBrief(
   setupCommands: readonly string[],
 ): string {
   const toolLines = tools
-    .map((tool) => `- ${tool.command} (${tool.name}): ${tool.reason}`)
+    .map((tool) => {
+      const invocation = tool.version
+        ? `${tool.command}@${tool.version}`
+        : tool.command;
+      return `- ${invocation} (${tool.name}): ${tool.reason}`;
+    })
     .join("\n");
   const target = repository ?? "our cloud runs";
   const sections = [
