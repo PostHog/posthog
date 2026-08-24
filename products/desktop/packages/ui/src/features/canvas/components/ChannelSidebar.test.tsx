@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   items: [] as ChannelItemModel[],
   isLoading: false,
   channelMissing: false,
-  pathname: "/website/channel-1",
+  pathname: "/spaces/channel-1",
   open: vi.fn(),
 }));
 
@@ -39,7 +39,7 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 }));
 
 // The row menu's spaces list reaches for a QueryClient the unit test has no
-// stack for. Stubbed at the module boundary, as WebsiteLayout.test.tsx does for
+// stack for. Stubbed at the module boundary, as ShellLayout.test.tsx does for
 // the same reason.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
@@ -88,6 +88,8 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     // Not the viewer, so filtering to "Me" leaves nothing.
     authorUuid: "someone-else-uuid",
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...overrides,
   };
@@ -111,7 +113,7 @@ describe("ChannelSidebar", () => {
     mocks.items = [];
     mocks.isLoading = false;
     mocks.channelMissing = false;
-    mocks.pathname = "/website/channel-1";
+    mocks.pathname = "/spaces/channel-1";
   });
 
   it.each([
@@ -375,7 +377,7 @@ describe("ChannelSidebar multi-select", () => {
   beforeEach(() => {
     mocks.isLoading = false;
     mocks.channelMissing = false;
-    mocks.pathname = "/website/channel-1";
+    mocks.pathname = "/spaces/channel-1";
     mocks.open.mockClear();
     useTaskSelectionStore.setState({
       selectedTaskIds: [],
@@ -428,7 +430,7 @@ describe("ChannelSidebar multi-select", () => {
   });
 
   it("does not style the open session as selected when another session is selected", () => {
-    mocks.pathname = "/website/channel-1/tasks/a";
+    mocks.pathname = "/spaces/channel-1/tasks/a";
     useTaskSelectionStore.setState({ selectedTaskIds: ["b"] });
 
     renderSidebar();

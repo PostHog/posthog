@@ -91,6 +91,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
+    // When enabled, the email queue dequeues by priority class before the
+    // per-team fair ordering, so transactional-class sends aren't stuck behind
+    // a broadcast backlog. Requires idx_cyclotron_jobs_email_priority_fair_dequeue.
+    CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED: boolean
 
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
@@ -254,6 +258,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+        CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
@@ -314,7 +319,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Django's batch-job model always passes get_hogflow_batch_trigger_limit(team_id), so
         // production batches use the per-team value from settings; this is only a safety net for
         // direct callers (tests, admin tools). Match the fleet-wide default in settings.web.py.
-        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 50000,
+        CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 500000,
 
         // Cyclotron Node
         CYCLOTRON_NODE_MAX_CONNECTIONS: 10,

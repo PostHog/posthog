@@ -142,7 +142,7 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/website",
+  useRouterState: () => "/spaces",
 }));
 
 import {

@@ -86,13 +86,15 @@ export const webActiveView: IActiveView = {
     const last = matches[matches.length - 1];
     if (!last) return undefined;
     const params = last.params as Record<string, string | undefined>;
-    switch (last.routeId) {
-      case "/code/tasks/$taskId":
-      case "/website/$channelId/tasks/$taskId":
+    // `fullPath`, not `routeId`: the space routes sit under the pathless
+    // `_shell` layout, which routeId spells out and the URL pattern doesn't.
+    switch (last.fullPath) {
+      case "/tasks/$taskId":
+      case "/spaces/$channelId/tasks/$taskId":
         return params.taskId
           ? { kind: "task", taskId: params.taskId }
           : undefined;
-      case "/website/$channelId/dashboards/$dashboardId":
+      case "/spaces/$channelId/dashboards/$dashboardId":
         return params.channelId && params.dashboardId
           ? {
               kind: "canvas",

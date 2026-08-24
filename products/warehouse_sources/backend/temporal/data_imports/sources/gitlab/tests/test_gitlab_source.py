@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.gitlab import GitLabResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitlab.settings import ENDPOINTS
@@ -55,6 +56,15 @@ class TestGitLabSource:
     @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "404 Client Error"])
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_transient_5xx_error_is_retryable_not_non_retryable(self):
+        # A GitLabRetryableError (any transient upstream 5xx) that exhausts fetch_page's tenacity
+        # retry must stay retryable, so a GitLab-side outage doesn't disable the source.
+        observed_error = "GitLab API error (retryable): status=502, url=https://gitlab.com/api/v4/projects/1/issues"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in observed_error for key in non_retryable_errors)
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
