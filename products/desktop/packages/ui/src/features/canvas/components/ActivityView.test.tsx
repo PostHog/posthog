@@ -139,6 +139,10 @@ describe("activityMetadata", () => {
     expect(title.compareDocumentPosition(metadata)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(
+      title.closest("button")?.querySelector(".quill-avatar svg"),
+    ).toHaveClass("text-primary");
+    expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
   });
 
   it("opens an activity mention at its exact comment thread", () => {

@@ -1,7 +1,6 @@
 import {
   BellIcon,
   ChatCircleIcon,
-  CheckCircleIcon,
   CheckIcon,
   ChecksIcon,
   DotsThreeIcon,
@@ -39,7 +38,6 @@ import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivi
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { track } from "@posthog/ui/shell/analytics";
 import type { ReactElement } from "react";
 import { useCallback, useEffect, useMemo } from "react";
@@ -50,14 +48,20 @@ import {
 } from "./activityFeed";
 import { activityMetadata } from "./activityMetadata";
 
-function AgentActivityIcon({ item }: { item: TaskActivityItem }): ReactElement {
+function AgentActivityIcon({
+  item,
+  className,
+}: {
+  item: TaskActivityItem;
+  className?: string;
+}): ReactElement {
   switch (item.activityKind) {
     case "completed":
-      return <CheckCircleIcon size={13} />;
+      return <CheckIcon size={13} className={className} />;
     case "awaiting_input":
-      return <QuestionIcon size={12} weight="bold" />;
+      return <QuestionIcon size={12} weight="bold" className={className} />;
     default:
-      return <ChatCircleIcon size={13} />;
+      return <ChatCircleIcon size={13} className={className} />;
   }
 }
 
@@ -95,16 +99,15 @@ export function ActivityRow({
     item.activityKind === "awaiting_input" ||
     item.activityKind === "completed" ||
     (item.activityKind === "message" && !item.author);
-  // The one row here that is blocked on you, and the sidebar's session rows
-  // already say that in blue. Yellow is everything else the feed carries:
-  // something happened that you haven't read.
-  //
-  // Read against the live sessions rather than the row's kind alone, so this is
-  // the same fact the sidebar's blue dot is drawn from. The row records that the
-  // agent asked at a moment in time; whether it is still waiting is a question
-  // only the session can answer, and answering the prompt has to clear the dot.
+  // An awaiting_input row records a past event, but only the live session knows
+  // whether it still needs a reply. Active waiting therefore outranks unread color.
   const awaitsReply =
     item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
+  const agentIconClassName = awaitsReply
+    ? "text-(--blue-11)"
+    : item.isUnread
+      ? "text-primary"
+      : undefined;
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
       action_type: "open_task",
@@ -129,31 +132,15 @@ export function ActivityRow({
         left
         className={`h-auto w-full text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : item.isUnread ? "bg-primary/10 outline outline-primary/20 hover:bg-primary/15" : ""}`}
       >
-        <span className="relative mt-0.5 shrink-0">
+        <span className="mt-0.5 shrink-0">
           {isAgentActivity ? (
             <Avatar size="xs">
               <AvatarFallback>
-                <AgentActivityIcon item={item} />
+                <AgentActivityIcon item={item} className={agentIconClassName} />
               </AvatarFallback>
             </Avatar>
           ) : (
             <UserAvatar user={item.author ?? currentUser} size="xs" />
-          )}
-          {/* Unread is a fact about the feed: you haven't looked at this yet.
-              Waiting on you is a fact about the session, and reading the row
-              doesn't answer the prompt — so it keeps its dot until you do. */}
-          {(item.isUnread || awaitsReply) && (
-            <span
-              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full"
-              // Off the table the status dots read, so a row that says the agent
-              // is waiting is the same blue as the session it is waiting in.
-              style={{
-                backgroundColor: awaitsReply
-                  ? DOT_TONE_VAR.blue
-                  : "var(--primary)",
-              }}
-              title={awaitsReply ? "Waiting on you" : "New activity"}
-            />
           )}
         </span>
         <span className="min-w-0 flex-1">
