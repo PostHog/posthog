@@ -614,6 +614,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.setMessages(transformedMessages)
                 actions.setHasMoreMessages(false)
             } catch (e) {
+                // The same mid-load unmount can surface as a rejection (network error, 5xx, 429)
+                // rather than a resolve. The panel is already gone, so reporting it would toast over
+                // a message that actually sent. Skip quietly, matching the resolve-path guard above.
+                if (cache.disposables.isDisposed) {
+                    return
+                }
                 console.error('Failed to load messages:', e)
                 // A thread that won't open is a customer who can't continue a conversation they
                 // already started, so it belongs in the same rate signal as a dead panel

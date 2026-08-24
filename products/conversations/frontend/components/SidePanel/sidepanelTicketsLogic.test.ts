@@ -559,32 +559,42 @@ describe('sidepanelTicketsLogic', () => {
 
     // A send switches views and can unmount this logic while the follow-up loadMessages is in flight.
     // Reporting that as thread_load_failed put a red error over a message that actually sent, and the
-    // customer re-sent and created a duplicate ticket.
-    it('stays quiet when the panel unmounts before the follow-up message load resolves', async () => {
-        let resolveGet: (value: any) => void = () => {}
-        ;(posthog as any).conversations.getMessages = jest.fn(() => new Promise((resolve) => (resolveGet = resolve)))
-        const localLogic = sidepanelTicketsLogic.build()
-        localLogic.mount()
-        await expectLogic(localLogic).toFinishAllListeners()
-        ;(posthog.capture as jest.Mock).mockClear()
-        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+    // customer re-sent and created a duplicate ticket. The in-flight load can settle either way after
+    // the unmount: a resolve hits the guard after the await, a rejection (network error, 5xx, 429)
+    // hits the guard in the catch. Both must stay quiet.
+    it.each([
+        ['resolves', false, { messages: [], has_more: false }],
+        ['rejects', true, new Error('network error')],
+    ])(
+        'stays quiet when the panel unmounts before the follow-up message load %s',
+        async (_label, shouldReject, payload) => {
+            let settleGet: (value: any) => void = () => {}
+            ;(posthog as any).conversations.getMessages = jest.fn(
+                () => new Promise((resolve, reject) => (settleGet = shouldReject ? reject : resolve))
+            )
+            const localLogic = sidepanelTicketsLogic.build()
+            localLogic.mount()
+            await expectLogic(localLogic).toFinishAllListeners()
+            ;(posthog.capture as jest.Mock).mockClear()
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
 
-        // setCurrentTicket kicks off loadMessages, which now parks on the pending getMessages
-        localLogic.actions.setCurrentTicket({
-            id: 't1',
-            status: 'open',
-            message_count: 1,
-            created_at: '2026-07-13T00:00:00Z',
-        } as ConversationTicket)
-        localLogic.unmount()
-        resolveGet({ messages: [], has_more: false })
-        await new Promise((resolve) => setTimeout(resolve))
+            // setCurrentTicket kicks off loadMessages, which now parks on the pending getMessages
+            localLogic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+            localLogic.unmount()
+            settleGet(payload)
+            await new Promise((resolve) => setTimeout(resolve))
 
-        const threadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event, props]) => event === 'support widget load failed' && props?.reason === 'thread_load_failed'
-        )
-        expect(threadFailures).toHaveLength(0)
-        expect(errorToast).not.toHaveBeenCalled()
-        errorToast.mockRestore()
-    })
+            const threadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event, props]) => event === 'support widget load failed' && props?.reason === 'thread_load_failed'
+            )
+            expect(threadFailures).toHaveLength(0)
+            expect(errorToast).not.toHaveBeenCalled()
+            errorToast.mockRestore()
+        }
+    )
 })
