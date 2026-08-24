@@ -1,3 +1,5 @@
+import datetime
+
 import pytest
 from unittest import mock
 
@@ -115,10 +117,22 @@ class TestGithubSource:
             "Integration not found",
             "Missing integration ID",
             "This installation has been suspended",
+            # A sunset API version pinned in X-GitHub-Api-Version returns 410 Gone permanently, so it
+            # must disable the schema rather than retry forever.
+            "410 Client Error",
         ],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_deprecated_api_version_metadata(self):
+        # The generic registry test only checks deprecated ⊆ supported and default ∉ deprecated; this
+        # locks GitHub's specific deprecation — 2022-11-28 sunset on 2028-03-10, 2026-03-10 current —
+        # which drives the in-product warning and the source-level repin migration.
+        deprecation = self.source.get_version_deprecation("2022-11-28")
+        assert deprecation is not None
+        assert deprecation.sunset_at == datetime.date(2028, 3, 10)
+        assert self.source.get_version_deprecation("2026-03-10") is None
 
     def test_rate_limit_error_is_retryable_not_non_retryable(self):
         # A GitHubRateLimitError that exhausts _fetch_page's tenacity retry must stay retryable
