@@ -82,8 +82,6 @@ export function useCreatePrReport({
       return {
         content: prompt,
         taskDescription: prompt,
-        repository: ctx.cloudRepository,
-        githubUserIntegrationId: ctx.githubUserIntegrationId ?? undefined,
         workspaceMode: "cloud",
         executionMode: "auto",
         adapter: ctx.adapter,

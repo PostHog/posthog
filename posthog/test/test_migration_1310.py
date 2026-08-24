@@ -1,9 +1,10 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
-class ProvisioningRateLimitOverridesMigrationTest(TestMigrations):
+# Non-atomic so a later posthog migration with a CONCURRENTLY index doesn't break the rewind.
+class ProvisioningRateLimitOverridesMigrationTest(NonAtomicTestMigrations):
     migrate_from = "1309_integration_kind_ext_idx"
     migrate_to = "1310_provisioning_rate_limit_overrides"
 

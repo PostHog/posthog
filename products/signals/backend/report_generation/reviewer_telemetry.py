@@ -1,4 +1,5 @@
 import logging
+import dataclasses
 from typing import Literal
 
 import posthoganalytics
@@ -7,7 +8,10 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team
 
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerResolutionDiagnostics,
+    resolve_org_github_login_to_users,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +86,48 @@ def capture_suggested_reviewers_resolved(
         )
     except Exception:
         logger.exception("Failed to capture signals_suggested_reviewers_resolved for report %s", report_id)
+
+
+def capture_suggested_reviewers_unresolved(
+    *,
+    team_id: int,
+    report_id: str,
+    diagnostics: ReviewerResolutionDiagnostics,
+    finding_count: int,
+    has_new_finding: bool,
+) -> None:
+    """Emit `signals_suggested_reviewers_unresolved` when a pipeline run yields no reviewers.
+
+    Nothing is persisted for an empty list, so this is the only record of *why* a report ended
+    up with no one to route to: no repository, findings without commits, no reachable GitHub
+    integration, or lookups that came back without an attributable author. Fires per run;
+    read it as the latest event per `report_id`.
+
+    Best-effort: never raises, so analytics can't break report generation.
+    """
+    try:
+        logger.info(
+            "no suggested reviewers for report %s (team %d): %s (%d commit hash(es), %d/%d lookups resolved)",
+            report_id,
+            team_id,
+            diagnostics.outcome,
+            diagnostics.commit_hash_count,
+            diagnostics.lookups_resolved,
+            diagnostics.lookups_attempted,
+        )
+        team = Team.objects.select_related("organization").get(id=team_id)
+        posthoganalytics.capture(
+            event="signals_suggested_reviewers_unresolved",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team_id,
+                "report_id": report_id,
+                "source": "pipeline",
+                "finding_count": finding_count,
+                "has_new_finding": has_new_finding,
+                **dataclasses.asdict(diagnostics),
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.exception("Failed to capture signals_suggested_reviewers_unresolved for report %s", report_id)

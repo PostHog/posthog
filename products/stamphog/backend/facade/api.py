@@ -18,6 +18,7 @@ from django.utils import timezone
 
 import structlog
 
+from ..logic.review_trigger import derive_review_trigger
 from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
 from .enums import (
@@ -147,16 +148,12 @@ _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
 def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
-    """Why stamphog looked at this PR: inbox provenance first, then the repo's review mode.
-
-    Inbox provenance outranks the repo mode: a self-driving run is dispatched from the inbox
-    whether or not the repo also reviews every PR event.
-    """
-    if (obj.output or {}).get("inbox_review"):
-        return ReviewTrigger.SELF_DRIVING
-    if obj.pull_request.repo_config.review_mode == ReviewMode.LABEL:
-        return ReviewTrigger.LABEL
-    return ReviewTrigger.ALL
+    """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
+    the reviewer invocation has to answer the same question before a run exists to read."""
+    return derive_review_trigger(
+        has_inbox_review=bool((obj.output or {}).get("inbox_review")),
+        review_mode=obj.pull_request.repo_config.review_mode,
+    )
 
 
 def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:

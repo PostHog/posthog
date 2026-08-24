@@ -1339,10 +1339,15 @@ function addNodeLanes(targets) {
 // package imports them. The python half cannot narrow below every python lane:
 // the stubs are checked into posthog/, which is py:core, and py:core covers
 // every product lane by construction.
+// stubDir names the checked-in stub directory when it differs from the tree
+// name; the consistency test reads it. ingestion's node stubs land in
+// nodejs/src/common/generated/ingestion-worker, not .../ingestion.
 const PROTO_TREES = new Map([
     ['cymbal', { crates: ['cymbal-proto'], domains: [] }],
+    ['ingestion', { crates: ['ingestion-worker-proto'], domains: [NODE], stubDir: 'ingestion-worker' }],
     ['kafka_assigner', { crates: ['kafka-assigner-proto'], domains: [] }],
     ['personhog', { crates: ['personhog-proto'], domains: [PYTHON, NODE] }],
+    ['prometheus', { crates: ['prometheus-rw-proto'], domains: [] }],
 ])
 
 // A file directly under proto/ is treated as impacting all trees, since it's not

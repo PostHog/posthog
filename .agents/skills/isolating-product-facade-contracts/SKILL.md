@@ -188,6 +188,28 @@ base moved down to core, its timezone integration test moved into the product,
 its Dagster assets gained a `facade/dags.py`, and its filter-preset reads landed
 in `facade/api.py` with the viewset deferred.
 
+## Model classes a consumer already holds
+
+Some products still hand out model classes under the watched-models allowance
+(`MODEL_CROSSINGS`). That allowance only says the class may leave the product; it
+says nothing about what the consumer does with it. Two rules cover that:
+
+- **Default-deny.** A crossing class may appear in consumer code only in a shape
+  the check calls instance-free: an annotation, `X.DoesNotExist`, a nested class
+  attribute (`X.Status`), `X._meta`, a manager chain ending in
+  `values`/`values_list`/`count`/`exists`/`aggregate`, or a chain
+  embedded in `Exists(...)`/`Subquery(...)`. Anything else is disallowed.
+- **Move, don't permit.** Code that queries, serializes or writes a model belongs
+  in that model's product. The remedy for a disallowed use is a move; the facade
+  function is what the move leaves behind, and the consumer keeps orchestration
+  and ids.
+
+`hogli product:crossings <product>` lists a product's crossing classes with every
+consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
+`products/model_crossing_uses_baseline.txt` and guarded by a repo-invariant test;
+counts may only go down, and `hogli product:crossings --all --write-baseline`
+records the decrease. See `products/architecture.md` § Wiring couplings.
+
 ## Guardrails
 
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.

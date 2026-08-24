@@ -11,7 +11,12 @@ function screenshotFilter(node: Node): boolean {
     return !(node instanceof HTMLElement && node.id === TOOLBAR_ID)
 }
 
+let cachedStylePropertyNames: string[] | null = null
+
 const getAllStylePropertyNames = (): string[] => {
+    if (cachedStylePropertyNames) {
+        return cachedStylePropertyNames
+    }
     const names: string[] = []
     const style = getComputedStyle(document.documentElement)
     for (let i = 0; i < style.length; i++) {
@@ -20,15 +25,24 @@ const getAllStylePropertyNames = (): string[] => {
             names.push(name)
         }
     }
+    cachedStylePropertyNames = names
     return names
 }
 
-export async function captureElementScreenshot(element: HTMLElement): Promise<Blob> {
+export interface CaptureOptions {
+    pixelRatio?: number
+    width?: number
+    height?: number
+    backgroundColor?: string
+}
+
+export async function captureElementScreenshot(element: HTMLElement, options?: CaptureOptions): Promise<Blob> {
     const blob = await toBlob(element, {
         type: 'image/jpeg',
         includeStyleProperties: getAllStylePropertyNames(),
         quality: 0.7,
         filter: screenshotFilter,
+        ...options,
     })
 
     if (!blob) {

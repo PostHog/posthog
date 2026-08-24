@@ -384,3 +384,25 @@ class TestScannerCreditLimit(APIBaseTest):
 
         assert scanner.scanner_version == version_before
         assert scanner.estimated_at == estimated_at_before
+
+
+class TestTargetedRecordingsQuery(BaseTest):
+    def test_no_targeting_clears_a_stale_exposure_filter_in_the_query(self) -> None:
+        # A query saved before the write-guard (or after targeting was removed) can still carry an
+        # experiment_exposure that nothing access-checks. Since the sweep runs the derived query as the
+        # creator, an untouched blob would run an unauthorized exposure filter — so it must be cleared.
+        scanner = _make_scanner(
+            self.team,
+            query={"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 999}},
+            experiment_targeting=None,
+        )
+        assert scanner.targeted_recordings_query().experiment_exposure is None
+
+    def test_targeting_sets_the_exposure_filter(self) -> None:
+        scanner = _make_scanner(
+            self.team, query={"kind": "RecordingsQuery"}, experiment_targeting={"experiment_id": 42, "variant": "test"}
+        )
+        exposure = scanner.targeted_recordings_query().experiment_exposure
+        assert exposure is not None
+        assert exposure.experiment_id == 42
+        assert exposure.variant == "test"

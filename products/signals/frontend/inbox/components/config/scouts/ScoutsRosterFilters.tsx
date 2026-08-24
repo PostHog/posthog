@@ -2,15 +2,19 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { ScoutTagsFilter } from './ScoutTagsFilter'
 
-export function ScoutsRosterFilters(): JSX.Element {
+export function ScoutsRosterFilters({ compact }: { compact: boolean }): JSX.Element {
     const { scoutSearch, scoutEnabledFilter, scoutTagOptions, activeScoutTags } = useValues(scoutFleetLogic)
     const { setScoutSearch, setScoutEnabledFilter, setScoutTagFilter } = useActions(scoutFleetLogic)
 
     return (
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        // Compact takes the whole line rather than being pushed right: at phone widths the filters
+        // never share a row with the stats anyway, and a right-hugging half-row just wastes it.
+        <div className={cn('flex flex-wrap items-center gap-2', compact ? 'w-full' : 'ml-auto')}>
             <LemonSegmentedButton
                 size="small"
                 value={scoutEnabledFilter}
@@ -27,7 +31,7 @@ export function ScoutsRosterFilters(): JSX.Element {
                 placeholder="Search scouts…"
                 value={scoutSearch}
                 onChange={setScoutSearch}
-                className="w-56"
+                className={compact ? 'min-w-32 flex-1' : 'w-56'}
                 allowClear
             />
             {scoutTagOptions.length > 0 && (

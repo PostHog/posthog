@@ -12,6 +12,8 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
+import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
+
 import {
     FEATURE_REQUEST_ARCHIVE_OPTIONS,
     FEATURE_REQUEST_ORDERING_OPTIONS,
@@ -26,6 +28,7 @@ export function FeatureRequestFilters(): JSX.Element {
         priorityFilter,
         productAreaFilter,
         accountFilter,
+        createdByFilter,
         archiveState,
         requestOrdering,
         productAreas,
@@ -38,6 +41,7 @@ export function FeatureRequestFilters(): JSX.Element {
         togglePriorityFilter,
         toggleProductAreaFilter,
         toggleAccountFilter,
+        setCreatedByFilter,
         setArchiveState,
         setRequestOrdering,
         clearFilters,
@@ -151,6 +155,7 @@ export function FeatureRequestFilters(): JSX.Element {
                         {accountFilter.length ? `Account · ${accountFilter.length}` : 'Account'}
                     </LemonButton>
                 </LemonMenu>
+                <MemberSelectMultiplePopover value={createdByFilter} onChange={setCreatedByFilter} />
                 <LemonMenu items={archiveItems} closeOnClickInside>
                     <LemonButton
                         type="secondary"

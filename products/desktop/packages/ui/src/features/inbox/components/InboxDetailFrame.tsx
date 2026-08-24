@@ -1,7 +1,14 @@
 import type { IconProps } from "@phosphor-icons/react";
+import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
-import { isStatusRedundantWithActionability } from "@posthog/core/inbox/reportPresentation";
-import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { ReportChartsSection } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
@@ -11,27 +18,29 @@ import {
   InboxMetaText,
 } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxMetaSourceStack } from "@posthog/ui/features/inbox/components/InboxMetaSourceStack";
+import { ReportReviewersHeader } from "@posthog/ui/features/inbox/components/ReportReviewersHeader";
 import { RightColumnSection } from "@posthog/ui/features/inbox/components/RightColumnSection";
 import {
   SignalsList,
   SignalsListSkeleton,
 } from "@posthog/ui/features/inbox/components/SignalsList";
 import { ForYouBadge } from "@posthog/ui/features/inbox/components/utils/ForYouBadge";
-import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportActionabilityBadge";
-import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { SignalReportStatusBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportStatusBadge";
 import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/components/utils/SignalReportSummaryMarkdown";
 import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import type { InboxListRoute } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
-import { useInboxReportSignals } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  useInboxReportArtefacts,
+  useInboxReportSignals,
+} from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { type ComponentType, type ReactNode, useState } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
-  /** List route for the back-link (e.g. "/code/inbox/pulls"). */
-  backTo: InboxListRoute;
+  /** List route for the back-link (e.g. "/inbox/pulls"). */
+  backTo: InboxListRoute | (string & {});
   backLabel: string;
   /**
    * Whether to render the Dismiss button + dialog. Off for already-dismissed
@@ -101,6 +110,13 @@ export function InboxDetailFrame({
   const signals = signalsResp?.signals ?? [];
   const signalsLoaded = signalsResp !== undefined;
   const hasSource = hasKnownSourceProduct(report.source_products);
+  // The repo the report's own selection step chose — the one a Discuss, Canvas,
+  // or PR run will work in (the server resolves runs from this same artefact).
+  // Null covers both "no selection yet" and a deliberate no-repo choice; the
+  // byline stays quiet for those. The decision section already fetches these
+  // artefacts, so this query is warm.
+  const { data: artefactsResp } = useInboxReportArtefacts(report.id);
+  const runRepository = extractRepoSelectionRepository(artefactsResp?.results);
   const { actionButton: dismissButton, dialog: dismissDialog } =
     useInboxReportDismissAction(report);
 
@@ -123,24 +139,10 @@ export function InboxDetailFrame({
         fallbackTitle={fallbackTitle}
         badges={
           <>
-            {report.priority && (
-              <SignalReportPriorityBadge priority={report.priority} />
-            )}
-            {/*
-              When the report has been classified by the Responder, the
-              actionability verdict (Actionable / Needs input / Not actionable)
-              takes the status badge's slot where the status would only repeat
-              it. Other statuses (in-progress, candidate, failed, …) still
-              surface as a badge.
-             */}
-            {!isStatusRedundantWithActionability(
-              report.status,
-              report.actionability,
-            ) && <SignalReportStatusBadge status={report.status} />}
-            {report.actionability && (
-              <SignalReportActionabilityBadge
-                actionability={report.actionability}
-              />
+            {/* Ready is the default state and the decision block says so; only
+                an exceptional status (failed, running, archived) earns a badge. */}
+            {report.status !== "ready" && (
+              <SignalReportStatusBadge status={report.status} />
             )}
             {report.is_suggested_reviewer && <ForYouBadge />}
           </>
@@ -169,11 +171,33 @@ export function InboxDetailFrame({
                 />
               </>
             )}
+            {report.priority && (
+              <>
+                <InboxMetaSeparator />
+                <InboxMetaText>{report.priority}</InboxMetaText>
+              </>
+            )}
+            {runRepository && (
+              <>
+                <InboxMetaSeparator />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<InboxMetaText mono className="cursor-help" />}
+                  >
+                    {runRepository}
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    Agent runs for this report work in this repository
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            )}
             {metaSuffix}
           </>
         }
         actions={
           <div className="flex items-center gap-2.5">
+            <ReportReviewersHeader report={report} />
             {primaryAction}
             {showDismiss && dismissButton}
           </div>

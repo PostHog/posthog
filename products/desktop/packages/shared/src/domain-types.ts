@@ -254,8 +254,6 @@ export interface TaskActivity {
   latest_comment_id?: string | null;
   latest_comment_scope?: string | null;
   latest_comment_item_id?: string | null;
-  target_scope?: "desktop_canvas" | null;
-  target_id?: string | null;
   is_unread: boolean;
 }
 
@@ -661,22 +659,14 @@ export interface SignalReport {
   implementation_pr_url?: string | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
-  /** The persistent canvas session generated for this report, when available. */
-  canvas_session?: {
-    canvas_id: string;
-    discussion_task_id: string;
-    generation_task_id?: string | null;
-    generation_status: "pending" | "generating" | "ready" | "failed";
-    collaboration_mode: "managed" | "collaborative";
-    failure_reason: string;
-    updated_at: string;
-  } | null;
   /** The report's PR refund, when one exists (one refund per report, ever). */
   refund?: SignalReportRefund | null;
   /** Marks reports that were never billable ("Free"), so there is nothing to refund. */
   billing_exempt_reason?: string | null;
   /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
   refund_ineligibility_reason?: string | null;
+  /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
+  channel_id?: string | null;
 }
 
 export type SignalReportRefundReason =
@@ -1022,6 +1012,8 @@ export interface SignalReportsQueryParams {
    * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
    */
   has_implementation_pr?: boolean;
+  /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
+  channel_id?: string;
 }
 
 export interface SignalTeamConfig {
@@ -1030,6 +1022,12 @@ export interface SignalTeamConfig {
   /** Team-wide default `channel_id|#channel-name` target for inbox notifications. `null` = no team default. */
   default_slack_notification_channel?: string | null;
   autostart_base_branches?: Record<string, string> | null;
+  /** Daily cap on new reports reaching the inbox, counted per project-timezone day. `null` = unlimited. */
+  max_reports_per_day?: number | null;
+  /** Reports that first became visible today. `0` when there is no cap. Read-only. */
+  reports_generated_today?: number;
+  /** Whether the cap is reached, pausing new reports until local midnight. `false` when there is no cap. Read-only. */
+  daily_report_limit_reached?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconSearch } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonInputSelect,
     LemonModal,
     LemonTable,
@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { FeatureRequestApi } from '../../generated/api.schemas'
+import { getFeatureRequestDetailUrl } from '../FeatureRequests/featureRequestNavigation'
 import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
 
 export function AccountFeatureRequestsExpansion({ accountId }: { accountId: string }): JSX.Element {
@@ -25,6 +26,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
     const {
         accountRequests,
         accountRequestsPage,
+        accountRequestsSearch,
         accountRequestsLoading,
         accountRequestsError,
         requestPickerOpen,
@@ -41,6 +43,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
         closeRequestPicker,
         setSelectedRequestId,
         setAccountRequestsPage,
+        setAccountRequestsSearch,
         setRequestSearch,
         linkSelectedRequest,
     } = useActions(logic)
@@ -50,12 +53,13 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
         AccessControlLevel.Editor
     )
 
+    const origin = urls.customerAnalyticsAccount(accountId, 'feature_requests')
     const columns: LemonTableColumns<FeatureRequestApi> = [
         {
             title: 'Request',
             key: 'title',
             render: (_, request) => (
-                <Link to={urls.customerAnalyticsFeatureRequests(request.id)} className="font-medium">
+                <Link to={getFeatureRequestDetailUrl({ requestId: request.id, origin })} className="font-medium">
                     {request.title}
                 </Link>
             ),
@@ -77,11 +81,11 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                 <LemonButton
                     type="secondary"
                     size="xsmall"
-                    to={
-                        combineUrl(urls.customerAnalyticsFeatureRequests(request.id), {
-                            evidence_account: accountId,
-                        }).url
-                    }
+                    to={getFeatureRequestDetailUrl({
+                        requestId: request.id,
+                        origin,
+                        searchParams: { evidence_account: accountId },
+                    })}
                     disabledReason={editorDisabledReason}
                 >
                     Add evidence
@@ -92,7 +96,17 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
 
     return (
         <div className="flex flex-col gap-3" data-attr="account-feature-requests">
-            <div className="flex justify-end">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonInput
+                    type="search"
+                    value={accountRequestsSearch}
+                    onChange={setAccountRequestsSearch}
+                    placeholder="Search linked requests"
+                    prefix={<IconSearch />}
+                    size="small"
+                    className="min-w-64"
+                    data-attr="account-feature-requests-search"
+                />
                 <LemonButton
                     type="primary"
                     size="small"
@@ -115,7 +129,11 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                 columns={columns}
                 rowKey="id"
                 loading={accountRequestsLoading}
-                emptyState="No feature requests linked to this account."
+                emptyState={
+                    accountRequestsSearch.trim()
+                        ? 'No linked feature requests match your search.'
+                        : 'No feature requests linked to this account.'
+                }
                 pagination={{
                     controlled: true,
                     pageSize: ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE,
