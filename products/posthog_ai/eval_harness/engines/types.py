@@ -29,13 +29,20 @@ class CaseSpec:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-SpanKind = Literal["llm", "function", "task", "score"]
+SpanKind = Literal["llm", "function", "task", "tool", "score"]
 
 
 class SpanHandle(Protocol):
     """A single span the task logs onto; the engine renders it into its own trace."""
 
-    def log(self, *, input: Any = None, output: Any = None, metadata: dict[str, Any] | None = None) -> None: ...
+    def log(
+        self,
+        *,
+        input: Any = None,
+        output: Any = None,
+        metadata: dict[str, Any] | None = None,
+        metrics: dict[str, int | float] | None = None,
+    ) -> None: ...
 
 
 class CaseHooks(Protocol):
@@ -48,7 +55,13 @@ class CaseHooks(Protocol):
     @property
     def metadata(self) -> dict[str, Any]: ...
 
-    def start_span(self, name: str, kind: SpanKind) -> AbstractContextManager[SpanHandle]: ...
+    def start_span(
+        self,
+        name: str,
+        kind: SpanKind,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> AbstractContextManager[SpanHandle]: ...
 
 
 EvalTaskFn = Callable[[dict[str, Any], CaseHooks], Awaitable[dict[str, Any] | None]]
@@ -57,7 +70,14 @@ neutral ``CaseHooks`` and returns the scorer ``output`` dict (or ``None``)."""
 
 
 class _NullSpanHandle:
-    def log(self, *, input: Any = None, output: Any = None, metadata: dict[str, Any] | None = None) -> None:
+    def log(
+        self,
+        *,
+        input: Any = None,
+        output: Any = None,
+        metadata: dict[str, Any] | None = None,
+        metrics: dict[str, int | float] | None = None,
+    ) -> None:
         return None
 
 
@@ -76,7 +96,13 @@ class NullCaseHooks:
         return self._metadata
 
     @contextmanager
-    def start_span(self, name: str, kind: SpanKind) -> Iterator[SpanHandle]:
+    def start_span(
+        self,
+        name: str,
+        kind: SpanKind,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> Iterator[SpanHandle]:
         yield _NullSpanHandle()
 
 
@@ -121,7 +147,14 @@ class AggregateScore:
     score: float | None
 
 
-@dataclass
+@dataclass(frozen=True)
+class AggregateMetric:
+    name: str
+    value: float | int
+    unit: str = ""
+
+
+@dataclass(frozen=True)
 class EvalSummary:
     """The per-experiment summary the reporting path consumes.
 
@@ -133,6 +166,7 @@ class EvalSummary:
     engine_name: str
     experiment_name: str
     scores: dict[str, AggregateScore]
+    metrics: dict[str, AggregateMetric] = field(default_factory=dict)
     experiment_url: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 

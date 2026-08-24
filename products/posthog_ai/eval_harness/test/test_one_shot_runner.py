@@ -155,6 +155,16 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
     assert [case.input["name"] for case in run._build_eval_cases()] == ["c2"]
 
 
+def test_run_rejects_case_filter_that_matches_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
+        return {}
+
+    run = _build_run(tmp_path, monkeypatch, _build_ctx(case_filter="missing"), task)
+
+    with pytest.raises(ValueError, match="no cases matching --eval 'missing'"):
+        asyncio.run(run.run())
+
+
 def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")

@@ -29,6 +29,8 @@ from products.tasks.backend.facade.repo_selection import (
 )
 
 if TYPE_CHECKING:
+    from products.signals.backend.agent_runtime import AgentRuntime
+
     # Deferred (see _select below): importing temporal.types runs the signals temporal package
     # __init__ (agentic -> back into report_generation), a circular import. SignalData is
     # annotation-only here (module uses `from __future__ import annotations`).
@@ -74,6 +76,7 @@ async def select_repository_for_team(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    agent_runtime: AgentRuntime | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
@@ -85,9 +88,10 @@ async def select_repository_for_team(
     """
     # Resolved at the single repo-selection chokepoint so both callers (custom agent +
     # report flow) pick it up.
-    agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
-        team_id, STEP_REPO_SELECTION
-    )
+    if agent_runtime is None:
+        agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+            team_id, STEP_REPO_SELECTION
+        )
     try:
         return await select_repository(
             team_id=team_id,

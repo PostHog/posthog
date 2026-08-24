@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
-from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
+from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec
 from .harness.kernel_sandboxes import reclaim_kernels
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
 from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
@@ -20,12 +22,26 @@ from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
 if TYPE_CHECKING:
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+
     from .harness.context import EvalContext
+    from .harness.demo_data import SandboxedDemoData
 
 logger = logging.getLogger(__name__)
 
 
-def _get_last_assistant_text(parsed: ParsedLog) -> str:
+async def prepare_sandbox_case(
+    demo_data: SandboxedDemoData,
+    case: SandboxedEvalCase,
+) -> tuple[CustomPromptSandboxContext, dict[str, Any]]:
+    sandbox_context = await asyncio.to_thread(demo_data.make_context, case.name)
+    if case.interaction_origin:
+        sandbox_context = replace(sandbox_context, interaction_origin=case.interaction_origin)
+    seed = await asyncio.to_thread(case.setup, sandbox_context) if case.setup is not None else {}
+    return sandbox_context, seed
+
+
+def get_last_assistant_text(parsed: ParsedLog) -> str:
     """Extract the last assistant message text from the final generation."""
     for gen in reversed(parsed.generations):
         if not gen.output_content:
@@ -37,63 +53,100 @@ def _get_last_assistant_text(parsed: ParsedLog) -> str:
     return ""
 
 
-def _log_conversation_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
-    """Log each conversation message as a child span so Braintrust renders a trace tree.
+def _braintrust_message(message: dict[str, Any]) -> list[dict[str, Any]]:
+    role = message.get("role", "user")
+    content = message.get("content")
+    if not isinstance(content, list):
+        return [{"role": role, "content": content}]
 
-    Uses the same Anthropic-format messages as PostHog trace capture.
-    """
-    for msg in parsed.messages:
-        role = msg.get("role", "system")
-        content = msg.get("content", "")
+    text = "\n".join(
+        str(block.get("text", ""))
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "text" and block.get("text")
+    )
+    tool_calls = [
+        {
+            "id": str(block.get("id", "")),
+            "type": "function",
+            "function": {
+                "name": str(block.get("name", "unknown tool")),
+                "arguments": json.dumps(block.get("input", {}), sort_keys=True),
+            },
+        }
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_use"
+    ]
+    tool_results = [
+        {
+            "role": "tool",
+            "tool_call_id": str(block.get("tool_use_id", "")),
+            "content": str(block.get("content", "")),
+        }
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "tool_result"
+    ]
 
-        # Anthropic format: content can be a string or list of content blocks
-        if isinstance(content, list):
-            # Render content blocks for display
-            parts: list[str] = []
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                block_type = block.get("type", "")
-                if block_type == "text":
-                    parts.append(block.get("text", ""))
-                elif block_type == "tool_use":
-                    parts.append(f"[tool_use: {block.get('name', '?')}]")
-                elif block_type == "tool_result":
-                    result_text = str(block.get("content", ""))[:500]
-                    is_error = block.get("is_error", False)
-                    prefix = "[tool_result error]" if is_error else "[tool_result]"
-                    parts.append(f"{prefix} {result_text}")
-            display_content = "\n".join(parts)
-        else:
-            display_content = str(content)
+    messages: list[dict[str, Any]] = []
+    if text or tool_calls:
+        assistant_message: dict[str, Any] = {"role": role, "content": text or None}
+        if tool_calls:
+            assistant_message["tool_calls"] = tool_calls
+        messages.append(assistant_message)
+    messages.extend(tool_results)
+    return messages
 
-        span_type: SpanKind
-        if role == "assistant":
-            # Check if this message contains tool_use blocks
-            has_tool_use = isinstance(content, list) and any(
-                isinstance(b, dict) and b.get("type") == "tool_use" for b in content
+
+def _braintrust_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [converted for message in messages for converted in _braintrust_message(message)]
+
+
+def _unix_timestamp(timestamp: str) -> float | None:
+    if not timestamp:
+        return None
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def log_agent_spans(hooks: CaseHooks, parsed: ParsedLog) -> None:
+    tools = {tool.tool_call_id: tool for tool in parsed.tools}
+
+    for index, generation in enumerate(parsed.generations, start=1):
+        metadata = {"model": parsed.model} if parsed.model else None
+        with hooks.start_span(
+            f"model turn {index}",
+            "llm",
+            start_time=_unix_timestamp(generation.start_ts),
+            end_time=_unix_timestamp(generation.end_ts),
+        ) as span:
+            span.log(
+                input=_braintrust_messages(generation.input_messages),
+                output=_braintrust_message({"role": "assistant", "content": generation.output_content})[0],
+                metadata=metadata,
+                metrics=generation.metrics or None,
             )
-            span_type = "function" if has_tool_use else "llm"
-            name = "tool_call" if has_tool_use else "agent"
-        elif role == "user":
-            has_tool_result = isinstance(content, list) and any(
-                isinstance(b, dict) and b.get("type") == "tool_result" for b in content
-            )
-            span_type = "function"
-            name = "tool_result" if has_tool_result else "user"
-        else:
-            span_type = "function"
-            name = role
 
-        with hooks.start_span(name, span_type) as span:
-            if role == "user":
-                span.log(input=display_content)
-            elif role == "assistant":
-                span.log(output=display_content)
-            else:
-                span.log(metadata={"message": display_content})
+        for block in generation.output_content:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            tool_call_id = str(block.get("id", ""))
+            tool = tools.get(tool_call_id)
+            tool_metadata: dict[str, Any] = {"tool_call_id": tool_call_id}
+            if tool and tool.is_error:
+                tool_metadata["error"] = True
+            with hooks.start_span(
+                str(block.get("name", "unknown tool")),
+                "tool",
+                start_time=_unix_timestamp(tool.start_ts) if tool else None,
+                end_time=_unix_timestamp(tool.end_ts) if tool else None,
+            ) as span:
+                span.log(
+                    input=tool.input if tool else block.get("input", {}),
+                    output=tool.output if tool else None,
+                    metadata=tool_metadata,
+                )
 
-    # Also log non-AI spans (console, errors)
     for span_desc in parsed.spans:
         with hooks.start_span(span_desc.span_name, "function") as span:
             span.log(metadata={"message": span_desc.content})
@@ -281,6 +334,10 @@ class _BaseEvalRun:
 
     async def run(self) -> ExperimentResult:
         eval_cases = self._build_eval_cases()
+        if not eval_cases:
+            if self.case_filter:
+                raise ValueError(f"{self.experiment_name} has no cases matching --eval {self.case_filter!r}")
+            raise ValueError(f"{self.experiment_name} has no cases")
 
         # Register the case total (post-filter, times trials) so the reporter can
         # append a per-experiment progress counter to each case line.
@@ -367,15 +424,14 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # The factory does Django ORM work. Django's async-safety
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
-                sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
-                if original_case is not None and original_case.interaction_origin:
-                    sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
-                if original_case is not None and original_case.setup is not None:
-                    try:
-                        seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
-                    except Exception:
-                        logger.exception("Setup hook failed for '%s'", eval_case.name)
-                        raise
+                try:
+                    sandbox_context, seed_result = await prepare_sandbox_case(
+                        self._demo_data,
+                        original_case or eval_case,
+                    )
+                except Exception:
+                    logger.exception("Setup hook failed for '%s'", eval_case.name)
+                    raise
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
@@ -412,11 +468,15 @@ class _SandboxedEvalRun(_BaseEvalRun):
         # Parse the log once, use for both Braintrust spans and PostHog trace capture
         last_message = ""
         messages: list[dict[str, Any]] = []
+        token_usage: dict[str, int] | None = None
+        cost_usd: float | None = None
         if result.raw_log:
             parsed = parse_log(result.raw_log, initial_prompt=eval_case.prompt)
-            _log_conversation_spans(hooks, parsed)
-            last_message = _get_last_assistant_text(parsed)
+            log_agent_spans(hooks, parsed)
+            last_message = get_last_assistant_text(parsed)
             messages = parsed.messages
+            token_usage = parsed.total_token_usage
+            cost_usd = parsed.total_cost_usd
 
             if self.posthog_client:
                 try:
@@ -435,7 +495,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         "first_timestamp": parsed.first_timestamp,
                         "last_message": last_message,
                         "artifacts_summary": result.artifacts.model_dump(),
-                        "token_usage": parsed.total_token_usage,
+                        "token_usage": token_usage,
                     }
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
@@ -449,7 +509,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 prompt=eval_case.prompt,
                 duration=result.artifacts.duration_seconds,
                 last_message=last_message,
-                token_usage=self.case_trace_meta.get(eval_case.name, {}).get("token_usage"),
+                token_usage=token_usage,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
@@ -464,6 +524,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "last_message": last_message,
             "messages": messages,
             "raw_log": result.raw_log,
+            "token_usage": token_usage,
+            "cost_usd": cost_usd,
             "seed": seed_result,
             "prompt": eval_case.prompt,
         }

@@ -198,11 +198,13 @@ class ProgressReporter:
     def _experiment_block(self, experiment_name: str, summary: EvalSummary) -> list[str]:
         statuses = self._case_statuses[experiment_name]
         error_count = max(statuses["error"], self._summary_error_counts[experiment_name])
+        case_count = self._case_counts[experiment_name]
+        average_case_duration = self._case_durations[experiment_name] / case_count if case_count else 0
         lines = [
             "",
             f"Experiment: {experiment_name}",
             (f"  Cases: {statuses['ok']} done, {statuses['timeout']} timed out, {error_count} errors"),
-            f"  Case time: {_format_duration(self._case_durations[experiment_name])}",
+            f"  Average case time: {_format_duration(average_case_duration)}",
         ]
         scores = [(score.name, score.score) for score in summary.scores.values() if score.score is not None]
         if scores:
@@ -210,6 +212,12 @@ class ProgressReporter:
             lines.extend(f"    {name}: {score * 100:.1f}%" for name, score in scores)
         else:
             lines.append("  Scores: none")
+        metrics = [metric for metric in summary.metrics.values() if metric.name != "duration"]
+        if metrics:
+            lines.append("  Metrics:")
+            lines.extend(
+                f"    {metric.name}: {_format_metric(metric.name, metric.value, metric.unit)}" for metric in metrics
+            )
 
         posthog_url = self._posthog_urls.get(experiment_name)
         if posthog_url:
@@ -257,3 +265,14 @@ def _format_duration(seconds: float) -> str:
         return f"{int(minutes)}m {remaining:.1f}s"
     hours, minutes = divmod(int(minutes), 60)
     return f"{hours}h {minutes}m {remaining:.1f}s"
+
+
+def _format_metric(name: str, value: float | int, unit: str) -> str:
+    if "cost" in name:
+        return f"${value:.4f}"
+    if name == "duration" or name.endswith("_duration"):
+        return _format_duration(float(value))
+    if name == "tokens" or name.endswith("_tokens"):
+        return f"{value:,.0f}"
+    suffix = unit if unit else ""
+    return f"{value:g}{suffix}"

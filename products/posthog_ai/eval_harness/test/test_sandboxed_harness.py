@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import asyncio
 import subprocess
 from pathlib import Path
@@ -292,7 +293,7 @@ class TestAgentRunFailureDetection:
                 '{"sessionUpdate": "error", "errorType": "agent_error", "message": "403 model_gate"}}}}',
             ]
         )
-        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        artifacts = runner.parse_agent_artifacts(log, duration_seconds=1.0, agent_finished=True)
         assert artifacts.exit_code == 1
         assert "403 model_gate" in artifacts.stderr
 
@@ -301,7 +302,7 @@ class TestAgentRunFailureDetection:
     # run at zero on every outcome scorer instead of dropping it from the aggregates.
     def test_a_terminal_posthog_error_with_no_tool_call_is_infrastructure(self) -> None:
         log = '{"notification": {"method": "_posthog/error", "params": {"message": "403 model_gate"}}}'
-        artifacts = runner._parse_artifacts_from_log(log, duration_seconds=1.0, agent_finished=True)
+        artifacts = runner.parse_agent_artifacts(log, duration_seconds=1.0, agent_finished=True)
         assert artifacts.exit_code == 1
         assert artifacts.tool_call_count == 0
         assert runner.agent_never_ran(artifacts) is True
@@ -319,3 +320,38 @@ class TestAgentRunFailureDetection:
     ) -> None:
         artifacts = AgentArtifacts(exit_code=1 if stderr else 0, stderr=stderr, tool_call_count=tool_call_count)
         assert runner.agent_never_ran(artifacts) is expected
+
+
+class TestGitDiffCapture:
+    @staticmethod
+    def _tool_call(title: str, text: str) -> str:
+        return json.dumps(
+            {
+                "notification": {
+                    "method": "session/update",
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "tool_call",
+                            "title": title,
+                            "content": {"type": "text", "text": text},
+                        }
+                    },
+                }
+            }
+        )
+
+    # A `git diff --name-only` / `--stat` title contains "git diff", so a later listing used to
+    # overwrite the captured unified diff, leaving the implementation judge grading a file list.
+    @parameterized.expand(
+        [
+            ("name-only listing", "git diff --name-only", "app.py"),
+            ("stat summary", "git diff --stat", " app.py | 2 +-\n 1 file changed"),
+        ]
+    )
+    def test_a_listing_does_not_overwrite_the_captured_diff(
+        self, _name: str, follow_up_title: str, follow_up_text: str
+    ) -> None:
+        real_diff = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new"
+        log = "\n".join([self._tool_call("git diff", real_diff), self._tool_call(follow_up_title, follow_up_text)])
+        artifacts = runner.parse_agent_artifacts(log, duration_seconds=1.0, agent_finished=True)
+        assert artifacts.git_diff == real_diff

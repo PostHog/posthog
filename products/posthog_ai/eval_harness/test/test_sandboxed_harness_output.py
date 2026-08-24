@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from products.posthog_ai.eval_harness import base
-from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
+from products.posthog_ai.eval_harness.engines.types import AggregateMetric, AggregateScore, EvalSummary
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
@@ -69,6 +69,12 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
                 "exit_code_zero": AggregateScore("exit_code_zero", 1.0),
                 "called_target_tool": AggregateScore("called_target_tool", 0.0),
             },
+            metrics={
+                "duration": AggregateMetric("duration", 396.4, "s"),
+                "prompt_tokens": AggregateMetric("prompt_tokens", 32_082, ""),
+                "completion_tokens": AggregateMetric("completion_tokens", 593, ""),
+                "cost": AggregateMetric("cost", 0.045968, ""),
+            },
             experiment_url="https://experiments.example/e",
         ),
     )
@@ -107,6 +113,10 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
     assert "Experiment: sandboxed-cli-mcp-verify-event-cli" in output
     assert "exit_code_zero: 100.0%" in output
     assert "called_target_tool: 0.0%" in output
+    assert "Average case time: 6m 36.4s" in output
+    assert "prompt_tokens: 32,082" in output
+    assert "completion_tokens: 593" in output
+    assert "cost: $0.0460" in output
     assert "PostHog: https://us.posthog.com/" in output
     assert "Braintrust: https://experiments.example/e" in output
     assert f"Agent logs: {tmp_path}" in output

@@ -11,7 +11,7 @@ import re
 from collections.abc import Collection
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError
 
 from ..engines.types import EnvVarSpec
 from .providers import PreflightError
@@ -32,8 +32,9 @@ class SandboxEvalEnv(BaseModel):
         min_length=1,
         description="signs the sandboxed agent's API tokens; the dev key ships in .env.example",
     )
-    LLM_GATEWAY_ANTHROPIC_API_KEY: str = Field(
+    ANTHROPIC_API_KEY: str = Field(
         min_length=1,
+        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "LLM_GATEWAY_ANTHROPIC_API_KEY"),
         description="Anthropic API key the LLM gateway proxies the agent's model calls with",
     )
 
@@ -43,8 +44,9 @@ class OneShotEvalEnv(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    LLM_GATEWAY_ANTHROPIC_API_KEY: str = Field(
+    ANTHROPIC_API_KEY: str = Field(
         min_length=1,
+        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "LLM_GATEWAY_ANTHROPIC_API_KEY"),
         description="Anthropic API key one-shot generation tasks call the model with directly",
     )
 
@@ -54,8 +56,9 @@ class CodexEvalEnv(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    LLM_GATEWAY_OPENAI_API_KEY: str = Field(
+    OPENAI_API_KEY: str = Field(
         min_length=1,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "LLM_GATEWAY_OPENAI_API_KEY"),
         description="OpenAI API key the LLM gateway proxies the codex agent's model calls with",
     )
 

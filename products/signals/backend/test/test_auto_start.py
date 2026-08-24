@@ -16,13 +16,13 @@ from posthog.models.scoping import team_scope
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.auto_start import (
     ReviewerContent,
-    _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    build_implementation_task_description,
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
@@ -579,7 +579,7 @@ async def test_already_addressed_report_does_not_autostart(already_addressed):
     ],
 )
 def test_autostart_description_lists_source_issues_only_when_references_exist(source_references, expect_references):
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary="Fix the auth panel.",
@@ -618,7 +618,7 @@ def test_autostart_description_lists_source_issues_only_when_references_exist(so
     ],
 )
 def test_autostart_description_appends_fix_loop_instructions_only_for_metric_reports(summary, expect_fix_loop):
-    description = _build_autostart_task_description(
+    description = build_implementation_task_description(
         report_id="0198c0de-0000-7000-8000-000000000001",
         team_id=1,
         summary=summary,

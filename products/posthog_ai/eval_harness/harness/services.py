@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 
 
+def _gateway_environment() -> dict[str, str]:
+    env = dict(os.environ)
+    for provider in ("ANTHROPIC", "OPENAI"):
+        standard_name = f"{provider}_API_KEY"
+        gateway_name = f"LLM_GATEWAY_{standard_name}"
+        if standard_value := env.get(standard_name):
+            env.setdefault(gateway_name, standard_value)
+    return env
+
+
 def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], None]:
     """Start the LLM gateway as a subprocess.
 
@@ -43,8 +53,6 @@ def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], No
             "Run `bin/start-llm-gateway` once or `cd services/llm-gateway && uv venv .venv && uv pip install -e .`"
         )
     # The LLM gateway uses pydantic BaseSettings with env_prefix="LLM_GATEWAY_".
-    # DATABASE_URL and LLM_GATEWAY_ANTHROPIC_API_KEY come from the parent env
-    # (e.g. .env.local / op run). We need to point it at the test database.
     conn = connections["default"]
     # The test DB setup rewrites settings_dict["NAME"] to the test DB name in
     # place, so don't re-prefix it.
@@ -60,7 +68,7 @@ def start_llm_gateway(live_server_url: str, agent_model: str) -> Callable[[], No
     # never matches. Rate limits are per team, so every case gets the full base
     # budget (hundreds of requests/minute), which is already ample for eval traffic.
     env = {
-        **os.environ,
+        **_gateway_environment(),
         "UV_PROJECT_ENVIRONMENT": str(venv_dir),
         "LLM_GATEWAY_DATABASE_URL": test_db_url,
         "LLM_GATEWAY_DEBUG": "true",

@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent-runtime",
         choices=AGENT_RUNTIMES,
         default=None,
-        help="Agent runtime serving the model (default: claude). 'codex' additionally requires LLM_GATEWAY_OPENAI_API_KEY.",
+        help="Agent runtime serving the model (default: claude). 'codex' additionally requires OPENAI_API_KEY.",
     )
     parser.add_argument(
         "--reasoning-effort",
