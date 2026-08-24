@@ -1170,6 +1170,8 @@ export enum PropertyFilterType {
     Feature = 'feature',
     Session = 'session',
     Cohort = 'cohort',
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    Behavioral = 'behavioral',
     Recording = 'recording',
     LogEntry = 'log_entry',
     Group = 'group',
@@ -1280,6 +1282,51 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     group_key_names?: Record<string, string>
 }
 
+/** The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter` */
+export type InlineBehavioralType = BehavioralEventType.PerformEvent | BehavioralEventType.PerformMultipleEvents
+
+/** Whether a behavioral filter's `key` refers to an event name or an action id */
+export type BehavioralEventSource = 'events' | 'actions'
+
+/**
+ * Filters persons on whether they performed an event (optionally a number of times) within a time window,
+ * without needing a saved cohort. Shares the cohort criteria vocabulary (`BehavioralEventType`), but only
+ * the "performed event" family is supported inline — sequences and lifecycle criteria still require a cohort.
+ */
+export interface BehavioralPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.Behavioral
+    value: InlineBehavioralType
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    event_type: BehavioralEventSource
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperator
+    /**
+     * Count threshold for performed_event_multiple
+     * @asType integer
+     */
+    operator_value?: number
+    /**
+     * Relative time window size, paired with time_interval
+     * @asType integer
+     */
+    time_value?: number
+    time_interval?: TimeUnitType
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string
+    explicit_datetime_to?: string
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?: (
+        | EventPropertyFilter
+        | PersonPropertyFilter
+        | ElementPropertyFilter
+        | FeaturePropertyFilter
+        | HogQLPropertyFilter
+    )[]
+}
+
 export type LogPropertyFilterType =
     | PropertyFilterType.Log
     | PropertyFilterType.LogAttribute
@@ -1361,6 +1408,7 @@ export type AnyPropertyFilter =
     | RevenueAnalyticsPropertyFilter
     | AccountCustomPropertyFilter
     | WorkflowVariablePropertyFilter
+    | BehavioralPropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1369,6 +1417,7 @@ export type AnyPersonScopeFilter =
     | CohortPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
+    | BehavioralPropertyFilter
 
 export type AnyGroupScopeFilter = GroupPropertyFilter | HogQLPropertyFilter
 

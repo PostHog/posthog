@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -58,9 +59,9 @@ from posthog.dataclasses import frozen
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
-from posthog.models.property import PropertyGroup, ValueT
+from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.utils import get_from_dict_or_attr
+from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 from products.cohorts.backend.models.cohort import Cohort
@@ -738,6 +739,129 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
     return path_expr
 
 
+_BEHAVIORAL_INTERVAL_FUNCTIONS = {
+    "day": "toIntervalDay",
+    "week": "toIntervalWeek",
+    "month": "toIntervalMonth",
+    "year": "toIntervalYear",
+}
+
+_BEHAVIORAL_COUNT_OPERATORS = {
+    "gte": ast.CompareOperationOp.GtEq,
+    "lte": ast.CompareOperationOp.LtEq,
+    "gt": ast.CompareOperationOp.Gt,
+    "lt": ast.CompareOperationOp.Lt,
+    "eq": ast.CompareOperationOp.Eq,
+    "exact": ast.CompareOperationOp.Eq,
+}
+
+
+def _behavioral_property_to_expr(property: Property, team: Team, scope: str, strict: bool = False) -> ast.Expr:
+    """Compile a behavioral ("performed event") filter into `person_id [NOT] IN (SELECT person_id FROM events ...)`.
+
+    Unlike cohort-backed behavioral criteria this runs entirely at query time — no saved cohort,
+    no precalculated cohortpeople. Only the performed-event family is supported; the multi-subquery
+    criteria (sequences, stopped/restarted) still require a cohort.
+    """
+    if scope not in ("event", "person"):
+        raise QueryError(f"The 'behavioral' property filter does not work in '{scope}' scope")
+    if property.value not in (
+        BehavioralPropertyType.PERFORMED_EVENT,
+        BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE,
+    ):
+        raise QueryError(f"The behavioral criterion '{property.value}' requires a cohort, it cannot be used inline")
+
+    if property.event_type == "actions":
+        try:
+            action = Action.objects.get(pk=int(property.key), team__project_id=team.project_id)
+        except (Action.DoesNotExist, ValueError, TypeError):
+            raise QueryError(f"Action '{property.key}' in behavioral filter not found")
+        conditions: list[ast.Expr] = [action_to_expr(action)]
+    else:
+        conditions = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["event"]),
+                right=ast.Constant(value=str(property.key)),
+            )
+        ]
+
+    if property.explicit_datetime:
+        date_from = relative_date_parse(property.explicit_datetime, team.timezone_info)
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=date_from)
+            )
+        )
+        if property.explicit_datetime_to:
+            date_to = relative_date_parse(property.explicit_datetime_to, team.timezone_info)
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=date_to),
+                )
+            )
+    elif property.time_value is not None and property.time_interval is not None:
+        interval_function = _BEHAVIORAL_INTERVAL_FUNCTIONS.get(property.time_interval)
+        if interval_function is None:
+            raise QueryError(f"Invalid behavioral filter time interval: {property.time_interval}")
+        try:
+            time_value = int(property.time_value)
+        except (ValueError, TypeError):
+            raise QueryError(f"Invalid behavioral filter time value: {property.time_value}")
+        if time_value <= 0:
+            raise QueryError(f"Invalid behavioral filter time value: {property.time_value}")
+        conditions.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name=interval_function, args=[ast.Constant(value=time_value)]),
+                ),
+            )
+        )
+    else:
+        # An unbounded "ever performed" filter would scan every partition of the events table.
+        raise QueryError("Behavioral filters require a time window (time_value/time_interval or explicit_datetime)")
+
+    if property.event_filters:
+        conditions.append(property_to_expr(list(property.event_filters), team, scope="event", strict=strict))
+
+    having: Optional[ast.Expr] = None
+    if property.value == BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE:
+        try:
+            count = int(property.operator_value)  # type: ignore[arg-type]
+        except (ValueError, TypeError):
+            raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
+        if property.operator is None:
+            count_op = ast.CompareOperationOp.Eq
+        else:
+            count_op = _BEHAVIORAL_COUNT_OPERATORS.get(property.operator)
+            if count_op is None:
+                raise QueryError(f"Invalid behavioral filter count operator: {property.operator}")
+        having = ast.CompareOperation(
+            op=count_op,
+            left=ast.Call(name="count", args=[]),
+            right=ast.Constant(value=count),
+        )
+
+    subquery = ast.SelectQuery(
+        select=[ast.Field(chain=["person_id"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0],
+        group_by=[ast.Field(chain=["person_id"])],
+        having=having,
+    )
+    return ast.CompareOperation(
+        left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
+        op=ast.CompareOperationOp.NotIn if property.negation else ast.CompareOperationOp.In,
+        right=subquery,
+    )
+
+
 def property_to_expr(
     property: (
         list
@@ -747,6 +871,7 @@ def property_to_expr(
         | PropertyGroupFilterValue
         | Property
         | ast.Expr
+        | BehavioralPropertyFilter
         | EventPropertyFilter
         | PersonPropertyFilter
         | ElementPropertyFilter
@@ -855,6 +980,10 @@ def property_to_expr(
     elif property.type == "hogql":
         tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
+    elif property.type == "behavioral":
+        if not team:
+            raise Exception("Can not convert behavioral property to expression without team")
+        return _behavioral_property_to_expr(property, team, scope, strict=strict)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -891,7 +1020,6 @@ def property_to_expr(
         or property.type == "person"
         or property.type == "person_metadata"
         or property.type == "group"
-        or property.type == "behavioral"
         or property.type == "data_warehouse"
         or property.type == "data_warehouse_person_property"
         or property.type == "session"
