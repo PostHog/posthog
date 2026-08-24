@@ -343,7 +343,7 @@ class TestPrepareAlert:
         assert refreshed.state == AlertState.ERRORED
 
         check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
-        assert check.error == {"message": result.reason}
+        assert check.error == {"message": result.reason, "code": "email_unavailable"}
 
     async def test_evaluate_for_valid_alert(self, alert) -> None:
         env = ActivityEnvironment()

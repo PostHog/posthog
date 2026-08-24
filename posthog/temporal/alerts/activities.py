@@ -49,6 +49,7 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
@@ -138,9 +139,21 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         # Email-backed alerts cannot deliver anything on instances without an email transport.
         # Disable them before evaluation so the scheduler does not repeatedly retry delivery.
         # Do not send the usual disabled-alert email: that would fail for the same reason.
-        if alert.get_subscribed_users_emails() and not is_email_available():
+        email_delivery_unavailable = bool(alert.get_subscribed_users_emails()) and not is_email_available()
+        if email_delivery_unavailable:
+            has_active_destinations = (
+                count_active_alert_destinations(
+                    team_id=alert.team_id,
+                    alert_id=str(alert.id),
+                    allowed_event_ids={"$insight_alert_firing"},
+                )
+                > 0
+            )
+        else:
+            has_active_destinations = False
+        if email_delivery_unavailable and not has_active_destinations:
             reason = "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
-            disable_invalid_alert(alert, reason, notify_subscribers=False)
+            disable_invalid_alert(alert, reason, notify_subscribers=False, error_code="email_unavailable")
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=reason)
 
         # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the

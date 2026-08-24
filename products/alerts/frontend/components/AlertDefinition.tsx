@@ -44,14 +44,22 @@ export function AlertErrorBanner({ alert }: { alert: AlertType }): JSX.Element |
         return null
     }
 
-    const message = alert.checks?.find((check) => check.error?.message)?.error?.message
-    if (!message) {
+    const error = alert.checks?.find((check) => check.error?.message)?.error
+    if (!error?.message) {
         return null
+    }
+
+    if (error.code !== 'email_unavailable') {
+        return (
+            <LemonBanner type="error" data-attr="alert-error-banner">
+                <strong>{alert.enabled ? 'Alert error.' : 'Alert disabled.'}</strong> {error.message}
+            </LemonBanner>
+        )
     }
 
     return (
         <LemonBanner type="error" data-attr="alert-error-banner">
-            <strong>Alert disabled.</strong> {message}{' '}
+            <strong>Alert disabled.</strong> {error.message}{' '}
             <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
                 Fix email settings
             </Link>
