@@ -4,7 +4,6 @@ import { createGrpcTransport } from '@connectrpc/connect-node'
 import { Counter } from 'prom-client'
 
 import {
-    BillingUsageMode,
     BillingUsageRecordSchema,
     IngestBillingUsageRequestSchema,
     UsageIngestion,
@@ -32,8 +31,7 @@ export interface UsageRecordInput {
     usageKey: string
     unit: string
     quantity: number
-    eventTimestampMs: number
-    dimensions?: Record<string, string>
+    timestampMs: number
 }
 
 export interface UsageIngestionClientConfig {
@@ -81,11 +79,9 @@ export class UsageIngestionClient {
                     producerId: this.producerId,
                     teamId: BigInt(record.teamId),
                     usageKey: record.usageKey,
-                    mode: BillingUsageMode.DELTA,
                     unit: record.unit,
                     quantity: BigInt(record.quantity),
-                    eventTimestampMs: BigInt(record.eventTimestampMs),
-                    dimensions: record.dimensions ?? {},
+                    timestampMs: BigInt(record.timestampMs),
                 })
             ),
         })

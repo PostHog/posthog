@@ -20,8 +20,9 @@ class UsageRecord:
     usage_key: str
     unit: str
     quantity: int
-    dimensions: dict[str, str] = field(default_factory=dict)
-    event_timestamp_ms: int = field(default_factory=lambda: int(time() * 1000))
+    # Emit time from our own clock. toDate of it is part of the storage sorting key, so a
+    # value taken from customer data would decide whether these records deduplicate.
+    timestamp_ms: int = field(default_factory=lambda: int(time() * 1000))
 
 
 def team_is_enabled(site: str, team_id: int) -> bool:
@@ -42,11 +43,9 @@ def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
                 producer_id=record.producer_id,
                 team_id=record.team_id,
                 usage_key=record.usage_key,
-                mode=service_pb2.BILLING_USAGE_MODE_DELTA,
                 unit=record.unit,
                 quantity=record.quantity,
-                event_timestamp_ms=record.event_timestamp_ms,
-                dimensions=record.dimensions,
+                timestamp_ms=record.timestamp_ms,
             )
             for record in enabled
         ]

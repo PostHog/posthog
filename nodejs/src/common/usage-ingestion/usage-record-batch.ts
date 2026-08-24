@@ -12,7 +12,6 @@ interface PendingRecord {
     teamId: number
     usageKey: string
     recordId: string
-    dimensions?: Record<string, string>
     quantity: number
     unit?: string
 }
@@ -40,14 +39,7 @@ export class UsageRecordBatch {
         return this.records.size
     }
 
-    add(
-        teamId: number,
-        usageKey: string,
-        recordId: string,
-        dimensions?: Record<string, string>,
-        quantity = 1,
-        unit?: string
-    ): void {
+    add(teamId: number, usageKey: string, recordId: string, quantity = 1, unit?: string): void {
         if (
             !this.client ||
             quantity <= 0 ||
@@ -58,7 +50,7 @@ export class UsageRecordBatch {
         }
         const key = `${teamId}:${usageKey}:${recordId}`
         if (!this.records.has(key)) {
-            this.records.set(key, { teamId, usageKey, recordId, dimensions, quantity, unit })
+            this.records.set(key, { teamId, usageKey, recordId, quantity, unit })
         }
     }
 
@@ -71,14 +63,13 @@ export class UsageRecordBatch {
         acknowledgements: Promise<unknown | null>[],
         teamId: number,
         usageKey: string,
-        recordId: string,
-        dimensions?: Record<string, string>
+        recordId: string
     ): void {
         this.pendingAcknowledgements.push(
             Promise.all(acknowledgements)
                 .then((results) => {
                     if (results.every((result) => result !== null)) {
-                        this.add(teamId, usageKey, recordId, dimensions)
+                        this.add(teamId, usageKey, recordId)
                     }
                 })
                 // Kafka errors are handled by the producer side effect. They must
@@ -93,15 +84,17 @@ export class UsageRecordBatch {
         if (!this.client || this.records.size === 0) {
             return
         }
-        const eventTimestampMs = Date.now()
+        // Flush time, never anything off the event. toDate of this lands in the storage
+        // sorting key, so a customer-supplied value would let a customer decide whether
+        // their own records deduplicate.
+        const timestampMs = Date.now()
         const records: UsageRecordInput[] = [...this.records.values()].map((record) => ({
             recordId: record.recordId,
             teamId: record.teamId,
             usageKey: record.usageKey,
             unit: record.unit ?? this.config.unit,
             quantity: record.quantity,
-            eventTimestampMs,
-            dimensions: record.dimensions,
+            timestampMs,
         }))
         this.records.clear()
         await this.client.ingest(records)

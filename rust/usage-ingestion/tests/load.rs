@@ -12,16 +12,13 @@ use std::time::{Duration, Instant};
 
 use common::{clickhouse, clickhouse_url, env_usize, table, Service};
 use tokio::sync::Semaphore;
-use usage_ingestion_proto::usage_ingestion::v1::{
-    BillingUsageMode, BillingUsageRecord, IngestBillingUsageRequest,
-};
+use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageRecord, IngestBillingUsageRequest};
 use uuid::Uuid;
 
-/// Every record sits in the same month, so `PARTITION BY toYYYYMM(event_timestamp)` keeps a
-/// retry in the same partition as its original. ReplacingMergeTree only collapses within one.
-const BASE_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
-/// Retries sit an hour after their original, well inside the same partition. Producers stamp
-/// event time when they flush, so this is what a real retry looks like.
+/// Midnight UTC, so the whole run shares one `toDate(timestamp)` and one monthly partition.
+const BASE_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
+/// An hour after the original: a different `timestamp` but the same day, which is the window
+/// the sorting key deduplicates within. Producers stamp flush time, so a retry does move it.
 const RETRY_OFFSET_MS: i64 = 3_600_000;
 
 const BASELINE_REQUESTS: usize = 32;
@@ -36,9 +33,9 @@ const USAGE_KEYS: [(&str, &str); 4] = [
     ("queries_executed", "query"),
 ];
 
-/// A retry reuses the sorting key `(team_id, producer_id, usage_key, record_id)` but moves
-/// event_timestamp, which is what a producer that stamps flush time actually sends. Putting
-/// event_timestamp back in the sorting key makes this test fail with double the rows.
+/// A retry reuses the sorting key `(team_id, toDate(timestamp), producer_id, usage_key,
+/// record_id)` while moving `timestamp` within the day. Narrowing the key's date to the exact
+/// timestamp makes this test fail with double the rows.
 fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
     let (usage_key, unit) = USAGE_KEYS[index % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
@@ -47,19 +44,9 @@ fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
         producer_id: "usage-ingestion-load".to_string(),
         team_id: 1 + (index % 8) as i64,
         usage_key: usage_key.to_string(),
-        mode: if index.is_multiple_of(7) {
-            BillingUsageMode::Snapshot as i32
-        } else {
-            BillingUsageMode::Delta as i32
-        },
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
-        event_timestamp_ms: BASE_EVENT_TIMESTAMP_MS
-            + event_offset_ms
-            + if retry { RETRY_OFFSET_MS } else { 0 },
-        dimensions: [("region".to_string(), format!("region-{}", index % 3))]
-            .into_iter()
-            .collect(),
+        timestamp_ms: BASE_TIMESTAMP_MS + event_offset_ms + if retry { RETRY_OFFSET_MS } else { 0 },
     }
 }
 
@@ -109,7 +96,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     // to collapse to one row.
     plan.sort_by_key(|record| {
         let mut hasher = DefaultHasher::new();
-        (&record.record_id, record.event_timestamp_ms).hash(&mut hasher);
+        (&record.record_id, record.timestamp_ms).hash(&mut hasher);
         hasher.finish()
     });
 

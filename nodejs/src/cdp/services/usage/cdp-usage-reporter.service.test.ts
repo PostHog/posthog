@@ -23,8 +23,8 @@ describe('CdpUsageReporterService', () => {
 
     it('bills a retried invocation once', async () => {
         const reporter = new CdpUsageReporterService(client, () => true)
-        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc', kind: 'destination' })
-        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc', kind: 'destination' })
+        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc' })
+        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc' })
         await reporter.flush()
 
         expect(ingested[0]).toEqual([
@@ -33,14 +33,13 @@ describe('CdpUsageReporterService', () => {
                 teamId: 1,
                 quantity: 1,
                 usageKey: 'cdp_billable_invocations',
-                dimensions: { kind: 'destination' },
             }),
         ])
     })
 
     it('flushes on its own schedule without a caller flush', async () => {
         const reporter = new CdpUsageReporterService(client, () => true, 1000)
-        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc', kind: 'destination' })
+        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc' })
 
         expect(client.ingest).not.toHaveBeenCalled()
 
@@ -52,7 +51,7 @@ describe('CdpUsageReporterService', () => {
 
     it('records nothing for a team the matcher excludes', async () => {
         const reporter = new CdpUsageReporterService(client, (teamId) => teamId === 2, 1000)
-        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc', kind: 'destination' })
+        reporter.reportBillableInvocation({ teamId: 1, recordId: 'event:abc' })
         await reporter.flush()
 
         expect(client.ingest).not.toHaveBeenCalled()

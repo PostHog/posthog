@@ -5,8 +5,8 @@ The rule that shapes all of them: **count after the last step that can drop the 
 
 ## Reading the tables
 
-`ReplacingMergeTree(inserted_at)` sorts by `(team_id, producer_id, usage_key, record_id)`.
-Two records sharing those four collapse to one — they do not add, and the later send wins.
+`ReplacingMergeTree(inserted_at)` sorts by `(team_id, toDate(timestamp), producer_id, usage_key, record_id)`.
+Two records sharing those five collapse to one — they do not add, and the later send wins.
 So a producer's `record_id` has to be a stable identity for the billed thing: the same work replayed must produce the same ID, and different work must never share one.
 
 What it protects against is our own duplication, not a sender's.
@@ -15,11 +15,14 @@ The identity exists so our retries and reprocessing of one ingested thing collap
 `usage_key` is in the key, so a `record_id` does not repeat it.
 CDP is the one producer that still prefixes, because its three call sites share one `usage_key` and the prefix is what separates them.
 
-`event_timestamp` is deliberately not in the sort key.
-Producers stamp it when they flush, so a retry or a replay carries a later one; in the key, every resend would have billed again.
-It is still the partition key, so a replay that crosses a month boundary leaves both rows.
+`timestamp` is in the sort key as a date, because every billing read filters a time range and a date in the key prunes where a skip index only skips granules.
+Every producer stamps it from its own clock when it flushes, never from anything a customer sends — a customer-controlled value would decide whether their own records deduplicate.
+The cost is that deduplication is scoped to a UTC day, so a reprocess that crosses midnight leaves two rows.
 
-Read with `FINAL`, or with `argMax(quantity, inserted_at)` grouped by the sort key.
+`inserted_at` is the engine's version column but is deliberately absent from the HogQL schema.
+`timestamp` is monotonic per resend, so `argMax(quantity, timestamp)` reads what a merge would keep, and one time column cannot be confused for the other.
+
+Read with `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `FINAL` outright, so this is the only correct shape there.
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 
@@ -100,8 +103,12 @@ The first version of this keyed a record on the batch's consumed offset range an
 That is not replay-safe: Kafka does not promise the same batch boundaries twice, so a replay produces different IDs and the totals add.
 Measured before the change: 6 events read as batches of 3 produced `0-2:events`; the same events re-read as one batch produced `0-8:events`, a new ID overlapping the first, and the total doubled.
 
-The event UUID has none of that. It travels inside the event, the events table already treats it as the event's identity, and it does not depend on how a consumer batched.
+The event's own identity has none of that. It travels inside the event and does not depend on how a consumer batched.
 Measured after the change: the same events re-consumed by a fresh consumer group with a different batch size wrote 6 raw rows where `FINAL` still reads 3 — the replay landed and deduplicated instead of billing twice.
+
+The UUID alone is not that identity. `sharded_events` is itself a `ReplacingMergeTree` sorted by `(team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))`, so two events sharing a UUID but differing in day, name or distinct ID are separate rows there.
+The nightly report counts them separately too — `get_teams_with_billable_event_count_in_period` counts `distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)` — so keying on the UUID alone would have collapsed rows the report bills for.
+The `record_id` therefore carries that whole tuple minus the team the billing sorting key already holds. The timestamp is UTC-normalized upstream, so its first ten characters are the day `toDate` resolves.
 
 The cost is one record per event rather than one per batch. Records are still batched into requests of up to `USAGE_INGESTION_MAX_BATCH_SIZE`, so the request count is a function of batch size, not event count.
 

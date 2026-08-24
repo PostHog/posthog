@@ -21,7 +21,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n usage_ingestion/v1/service.proto\x12\x12usage_ingestion.v1"\xe7\x02\n\x12\x42illingUsageRecord\x12\x11\n\trecord_id\x18\x01 \x01(\t\x12\x13\n\x0bproducer_id\x18\x02 \x01(\t\x12\x0f\n\x07team_id\x18\x03 \x01(\x03\x12\x11\n\tusage_key\x18\x04 \x01(\t\x12\x32\n\x04mode\x18\x05 \x01(\x0e\x32$.usage_ingestion.v1.BillingUsageMode\x12\x0c\n\x04unit\x18\x06 \x01(\t\x12\x10\n\x08quantity\x18\x07 \x01(\x03\x12\x1a\n\x12\x65vent_timestamp_ms\x18\t \x01(\x03\x12J\n\ndimensions\x18\r \x03(\x0b\x32\x36.usage_ingestion.v1.BillingUsageRecord.DimensionsEntry\x1a\x31\n\x0f\x44imensionsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01J\x04\x08\x08\x10\tJ\x04\x08\n\x10\x0bJ\x04\x08\x0b\x10\x0cJ\x04\x08\x0c\x10\r"T\n\x19IngestBillingUsageRequest\x12\x37\n\x07records\x18\x01 \x03(\x0b\x32&.usage_ingestion.v1.BillingUsageRecord"9\n\x1aIngestBillingUsageResponse\x12\x1b\n\x13\x61\x63\x63\x65pted_record_ids\x18\x01 \x03(\t*u\n\x10\x42illingUsageMode\x12"\n\x1e\x42ILLING_USAGE_MODE_UNSPECIFIED\x10\x00\x12\x1c\n\x18\x42ILLING_USAGE_MODE_DELTA\x10\x01\x12\x1f\n\x1b\x42ILLING_USAGE_MODE_SNAPSHOT\x10\x02\x32\x85\x01\n\x0eUsageIngestion\x12s\n\x12IngestBillingUsage\x12-.usage_ingestion.v1.IngestBillingUsageRequest\x1a..usage_ingestion.v1.IngestBillingUsageResponseb\x06proto3'
+    b'\n usage_ingestion/v1/service.proto\x12\x12usage_ingestion.v1"\x96\x01\n\x12\x42illingUsageRecord\x12\x0f\n\x07team_id\x18\x01 \x01(\x03\x12\x14\n\x0ctimestamp_ms\x18\x02 \x01(\x03\x12\x13\n\x0bproducer_id\x18\x03 \x01(\t\x12\x11\n\tusage_key\x18\x04 \x01(\t\x12\x11\n\trecord_id\x18\x05 \x01(\t\x12\x10\n\x08quantity\x18\x06 \x01(\x03\x12\x0c\n\x04unit\x18\x07 \x01(\t"T\n\x19IngestBillingUsageRequest\x12\x37\n\x07records\x18\x01 \x03(\x0b\x32&.usage_ingestion.v1.BillingUsageRecord"9\n\x1aIngestBillingUsageResponse\x12\x1b\n\x13\x61\x63\x63\x65pted_record_ids\x18\x01 \x03(\t2\x85\x01\n\x0eUsageIngestion\x12s\n\x12IngestBillingUsage\x12-.usage_ingestion.v1.IngestBillingUsageRequest\x1a..usage_ingestion.v1.IngestBillingUsageResponseb\x06proto3'
 )
 
 _globals = globals()
@@ -29,18 +29,12 @@ _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, "usage_ingestion.v1.service_pb2", _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
-    _globals["_BILLINGUSAGERECORD_DIMENSIONSENTRY"]._loaded_options = None
-    _globals["_BILLINGUSAGERECORD_DIMENSIONSENTRY"]._serialized_options = b"8\001"
-    _globals["_BILLINGUSAGEMODE"]._serialized_start = 563
-    _globals["_BILLINGUSAGEMODE"]._serialized_end = 680
     _globals["_BILLINGUSAGERECORD"]._serialized_start = 57
-    _globals["_BILLINGUSAGERECORD"]._serialized_end = 416
-    _globals["_BILLINGUSAGERECORD_DIMENSIONSENTRY"]._serialized_start = 343
-    _globals["_BILLINGUSAGERECORD_DIMENSIONSENTRY"]._serialized_end = 392
-    _globals["_INGESTBILLINGUSAGEREQUEST"]._serialized_start = 418
-    _globals["_INGESTBILLINGUSAGEREQUEST"]._serialized_end = 502
-    _globals["_INGESTBILLINGUSAGERESPONSE"]._serialized_start = 504
-    _globals["_INGESTBILLINGUSAGERESPONSE"]._serialized_end = 561
-    _globals["_USAGEINGESTION"]._serialized_start = 683
-    _globals["_USAGEINGESTION"]._serialized_end = 816
+    _globals["_BILLINGUSAGERECORD"]._serialized_end = 207
+    _globals["_INGESTBILLINGUSAGEREQUEST"]._serialized_start = 209
+    _globals["_INGESTBILLINGUSAGEREQUEST"]._serialized_end = 293
+    _globals["_INGESTBILLINGUSAGERESPONSE"]._serialized_start = 295
+    _globals["_INGESTBILLINGUSAGERESPONSE"]._serialized_end = 352
+    _globals["_USAGEINGESTION"]._serialized_start = 355
+    _globals["_USAGEINGESTION"]._serialized_end = 488
 # @@protoc_insertion_point(module_scope)

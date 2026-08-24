@@ -361,23 +361,17 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -2541,23 +2535,17 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
       broker_list = "warpstream_ingestion"
@@ -8805,8 +8793,8 @@ SQL
   }
 
   table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "producer_id", "usage_key", "record_id"]
-    partition_by = "toYYYYMM(event_timestamp)"
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
     settings = {
       index_granularity = "8192"
     }
@@ -8828,23 +8816,17 @@ SQL
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -8854,11 +8836,6 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
-    }
-    index "event_timestamp_minmax" {
-      expr        = "event_timestamp"
-      type        = "minmax"
-      granularity = 3
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
@@ -14913,23 +14890,17 @@ SQL
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -17740,12 +17711,10 @@ SELECT
   team_id,
   organization_id,
   usage_key,
-  mode,
   unit,
   quantity,
-  event_timestamp,
+  timestamp,
   inserted_at,
-  dimensions,
   _timestamp,
   _offset,
   _partition
@@ -17770,23 +17739,17 @@ SQL
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
-    }
-    column "dimensions" {
-      type = "Map(LowCardinality(String), String)"
     }
     column "_timestamp" {
       type = "DateTime"

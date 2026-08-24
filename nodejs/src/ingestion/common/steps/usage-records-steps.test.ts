@@ -6,14 +6,14 @@ import { isOkResult } from '~/ingestion/framework/results'
 import { createRecordEventUsageAfterIngestStep, createRecordEventUsageStep } from './usage-records-steps'
 
 describe('usage-records-steps', () => {
-    const EVENT_TIMESTAMP_MS = 1_700_000_000_000
+    const FLUSH_TIMESTAMP_MS = 1_700_000_000_000
 
     let ingestedUsage: UsageRecordInput[]
     let eventUsageBatch: UsageRecordBatch
 
     beforeEach(() => {
         jest.useFakeTimers()
-        jest.setSystemTime(EVENT_TIMESTAMP_MS)
+        jest.setSystemTime(FLUSH_TIMESTAMP_MS)
         ingestedUsage = []
         const usageClient = {
             ingest: jest.fn((records: UsageRecordInput[]) => {
@@ -84,7 +84,7 @@ describe('usage-records-steps', () => {
                 usageKey: 'events',
                 unit: 'events',
                 quantity: 1,
-                eventTimestampMs: EVENT_TIMESTAMP_MS,
+                timestampMs: FLUSH_TIMESTAMP_MS,
                 dimensions: undefined,
             },
         ])
