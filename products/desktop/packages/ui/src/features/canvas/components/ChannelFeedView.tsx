@@ -843,6 +843,7 @@ const FeedItem = memo(function FeedItem({
       id: task.id,
       title: task.title,
       isPinned: taskData?.isPinned ?? false,
+      task,
       channelId: task.channel ?? undefined,
       onAddToCommandCenter: commandCenterCells.includes(task.id)
         ? undefined
@@ -860,6 +861,7 @@ const FeedItem = memo(function FeedItem({
       archiveTaskFromFeed,
       beginTitleEdit,
       canStop,
+      task,
       commandCenterCells,
       task.channel,
       task.id,
