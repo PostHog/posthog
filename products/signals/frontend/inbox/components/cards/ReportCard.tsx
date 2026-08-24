@@ -91,7 +91,7 @@ export function InboxCardSourceMeta({
  * Unified inbox list card for reports and pull requests. The presence of a parseable
  * implementation PR (`hasPr`) drives the divergences: PR cards get a solid border, a
  * `#1234` state badge, the repo slug in the meta row, no status/actionability chips, and a
- * "Review changes" action; plain reports get a dashed border, a summary placeholder, the
+ * "Review" action; plain reports get a dashed border, a summary placeholder, the
  * status/actionability chips, and "View report".
  *
  * The inbox list gives a row one action, the one that moves the report forward; archiving lives in
@@ -305,7 +305,7 @@ export function ReportCard({
                                 }
                                 tabIndex={preview ? -1 : undefined}
                             >
-                                {hasPr ? 'Review changes' : 'View report'}
+                                {hasPr ? 'Review' : 'View report'}
                             </LemonButton>
                         </>
                     )}
