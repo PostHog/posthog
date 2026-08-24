@@ -1,13 +1,13 @@
 import { Plus } from "@phosphor-icons/react";
 import {
-  SETUP_COMMAND_GROUPS,
-  SETUP_COMMAND_SUGGESTIONS,
-} from "@posthog/core/billing/imagePreset";
-import {
   type EnvironmentSetupPlan,
   primaryRepository,
   type SetupLine,
 } from "@posthog/core/settings/environmentSetup";
+import {
+  SETUP_COMMAND_GROUPS,
+  SETUP_COMMAND_SUGGESTIONS,
+} from "@posthog/core/settings/imagePreset";
 import {
   Button,
   Text,
@@ -136,7 +136,7 @@ export function SetupStep({
                                   setupLines: [
                                     ...plan.setupLines,
                                     {
-                                      id: `${suggestion.id}-${plan.setupLines.length}`,
+                                      id: crypto.randomUUID(),
                                       value: suggestion.command,
                                     },
                                   ],

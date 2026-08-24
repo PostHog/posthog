@@ -1,17 +1,17 @@
 import { ArrowSquareOut, MagnifyingGlass } from "@phosphor-icons/react";
 import {
+  type EnvironmentSetupPlan,
+  stepError,
+  withToolToggled,
+} from "@posthog/core/settings/environmentSetup";
+import {
   IMAGE_TOOL_CATEGORIES,
   type ImagePresetTool,
   imagePresetTools,
   isDirectlyInstallable,
   toolInstallMethod,
   toolsSizeMb,
-} from "@posthog/core/billing/imagePreset";
-import {
-  type EnvironmentSetupPlan,
-  stepError,
-  withToolToggled,
-} from "@posthog/core/settings/environmentSetup";
+} from "@posthog/core/settings/imagePreset";
 import {
   Checkbox,
   Input,

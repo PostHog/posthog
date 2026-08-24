@@ -243,7 +243,9 @@ interface SettingsStore {
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
 
-  // Spend limits (inform-only: crossing a line never pauses work)
+  // Spend limits. A warn line only notifies; a stop line pauses new agent
+  // messages in this app, and the monthly stop also syncs to the gateway
+  // where deployments enforce it.
   spendLimits: SpendLimits;
   // Crossing notices already shown, keyed by period/level/anchor/amount so
   // each line notifies once per day or month at a given amount.

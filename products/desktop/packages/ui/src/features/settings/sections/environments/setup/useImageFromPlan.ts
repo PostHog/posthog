@@ -1,8 +1,3 @@
-import { imagePresetBrief } from "@posthog/core/billing/imagePreset";
-import {
-  buildImageSpec,
-  imageSpecToYaml,
-} from "@posthog/core/billing/imageSpec";
 import {
   buildsImage,
   type EnvironmentSetupPlan,
@@ -11,10 +6,15 @@ import {
   planTools,
   primaryRepository,
 } from "@posthog/core/settings/environmentSetup";
+import { imagePresetBrief } from "@posthog/core/settings/imagePreset";
+import {
+  buildImageSpec,
+  imageSpecToYaml,
+} from "@posthog/core/settings/imageSpec";
 import type { SandboxCustomImage } from "@posthog/shared/domain-types";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 
-interface ImageFromPlan {
+export interface ImageFromPlan {
   /** Creates the image the plan describes, or null when it builds none. */
   create: (plan: EnvironmentSetupPlan) => Promise<SandboxCustomImage | null>;
   /** Writes the spec and starts the build. */

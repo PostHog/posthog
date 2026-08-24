@@ -155,6 +155,21 @@ export function suggestedSpendLimits(
 }
 
 /**
+ * Starting lines for a scope switched on before any history exists to derive
+ * suggestions from. Round figures the person adjusts on the slider right
+ * away, not a claim about their spend — without them, enabling a scope with
+ * no history would commit two nulls and read as the switch refusing to turn
+ * on.
+ */
+export const STARTER_SPEND_LINES: Record<
+  SpendLimitPeriod,
+  { warnUsd: number; stopUsd: number }
+> = {
+  day: { warnUsd: 20, stopUsd: 50 },
+  month: { warnUsd: 200, stopUsd: 500 },
+};
+
+/**
  * Today's and this month's spend from the endpoint's UTC day rows. Rows are
  * UTC-day aligned, so `todayIso` must be the UTC date (`YYYY-MM-DD`).
  */

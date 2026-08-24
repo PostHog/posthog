@@ -1,8 +1,7 @@
 import { Plus, X } from "@phosphor-icons/react";
-import { setupCommandError } from "@posthog/core/billing/imageSpec";
 import type { SetupLine } from "@posthog/core/settings/environmentSetup";
+import { setupCommandError } from "@posthog/core/settings/imageSpec";
 import { Button, Input, Text } from "@posthog/quill";
-import { useId } from "react";
 
 interface SetupCommandListProps {
   lines: readonly SetupLine[];
@@ -11,7 +10,6 @@ interface SetupCommandListProps {
 
 /** The editable list of setup commands, one line each. */
 export function SetupCommandList({ lines, onChange }: SetupCommandListProps) {
-  const idPrefix = useId();
   return (
     <div className="flex flex-col gap-2">
       {lines.map((line, index) => {
@@ -63,11 +61,10 @@ export function SetupCommandList({ lines, onChange }: SetupCommandListProps) {
           variant="outline"
           size="sm"
           data-attr="environment-setup-add-command"
+          // A random id, not the line count: a count repeats after
+          // delete-then-add, and a repeated id makes edits hit two lines.
           onClick={() =>
-            onChange([
-              ...lines,
-              { id: `${idPrefix}-${lines.length}`, value: "" },
-            ])
+            onChange([...lines, { id: crypto.randomUUID(), value: "" }])
           }
         >
           <Plus size={12} />

@@ -89,17 +89,19 @@ export function EnvironmentEditForm({
             variablesAlreadySet={variablesAlreadySet}
           />
         </Section>
-        <Section>
-          <BaseImageStep
-            plan={plan}
-            images={images}
-            onChange={onChange}
-            onBuildNewImage={onBuildNewImage}
-            buildNewDisabledReason={
-              dirty ? "Save your changes first, then build one." : null
-            }
-          />
-        </Section>
+        {plan.customImages && (
+          <Section>
+            <BaseImageStep
+              plan={plan}
+              images={images}
+              onChange={onChange}
+              onBuildNewImage={onBuildNewImage}
+              buildNewDisabledReason={
+                dirty ? "Save your changes first, then build one." : null
+              }
+            />
+          </Section>
+        )}
       </div>
 
       <div className="flex items-center gap-3 border-(--gray-4) border-t pt-4">

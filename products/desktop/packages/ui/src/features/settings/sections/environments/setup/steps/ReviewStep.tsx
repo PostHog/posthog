@@ -1,8 +1,3 @@
-import { isDirectlyInstallable } from "@posthog/core/billing/imagePreset";
-import {
-  buildImageSpec,
-  imageSpecToYaml,
-} from "@posthog/core/billing/imageSpec";
 import {
   buildsImage,
   type EnvironmentSetupPlan,
@@ -11,6 +6,11 @@ import {
   planTools,
   stepError,
 } from "@posthog/core/settings/environmentSetup";
+import { isDirectlyInstallable } from "@posthog/core/settings/imagePreset";
+import {
+  buildImageSpec,
+  imageSpecToYaml,
+} from "@posthog/core/settings/imageSpec";
 import { Text } from "@posthog/quill";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";
 

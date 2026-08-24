@@ -38,20 +38,20 @@ const FILLED_DAYS = COSTS.map((cost, index) =>
 function SpendLimitsDecorator({
   children,
   dailyWarnUsd,
-  dailyAlertUsd,
+  dailyStopUsd,
 }: {
   children: React.ReactNode;
   dailyWarnUsd: number | null;
-  dailyAlertUsd: number | null;
+  dailyStopUsd: number | null;
 }) {
   useEffect(() => {
     useSettingsStore.setState({
-      spendLimits: { ...EMPTY_SPEND_LIMITS, dailyWarnUsd, dailyAlertUsd },
+      spendLimits: { ...EMPTY_SPEND_LIMITS, dailyWarnUsd, dailyStopUsd },
     });
     return () => {
       useSettingsStore.setState({ spendLimits: EMPTY_SPEND_LIMITS });
     };
-  }, [dailyWarnUsd, dailyAlertUsd]);
+  }, [dailyWarnUsd, dailyStopUsd]);
   return <>{children}</>;
 }
 
@@ -74,7 +74,7 @@ type Story = StoryObj<typeof SpendOverTimeCard>;
 export const NoLimits: Story = {
   decorators: [
     (Story) => (
-      <SpendLimitsDecorator dailyWarnUsd={null} dailyAlertUsd={null}>
+      <SpendLimitsDecorator dailyWarnUsd={null} dailyStopUsd={null}>
         <Story />
       </SpendLimitsDecorator>
     ),
@@ -84,7 +84,7 @@ export const NoLimits: Story = {
 export const WithSpendLines: Story = {
   decorators: [
     (Story) => (
-      <SpendLimitsDecorator dailyWarnUsd={20} dailyAlertUsd={50}>
+      <SpendLimitsDecorator dailyWarnUsd={20} dailyStopUsd={50}>
         <Story />
       </SpendLimitsDecorator>
     ),

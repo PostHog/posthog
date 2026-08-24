@@ -1,7 +1,8 @@
-import type {
-  SpendLimitLevel,
-  SpendLimitPeriod,
-  SpendLimits,
+import {
+  type SpendLimitLevel,
+  type SpendLimitPeriod,
+  type SpendLimits,
+  STARTER_SPEND_LINES,
 } from "@posthog/core/billing/spendLimits";
 import { Switch, Text } from "@posthog/quill";
 import {
@@ -71,12 +72,11 @@ export function SpendLimitCard({
       onCommit({ [warnKey]: null, [stopKey]: null });
       return;
     }
-    // Start from the person's own history where there is any; otherwise the
-    // fields open empty rather than showing a number we invented.
-    onCommit({
-      [warnKey]: suggested?.warnUsd ?? null,
-      [stopKey]: suggested?.stopUsd ?? null,
-    });
+    // Start from the person's own history where there is any; without any,
+    // round starter lines keep the scope editable rather than committing
+    // nulls, which would read as the switch refusing to turn on.
+    const seed = suggested ?? STARTER_SPEND_LINES[scope];
+    onCommit({ [warnKey]: seed.warnUsd, [stopKey]: seed.stopUsd });
   };
 
   return (

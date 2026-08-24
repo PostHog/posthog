@@ -66,14 +66,18 @@ export function buildPosthogPropertyHeaderLines(
  * gateway keys its per-user spend limit on this value, so it must be the same
  * node the spend-limit endpoint writes the limit against: the user's distinct
  * id, not their uuid (see posthog/models/user_gateway_node.py).
+ *
+ * Trust model: for local sessions this header is asserted by the client, so
+ * the limit it keys is a self-imposed guardrail, not a security boundary.
+ * Cloud runs pin the node server-side into the run's scoped token.
  */
 export const POSTHOG_USER_HEADER = "X-PostHog-User";
 
 export function buildPosthogUserHeaderRecord(
-  userUuid: string | null | undefined,
+  userNode: string | null | undefined,
 ): Record<string, string> {
-  return userUuid
-    ? { [POSTHOG_USER_HEADER]: sanitizeHeaderValue(userUuid) }
+  return userNode
+    ? { [POSTHOG_USER_HEADER]: sanitizeHeaderValue(userNode) }
     : {};
 }
 

@@ -1,6 +1,11 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { SpendAnalysisResponse } from "@posthog/api-client/spend-analysis";
 import {
+  type SpendAnalysisWindow,
+  windowToDateFrom,
+  windowToDays,
+} from "@posthog/core/billing/spendAnalysisFormat";
+import {
   averageDailySpend,
   spendTotalsFromDays,
   utcDayIso,
@@ -10,10 +15,6 @@ import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnal
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-// One shared query: the guardrails watcher, the composer's stop line and the
-// settings sliders read the same personal spend snapshot.
-const SPEND_TOTALS_QUERY_KEY = ["billing", "spend-guardrails"] as const;
-
 // The watcher needs spend to keep arriving to notice a line being crossed.
 const POLL_INTERVAL_MS = 5 * 60_000;
 
@@ -21,8 +22,17 @@ const POLL_INTERVAL_MS = 5 * 60_000;
 const SPEND_SCOPE_PRODUCT = "posthog_code";
 
 // 30 UTC calendar days including today: always covers the current month.
-const WINDOW_DAYS = 30;
-const DATE_FROM = `-${WINDOW_DAYS - 1}dStart`;
+const SPEND_WINDOW: SpendAnalysisWindow = "30d";
+const WINDOW_DAYS = windowToDays(SPEND_WINDOW);
+
+// The same key shape useSpendAnalysis uses, so opening Plan & usage at this
+// window reads this cache entry instead of fetching the endpoint again.
+const SPEND_TOTALS_QUERY_KEY = [
+  "billing",
+  "spend-analysis",
+  SPEND_WINDOW,
+  SPEND_SCOPE_PRODUCT,
+] as const;
 
 export interface SpendSnapshot {
   todayUsd: number;
@@ -35,7 +45,7 @@ function fetchSpendWindow(
   client: PostHogAPIClient,
 ): Promise<SpendAnalysisResponse> {
   return client.getPersonalSpendAnalysis({
-    dateFrom: DATE_FROM,
+    dateFrom: windowToDateFrom(SPEND_WINDOW),
     product: SPEND_SCOPE_PRODUCT,
   });
 }

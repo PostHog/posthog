@@ -42,10 +42,8 @@ export function SpendLimitsSettings() {
   // here would fight the person typing.
   useEffect(() => {
     if (serverLimitUsd === undefined) return;
-    useSettingsStore.setState((state) => ({
-      spendLimits: { ...state.spendLimits, monthlyStopUsd: serverLimitUsd },
-    }));
-  }, [serverLimitUsd]);
+    setSpendLimits({ monthlyStopUsd: serverLimitUsd });
+  }, [serverLimitUsd, setSpendLimits]);
 
   const commit = (limits: Partial<SpendLimits>) => {
     setSpendLimits(limits);

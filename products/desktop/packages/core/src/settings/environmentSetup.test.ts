@@ -3,11 +3,13 @@ import {
   type EnvironmentSetupPlan,
   emptyEnvironmentSetupPlan,
   envVarError,
+  isValidDomain,
   parseEnvVarText,
   planEnvironmentInput,
   setupSteps,
   setupStepsComplete,
   stepError,
+  validateDomains,
   withEnvironmentName,
   withRepositories,
 } from "./environmentSetup";
@@ -155,5 +157,21 @@ describe("environmentSetup", () => {
     expect(envVarError(rows[0], rows)).toBe("GOOD is set twice.");
     expect(envVarError(rows[1], rows)).toContain("Letters, digits");
     expect(envVarError(rows[3], rows)).toBe("Name this variable.");
+  });
+});
+
+describe("validateDomains", () => {
+  it.each([
+    ["github.com", true],
+    ["*.example.com", true],
+    ["https://github.com", false],
+  ])("isValidDomain(%s) -> %s", (domain, expected) => {
+    expect(isValidDomain(domain)).toBe(expected);
+  });
+
+  it("collects valid domains, skips blank lines, and reports invalid ones", () => {
+    const result = validateDomains("github.com\n\n*.example.com\nnot a domain");
+    expect(result.domains).toEqual(["github.com", "*.example.com"]);
+    expect(result.errors).toEqual(["Invalid domain: not a domain"]);
   });
 });

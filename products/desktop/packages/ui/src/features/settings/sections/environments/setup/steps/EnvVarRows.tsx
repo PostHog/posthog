@@ -5,7 +5,7 @@ import {
   parseEnvVarText,
 } from "@posthog/core/settings/environmentSetup";
 import { Button, Input, Text } from "@posthog/quill";
-import { type ClipboardEvent, useId } from "react";
+import type { ClipboardEvent } from "react";
 
 interface EnvVarRowsProps {
   rows: readonly EnvVarRow[];
@@ -18,11 +18,12 @@ interface EnvVarRowsProps {
  * value column masks what it holds because most of them are secrets.
  */
 export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
-  const idPrefix = useId();
-  const nextId = (offset: number) => `${idPrefix}-${rows.length + offset}`;
+  // Random ids, not row-count ones: a count repeats after delete-then-add,
+  // and a repeated id makes patch() edit two rows at once.
+  const nextId = () => crypto.randomUUID();
 
   const addRow = () =>
-    onChange([...rows, { id: nextId(0), key: "", value: "" }]);
+    onChange([...rows, { id: nextId(), key: "", value: "" }]);
 
   const patch = (id: string, part: Partial<EnvVarRow>) =>
     onChange(rows.map((row) => (row.id === id ? { ...row, ...part } : row)));
@@ -39,8 +40,8 @@ export function EnvVarRows({ rows, onChange }: EnvVarRowsProps) {
       return;
     }
     event.preventDefault();
-    const added = parsed.map((entry, index) => ({
-      id: nextId(index + 1),
+    const added = parsed.map((entry) => ({
+      id: nextId(),
       ...entry,
     }));
     const isBlank = row.key.trim() === "" && row.value.trim() === "";

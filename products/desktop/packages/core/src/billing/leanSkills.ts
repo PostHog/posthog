@@ -20,6 +20,12 @@ export interface LeanSkill {
   name: string;
   /** GitHub `owner/repo` the installer fetches. */
   source: string;
+  /**
+   * Commit the installer fetches, so the content someone vetted here is the
+   * content that lands, not whatever the repository's HEAD has become.
+   * Updating a skill means re-reading it at the new commit, then bumping this.
+   */
+  ref: string;
   /** Directory inside that repo holding SKILL.md, for the installer. */
   skillId: string;
   /** One line, for the row. */
@@ -53,6 +59,7 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     id: "ponytail",
     name: "Ponytail",
     source: "DietrichGebert/ponytail",
+    ref: "2ed6c52c9d7e5e56942508591085fd45dea277d3",
     skillId: "ponytail",
     summary:
       "Pushes the agent toward the simplest solution, so it writes less code.",
@@ -78,6 +85,7 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     id: "context-budget",
     name: "Context budget",
     source: "affaan-m/ecc",
+    ref: "d8409a4b0813771235555e32e3d8046a73988bfa",
     skillId: "context-budget",
     summary:
       "Audits what is eating your context and says what to drop or load later.",
@@ -89,6 +97,7 @@ export const LEAN_SKILLS: readonly LeanSkill[] = [
     id: "caveman",
     name: "Caveman",
     source: "juliusbrussee/caveman",
+    ref: "7bb71309e8749a4f112aacd3a54b3941d8689905",
     skillId: "caveman",
     summary: "Strips filler from the agent's prose, leaving code untouched.",
     approach:

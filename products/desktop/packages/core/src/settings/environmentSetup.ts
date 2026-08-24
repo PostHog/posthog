@@ -8,13 +8,37 @@ import {
   type ImagePresetTool,
   imagePresetName,
   imagePresetTools,
-} from "../billing/imagePreset";
+} from "./imagePreset";
 import {
   type ImageSpecInput,
   imageSpecError,
   setupCommandError,
-} from "../billing/imageSpec";
-import { validateDomains } from "./sandboxEnvironmentForm";
+} from "./imageSpec";
+
+const DOMAIN_RE =
+  /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/;
+
+export function isValidDomain(domain: string): boolean {
+  return DOMAIN_RE.test(domain);
+}
+
+export function validateDomains(text: string): {
+  domains: string[];
+  errors: string[];
+} {
+  const domains: string[] = [];
+  const errors: string[] = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (isValidDomain(trimmed)) {
+      domains.push(trimmed);
+    } else {
+      errors.push(`Invalid domain: ${trimmed}`);
+    }
+  }
+  return { domains, errors };
+}
 
 /** Whether the flow creates an environment or adds to one that exists. */
 export type SetupTarget = "new" | "existing";
@@ -60,6 +84,12 @@ export interface EnvironmentSetupPlan {
   allowedDomainsText: string;
   includeDefaultDomains: boolean;
   envVars: readonly EnvVarRow[];
+  /**
+   * False when custom images are unavailable (flag off or billing-disabled):
+   * the image step disappears and the payload never carries an image id, so
+   * the flow cannot walk someone into a build that fails at the end.
+   */
+  customImages: boolean;
   baseImage: BaseImageChoice;
   /** The image being reused, when the base image is an existing one. */
   existingImageId: string | null;
@@ -74,6 +104,8 @@ export interface EmptyPlanOptions {
   scope?: SetupScope;
   /** True when the flow was entered to build an image, e.g. from the image list. */
   buildImage?: boolean;
+  /** False when custom images are unavailable to this account. */
+  customImages?: boolean;
 }
 
 /**
@@ -85,6 +117,7 @@ export function emptyEnvironmentSetupPlan({
   repository = null,
   buildImage = false,
   scope = "environment",
+  customImages = true,
 }: EmptyPlanOptions = {}): EnvironmentSetupPlan {
   return {
     scope,
@@ -98,7 +131,9 @@ export function emptyEnvironmentSetupPlan({
     allowedDomainsText: "",
     includeDefaultDomains: true,
     envVars: [],
-    baseImage: buildImage || scope === "image" ? "new" : "default",
+    customImages,
+    baseImage:
+      customImages && (buildImage || scope === "image") ? "new" : "default",
     existingImageId: null,
     imageName: repository === null ? "" : imagePresetName(repository),
     imageNameEdited: false,
@@ -124,6 +159,7 @@ export function primaryRepository(plan: EnvironmentSetupPlan): string | null {
  */
 export function planFromEnvironment(
   environment: SandboxEnvironment,
+  { customImages = true }: { customImages?: boolean } = {},
 ): EnvironmentSetupPlan {
   return {
     scope: "environment",
@@ -137,6 +173,7 @@ export function planFromEnvironment(
     allowedDomainsText: environment.allowed_domains.join("\n"),
     includeDefaultDomains: environment.include_default_domains,
     envVars: [],
+    customImages,
     baseImage: environment.custom_image_id === null ? "default" : "existing",
     existingImageId: environment.custom_image_id,
     imageName: "",
@@ -258,7 +295,7 @@ export function setupSteps(plan: EnvironmentSetupPlan): SetupStep[] {
   }
   const keys: SetupStepKey[] = ["environment"];
   if (plan.target === "new") keys.push("access");
-  keys.push("image");
+  if (plan.customImages) keys.push("image");
   if (buildsImage(plan)) keys.push("tools", "setup");
   keys.push("review");
   return keys.map((key) => ({
@@ -408,7 +445,9 @@ export function planEnvironmentInput(
     include_default_domains: isCustom ? plan.includeDefaultDomains : false,
     private: plan.private,
     repositories: [...plan.repositories],
-    custom_image_id: customImageId,
+    // Accounts without custom images must not send the key at all: the API
+    // rejects it when the feature is billing-disabled.
+    ...(plan.customImages ? { custom_image_id: customImageId } : {}),
     ...(envVars.length > 0
       ? {
           environment_variables: Object.fromEntries(

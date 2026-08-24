@@ -78,6 +78,7 @@ export function CostManagementSettings() {
     try {
       await installSkill.mutateAsync({
         source: skill.source,
+        ref: skill.ref,
         skillId: skill.skillId,
       });
       toast.success(`${skill.name} installed`, {

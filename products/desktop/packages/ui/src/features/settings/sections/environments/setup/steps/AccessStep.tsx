@@ -1,5 +1,5 @@
 import type { EnvironmentSetupPlan } from "@posthog/core/settings/environmentSetup";
-import { validateDomains } from "@posthog/core/settings/sandboxEnvironmentForm";
+import { validateDomains } from "@posthog/core/settings/environmentSetup";
 import { Checkbox, Label, Text, Textarea } from "@posthog/quill";
 import { NetworkAccessSelect } from "@posthog/ui/features/settings/sections/environments/NetworkAccessSelect";
 import { StepBody } from "@posthog/ui/features/settings/sections/environments/setup/StepBody";

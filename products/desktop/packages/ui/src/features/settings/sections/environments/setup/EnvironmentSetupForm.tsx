@@ -1,6 +1,5 @@
 import { PreviewCard } from "@base-ui/react/preview-card";
 import { ArrowLeft } from "@phosphor-icons/react";
-import { isDirectlyInstallable } from "@posthog/core/billing/imagePreset";
 import {
   buildsImage,
   type EnvironmentSetupPlan,
@@ -9,6 +8,7 @@ import {
   setupStepsComplete,
   stepError,
 } from "@posthog/core/settings/environmentSetup";
+import { isDirectlyInstallable } from "@posthog/core/settings/imagePreset";
 import { Button, Card, Text } from "@posthog/quill";
 import type { SandboxCustomImage } from "@posthog/shared/domain-types";
 import { AccessStep } from "@posthog/ui/features/settings/sections/environments/setup/steps/AccessStep";
