@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    "granian[uvloop,reload,pname]==2.7.6",
+    "granian[uvloop,reload,pname]==2.8.1",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
