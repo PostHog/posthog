@@ -7239,11 +7239,20 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "personal" if channel.created_by_id == user_id else "not_found"
     if _is_general_channel(channel):
         return "general"
-    if channel.tasks.filter(deleted=False, archived=False).exists() or channel.canvases.filter(deleted=False).exists():
-        return "not_empty"
     with transaction.atomic():
-        # Task visibility joins through the channel, so an archived task left pointing
-        # at a deleted one drops out of every list.
+        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
+        # its channel: unlocked, a task can land after the check and be orphaned in a channel
+        # this call goes on to delete.
+        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        if channel is None:
+            return "not_found"
+        if (
+            channel.tasks.filter(deleted=False, archived=False).exists()
+            or channel.canvases.filter(deleted=False).exists()
+        ):
+            return "not_empty"
+        # Task visibility joins through the channel, so an archived task left pointing at a
+        # deleted one drops out of every list.
         channel.tasks.filter(deleted=False, archived=True).update(channel=None)
         channel.deleted = True
         channel.save(update_fields=["deleted", "updated_at"])
