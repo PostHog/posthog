@@ -102,6 +102,29 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         db_table = "posthog_hogfunction"
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
+            models.Index(fields=["alert_destination"], name="hogfunction_alert_dest_idx"),
+        ]
+        constraints = [
+            # One executor per event kind within an alert destination. Scoped to
+            # alert-owned rows so ordinary functions without ownership aren't affected.
+            models.UniqueConstraint(
+                fields=["alert_destination", "alert_event_kind"],
+                condition=models.Q(alert_destination__isnull=False),
+                name="hogfunction_alert_dest_event_kind_unique",
+            ),
+            # Alert-owned executors are always internal destinations with an event
+            # kind; ordinary functions have no alert ownership fields.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(alert_destination__isnull=True, alert_event_kind__isnull=True)
+                    | models.Q(
+                        alert_destination__isnull=False,
+                        alert_event_kind__isnull=False,
+                        type=HogFunctionType.INTERNAL_DESTINATION,
+                    )
+                ),
+                name="hogfunction_alert_ownership_shape_valid",
+            ),
         ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -149,6 +172,19 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         null=True,
         blank=True,
     )
+
+    # Alert ownership: when set, this function is a private executor of one alert
+    # destination and is not independently manageable. `alert_event_kind` identifies
+    # which notification event (e.g. "firing") this executor handles for the
+    # destination. Ordinary HogFunctions leave both null.
+    alert_destination = models.ForeignKey(
+        "alerts.AlertDestination",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="executors",
+    )
+    alert_event_kind = models.CharField(max_length=32, null=True, blank=True)
 
     # db_default alongside default: the plugin-server test fixtures INSERT into this table with raw
     # SQL that doesn't list this column, and the test-schema builder skips migrations entirely.

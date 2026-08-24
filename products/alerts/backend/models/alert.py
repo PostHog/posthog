@@ -114,6 +114,17 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
+    # Shared alert identity (RFC: explicit alert ownership). Nullable during the
+    # staged migration; every insight alert will have one before the filter-based
+    # ownership is removed.
+    alert = models.OneToOneField(
+        "alerts.AlertIdentity",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="insight_configuration",
+    )
+
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(
         "posthog.User",

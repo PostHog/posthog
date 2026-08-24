@@ -38,6 +38,15 @@ class BillingAlertConfiguration(UUIDModel):
         related_name="+",
         db_constraint=False,
     )
+    # Shared alert identity (RFC: explicit alert ownership). Nullable during the
+    # staged migration.
+    alert = models.OneToOneField(
+        "alerts.AlertIdentity",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="billing_configuration",
+    )
     # Team deletion disables and detaches the alert; feature code may re-home it to another execution team.
     team = models.ForeignKey(
         "posthog.Team",

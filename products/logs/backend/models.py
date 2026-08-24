@@ -147,6 +147,15 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         BELOW = "below", "Below"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Shared alert identity (RFC: explicit alert ownership). Nullable during the
+    # staged migration.
+    alert = models.OneToOneField(
+        "alerts.AlertIdentity",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="logs_configuration",
+    )
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
 
