@@ -25,15 +25,12 @@ describe('ComposerModePicker', () => {
         // Never-ask modes are gated out, as they are in the desktop app by default.
         expect(screen.queryByText('Full auto')).not.toBeInTheDocument()
 
-        // The description strip describes the selected mode on open; the other descriptions stay out of
-        // the menu. The strip renders twice (top and bottom edge, CSS picks one by open direction), so
-        // presence checks use getAllByText.
+        // The strip renders twice (top and bottom edge, CSS picks one by open direction).
         const strips = screen.getAllByText(
             'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
         )
         expect(strips).not.toHaveLength(0)
-        // The strips must sit outside the popup: inside it, the popup's overflow clipping and the
-        // list's scroll mask hide them entirely.
+        // Inside the popup, its overflow and scroll mask hide the strips entirely.
         for (const strip of strips) {
             expect(strip.closest('[data-slot="select-content"]')).toBeNull()
         }

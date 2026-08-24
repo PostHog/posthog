@@ -54,7 +54,7 @@ function SelectTrigger({
 function SelectContent({
     className,
     children,
-    accessory,
+    popupSibling,
     side = 'bottom',
     sideOffset = 4,
     align = 'center',
@@ -63,11 +63,10 @@ function SelectContent({
     ...props
 }: SelectPrimitive.Popup.Props & {
     /**
-     * Rendered inside the positioner as a sibling of the popup, outside the popup's overflow
-     * clipping and scroll mask. Position it absolutely so it never affects the popup's size —
-     * an attached panel that resizes with its content must not move the option list.
+     * Rendered in the positioner as the popup's sibling, escaping the popup's overflow and scroll
+     * mask. Use position: absolute — in-flow content here resizes the box the positioner measures.
      */
-    accessory?: React.ReactNode
+    popupSibling?: React.ReactNode
 } & Pick<
         SelectPrimitive.Positioner.Props,
         'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'
@@ -84,7 +83,7 @@ function SelectContent({
                 alignItemWithTrigger={alignItemWithTrigger}
                 className="isolate"
             >
-                {accessory}
+                {popupSibling}
                 <SelectPrimitive.Popup
                     data-slot="select-content"
                     data-align-trigger={alignItemWithTrigger}

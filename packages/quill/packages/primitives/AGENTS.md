@@ -352,7 +352,7 @@ Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
 Small trigger: `<SelectTrigger size="sm">`
 
-Attached panel outside the popup: pass `accessory` on `SelectContent` — it renders inside the positioner as the popup's sibling, escaping the popup's overflow clipping and scroll mask. Position it absolutely (`bottom-full` / `top-full`, gate on the positioner's `data-side`) so its size never resizes the popup — a panel whose content changes height must not move the option list under the pointer.
+Attached panel outside the popup: pass `popupSibling` on `SelectContent` — rendered in the positioner beside the popup, outside its overflow and scroll mask; position it absolute so it never resizes the option list.
 
 ### Combobox (searchable select)
 

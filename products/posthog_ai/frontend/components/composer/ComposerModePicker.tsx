@@ -77,9 +77,8 @@ export interface ComposerModePickerProps {
  * model/effort pickers. The caller owns the selection and its side effects. Also reused by the plan-approval
  * card, where `modes` narrows the menu to the wire-offered modes.
  *
- * The highlighted option's description renders in a strip attached to the menu's growing edge (away
- * from the trigger), passed as the `accessory` so its height changes never resize or move the option
- * list.
+ * The highlighted option's description renders in a panel attached to the menu's growing edge, so its
+ * height changes never move the option rows.
  */
 export function ComposerModePicker({ selectedMode, onModeChange, modes }: ComposerModePickerProps): JSX.Element {
     // Ordered by `modes`, not by MODE_OPTIONS: each runtime lists its modes in its own order.
@@ -120,7 +119,7 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                 align="start"
                 alignItemWithTrigger={false}
                 className="min-w-60 data-[side=top]:rounded-t-none data-[side=bottom]:rounded-b-none"
-                accessory={
+                popupSibling={
                     descriptionOption && (
                         <>
                             <div className="absolute bottom-full left-0 right-0 hidden min-h-[3.25rem] items-center rounded-t-[var(--radius-md)] border border-b-0 border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs text-secondary [[data-side=top]_&]:flex">
