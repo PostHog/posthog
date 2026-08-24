@@ -299,7 +299,7 @@ SETTINGS: tuple[NotificationSetting, ...] = (
     NotificationSetting(
         key="task_comments_slack_dm",
         receives_when_true=True,
-        default=False,
+        default=True,
         scope=None,
         summary="Slack DM (not email) for task comment mentions, replies, and owned items.",
     ),
