@@ -79,6 +79,9 @@ def test_created_internal_event_preserves_raw_status() -> None:
             side_effect=capture_event,
         ),
         patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow",
+        ),
     ):
         produce_issue_lifecycle_internal_event(
             inputs,
@@ -121,6 +124,9 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"
         ) as flush,
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow",
+        ) as start_delivery,
     ):
         produce_issue_lifecycle_internal_event(
             inputs,
@@ -151,6 +157,9 @@ def test_oversized_internal_event_retries_without_exception_properties() -> None
         key: value for key, value in sent_events[0].properties.items() if key != "exception_props"
     } | {"message_was_too_large": True}
     assert flush.call_count == 2
+    start_delivery.assert_called_once()
+    assert start_delivery.call_args.kwargs["notification_id"] == inputs.notification_id
+    assert start_delivery.call_args.kwargs["event"] == "$error_tracking_issue_reopened"
     oversized_result.get.assert_called_once_with(timeout=0)
     retry_result.get.assert_called_once_with(timeout=0)
 
@@ -178,6 +187,9 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
             side_effect=capture_event,
         ),
         patch("products.error_tracking.backend.temporal.lifecycle.side_effects.flush_internal_events_producer"),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.start_alert_delivery_workflow",
+        ) as start_delivery,
         pytest.raises(KafkaException),
     ):
         produce_issue_lifecycle_internal_event(
@@ -191,6 +203,7 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
     assert sent_events[0].event == "$error_tracking_issue_spiking"
     assert "status" not in sent_events[0].properties
     assert sent_events[0].properties["severity"] == "high"
+    start_delivery.assert_not_called()
 
 
 @pytest.mark.asyncio

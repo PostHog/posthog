@@ -274,3 +274,16 @@ class ErrorTrackingRecommendation:
     dismissed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlert:
+    id: UUID
+    name: str
+    enabled: bool
+    triggers: list[str]
+    channel_type: str
+    integration_id: int | None
+    config: dict
+    created_at: datetime
+    updated_at: datetime

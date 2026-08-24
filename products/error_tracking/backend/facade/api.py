@@ -14,7 +14,11 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..logic import external_references, rules
+from ..logic import (
+    alerts as alerts_logic,
+    external_references,
+    rules,
+)
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -29,6 +33,7 @@ from .contracts import (
 )
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
+AlertValidationError = alerts_logic.AlertValidationError
 ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
@@ -772,3 +777,65 @@ def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
     weekly_digest.send_digest_to_workflow(digest, distinct_id)
+
+
+def _to_alert(alert: Any) -> contracts.ErrorTrackingAlert:
+    return contracts.ErrorTrackingAlert(
+        id=alert.id,
+        name=alert.name,
+        enabled=alert.enabled,
+        triggers=alert.triggers,
+        channel_type=alert.channel_type,
+        integration_id=alert.integration_id,
+        config=alert.config,
+        created_at=alert.created_at,
+        updated_at=alert.updated_at,
+    )
+
+
+def list_alerts(team_id: int) -> list[contracts.ErrorTrackingAlert]:
+    return [_to_alert(alert) for alert in alerts_logic.list_alerts(team_id)]
+
+
+def get_alert(team_id: int, alert_id: Any) -> contracts.ErrorTrackingAlert | None:
+    alert = alerts_logic.get_alert(team_id, alert_id)
+    return _to_alert(alert) if alert is not None else None
+
+
+def create_alert(
+    team_id: int,
+    *,
+    name: str,
+    triggers: list[str],
+    channel_type: str,
+    integration_id: int | None,
+    config: dict,
+    created_by: Any,
+) -> contracts.ErrorTrackingAlert:
+    alert = alerts_logic.create_alert(
+        team_id,
+        name=name,
+        triggers=triggers,
+        channel_type=channel_type,
+        integration_id=integration_id,
+        config=config,
+        created_by=created_by,
+    )
+    return _to_alert(alert)
+
+
+def update_alert(
+    team_id: int,
+    alert_id: Any,
+    *,
+    name: str | None = None,
+    enabled: bool | None = None,
+    triggers: list[str] | None = None,
+    config: dict | None = None,
+) -> contracts.ErrorTrackingAlert | None:
+    alert = alerts_logic.update_alert(team_id, alert_id, name=name, enabled=enabled, triggers=triggers, config=config)
+    return _to_alert(alert) if alert is not None else None
+
+
+def delete_alert(team_id: int, alert_id: Any) -> bool:
+    return alerts_logic.delete_alert(team_id, alert_id)
