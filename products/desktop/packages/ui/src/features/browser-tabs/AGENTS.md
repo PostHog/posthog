@@ -247,7 +247,9 @@ retarget its originating background tab as described below. `railHistoryStore`
   still settled. That transient pairing lets the navigation effect write the
   outgoing href into the selected tab. Selection only pushes the target's
   tagged history entry; that settled entry drives view-state restore,
-  activation, and durable focus through the navigation effect.
+  activation, and durable focus through the navigation effect. The sidebar may
+  project the tagged target's stored `viewState` while navigation is pending,
+  but that projection is render-only and must not write either store.
 - **The effect reconciles SETTLED state only (`settledLocation.ts`).** During a
   pending navigation the router's `location` is already the destination while
   `resolvedLocation` (and `matches`, and so `params` / `railPane`) still describe
