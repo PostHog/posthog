@@ -5371,6 +5371,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
                 "loop_terminal_bookkeeping_complete": True,
+                "analysis_target_repository": "posthog/posthog",
+                "analysis_target_custom_image_id": "img-real",
+                "analysis_target_custom_image_name": "real-image",
             },
         )
 
@@ -5425,6 +5428,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
                     "loop_terminal_bookkeeping_complete": False,
+                    # server-stamped analysis insight attribution; a forged value would
+                    # misattribute the captured insight event to another repository / image
+                    "analysis_target_repository": "attacker/attacker",
+                    "analysis_target_custom_image_id": "img-attacker",
+                    "analysis_target_custom_image_name": "attacker-image",
                     "scratch": "ok",
                 }
             },
@@ -5461,6 +5469,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
         assert run.state["loop_terminal_bookkeeping_complete"] is True
+        assert run.state["analysis_target_repository"] == "posthog/posthog"  # cannot forge attribution
+        assert run.state["analysis_target_custom_image_id"] == "img-real"
+        assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -5487,6 +5498,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "model",
                     "reasoning_effort",
                     "loop_terminal_bookkeeping_complete",
+                    "analysis_target_repository",
+                    "analysis_target_custom_image_id",
+                    "analysis_target_custom_image_name",
                     "scratch",
                 ],
             },
@@ -5515,6 +5529,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
         assert run.state["reasoning_effort"] == "low"  # protected key survives removal
         assert run.state["loop_terminal_bookkeeping_complete"] is True
+        assert run.state["analysis_target_repository"] == "posthog/posthog"  # protected key survives removal
+        assert run.state["analysis_target_custom_image_id"] == "img-real"
+        assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
