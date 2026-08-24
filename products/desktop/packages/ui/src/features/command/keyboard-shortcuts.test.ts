@@ -12,9 +12,9 @@ function idsFor(channelsLayout: boolean): string[] {
 }
 
 describe("getShortcutsByCategory", () => {
-  it("advertises channel switching only in the channels layout", () => {
-    expect(idsFor(true)).toContain("switch-starred-channel");
-    expect(idsFor(false)).not.toContain("switch-starred-channel");
+  it("advertises tab switching only in the channels layout", () => {
+    expect(idsFor(true)).toContain("switch-browser-tab");
+    expect(idsFor(false)).not.toContain("switch-browser-tab");
   });
 
   it.each(["switch-task", "new-tab"])(

@@ -26,6 +26,10 @@ export const SHORTCUTS = {
   // personal space takes slot 1 instead.
   SWITCH_STARRED_CHANNEL:
     "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
+  // Same keys as SWITCH_STARRED_CHANNEL / SWITCH_TASK, claimed by the tab strip
+  // wherever it is shown; those two are disabled there so the keys have one
+  // owner at a time.
+  SWITCH_BROWSER_TAB: "mod+1,mod+2,mod+3,mod+4,mod+5,mod+6,mod+7,mod+8,mod+9",
   FOCUS_SPACE_SEARCH: "mod+shift+s",
   TOGGLE_FOCUS: "mod+r",
   PASTE_AS_FILE: "mod+shift+v",
@@ -139,11 +143,11 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     availability: "no-channels-layout",
   },
   {
-    id: "switch-starred-channel",
+    id: "switch-browser-tab",
     keys: "mod+1-9",
-    description: "Switch to space (⌘1 = personal, ⌘2-9 = starred)",
+    description: "Switch to tab (⌘9 = last tab)",
     category: "navigation",
-    context: "Spaces",
+    context: "Tabs",
     availability: "channels-layout",
   },
   {

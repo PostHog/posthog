@@ -14,11 +14,9 @@ import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArch
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
-import { BlankTabView } from "@posthog/ui/features/browser-tabs/BlankTabView";
 import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStrip";
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
-import { useActiveTabIsBlank } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
 import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
@@ -29,7 +27,6 @@ import {
   type FeedbackModalMode,
 } from "@posthog/ui/features/canvas/components/FeedbackModal";
 import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
-import { RailHistorySync } from "@posthog/ui/features/canvas/components/RailHistorySync";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
@@ -39,7 +36,6 @@ import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useSh
 import { useShellOwnsHeader } from "@posthog/ui/features/canvas/hooks/useShellOwnsHeader";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
-import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
 import { KeyboardShortcutsSheet } from "@posthog/ui/features/command/KeyboardShortcutsSheet";
 import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
@@ -47,6 +43,7 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
@@ -212,6 +209,10 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
+  // Tabs exist in the legacy layout already; the flag gates only bringing them
+  // into the spaces layout.
+  const spacesTabs = useSpacesTabs();
+  const showTabStrip = channelsLayout ? spacesTabs : true;
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -309,16 +310,6 @@ function RootLayout() {
       openTaskInput();
     }
   }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
-
-  // A blank browser tab (the "+" new-tab page) shows an empty placeholder — but
-  // ONLY on the spaces index. Inside a space (`/spaces/$channelId…`) the route
-  // owns the content (space feed, artifacts, a canvas, …), so the placeholder
-  // must never replace it, otherwise space navigation looks dead.
-  const onSpacesIndex = useRouterState({
-    select: (s) => s.location.pathname === "/spaces",
-  });
-  const activeTabBlank = useActiveTabIsBlank();
-  const showBlankTab = onSpacesIndex && activeTabBlank;
 
   if (isSettingsRoute) {
     return (
@@ -427,18 +418,11 @@ function RootLayout() {
               </ButtonGroup>
             )}
           </Flex>
-          {/* The new layout has no global tab strip (tabs live inside the
-              task view); inbox/activity live in the sidebar nav. The strip is
-              also the only global owner of Cmd+W, so something has to keep
-              holding that key when it isn't mounted. */}
-          {channelsLayout ? (
-            <>
-              <TabShortcutFallback enabled />
-              <CommandSearchBar onClick={toggleCommandMenu} />
-            </>
-          ) : (
-            <BrowserTabStrip />
-          )}
+          {/* The strip owns the title bar's middle in both layouts. Search
+              moved to the rail to make room for it (see NavRail). The strip is
+              also the only global owner of Cmd+W, so the fallback has to hold
+              that key wherever the strip isn't mounted. */}
+          {showTabStrip ? <BrowserTabStrip /> : <TabShortcutFallback enabled />}
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
@@ -504,7 +488,7 @@ function RootLayout() {
                       and, on a task, its action row. */}
                 {!shellOwnsHeader && <ContentHeader />}
                 <Box flexGrow="1" overflow="hidden">
-                  {showBlankTab ? <BlankTabView /> : <Outlet />}
+                  <Outlet />
                 </Box>
               </Flex>
             </Box>
@@ -530,9 +514,6 @@ function RootLayout() {
             but the rail can take that column away and the scoping still has to
             happen. */}
         <ChannelRouteSync />
-        {/* Renders nothing — remembers where each rail destination was, so a
-            pick returns you there rather than to its index. */}
-        <RailHistorySync />
         {/* Renders nothing — wires the ⌥↑/⌥↓ task-cycling shortcuts. */}
         <SpaceSwitcher
           tasks={visualTaskOrder}

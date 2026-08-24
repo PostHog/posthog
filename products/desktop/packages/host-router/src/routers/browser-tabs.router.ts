@@ -5,8 +5,7 @@ import {
   browserTabsSnapshotOutput,
   closeTabInput,
   closeTabsInput,
-  newBlankTabInput,
-  openOrFocusTabInput,
+  openTabInput,
   setActiveTabInput,
   setTabOrderInput,
   setTabTargetInput,
@@ -26,15 +25,10 @@ export const browserTabsRouter = router({
     .output(z.string())
     .query(({ ctx }) => svc(ctx.container).getPrimaryWindowId()),
 
-  openOrFocus: publicProcedure
-    .input(openOrFocusTabInput)
+  openTab: publicProcedure
+    .input(openTabInput)
     .output(browserTabsSnapshotOutput)
-    .mutation(({ ctx, input }) => svc(ctx.container).openOrFocus(input)),
-
-  newBlankTab: publicProcedure
-    .input(newBlankTabInput)
-    .output(browserTabsSnapshotOutput)
-    .mutation(({ ctx, input }) => svc(ctx.container).newBlankTab(input)),
+    .mutation(({ ctx, input }) => svc(ctx.container).openTab(input)),
 
   setTabTarget: publicProcedure
     .input(setTabTargetInput)
