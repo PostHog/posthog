@@ -174,9 +174,13 @@ class RateLimit:
                 )
             except RedisError:
                 # A Redis outage is not a concurrency decision. Fail open so the query still runs
-                # instead of taking the whole request down with it.
+                # instead of taking the whole request down with it. Redis may have run the ZADD
+                # before the client gave up reading the reply, so hand back a releasable slot rather
+                # than None: the caller's release() then zrem's the member (a no-op when it was never
+                # added). Returning None would strand that member until its TTL and slowly fill the
+                # limit, recreating the outage this path exists to prevent.
                 CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER.labels(limit_name=self.limit_name, operation="acquire").inc()
-                return None
+                return ConcurrencySlot(running_tasks_key=running_tasks_key, task_id=task_id)
 
             if acquired != 0:
                 break

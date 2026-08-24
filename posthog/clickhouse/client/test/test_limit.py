@@ -77,14 +77,16 @@ class TestRateLimit(BaseTest):
         self.assertNotIn("totally-made-up-product", labeled_products)
 
     def test_use_fails_open_when_redis_errors(self):
-        # A Redis outage is not a concurrency decision: use() must bypass (return None) rather than
-        # raise and take the query down.
+        # A Redis outage is not a concurrency decision: use() must fail open so the query still runs
+        # rather than raising. It returns a releasable slot (not None) because Redis may have added
+        # the member before the client timed out — release() then clears that member instead of
+        # leaving it to fill the limit until its TTL. The slot must carry exactly the added member.
         with patch.object(self.limit, "redis_client") as mock_client:
             mock_client.eval.side_effect = RedisError("connection lost")
             with patch("posthog.clickhouse.client.limit.CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER") as mock_counter:
                 slot = self.limit.use(is_api=True, team_id=7, task_id=17)
 
-        self.assertIsNone(slot)
+        self.assertEqual(slot, ConcurrencySlot(running_tasks_key="limit:rate-limit-test-task:7", task_id="17"))
         mock_counter.labels.assert_called_once_with(limit_name="api_per_team", operation="acquire")
 
     def test_release_swallows_redis_error(self):
