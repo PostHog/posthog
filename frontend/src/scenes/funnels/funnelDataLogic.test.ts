@@ -9,7 +9,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+import {
+    FunnelConversionWindowTimeUnit,
+    FunnelVizType,
+    InsightLogicProps,
+    InsightModel,
+    InsightType,
+    StepOrderValue,
+} from '~/types'
 
 import {
     funnelResult,
@@ -343,26 +350,20 @@ describe('funnelDataLogic', () => {
                 })
             })
 
-            it('uses saved query custom names when cached funnel results have stale step names', async () => {
+            it.each([
+                [StepOrderValue.ORDERED, 'Visited pricing', 'Started checkout'],
+                [StepOrderValue.UNORDERED, null, null],
+            ])('takes custom names from the saved query for a %s funnel', async (funnelOrderType, ...expected) => {
                 const query: FunnelsQuery = {
                     kind: NodeKind.FunnelsQuery,
                     series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: '$pageview',
-                            custom_name: 'Visited pricing',
-                        },
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: '$pageview',
-                            custom_name: 'Started checkout',
-                        },
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Visited pricing' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Started checkout' },
                     ],
+                    funnelsFilter: { funnelOrderType },
                 }
                 const insight: Partial<InsightModel> = {
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                    },
+                    filters: { insight: InsightType.FUNNELS },
                     result: funnelResult.result,
                 }
 
@@ -370,26 +371,8 @@ describe('funnelDataLogic', () => {
                     logic.actions.updateQuerySource(query)
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
-                    steps: [
-                        expect.objectContaining({
-                            custom_name: 'Visited pricing',
-                            name: 'Visited pricing',
-                        }),
-                        expect.objectContaining({
-                            custom_name: 'Started checkout',
-                            name: 'Started checkout',
-                        }),
-                    ],
-                    stepsWithConversionMetrics: [
-                        expect.objectContaining({
-                            custom_name: 'Visited pricing',
-                            name: 'Visited pricing',
-                        }),
-                        expect.objectContaining({
-                            custom_name: 'Started checkout',
-                            name: 'Started checkout',
-                        }),
-                    ],
+                    steps: expected.map((custom_name) => expect.objectContaining({ custom_name })),
+                    stepsWithConversionMetrics: expected.map((custom_name) => expect.objectContaining({ custom_name })),
                 })
             })
 
