@@ -144,7 +144,11 @@ def handle_ticket_get(team: Team, ticket_id: str | uuid.UUID) -> Response:
     session_context = ticket.session_context or {}
     tags = list(ticket.tagged_items.values_list("tag__name", flat=True))
 
-    return Response(
+    # Hand-built payload, deliberately: neither wrapping route is in the OpenAPI spec (plain
+    # APIViews without scope_object), so the schema-drift risk behind the rule cannot occur,
+    # and the wire shape must stay identical to the legacy external route while the worker
+    # migrates between them (a serializer would re-format datetimes).
+    return Response(  # nosemgrep: api-response-must-match-schema
         {
             "id": str(ticket.id),
             "number": ticket.ticket_number,
