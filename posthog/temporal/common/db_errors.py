@@ -29,6 +29,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # unexpectedly" marker above, just detected client-side instead of reported by the server.
     # Reaches us standalone too, not only wrapped in the cached-login message above.
     "server conn crashed",
+    # The pooler (pgbouncer/pgcat) itself draining for a restart or deploy, refusing new
+    # connections while it does. Same self-healing shape as "the database system is shutting
+    # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
+    # A connect failure through a pooler, so no SQLSTATE — falls through to this message match.
+    "pooler is shutting down",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
