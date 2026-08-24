@@ -5,7 +5,6 @@ import {
   LinkIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
-import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
   Avatar,
@@ -19,7 +18,6 @@ import {
   EmptyTitle,
   Spinner,
 } from "@posthog/quill";
-import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -33,113 +31,16 @@ import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMa
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
-import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { track } from "@posthog/ui/shell/analytics";
-import { Text } from "@radix-ui/themes";
-import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
   markLoadedReadLabel,
 } from "./activityFeed";
-
-function ChannelSuffix({ channelName }: { channelName: string | null }) {
-  if (!channelName) return null;
-  return (
-    <>
-      {" in "}
-      <span className="font-medium text-xs">
-        {channelDisplayReference(channelName)}
-      </span>
-    </>
-  );
-}
-
-function ownedItemName(item: TaskActivityItem): string {
-  switch (item.commentTarget?.scope) {
-    case "desktop_canvas":
-      return "canvas";
-    case "task_artifact":
-      return "artifact";
-    default:
-      return "task";
-  }
-}
-
-/** The lead line describing what happened, chosen by the row's activity kind. */
-export function activityHeadline(
-  item: TaskActivityItem,
-  currentUserEmail?: string | null,
-): ReactNode {
-  switch (item.activityKind) {
-    case "awaiting_input":
-      return (
-        <>
-          The agent is waiting for your reply
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "completed":
-      return (
-        <>
-          The agent completed this task
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "message":
-      if (!item.author) {
-        return (
-          <>
-            The agent replied
-            <ChannelSuffix channelName={item.channelName} />
-          </>
-        );
-      }
-      return (
-        <>
-          {item.author.email === currentUserEmail
-            ? "You replied"
-            : `${userDisplayName(item.author)} replied`}
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "mention":
-      return (
-        <>
-          <Text as="span" size="1" weight="medium">
-            {userDisplayName(item.author)}
-          </Text>{" "}
-          mentioned you
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "thread_reply":
-      return (
-        <>
-          <Text as="span" size="1" weight="medium">
-            {userDisplayName(item.author)}
-          </Text>{" "}
-          replied to a thread you participated in
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    case "owned_item_comment":
-      return (
-        <>
-          <Text as="span" size="1" weight="medium">
-            {userDisplayName(item.author)}
-          </Text>{" "}
-          commented on your {ownedItemName(item)}
-          <ChannelSuffix channelName={item.channelName} />
-        </>
-      );
-    default:
-      return "You created this task";
-  }
-}
+import { activityMetadata } from "./activityMetadata";
 
 export function ActivityRow({
   item,
@@ -238,22 +139,15 @@ export function ActivityRow({
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <Text
-              size="1"
-              weight={item.isUnread ? "medium" : "regular"}
-              className="truncate"
+            <span
+              className={`truncate text-sm ${item.isUnread ? "font-semibold" : "font-medium"}`}
             >
-              {activityHeadline(item, currentUser?.email)}
-            </Text>
+              {item.taskTitle}
+            </span>
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
-            {!compact && (
-              <Text size="1" className="shrink-0 text-muted-foreground">
-                {formatRelativeTimeShort(item.activityAt)}
-              </Text>
-            )}
           </span>
           <span className="block truncate text-muted-foreground text-xs">
-            {item.taskTitle}
+            {activityMetadata(item, currentUser?.email)}
           </span>
           {item.snippet && !compact && (
             <MentionText
@@ -264,14 +158,6 @@ export function ActivityRow({
           )}
         </span>
       </Button>
-      {compact && (
-        <Text
-          size="1"
-          className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground text-xs"
-        >
-          {formatRelativeTimeShort(item.activityAt)}
-        </Text>
-      )}
       {item.isUnread && (
         <Button
           variant="default"
@@ -433,12 +319,10 @@ export function ActivityView() {
       <div className="mx-auto w-full max-w-[680px] px-4 py-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <Text size="5" weight="bold" className="block">
-              Activity
-            </Text>
-            <Text size="2" className="block text-muted-foreground">
+            <h1 className="font-bold text-2xl">Activity</h1>
+            <p className="text-muted-foreground text-sm">
               Task updates and comment notifications across channels.
-            </Text>
+            </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {unreadCount > 0 && markAllReadButton}

@@ -1,6 +1,6 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigation = vi.hoisted(() => ({
   toChannelDashboard: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityView";
-import { activityHeadline } from "./activityHeadline";
+import { activityMetadata } from "./activityMetadata";
 import { openActivityItem } from "./openActivityItem";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
@@ -39,8 +39,10 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 
 const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
 
-describe("activityHeadline", () => {
+describe("activityMetadata", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-27T10:00:00Z"));
     navigation.toChannelTask.mockReset();
     navigation.toChannelDashboard.mockReset();
     navigation.toTaskDetail.mockReset();
@@ -49,13 +51,16 @@ describe("activityHeadline", () => {
       resolutionsByTarget: {},
     });
   });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it.each([
     [
       "completed run",
       item({ activityKind: "completed" }),
-      "The agent completed this task",
+      "Agent completed · now",
     ],
-    ["agent reply", item({ activityKind: "message" }), "The agent replied"],
+    ["agent reply", item({ activityKind: "message" }), "Agent replied · now"],
     [
       "thread reply",
       item({
@@ -67,7 +72,7 @@ describe("activityHeadline", () => {
           first_name: "Ann",
         },
       }),
-      "replied to a thread you participated in",
+      "Ann replied to a thread you participated in · now",
     ],
     [
       "canvas owner comment",
@@ -81,7 +86,7 @@ describe("activityHeadline", () => {
           first_name: "Ann",
         },
       }),
-      "commented on your canvas",
+      "Ann commented on your canvas · now",
     ],
     [
       "own reply",
@@ -94,28 +99,46 @@ describe("activityHeadline", () => {
           first_name: "Me",
         },
       }),
-      "You replied",
+      "You replied · now",
     ],
   ])("labels a %s", (_name, activity, expected) => {
-    const { getByText } = render(
-      <div>{activityHeadline(activity, "me@posthog.com")}</div>,
-    );
-    expect(getByText(expected)).toBeInTheDocument();
+    expect(activityMetadata(activity, "me@posthog.com")).toBe(expected);
   });
 
   it.each([
-    ["shared channel", "engineering", "#engineering"],
-    ["personal channel", "personal", "your personal space"],
+    ["shared channel", "engineering", "Agent completed · #engineering · now"],
+    ["personal channel", "personal", "Agent completed · Personal · now"],
   ])("formats the %s label", (_name, channelName, expected) => {
-    const { getByText } = render(
-      <div>
-        {activityHeadline(
-          item({ activityKind: "completed", channelName }),
-          "me@posthog.com",
-        )}
-      </div>,
+    expect(
+      activityMetadata(
+        item({ activityKind: "completed", channelName }),
+        "me@posthog.com",
+      ),
+    ).toBe(expected);
+  });
+
+  it("leads a completed activity row with the task title", () => {
+    render(
+      <ActivityRow
+        item={item({
+          activityKind: "completed",
+          taskTitle: "Tell me a joke",
+          channelName: "personal",
+        })}
+        channelId="channel-1"
+        onOpen={vi.fn()}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+        compact
+      />,
     );
-    expect(getByText(expected)).toBeInTheDocument();
+
+    const title = screen.getByText("Tell me a joke");
+    const metadata = screen.getByText("Agent completed · Personal · now");
+    expect(title.compareDocumentPosition(metadata)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it("opens an activity mention at its exact comment thread", () => {
@@ -142,7 +165,9 @@ describe("activityHeadline", () => {
         blockedTaskIds={NO_BLOCKED_TASKS}
       />,
     );
-    const activityButton = screen.getByText("mentioned you").closest("button");
+    const activityButton = screen
+      .getByText("Ann mentioned you · now")
+      .closest("button");
     if (!activityButton) throw new Error("Expected activity row button");
     fireEvent.click(activityButton);
 
