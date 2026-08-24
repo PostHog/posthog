@@ -51,15 +51,12 @@ class TestMintServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
 
-            credential = mint_service_credential(
-                "org-1", 7, principal="dagster:events-backfill", ttl_seconds=900, force_rotate=True
-            )
+            credential = mint_service_credential("org-1", 7, principal="dagster:events-backfill", ttl_seconds=900)
 
         # credential_id is server-generated: svc_-prefixed, non-empty.
         assert credential.credential_id.startswith("svc_")
         assert len(credential.credential_id) > len("svc_")
         assert credential.credential_secret == _FAKE_SECRET
-        assert credential.rotated is True
         assert credential.expires_at == datetime(2026, 8, 11, 13, 0, tzinfo=UTC)
         assert credential.connect == ServiceCredentialConnect(
             host="org-1.dw.us.postwh.com", port=443, database="ducklake", sslmode="require"
@@ -74,7 +71,6 @@ class TestMintServiceCredential:
             json_body={
                 "principal": "dagster:events-backfill",
                 "ttl_seconds": 900,
-                "force_rotate": True,
             },
             require_enabled=False,
         )
@@ -84,31 +80,22 @@ class TestMintServiceCredential:
     def test_ttl_is_clamped_to_cp_policy(self):
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
-            mint_service_credential("org-1", 7, principal="d", ttl_seconds=1, force_rotate=True)
+            mint_service_credential("org-1", 7, principal="d", ttl_seconds=1)
             assert mock_request.call_args.kwargs["json_body"]["ttl_seconds"] == MIN_CREDENTIAL_TTL_SECONDS
 
-            mint_service_credential("org-1", 7, principal="d", ttl_seconds=100_000, force_rotate=True)
+            mint_service_credential("org-1", 7, principal="d", ttl_seconds=100_000)
             assert mock_request.call_args.kwargs["json_body"]["ttl_seconds"] == MAX_CREDENTIAL_TTL_SECONDS
 
-            mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+            mint_service_credential("org-1", 7, principal="d")
             assert mock_request.call_args.kwargs["json_body"]["ttl_seconds"] == DEFAULT_CREDENTIAL_TTL_SECONDS
 
-    def test_reuse_path_reports_missing_secret(self):
-        # When the CP reuses a live grant for the same (org, principal) it
-        # omits credential_secret — the caller sees credential_secret == ""
-        # and rotated == False and must mint with force_rotate (or refresh)
-        # if it has nothing cached. The connect block is present on reuse
-        # too (every successful mint carries it).
+    def test_missing_secret_raises_unavailable(self):
         payload = _mint_payload()
         del payload["credential_secret"]
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
-            credential = mint_service_credential("org-1", 7, principal="d")
-
-        assert credential.credential_id.startswith("svc_")
-        assert credential.credential_secret == ""
-        assert credential.rotated is False
-        assert credential.connect.host == "org-1.dw.us.postwh.com"
+            with pytest.raises(ServiceCredentialUnavailable, match="credential_secret"):
+                mint_service_credential("org-1", 7, principal="d")
 
     def test_cp_error_raises_unavailable(self):
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
@@ -118,7 +105,7 @@ class TestMintServiceCredential:
             mock_request.return_value = resp
 
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 99, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 99, principal="d")
             assert "409" in str(exc_info.value)
 
     def test_missing_credential_id_raises_unavailable(self):
@@ -127,14 +114,14 @@ class TestMintServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
             assert "credential_id" in str(exc_info.value)
 
     def test_bad_expires_at_raises_unavailable(self):
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(expires_at="not-a-timestamp"))
             with pytest.raises(ServiceCredentialUnavailable):
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
 
     def test_missing_connect_raises_unavailable(self):
         # A 2xx without `connect` is an older CP than the contract. The
@@ -147,7 +134,7 @@ class TestMintServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
             assert "connect" in str(exc_info.value)
 
     @pytest.mark.parametrize(
@@ -165,7 +152,7 @@ class TestMintServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(connect=connect))
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
             assert "connect" in str(exc_info.value)
 
     def test_malformed_connect_never_leaks_secret_in_exception(self):
@@ -179,7 +166,7 @@ class TestMintServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
 
             message = str(exc_info.value)
             assert _FAKE_SECRET not in message
@@ -192,7 +179,7 @@ class TestMintServiceCredential:
         with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(credential_id=""))
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
 
             message = str(exc_info.value)
             assert _FAKE_SECRET not in message
@@ -209,7 +196,7 @@ class TestMintServiceCredential:
             mock_request.return_value = resp
 
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
-                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+                mint_service_credential("org-1", 7, principal="d")
 
             assert _FAKE_SECRET not in str(exc_info.value)
 
@@ -220,7 +207,6 @@ class TestMintServiceCredential:
             credential_id="svc_a1b2c3d4e5f60718293a4b5c",
             credential_secret=_FAKE_SECRET,
             expires_at=datetime(2026, 8, 11, 13, 0, tzinfo=UTC),
-            rotated=True,
             connect=ServiceCredentialConnect(
                 host="org-1.dw.us.postwh.com", port=443, database="ducklake", sslmode="require"
             ),
@@ -238,9 +224,7 @@ class TestRefreshServiceCredential:
             credential = refresh_service_credential("org-1", "svc_a1b2c3d4e5f60718293a4b5c", ttl_seconds=600)
 
         assert credential.credential_id == "svc_a1b2c3d4e5f60718293a4b5c"
-        # Refresh ALWAYS rotates: the secret is always present.
         assert credential.credential_secret == _FAKE_SECRET
-        assert credential.rotated is True
         assert credential.expires_at == datetime(2026, 8, 11, 13, 0, tzinfo=UTC)
         assert credential.connect == ServiceCredentialConnect(
             host="org-1.dw.us.postwh.com", port=443, database="ducklake", sslmode="require"

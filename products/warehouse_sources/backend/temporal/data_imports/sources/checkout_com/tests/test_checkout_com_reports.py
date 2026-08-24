@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
     MAX_DISCOVERY_PAGES,
+    CheckoutComReportKeyError,
     CheckoutComReportsListingError,
     _parse_report_file_rows,
     checkout_com_reports_source,
@@ -203,6 +204,14 @@ class TestParseReportFileRows:
     def test_empty_file_yields_nothing(self):
         assert list(_parse_report_file_rows(io.StringIO(""), {}, mock.MagicMock())) == []
 
+    def test_missing_key_column_raises_rather_than_loading_undedupable_rows(self):
+        # Without the key column the merge cannot match a restated row, so every
+        # regenerated file would add another copy instead of updating one.
+        text = "Payment ID,Amount\npay_1,10\n"
+
+        with pytest.raises(CheckoutComReportKeyError):
+            list(_parse_report_file_rows(io.StringIO(text), {"file_id": "file_1"}, mock.MagicMock(), "action_id"))
+
 
 class TestReportsMetadataTable:
     @mock.patch(SESSION_PATCH)
@@ -355,6 +364,38 @@ class TestReportFileSync:
         # No redirect means no separate download session is ever built.
         assert mock_make_session.call_count == 1
 
+    @mock.patch(SESSION_PATCH)
+    def test_restatements_are_read_oldest_first_so_the_newest_copy_wins(self, mock_make_session):
+        # The writer keeps the last occurrence of a key in a batch, so read order decides
+        # which copy of a restated action survives. Reports must be walked oldest-first and
+        # files within a report in id order, whatever order the listing returned them in.
+        api_session = _FakeSession(
+            [
+                _listing(
+                    [
+                        _report(
+                            "rpt_new",
+                            "2024-02-01T00:00:00Z",
+                            files=[_csv_file("file_z"), _csv_file("file_a")],
+                        ),
+                        _report("rpt_old", "2024-01-01T00:00:00Z", files=[_csv_file("file_m")]),
+                    ]
+                ),
+                _FakeResponse(text="Action ID,Amount\nact_1,10\n"),
+                _FakeResponse(text="Action ID,Amount\nact_1,20\n"),
+                _FakeResponse(text="Action ID,Amount\nact_1,30\n"),
+            ]
+        )
+        mock_make_session.side_effect = [api_session]
+
+        rows = _rows(_source("financial_actions_report"))
+
+        assert [(row["file_id"], row["amount"]) for row in rows] == [
+            ("file_m", "10"),
+            ("file_a", "20"),
+            ("file_z", "30"),
+        ]
+
     @pytest.mark.parametrize("location", [None, "http://files.example.com/signed"])
     @mock.patch(SESSION_PATCH)
     def test_non_https_redirect_location_raises(self, mock_make_session, location):
@@ -471,7 +512,13 @@ class TestCheckoutComReportsSourceResponse:
         "schema_name, primary_keys, partition_keys",
         [
             ("reports", ["id"], ["created_on"]),
-            ("financial_actions_report", ["file_id", "file_row_index"], ["report_created_on"]),
+            ("balances_report", ["file_id", "file_row_index"], ["report_created_on"]),
+            # Report types Checkout.com regenerates over an overlapping range key on the
+            # action instead, and stay unpartitioned: the merge matches on primary key and
+            # partition together, so partitioning on report creation time would put a
+            # restatement in a different partition and insert a copy instead of updating.
+            ("financial_actions_report", ["action_id", "breakdown_type"], None),
+            ("financial_actions_by_payout_report", ["action_id", "breakdown_type"], None),
         ],
     )
     def test_response_metadata(self, schema_name, primary_keys, partition_keys):
@@ -480,7 +527,7 @@ class TestCheckoutComReportsSourceResponse:
         assert response.name == schema_name
         assert response.primary_keys == primary_keys
         assert response.partition_keys == partition_keys
-        assert response.partition_mode == "datetime"
+        assert response.partition_mode == ("datetime" if partition_keys else None)
         # Reports are re-sorted oldest-first before yielding, so ascending watermark
         # commits are safe.
         assert response.sort_mode == "asc"

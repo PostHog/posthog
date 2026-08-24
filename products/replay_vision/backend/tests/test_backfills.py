@@ -7,16 +7,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.status import HTTP_429_TOO_MANY_REQUESTS
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
+from posthog.redis import get_client
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    STUCK_SESSION_THRESHOLD,
+    _stuck_key,
+)
 
 from products.replay_vision.backend.api.backfills import (
     MAX_BACKFILL_WINDOW_DAYS,
     BackfillEnumerationThrottle,
     ReplayScannerBackfillViewSet,
 )
+from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -29,6 +36,8 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
+from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.scanner_candidate_query import CandidateSession
 from products.replay_vision.backend.quota import QuotaState, compute_quota_snapshot, spend_projection
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
@@ -53,12 +62,15 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_BACKFILL,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    ON_DEMAND_RESERVED_SCANNER_SLOTS,
+    ON_DEMAND_RESERVED_TEAM_SLOTS,
     backfill_dispatch_budget,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
+from products.replay_vision.backend.tests.helpers import seed_scanner_spend
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -72,7 +84,7 @@ def _make_scanner(**overrides) -> ReplayScanner:
         "name": "t",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -99,11 +111,12 @@ def _make_backfill(scanner: ReplayScanner, **overrides) -> ReplayScannerBackfill
 @pytest.mark.parametrize(
     "scanner_in_flight,team_in_flight,backfill_in_flight,expected",
     [
-        # One case per cap that can win, plus the fully-saturated floor.
+        # One case per cap that can win, plus the fully-saturated floor. Scheduled dispatch caps
+        # exclude the slots reserved for on-demand admission.
         (0, 0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL),
         (0, 0, MAX_IN_FLIGHT_APPLIES_PER_BACKFILL, 0),
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 0, 0, 10),
-        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5, 0, 5),
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, 0, 0, 10),
+        (0, MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5, 0, 5),
     ],
 )
 def test_backfill_dispatch_budget_takes_the_tightest_cap(
@@ -124,7 +137,7 @@ class TestBackfillQuotaCommitment:
             name="c",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         _make_backfill(cancelled_scanner, status=BackfillStatus.CANCELLED, total_count=100, credits_per_observation=5)
 
@@ -161,6 +174,77 @@ class TestCreateObservationForBackfill:
         observation = backfill.observations.get()
         assert observation.scanner_snapshot["scanner_config"] == {"prompt": "frozen prompt"}
         assert observation.triggered_by == ObservationTrigger.BACKFILL
+
+    def test_scanner_limit_prices_the_backfill_observation_from_its_frozen_model(self) -> None:
+        # The frozen 15-credit model is what the observation charges; switching the scanner to a
+        # 2-credit model must not let it slip under a limit with only 5 credits left.
+        scanner = _make_scanner(credit_limit=20)
+        backfill = _make_backfill(scanner, scanner_snapshot=_frozen_snapshot(scanner))
+        seed_scanner_spend(scanner, 15)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(model=ScannerModel.GEMINI_3_5_FLASH_LITE)
+        scanner.refresh_from_db()
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-frozen-price",
+                triggered_by=ObservationTrigger.BACKFILL,
+                triggered_by_user_id=None,
+                workflow_id="wf-frozen-price",
+                backfill_id=backfill.id,
+            )
+        )
+        assert result.observation_id is None
+        assert not result.was_created
+        assert not backfill.observations.exists()
+
+    def test_capped_retake_counts_as_in_flight_spend_for_the_next_admission(self) -> None:
+        # The retake reserves fresh budget under the admission lock, so the next admission's budget
+        # read must see it and refuse; missing it would overshoot the cap by the retaken row.
+        credits = observation_credits_for_model(ScannerModel.GEMINI_3_7_FLASH.value)
+        scanner = _make_scanner(credit_limit=credits)
+        backfill = _make_backfill(scanner)
+        failed = ReplayObservation.objects.create(
+            scanner=scanner,
+            team=scanner.team,
+            session_id="sess-a",
+            status=ObservationStatus.FAILED,
+            workflow_id="wf-old",
+            scanner_snapshot=_frozen_snapshot(scanner),
+            triggered_by=ObservationTrigger.BACKFILL,
+            completed_at=timezone.now(),
+        )
+
+        retake = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-a",
+                triggered_by=ObservationTrigger.BACKFILL,
+                triggered_by_user_id=None,
+                workflow_id="wf-retake",
+                backfill_id=backfill.id,
+            )
+        )
+        assert retake.was_created is True
+        assert retake.observation_id == failed.id
+        failed.refresh_from_db()
+        assert failed.status == ObservationStatus.PENDING
+        assert failed.workflow_id == "wf-retake"
+
+        admission = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-b",
+                triggered_by=ObservationTrigger.BACKFILL,
+                triggered_by_user_id=None,
+                workflow_id="wf-next",
+                backfill_id=backfill.id,
+            )
+        )
+        assert admission.was_created is False
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-b").exists()
 
     @pytest.mark.parametrize(
         "seeded_status,expect_retaken",
@@ -298,6 +382,35 @@ class TestBackfillTickActivities:
         assert result.action == BackfillTickAction.DISPATCH
         assert result.dispatch_budget > 0
 
+    def test_prepare_holds_the_tick_when_the_scanner_limit_is_reached(self) -> None:
+        # Held like the disabled-scanner case: children would decline at create while the cursor walks
+        # past their sessions, completing the backfill with zero observations. The hold keeps it
+        # RUNNING so it resumes when the period resets or the limit rises.
+        scanner = _make_scanner(credit_limit=10)
+        backfill = _make_backfill(scanner, credits_per_observation=5)
+        seed_scanner_spend(scanner, 10)
+        result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
+        assert result.action == BackfillTickAction.SKIP
+        backfill.refresh_from_db()
+        assert backfill.status == BackfillStatus.RUNNING
+
+    def test_prepare_clamps_batch_to_the_scanner_limits_headroom(self) -> None:
+        scanner = _make_scanner(credit_limit=22)
+        backfill = _make_backfill(scanner, credits_per_observation=5)
+        seed_scanner_spend(scanner, 10)
+        result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
+        assert result.action == BackfillTickAction.DISPATCH
+        # 12 credits of headroom at 5 apiece fits two children.
+        assert result.dispatch_budget == 2
+
+    def test_prepare_ignores_spend_on_an_uncapped_scanner(self) -> None:
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner, credits_per_observation=5)
+        seed_scanner_spend(scanner, 1000)
+        result = prepare_backfill_tick_activity(self._tick_inputs(backfill))
+        assert result.action == BackfillTickAction.DISPATCH
+        assert result.dispatch_budget == MAX_IN_FLIGHT_APPLIES_PER_BACKFILL
+
     def test_advance_is_idempotent_under_retry(self) -> None:
         # Temporal retries an activity whose result was lost after it committed; a blind second
         # increment would inflate progress and understate the remaining credit commitment.
@@ -381,7 +494,7 @@ class TestBackfillTickActivities:
         # tick died, the minute schedule refired forever, and the backfill sat RUNNING until cancelled.
         scanner = _make_scanner()
         backfill = _make_backfill(scanner)
-        with patch("products.replay_vision.backend.temporal.activities.backfill.BackfillCandidateQuery") as query_cls:
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
             query_cls.return_value.run.return_value = []
             result = find_backfill_candidates_activity(
                 FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
@@ -391,6 +504,88 @@ class TestBackfillTickActivities:
         assert not result.more_work_below_cursor
         assert result.next_cursor_end_time is None
         assert result.skipped_delta == 0
+
+    def test_unrunnable_exposure_filter_cancels_the_backfill(self) -> None:
+        # The candidate query raises PermissionDenied when the launcher was deleted or lost
+        # experiment access. Left RUNNING, the backfill would fail every minute forever while its
+        # unspent credits kept inflating the spend projection — the tick must cancel it terminally.
+        # Also pins the fail-closed manager path: the cancel runs outside request context, where a
+        # bare `objects` access raises TeamScopeError instead of cancelling.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls:
+            query_cls.return_value.run.side_effect = PermissionDenied("experiment access lost")
+            with pytest.raises(ApplicationError) as raised:
+                find_backfill_candidates_activity(
+                    FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                )
+        assert raised.value.non_retryable
+        backfill.refresh_from_db()
+        assert backfill.status == BackfillStatus.CANCELLED
+        assert backfill.finished_at is not None
+
+    def test_excluded_sessions_are_walked_over_not_dispatched(self) -> None:
+        # The cursor must pass an excluded session exactly as it passes an already-succeeded one.
+        # Filtering before the walk would leave the cursor short and refetch the same rows forever.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        fetched = [
+            CandidateSession(session_id="keep", session_end=timezone.now() - dt.timedelta(hours=2)),
+            CandidateSession(session_id="blocked", session_end=timezone.now() - dt.timedelta(hours=1)),
+        ]
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value={"blocked"}),
+        ):
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+            )
+
+        assert query_cls.call_args.kwargs["skip_negative_blocklists"] is True
+        assert [c.session_id for c in result.candidates] == ["keep"]
+        # walked past the excluded row, not stopped at the survivor
+        assert result.next_cursor_session_id == "blocked"
+
+    def test_stuck_sessions_are_walked_over_not_dispatched(self) -> None:
+        # A session quarantined by the rasterizer's stuck counter cannot render; dispatching it from
+        # a backfill burns retry envelopes the same way the live sweep's filter prevents.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        fetched = [
+            CandidateSession(session_id="keep", session_end=timezone.now() - dt.timedelta(hours=2)),
+            CandidateSession(session_id="wedged", session_end=timezone.now() - dt.timedelta(hours=1)),
+        ]
+        redis_client = get_client()
+        for _ in range(STUCK_SESSION_THRESHOLD):
+            redis_client.incr(_stuck_key(backfill.team_id, "wedged"))
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", return_value=set()),
+        ):
+            query_cls.return_value.run.return_value = fetched
+            result = find_backfill_candidates_activity(
+                FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+            )
+
+        assert [c.session_id for c in result.candidates] == ["keep"]
+        assert result.next_cursor_session_id == "wedged"
+
+    def test_exclusion_failure_fails_the_tick_rather_than_dispatching(self) -> None:
+        # In-query blocklists are off by this point, so swallowing would dispatch unfiltered.
+        scanner = _make_scanner()
+        backfill = _make_backfill(scanner)
+        with (
+            patch("products.replay_vision.backend.temporal.activities.backfill.WindowedCandidateQuery") as query_cls,
+            patch.object(excluded_sessions, "excluded_session_ids", side_effect=RuntimeError("clickhouse down")),
+        ):
+            query_cls.return_value.run.return_value = [
+                CandidateSession(session_id="s1", session_end=timezone.now() - dt.timedelta(hours=1))
+            ]
+            with pytest.raises(RuntimeError):
+                find_backfill_candidates_activity(
+                    FindBackfillCandidatesInputs(backfill_id=backfill.id, team_id=backfill.team_id, candidate_limit=50)
+                )
 
     def test_advance_loses_to_concurrent_cancel(self) -> None:
         scanner = _make_scanner()
@@ -411,7 +606,7 @@ class TestBackfillsApi(APIBaseTest):
             name="backfill-api-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
         self.base_url = f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/backfills"
 
@@ -426,7 +621,7 @@ class TestBackfillsApi(APIBaseTest):
         }
 
     @patch("products.replay_vision.backend.temporal.schedule.a_upsert_backfill_schedule", new_callable=AsyncMock)
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_create_freezes_config_clamps_window_to_settle_horizon_and_rejects_second_active(
         self, mock_query: MagicMock, mock_upsert: AsyncMock
     ) -> None:
@@ -454,7 +649,7 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 400
         assert "active backfill" in response.json()["detail"]
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_estimate_returns_exact_ceiling_without_creating_rows(self, mock_query: MagicMock) -> None:
         mock_query.return_value.count.return_value = 40
         response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
@@ -464,7 +659,7 @@ class TestBackfillsApi(APIBaseTest):
         assert body["total_credits"] == 40 * body["credits_per_observation"]
         assert not ReplayScannerBackfill.objects.for_team(self.team.id).filter(scanner=self.scanner).exists()
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_window_stops_at_the_settle_horizon_the_sweep_waits_for(self, mock_query: MagicMock) -> None:
         # A session inside the settle window is still recording or still merging. Scanning it yields a
         # truncated observation, and the unique (scanner, session) constraint means that is the only
@@ -501,7 +696,7 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 400
         assert "365 days" in str(response.json())
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_estimate_rejects_when_every_candidate_is_already_observed(self, mock_query: MagicMock) -> None:
         # Excluded run returns 0 while the unfiltered run finds rows: nothing left for a backfill to do.
         mock_query.return_value.count.side_effect = [0, 5]
@@ -517,7 +712,7 @@ class TestBackfillsApi(APIBaseTest):
         assert response.status_code == 400
         assert "already been scanned" in str(response.json())
 
-    @patch("products.replay_vision.backend.api.backfills.BackfillCandidateQuery")
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
     def test_estimate_rejects_when_nothing_matches_the_scanner(self, mock_query: MagicMock) -> None:
         mock_query.return_value.count.return_value = 0
         response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")

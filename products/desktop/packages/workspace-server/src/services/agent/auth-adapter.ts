@@ -154,6 +154,7 @@ export class AgentAuthAdapter {
       const proxiedUrl = this.mcpProxy.register(
         `installation-${installation.id}`,
         installation.proxy_url,
+        { credentialOwner: "installation" },
       );
       const server: McpServerConnection = {
         name,
@@ -199,6 +200,10 @@ export class AgentAuthAdapter {
     } catch {
       return null;
     }
+  }
+
+  authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
+    return this.authService.authenticatedFetch(fetch, input, init);
   }
 
   gatewayProjectId(): number | null {

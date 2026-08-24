@@ -52,9 +52,12 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
         if (s.visibility?.excluded) {
             continue
         }
+        // `data` is typed `number[]`, but a series can reach here with a null `data` from a query
+        // that returned no points — iterating it directly throws. Treat a missing array as empty.
+        const data = s.data ?? []
         // A confidence ribbon's lower bound (`fill.lowerData`) is part of the data's visible
         // extent, so it must widen the axis too — otherwise the band clips at the top series.
-        for (const v of s.fill?.lowerData ? [...s.data, ...s.fill.lowerData] : s.data) {
+        for (const v of s.fill?.lowerData ? [...data, ...s.fill.lowerData] : data) {
             if (v == null || !isFinite(v)) {
                 continue
             }
@@ -73,19 +76,32 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
-/** Split a {@link ValueDomain} into its two mutually-exclusive modes — a fixed `[min, max]`
- *  or the set of values an auto-scaled domain must `include`. */
+/** Split a {@link ValueDomain} into a pinned `[min, max]` (both ends given) and the adjustments to
+ *  an auto-scaled domain (either end left open). An inverted pair is dropped rather than swapped;
+ *  see {@link ValueDomain}. */
 function resolveValueDomain(valueDomain: ValueDomain | undefined): {
     fixed?: readonly [number, number]
     include?: readonly number[]
+    bounds?: ValueDomain
 } {
     if (!valueDomain) {
         return {}
     }
-    if ('include' in valueDomain) {
-        return { include: valueDomain.include }
+    const { include } = valueDomain
+    const min = usableBound(valueDomain.min)
+    const max = usableBound(valueDomain.max)
+
+    if (min !== undefined && max !== undefined) {
+        // Both ends pinned, so `include` has nothing left to stretch.
+        return min < max ? { fixed: [min, max] } : { include }
     }
-    return { fixed: valueDomain }
+    return { include, bounds: { min, max } }
+}
+
+/** A non-finite bound counts as absent rather than honored, since these arrive from stored queries
+ *  and `Math.max`-style expressions, not just typed input. */
+function usableBound(value: number | undefined): number | undefined {
+    return typeof value === 'number' && isFinite(value) ? value : undefined
 }
 
 /** Fold extra values (e.g. goal-line targets) into a range so the axis covers them even when
@@ -157,6 +173,52 @@ export function sanitizeFixedDomain([min, max]: readonly [number, number]): [num
     return min < max ? [min, max] : [max, min]
 }
 
+/** Clamp an already-computed domain to the caller's {@link ValueDomain}, running last so it composes
+ *  with `include` folding, the zero-baseline clamp, and `nice()`. Deliberately does not re-`nice()`,
+ *  since rounding a typed bound would defeat the point of typing it. */
+export function applyValueBounds(
+    domain: readonly [number, number],
+    bounds: ValueDomain | undefined,
+    options: { log?: boolean } = {}
+): [number, number] {
+    // A log domain containing 0 maps every value to ±Infinity, so a non-positive bound is dropped.
+    const usable = (v: number | undefined): number | undefined =>
+        typeof v === 'number' && isFinite(v) && (!options.log || v > 0) ? v : undefined
+    const min = usable(bounds?.min)
+    const max = usable(bounds?.max)
+
+    if (min === undefined && max === undefined) {
+        return [domain[0], domain[1]]
+    }
+    if (min !== undefined && max !== undefined) {
+        return min < max ? [min, max] : [domain[0], domain[1]]
+    }
+
+    const lo = min ?? domain[0]
+    const hi = max ?? domain[1]
+    if (lo < hi) {
+        return [lo, hi]
+    }
+    // The bound sits past the whole data range (e.g. "min 50" on 0-10 data), so carry the original
+    // extent over to the other end rather than collapsing the domain. A log axis carries the ratio
+    // instead, since subtracting a span from a small positive bound lands at or below zero and
+    // `usable` only vetted the caller's bound, not the end derived here.
+    if (options.log) {
+        const ratio = domain[0] > 0 && domain[1] > domain[0] ? domain[1] / domain[0] : 10
+        return min !== undefined ? [lo, lo * ratio] : [hi / ratio, hi]
+    }
+    const span = domain[1] - domain[0] > 0 ? domain[1] - domain[0] : 1
+    return min !== undefined ? [lo, lo + span] : [hi - span, hi]
+}
+
+/** Apply {@link ValueDomain} to a built d3 scale in place. */
+function withValueBounds<S extends D3YScale>(scale: S, bounds: ValueDomain | undefined, log: boolean): S {
+    if (!bounds || (bounds.min === undefined && bounds.max === undefined)) {
+        return scale
+    }
+    return scale.domain(applyValueBounds(scale.domain() as [number, number], bounds, { log })) as S
+}
+
 /** Repair a degenerate (`min === max`) or non-finite value-scale extent so a linear domain can't
  *  map every value to NaN: coerce non-finite bounds to 0, bracket zero, and guarantee a unit span.
  *  Callers apply it only inside the degenerate/non-finite guard — bracketing a well-formed extent
@@ -172,14 +234,14 @@ export function createYScale(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
-        /** Fixed `[min, max]` or `{ include }` extra values the domain must cover. */
+        /** A pinned `[min, max]`, or adjustments (`include` / `min` / `max`) to the auto domain. */
         valueDomain?: ValueDomain
         /** Float the axis to its data range instead of clamping the baseline to 0. See {@link buildValueScale}. */
         floatBaseline?: boolean
     } = {}
 ): ScaleLinear<number, number> | ScaleLogarithmic<number, number> {
     const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false } = options
-    const { fixed, include } = resolveValueDomain(valueDomain)
+    const { fixed, include, bounds } = resolveValueDomain(valueDomain)
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (fixed) {
@@ -210,6 +272,7 @@ export function createYScale(
         scaleType,
         allowNegativeBaseline: hasExplicitNegativeGoal,
         floatBaseline,
+        bounds,
     })
 }
 
@@ -233,6 +296,8 @@ export function buildValueScale(options: {
     /** Skip the zero-baseline clamp entirely so the axis floats to its data range (a y-axis "start at
      *  zero = off"). The default clamps a non-negative axis down to 0. Has no effect on a log scale. */
     floatBaseline?: boolean
+    /** Partial user clamp. See {@link applyValueBounds}. */
+    bounds?: ValueDomain
 }): D3YScale {
     const {
         range,
@@ -242,15 +307,18 @@ export function buildValueScale(options: {
         primaryRange = range,
         allowNegativeBaseline = false,
         floatBaseline = false,
+        bounds,
     } = options
+    const isLog = scaleType === 'log'
 
     if (range.count === 0) {
-        return scaleLinear().domain([0, 1]).range(valueRange)
+        // This domain is linear whatever `scaleType` asked for, so a non-positive bound is safe here.
+        return withValueBounds(scaleLinear().domain([0, 1]).range(valueRange), bounds, false)
     }
 
     let { min, max } = range
 
-    if (scaleType === 'log') {
+    if (isLog) {
         if (!isFinite(range.minPositive)) {
             // No positive values for a log scale (e.g. all-zero data). Fall back to linear, and
             // bracket a degenerate `min === max` domain so it doesn't collapse to NaN.
@@ -261,9 +329,18 @@ export function buildValueScale(options: {
                 logMin = lo
                 logMax = hi
             }
-            return scaleLinear().domain([logMin, logMax]).nice(tickCount).range(valueRange)
+            // The scale fell back to linear, so a non-positive bound is no longer a hazard.
+            return withValueBounds(
+                scaleLinear().domain([logMin, logMax]).nice(tickCount).range(valueRange),
+                bounds,
+                false
+            )
         }
-        return scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
+        return withValueBounds(
+            scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true),
+            bounds,
+            true
+        )
     }
 
     if (!floatBaseline) {
@@ -285,7 +362,7 @@ export function buildValueScale(options: {
         max = hi
     }
 
-    return scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
+    return withValueBounds(scaleLinear().domain([min, max]).nice(tickCount).range(valueRange), bounds, false)
 }
 
 /** Map raw d3 per-axis scales into the public {@link YAxisScale} shape (value→pixel fn + tick
@@ -363,12 +440,18 @@ export function createScales(
     options: {
         scaleType?: 'linear' | 'log'
         percentStack?: boolean
-        /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
-         *  primary axis, so secondary axes keep their own data-derived scale. */
+        /** Applied to the primary y-axis only. A secondary axis takes its domain from
+         *  `axes[].valueDomain` instead. */
         valueDomain?: ValueDomain
         /** Per-axis overrides — explicit values win over the alternating-side default and the
          *  scalar `scaleType`/`floatBaseline` options (which only reach the primary axis). */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
+        axes?: {
+            id: string
+            position?: 'left' | 'right'
+            scaleType?: 'linear' | 'log'
+            startAtZero?: boolean
+            valueDomain?: ValueDomain
+        }[]
         /** Float the primary axis to its data range instead of clamping the baseline to 0. Applied to
          *  the primary axis only, like `valueDomain`. See {@link buildValueScale}. */
         floatBaseline?: boolean
@@ -402,7 +485,7 @@ export function createScales(
         const scale = createYScale(byAxis.get(axisId) ?? [], dimensions, {
             scaleType: override?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
-            valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
+            valueDomain: override?.valueDomain ?? (axisIndex === 0 ? options.valueDomain : undefined),
             floatBaseline:
                 override?.startAtZero != null
                     ? override.startAtZero === false
@@ -449,7 +532,9 @@ function buildStackData(
 
     for (const axisSeries of seriesByAxis.values()) {
         const tableData = labels.map((_, i) => {
-            const row: Record<string, number> = {}
+            // Null-prototype: series keys come from user data (breakdown values, service names),
+            // so a key like `__proto__` must land as an own property instead of the prototype setter.
+            const row: Record<string, number> = Object.create(null)
             for (const s of axisSeries) {
                 const raw = s.data[i] ?? 0
                 row[s.key] = allowNegative ? raw : Math.max(0, raw)

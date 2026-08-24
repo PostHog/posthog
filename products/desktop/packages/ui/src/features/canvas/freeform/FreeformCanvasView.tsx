@@ -18,11 +18,14 @@ import {
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import type { CanvasDraft } from "@posthog/core/canvas/dashboardSchemas";
 import {
+  type CanvasAgentRequestResult,
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
   type CanvasTextSelection,
+  canvasAgentRequestInputSchema,
   limitCanvasCommentHighlights,
 } from "@posthog/core/canvas/freeformSchemas";
+import { textToContent } from "@posthog/core/message-editor/content";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
   Badge,
@@ -37,6 +40,10 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Tooltip as QuillTooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -59,6 +66,7 @@ import {
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
+import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
@@ -79,11 +87,12 @@ import {
   Text,
   Tooltip,
 } from "@radix-ui/themes";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BuiltCanvas } from "./BuiltCanvas";
+import { CanvasAgentRequestDialog } from "./CanvasAgentRequestDialog";
 import { CanvasBuildStatus } from "./CanvasBuildStatus";
 import { CanvasFramePlaceholder } from "./CanvasFramePlaceholder";
 import { CanvasGenerateHero } from "./CanvasGenerateHero";
@@ -118,6 +127,19 @@ function canvasErrorType(message: string): string {
   );
 }
 
+// One toast per outcome: only new_run actually starts a run — signaled hands
+// the prompt to a run already in progress, and already_queued means an
+// identical request beat this one, so "Agent run started" would misreport both.
+const AGENT_REQUEST_OUTCOME_TOASTS: Record<
+  CanvasAgentRequestResult["requestOutcome"],
+  string
+> = {
+  new_run: "Agent run started",
+  signaled: "Request sent to the running agent",
+  already_queued: "An identical request is already in progress",
+  reported: "Request sent to the canvas creator",
+};
+
 // Badge tone for a draft's latest build status: ready is good, failed is bad,
 // in-flight is cautionary, and no build yet is neutral.
 function draftBadgeVariant(
@@ -132,9 +154,11 @@ function draftBadgeVariant(
 export function FreeformCanvasView({
   threadId,
   interactive,
+  embedded = false,
 }: {
   threadId: string;
   interactive: boolean;
+  embedded?: boolean;
 }) {
   const dashboardId = dashboardIdOf(threadId);
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
@@ -538,11 +562,103 @@ export function FreeformCanvasView({
   // fresh signed artifactUrl — every 2s refetch) would churn the warm-frame
   // pool, which assumes stable callbacks. View-mode capability gating happens
   // in BuiltCanvas via the `capabilities` prop below.
-  const onDataRequest = useCallback(
-    (method: string, payload: unknown) =>
-      handleFreeformDataRequest(method, payload, queryClient),
-    [queryClient],
+  const requestAgent = useMutation(
+    trpc.dashboards.requestAgent.mutationOptions(),
   );
+  // The prompt is bound to the canvas that issued it: FreeformCanvasView is
+  // reused across navigation, so a dialog approved after switching canvases
+  // must not submit the old prompt against the newly selected canvas.
+  // `submitting` lives here rather than reading the mutation's isPending: the
+  // mutation is shared across requests, so a still-in-flight submission from a
+  // previous canvas would render a brand-new dialog pre-locked.
+  const [agentRequest, setAgentRequest] = useState<{
+    prompt: string;
+    dashboardId: string;
+    submitting: boolean;
+  } | null>(null);
+  const agentRequestPromiseRef = useRef<{
+    resolve: (value: unknown) => void;
+    reject: (reason: Error) => void;
+  } | null>(null);
+  const dashboardIdRef = useRef(dashboardId);
+  useEffect(() => {
+    dashboardIdRef.current = dashboardId;
+    if (agentRequestPromiseRef.current) {
+      agentRequestPromiseRef.current.reject(
+        new Error("Agent request canceled: the canvas changed"),
+      );
+      agentRequestPromiseRef.current = null;
+      setAgentRequest(null);
+    }
+  }, [dashboardId]);
+  const onDataRequest = useCallback(
+    (method: string, payload: unknown) => {
+      if (method !== "agentRequest") {
+        return handleFreeformDataRequest(method, payload, queryClient, {
+          dashboardId,
+        });
+      }
+      const input = canvasAgentRequestInputSchema.parse(payload);
+      if (agentRequestPromiseRef.current) {
+        throw new Error("Another agent request is awaiting approval");
+      }
+      setAgentRequest({
+        prompt: input.prompt,
+        dashboardId: dashboardIdRef.current,
+        submitting: false,
+      });
+      return new Promise<unknown>((resolve, reject) => {
+        agentRequestPromiseRef.current = { resolve, reject };
+      });
+    },
+    [queryClient, dashboardId],
+  );
+  const cancelAgentRequest = useCallback(() => {
+    agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));
+    agentRequestPromiseRef.current = null;
+    setAgentRequest(null);
+  }, []);
+  useEffect(
+    () => () => {
+      agentRequestPromiseRef.current?.reject(
+        new Error("Canvas closed before the agent request was approved"),
+      );
+      agentRequestPromiseRef.current = null;
+    },
+    [],
+  );
+  const confirmAgentRequest = useCallback(async () => {
+    const pending = agentRequestPromiseRef.current;
+    if (!pending || agentRequest === null || agentRequest.submitting) return;
+    setAgentRequest({ ...agentRequest, submitting: true });
+    try {
+      const result = await requestAgent.mutateAsync({
+        id: agentRequest.dashboardId,
+        prompt: agentRequest.prompt,
+      });
+      pending.resolve(result);
+      // Navigation or unmount during the request may have rejected `pending`
+      // and stored a newer request in the ref. Only clear the shared dialog
+      // state and toast when it still belongs to this request, so a stale
+      // continuation can't close a newer canvas's dialog, orphan its pending
+      // promise, or report an outcome the viewer would read as the current
+      // canvas's.
+      if (agentRequestPromiseRef.current === pending) {
+        setAgentRequest(null);
+        agentRequestPromiseRef.current = null;
+        toast.success(AGENT_REQUEST_OUTCOME_TOASTS[result.requestOutcome]);
+      }
+    } catch (error) {
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
+      if (agentRequestPromiseRef.current === pending) {
+        setAgentRequest(null);
+        agentRequestPromiseRef.current = null;
+        toast.error("Couldn't start the agent run", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }, [agentRequest, requestAgent]);
 
   // Dedupes the runtime-error capture without a store dependency: reading
   // runtimeError in the callbacks would change their identity on every
@@ -556,18 +672,37 @@ export function FreeformCanvasView({
     }),
     [channelId, dashboardId, pinnedArtifact?.buildId],
   );
+  const { mutate: reportRuntimeError } = useMutation(
+    trpc.dashboards.reportError.mutationOptions(),
+  );
   const onError = useCallback(
     (message: string) => {
       if (message !== lastRuntimeErrorRef.current) {
         lastRuntimeErrorRef.current = message;
+        const errorType = canvasErrorType(message);
         track(ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR, {
           ...canvasTrackProps,
-          error_type: canvasErrorType(message),
+          error_type: errorType,
         });
+        // File the error in the authoring task's thread so its agent hears
+        // about it — the class name only; the full message stays client-side.
+        if (canvasTrackProps.build_id) {
+          reportRuntimeError({
+            id: dashboardId,
+            buildId: canvasTrackProps.build_id,
+            errorType,
+          });
+        }
       }
       setRuntimeError(threadId, message);
     },
-    [threadId, setRuntimeError, canvasTrackProps],
+    [
+      threadId,
+      setRuntimeError,
+      canvasTrackProps,
+      dashboardId,
+      reportRuntimeError,
+    ],
   );
   const onRendered = useCallback(() => {
     // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
@@ -586,15 +721,25 @@ export function FreeformCanvasView({
 
   // The edit composer's editor handle, so self-repair can prefill it.
   const editorRef = useRef<EditorHandle>(null);
-  // Reveal the panel composer and prefill it. The panel stays mounted while
-  // collapsed, so the editor handle is available even from a minimized panel.
+  const setPanelTab = useCanvasChatPanelStore((s) => s.setTab);
+  const draftActions = useDraftStore((s) => s.actions);
+  // Reveal the panel's chat composer and prefill it. A canvas that has ever
+  // generated shows the task session's composer, which receives content
+  // through the draft store keyed by task id — the editor ref only exists on
+  // the generate bar a never-generated canvas mounts.
   const prefillComposer = useCallback(
     (message: string) => {
       setCollapsed(false);
+      setPanelTab("chat");
+      if (effectiveTaskId) {
+        draftActions.setPendingContent(effectiveTaskId, textToContent(message));
+        draftActions.requestFocus(effectiveTaskId);
+        return;
+      }
       editorRef.current?.setContent(message);
       editorRef.current?.focus();
     },
-    [setCollapsed],
+    [setCollapsed, setPanelTab, effectiveTaskId, draftActions],
   );
   const askAgentToFix = () => {
     if (!runtimeError) return;
@@ -632,6 +777,7 @@ export function FreeformCanvasView({
     if (effectiveTaskId) setGeneratingPanelDismissed(false);
   }, [effectiveTaskId]);
   const generatingPanelOpen =
+    !embedded &&
     isGenerating &&
     !!effectiveTaskId &&
     !pinnedArtifact &&
@@ -645,7 +791,7 @@ export function FreeformCanvasView({
     hasContent,
     hasActiveTask: !!effectiveTaskId,
     generatingPanelOpen,
-    viewOpen: panelViewOpen,
+    viewOpen: embedded ? false : panelViewOpen,
     collapsed,
     hasCommentTask: !!commentTaskId,
   });
@@ -658,10 +804,16 @@ export function FreeformCanvasView({
     (hasActiveCanvasBuild(lifecycle) ||
       !!currentHeadBuildFailure(lifecycle) ||
       latestFinishedCanvasBuild(lifecycle)?.buildStatus === "failed");
-  const showToolbar = interactive || hasBuildSignal;
+  const showToolbar = !embedded && (interactive || hasBuildSignal);
 
   return (
     <Flex height="100%" overflow="hidden" position="relative">
+      <CanvasAgentRequestDialog
+        prompt={agentRequest?.prompt ?? null}
+        loading={agentRequest?.submitting ?? false}
+        onCancel={cancelAgentRequest}
+        onConfirm={() => void confirmAgentRequest()}
+      />
       {/* When the embedded chat isn't visible — panel minimized, or still shut
           mid-slide-in (waitingForHeroExit) — a paused tool-permission request
           would have nowhere to go, so surface it as a modal. When the panel is
@@ -789,7 +941,7 @@ export function FreeformCanvasView({
                     </Text>
                     <RadixButton size="1" variant="soft" asChild>
                       <Link
-                        to="/website/$channelId/tasks/$taskId"
+                        to="/spaces/$channelId/tasks/$taskId"
                         params={{ channelId, taskId: effectiveTaskId }}
                       >
                         View task
@@ -799,10 +951,23 @@ export function FreeformCanvasView({
                 ) : (
                   runtimeError && (
                     <>
-                      <Flex align="center" gap="1" className="text-red-11">
-                        <WarningIcon size={14} />
-                        <Text size="1">Runtime error</Text>
-                      </Flex>
+                      <TooltipProvider delay={0}>
+                        <QuillTooltip>
+                          <TooltipTrigger
+                            render={
+                              <div className="flex items-center gap-1 text-red-11">
+                                <WarningIcon size={14} />
+                                <Text size="1">Runtime error</Text>
+                              </div>
+                            }
+                          />
+                          <TooltipContent>
+                            <span className="block max-w-sm whitespace-pre-wrap break-words">
+                              {runtimeError}
+                            </span>
+                          </TooltipContent>
+                        </QuillTooltip>
+                      </TooltipProvider>
                       <Button
                         size="sm"
                         variant="outline"
@@ -1087,14 +1252,16 @@ export function FreeformCanvasView({
         </ResizableSidebar>
       )}
 
-      <CanvasSelectionCommentAction
-        selection={textSelection}
-        taskId={commentTaskId}
-        dashboardId={dashboardId}
-        canvasName={dashboard?.name ?? "Canvas"}
-        versionId={displayedVersionId}
-        onDismiss={dismissTextSelection}
-      />
+      {!embedded && (
+        <CanvasSelectionCommentAction
+          selection={textSelection}
+          taskId={commentTaskId}
+          dashboardId={dashboardId}
+          canvasName={dashboard?.name ?? "Canvas"}
+          versionId={displayedVersionId}
+          onDismiss={dismissTextSelection}
+        />
+      )}
 
       {/* The empty-canvas landing: a centered composer with suggestions,
           overlaying the canvas area. On submit it slides down; once it's gone
@@ -1167,7 +1334,7 @@ function GeneratingState({
             size="default"
             render={
               <Link
-                to="/website/$channelId/tasks/$taskId"
+                to="/spaces/$channelId/tasks/$taskId"
                 params={{ channelId, taskId }}
               />
             }

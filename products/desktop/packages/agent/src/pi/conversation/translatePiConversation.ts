@@ -120,7 +120,9 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   let activeAssistantStream: ActiveAssistantStream | undefined;
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
+  let turnTotalTokens = 0;
   let pendingRuntimeError: AgentConversationEvent | undefined;
+  let settledStopReason: string | undefined;
   let retrying = false;
   let directBashSequence = 0;
 
@@ -485,6 +487,10 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         return customMessageEvents(event.message);
       }
 
+      if (isAssistantMessage(event.message)) {
+        settledStopReason = event.message.stopReason;
+      }
+
       const events = messageTranslator.translate(event.message);
       const runtimeError = events.find(
         (translated) => translated.type === "runtime_error",
@@ -493,24 +499,34 @@ export function createPiConversationTranslator(): PiConversationTranslator {
         pendingRuntimeError = runtimeError;
       }
 
-      const visibleEvents = events.filter(
+      let visibleEvents: AgentConversationEvent[] = events.filter(
         (translated) => translated.type !== "runtime_error",
       );
-      if (event.message.role !== "assistant" || !assistantStream) {
+      if (event.message.role !== "assistant") {
         return visibleEvents;
       }
 
-      return reconcileAssistantContent(
-        event.message,
-        visibleEvents,
-        assistantStream,
-      );
+      if (assistantStream) {
+        visibleEvents = reconcileAssistantContent(
+          event.message,
+          visibleEvents,
+          assistantStream,
+        );
+      }
+
+      turnTotalTokens += event.message.usage.totalTokens;
+
+      return visibleEvents;
     }
 
     if (event.type === "agent_end") {
       activeAssistantStream = undefined;
       const runtimeError = pendingRuntimeError;
       pendingRuntimeError = undefined;
+
+      if (!event.willRetry) {
+        turnTotalTokens = 0;
+      }
 
       if (!event.willRetry && runtimeError) {
         return [runtimeError];
@@ -609,9 +625,22 @@ export function createPiConversationTranslator(): PiConversationTranslator {
 
       const timestamp = Math.max(Date.now(), latestRuntimeTimestamp);
       const hadRuntimeActivity = latestRuntimeTimestamp > 0;
+      const stopReason = settledStopReason;
       latestRuntimeTimestamp = 0;
+      settledStopReason = undefined;
+      const totalTokens = turnTotalTokens;
+      turnTotalTokens = 0;
 
-      return hadRuntimeActivity ? [{ type: "turn_completed", timestamp }] : [];
+      return hadRuntimeActivity
+        ? [
+            {
+              type: "turn_completed",
+              timestamp,
+              stopReason,
+              ...(totalTokens > 0 ? { totalTokens } : {}),
+            },
+          ]
+        : [];
     }
 
     return [];

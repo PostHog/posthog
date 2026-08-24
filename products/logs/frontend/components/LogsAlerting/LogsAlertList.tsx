@@ -71,7 +71,7 @@ export function LogsAlertDestinationTags({
 }
 
 export function LogsAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
+    const { alerts, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } = useValues(logsAlertingLogic)
     const {
         setCreatedByFilter,
         deleteAlert,
@@ -80,6 +80,7 @@ export function LogsAlertList(): JSX.Element {
         snoozeAlert,
         unsnoozeAlert,
         openCreateAlertModal,
+        openEditAlertModal,
     } = useActions(logsAlertingLogic)
 
     const columns: LemonTableColumns<LogsAlertConfigurationApi> = [
@@ -87,7 +88,7 @@ export function LogsAlertList(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             render: (_, alert) => (
-                <LemonButton type="tertiary" size="small" to={urls.logsAlertDetail(alert.id)}>
+                <LemonButton type="tertiary" size="small" onClick={() => openEditAlertModal(alert)}>
                     {alert.name}
                 </LemonButton>
             ),
@@ -98,7 +99,7 @@ export function LogsAlertList(): JSX.Element {
             render: (_, alert) => (
                 <LogsAlertStateIndicator
                     state={alert.state}
-                    enabled={alert.enabled ?? true}
+                    enabled={alert.enabled === true}
                     firstEnabledAt={alert.first_enabled_at}
                     lastErrorMessage={alert.last_error_message}
                     snoozeUntil={alert.snooze_until}
@@ -191,7 +192,7 @@ export function LogsAlertList(): JSX.Element {
             dataIndex: 'enabled',
             render: (_, alert) => (
                 <LemonSwitch
-                    checked={alert.enabled ?? true}
+                    checked={alert.enabled === true}
                     onChange={() => toggleAlertEnabled(alert)}
                     disabledReason={
                         alert.state === LogsAlertConfigurationStateEnumApi.Broken
@@ -206,18 +207,28 @@ export function LogsAlertList(): JSX.Element {
             title: '',
             render: (_, alert) => {
                 const isResetting = resettingAlertIds.has(alert.id)
+                const isSnoozing = snoozingAlertIds.has(alert.id)
+                let snoozeMenuItem: LemonMenuItems[number] | false = false
+                if (alert.enabled === true && alert.state === LogsAlertConfigurationStateEnumApi.Snoozed) {
+                    snoozeMenuItem = {
+                        label: isSnoozing ? 'Unsnoozing…' : 'Unsnooze',
+                        disabledReason: isSnoozing ? 'Updating snooze' : undefined,
+                        onClick: () => unsnoozeAlert(alert.id),
+                    }
+                } else if (alert.enabled === true) {
+                    snoozeMenuItem = {
+                        label: isSnoozing ? 'Snoozing…' : 'Snooze',
+                        disabledReason: isSnoozing ? 'Updating snooze' : undefined,
+                        items: SNOOZE_DURATIONS.map((duration) => ({
+                            label: duration.label,
+                            onClick: () => snoozeAlert(alert.id, duration.minutes),
+                        })),
+                    }
+                }
                 const menuItems: LemonMenuItems = [
-                    { label: 'Edit', to: urls.logsAlertDetail(alert.id) },
+                    { label: 'Edit', onClick: () => openEditAlertModal(alert) },
                     { label: 'View history', to: urls.logsAlertDetail(alert.id, 'history') },
-                    alert.state === LogsAlertConfigurationStateEnumApi.Snoozed
-                        ? { label: 'Unsnooze', onClick: () => unsnoozeAlert(alert.id) }
-                        : {
-                              label: 'Snooze',
-                              items: SNOOZE_DURATIONS.map((duration) => ({
-                                  label: duration.label,
-                                  onClick: () => snoozeAlert(alert.id, duration.minutes),
-                              })),
-                          },
+                    snoozeMenuItem,
                     alert.state === LogsAlertConfigurationStateEnumApi.Broken && {
                         label: isResetting ? 'Resetting…' : 'Reset alert',
                         disabledReason: isResetting ? 'Reset in progress' : undefined,

@@ -1,14 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import type { ErrorEventType } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+import { linkedReportsLogic } from './linkedReportsLogic'
+
+const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
 
 const makeFingerprints = (fingerprint: string = 'fp-1'): ErrorTrackingFingerprint[] => [
-    { fingerprint, issue_id: 'issue-1', created_at: '2026-01-01T00:00:00Z' },
+    { fingerprint, issue_id: VALID_ISSUE_ID, created_at: '2026-01-01T00:00:00Z' },
 ]
 
 describe('errorTrackingIssueSceneLogic', () => {
@@ -27,11 +31,35 @@ describe('errorTrackingIssueSceneLogic', () => {
             },
         })
         initKeaTests()
-        logic = errorTrackingIssueSceneLogic({ id: 'issue-1' })
+        logic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
         logic.mount()
     })
 
     afterEach(() => logic?.unmount())
+
+    // The catch-all `/error_tracking/:id` route can capture a legacy settings slug. Without the
+    // guard the scene fired every loader against a non-UUID id, spraying "issue_id must be a valid
+    // UUID" toasts over a blank page.
+    it.each(['symbol_sets', 'symbol-sets', 'settings', 'configuration'])(
+        'marks a non-UUID id as invalid and skips the loaders (%s)',
+        async (id) => {
+            const scopedLogic = errorTrackingIssueSceneLogic({ id })
+            await expectLogic(scopedLogic, () => {
+                scopedLogic.mount()
+            }).toNotHaveDispatchedActions(['loadIssue'])
+            expect(scopedLogic.values.issueIdValid).toBe(false)
+            scopedLogic.unmount()
+        }
+    )
+
+    it('loads the issue when the id is a valid UUID', async () => {
+        const scopedLogic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
+        await expectLogic(scopedLogic, () => {
+            scopedLogic.mount()
+        }).toDispatchActions(['loadIssue'])
+        expect(scopedLogic.values.issueIdValid).toBe(true)
+        scopedLogic.unmount()
+    })
 
     it('keeps the events query stable when the loaded fingerprints change', () => {
         logic.actions.loadIssueFingerprintsSuccess(makeFingerprints())
@@ -46,7 +74,10 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     it('leaves linked reports empty and does not fail when the signals lookup errors', async () => {
         // Letting the loader reject would toast an error on every issue page during a signals outage.
-        await expectLogic(logic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({ linkedReports: [] })
+        const reportsLogic = linkedReportsLogic({ issueId: VALID_ISSUE_ID })
+        await expectLogic(reportsLogic).toDispatchActions(['loadLinkedReportsSuccess']).toMatchValues({
+            linkedReports: [],
+        })
     })
 
     it('changes the events query key when the search query changes', () => {
@@ -63,6 +94,14 @@ describe('errorTrackingIssueSceneLogic', () => {
         })
             .toDispatchActions(['loadInitialEventSuccess'])
             .toMatchValues({ initialEvent: null })
+    })
+
+    it('allows the event selection to close', () => {
+        const event = { uuid: 'event-1' } as ErrorEventType
+        logic.actions.selectEvent(event)
+        logic.actions.selectEvent(null)
+
+        expect(logic.values.selectedEvent).toBeNull()
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

@@ -111,11 +111,12 @@ def test_flag_evaluations_mv_projection_matches_column_template():
 
 
 def test_flag_evaluations_read_table_declares_every_stored_column():
-    # The materialized columns are declared on sharded_flag_evaluations, which
-    # computes them, and repeated as plain columns on the Distributed read table,
-    # which computes nothing. Those two lists are maintained by hand, so a column
-    # or a type changed in one and not the other stays invisible until a query
-    # asks flag_evaluations for something only the shards have.
+    # The typed property columns carry their DEFAULT expression on
+    # sharded_flag_evaluations, which computes them, and are repeated as plain
+    # columns on the Distributed read table, which computes nothing. Those two
+    # lists are maintained by hand, so a column or a type changed in one and not
+    # the other stays invisible until a query asks flag_evaluations for
+    # something only the shards have.
     stored_columns = _flag_evaluations_table_columns(FLAG_EVALUATIONS_TABLE_SQL())
     assert stored_columns
 

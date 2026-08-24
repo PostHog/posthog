@@ -10,7 +10,12 @@ from products.slack_app.backend.services.model_catalogue import (
     describe_run_model,
     format_model_id,
 )
-from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL, resolve_run_preferences
+from products.slack_app.backend.services.run_preferences import (
+    SLACK_DEFAULT_MODEL,
+    LiveRunModelChange,
+    resolve_live_run_override,
+    resolve_run_preferences,
+)
 from products.slack_app.backend.services.slack_settings import AIPreferences
 
 # Real model ids: the resolver validates efforts against the tasks catalogue (the
@@ -93,6 +98,57 @@ class TestResolveRunPreferences:
         adapter the model actually runs on."""
         saved = AIPreferences(runtime_adapter="codex", model="claude-fable-5", reasoning_effort=None)
         assert _resolve(saved).runtime_adapter == "claude"
+
+
+class TestResolveLiveRunOverride:
+    """A run already in flight can only move within the runtime its sandbox started on."""
+
+    RUNNING = {"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "reasoning_effort": "medium"}
+
+    @pytest.mark.parametrize(
+        "override_model,override_effort,expected",
+        [
+            # The everyday ask: a different model on the same runtime.
+            ("claude-fable-5", None, LiveRunModelChange(model="claude-fable-5")),
+            (None, "high", LiveRunModelChange(reasoning_effort="high")),
+            ("claude-fable-5", "xhigh", LiveRunModelChange(model="claude-fable-5", reasoning_effort="xhigh")),
+            # The harness is the process the sandbox launched with, so a Codex model is
+            # refused outright — effort included, since it was one request.
+            ("gpt-5.6-sol", "high", LiveRunModelChange(refused_model="gpt-5.6-sol")),
+            # Asking for what the run is already on changes nothing.
+            ("claude-sonnet-4-6", "medium", LiveRunModelChange()),
+            # `xhigh` is real for Fable but not for Sonnet 4.6, so it is dropped rather
+            # than sent to an agent that would reject it.
+            (None, "xhigh", LiveRunModelChange()),
+            (None, None, LiveRunModelChange()),
+        ],
+    )
+    def test_only_sends_what_the_run_can_take(self, catalogue, override_model, override_effort, expected):
+        assert (
+            resolve_live_run_override(_Override(model=override_model, reasoning_effort=override_effort), **self.RUNNING)
+            == expected
+        )
+
+    def test_derives_the_runtime_from_the_model_when_the_run_never_recorded_one(self, catalogue):
+        """Runs started before models were pinned carry no adapter; the model still places them."""
+        change = resolve_live_run_override(
+            _Override(model="gpt-5.6-sol"),
+            runtime_adapter=None,
+            model="claude-sonnet-4-6",
+            reasoning_effort=None,
+        )
+        assert change == LiveRunModelChange(refused_model="gpt-5.6-sol")
+
+    def test_refuses_to_place_a_run_it_cannot_identify(self, catalogue):
+        """With neither adapter nor model there is nothing to check a request against,
+        and guessing the harness would hand the agent a model it can't load."""
+        change = resolve_live_run_override(
+            _Override(model="claude-fable-5"), runtime_adapter=None, model=None, reasoning_effort=None
+        )
+        assert change == LiveRunModelChange(refused_model="claude-fable-5")
+
+    def test_ignores_a_model_the_catalogue_does_not_offer(self, catalogue):
+        assert resolve_live_run_override(_Override(model="gemini-3-pro"), **self.RUNNING).is_empty
 
 
 class TestDescribeRunModel:

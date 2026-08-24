@@ -106,14 +106,24 @@ class TestFormatFilterDate:
 
 
 class TestBuildInitialParams:
-    def test_full_refresh_only_sends_page_size(self):
+    @pytest.mark.parametrize(
+        "endpoint,expected",
+        [
+            ("messages", {"PageSize": 1000}),
+            # Twilio answers PageSize=1000 on Verify with a 400, so neither Verify endpoint sends
+            # one; a page size we don't send can't be rejected.
+            ("verification_services", {}),
+            ("verification_attempts", {}),
+        ],
+    )
+    def test_full_refresh_sends_only_the_endpoints_page_size(self, endpoint: str, expected: dict[str, Any]):
         params = _build_initial_params(
-            TWILIO_ENDPOINTS["messages"],
+            TWILIO_ENDPOINTS[endpoint],
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
             incremental_field=None,
         )
-        assert params == {"PageSize": 1000}
+        assert params == expected
 
     def test_incremental_adds_inclusive_date_filter(self):
         params = _build_initial_params(
@@ -358,7 +368,7 @@ class TestPagination:
         # than the legacy root-relative `next_page_uri`. Getting either wrong makes Verify tables
         # unreachable (wrong host) or stops the sync after page one (missed next link).
         session = MockSession.return_value
-        next_url = "https://verify.twilio.com/v2/Services?PageSize=1000&Page=1&PageToken=abc"
+        next_url = "https://verify.twilio.com/v2/Services?Page=1&PageToken=abc"
         snapshots = _wire(
             session,
             [

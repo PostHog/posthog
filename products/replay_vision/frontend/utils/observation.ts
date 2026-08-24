@@ -30,6 +30,32 @@ export function readReasoning(obs: ReplayObservationApi): string | null {
     return typeof raw === 'string' && raw ? raw : null
 }
 
+/** The dock shows summaries only; observations from the team's own scanners live in the sidebar tab. */
+export function isSummaryObservation(obs: ReplayObservationApi): boolean {
+    return obs.scanner_snapshot?.scanner_type === 'summarizer'
+}
+
+/** Summarizer output: the one-line headline. */
+export function readTitle(obs: ReplayObservationApi): string | null {
+    const raw = readModelOutput(obs)?.title
+    return typeof raw === 'string' && raw ? raw : null
+}
+
+/** Summarizer output: the narrative body. */
+export function readSummary(obs: ReplayObservationApi): string | null {
+    const raw = readModelOutput(obs)?.summary
+    return typeof raw === 'string' && raw ? raw : null
+}
+
+/** `error_reason` is stored as `kind:message`; the message is the half worth showing a person. */
+export function readErrorMessage(obs: ReplayObservationApi): string | null {
+    if (!obs.error_reason) {
+        return null
+    }
+    const separator = obs.error_reason.indexOf(':')
+    return separator === -1 ? obs.error_reason : obs.error_reason.slice(separator + 1)
+}
+
 function readStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) {
         return []

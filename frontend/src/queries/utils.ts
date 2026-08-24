@@ -502,6 +502,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
     ChartDisplayType.TwoDimensionalHeatmap,
+    ChartDisplayType.ScatterPlot,
 ])
 
 type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
@@ -825,6 +826,13 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
     }
     if (isQuoted(identifier)) {
         return identifier // This identifier is already quoted
+    }
+    return escapeRawPropertyAsHogQLIdentifier(identifier)
+}
+
+export function escapeRawPropertyAsHogQLIdentifier(identifier: string): string {
+    if (identifier.match(/^[A-Za-z_$][A-Za-z0-9_$]*$/)) {
+        return identifier
     }
     // Escape backslashes and control chars, then wrap; double an inner backtick (the parser rejects a backslash-escaped delimiter). The double-quote path needs no quote escaping since it is only taken when the identifier has no `"`.
     const escaped = Array.from(identifier, (c) => HOGQL_IDENTIFIER_ESCAPE_MAP[c] || c).join('')

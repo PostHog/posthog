@@ -66,8 +66,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
-    # Off by default: forwarding comment text into Slack is opt-in, not implied by linking Slack.
-    "task_comments_slack_dm": False,
+    "task_comments_slack_dm": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%

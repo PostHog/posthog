@@ -23,6 +23,7 @@ const config: SignalScoutConfigApi = {
     run_cron_schedule: null,
     output_destinations: {},
     structured_output_schema: null,
+    mcp_gateway_server_ids: [],
     network_access: 'trusted',
     model: null,
     last_run_at: null,
@@ -30,6 +31,8 @@ const config: SignalScoutConfigApi = {
     status_changed_at: null,
     auto_pause_exempt: false,
     tags: ['on-call', 'revenue'],
+    source_product: null,
+    source_id: null,
     created_at: '2026-08-05T00:00:00Z',
 }
 

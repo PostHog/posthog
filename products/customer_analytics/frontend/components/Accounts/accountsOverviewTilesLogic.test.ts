@@ -241,7 +241,6 @@ describe('tileFilterFor', () => {
             })
         ).toEqual({
             tileId: 'b',
-            expression: 'toFloatOrNull(accounts.custom_properties.values.`11111111-2222-3333-4444-555555555555`) < 6',
             filter: {
                 kind: 'custom_property',
                 definitionId: '11111111-2222-3333-4444-555555555555',

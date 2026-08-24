@@ -109,6 +109,23 @@ class TestUpsertReviewReport(BaseTest):
         assert report.status == ReviewReport.Status.IDLE
         assert report.completed_head_sha == "sha-2"  # what the finished turn reviewed, for read anchoring
 
+    def test_finalize_defers_idle_for_publishing_runs(self) -> None:
+        # On publishing runs the publish stage owns the idle write: going idle at finalize hands
+        # the UI's poll a completed-but-unpublished row as the run's final state, freezing a wrong
+        # "Not published" on screen until a manual refresh.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        finalize_review_report(
+            team_id=self.team.id,
+            report_id=report_id,
+            body_markdown="# report",
+            run_index=1,
+            head_sha="sha-1",
+            will_publish=True,
+        )
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.status == ReviewReport.Status.ACTIVE
+        assert report.run_count == 1  # the turn still finalizes fully; only the idle write is deferred
+
     def test_review_arm_is_drawn_once_and_sticky_across_turns(self) -> None:
         # Sticky-per-report is the arm draw's core invariant: a redraw on the update path would
         # flip a report's reviewer between turns, poisoning per-arm metrics and feeding one arm's

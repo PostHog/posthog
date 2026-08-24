@@ -1,11 +1,13 @@
 from contextlib import contextmanager
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import exceptions
 
 from posthog.exceptions import Conflict, QuotaLimitExceeded
+from posthog.models.user import User
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
 from products.posthog_ai.backend.message_routing import (
@@ -51,7 +53,7 @@ class TestOpenSandboxMessage(APIBaseTest):
     def _patches(self, task: Task):
         return (
             patch.object(Task, "create_and_run", return_value=task),
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         )
 
@@ -101,6 +103,31 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert wf_kwargs["create_pr"] is False
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
+
+    def test_handoff_detaches_previous_owner_conversation(self):
+        new_owner = User.objects.create_user(
+            email="new-owner@example.com",
+            first_name="New owner",
+            password="password",
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Transferred task",
+            created_by=new_owner,
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+        )
+        self.conversation.task = task
+        self.conversation.sandbox_task_id = task.id
+        self.conversation.sandbox_run_id = task.id
+        self.conversation.save(update_fields=["task", "sandbox_task_id", "sandbox_run_id"])
+
+        with pytest.raises(exceptions.PermissionDenied):
+            self._service().open({"content": "Keep going"})
+
+        self.conversation.refresh_from_db()
+        self.assertIsNone(self.conversation.task_id)
+        self.assertIsNone(self.conversation.sandbox_task_id)
+        self.assertIsNone(self.conversation.sandbox_run_id)
 
     def test_first_message_threads_routed_repository(self):
         task, _ = self._stub_task()
@@ -253,12 +280,17 @@ class TestOpenSandboxMessage(APIBaseTest):
     def test_terminal_followup_creates_new_run_with_resume(self):
         task, run = self._stub_task()
         run.status = TaskRun.Status.COMPLETED
-        run.state = {**(run.state or {}), "snapshot_external_id": "snap-9"}
+        run.state = {
+            **(run.state or {}),
+            "snapshot_external_id": "snap-9",
+            "snapshot_kind": "directory",
+            "snapshot_mount_path": "/tmp/workspace",
+        }
         run.save(update_fields=["status", "state"])
         self._attach_task(task)
 
         with (
-            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             result = self._service().open({"content": "resume please", "trace_id": "trace-3"})
@@ -273,6 +305,8 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert str(new_run.id) != str(run.id)
         assert new_run.state["resume_from_run_id"] == str(run.id)
         assert new_run.state["snapshot_external_id"] == "snap-9"
+        assert new_run.state["snapshot_kind"] == "directory"
+        assert new_run.state["snapshot_mount_path"] == "/tmp/workspace"
         assert new_run.state["interaction_origin"] == POSTHOG_AI_INTERACTION_ORIGIN
         assert new_run.state["systemPrompt"] == SYS_PROMPT
         assert new_run.state["initial_permission_mode"] == "auto"
@@ -292,7 +326,7 @@ class TestOpenSandboxMessage(APIBaseTest):
         self._attach_task(task)
 
         with (
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
             patch(f"{ROUTING}.object_storage.read", return_value=""),
         ):
@@ -343,7 +377,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         with (
             patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_concurrent_winner),
-            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow,
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             with self.assertRaises(Conflict):
@@ -371,7 +405,7 @@ class TestOpenSandboxMessage(APIBaseTest):
 
         with (
             patch(f"{ROUTING}.lock_conversation_for_followup", side_effect=lock_granted_after_winner_finished),
-            patch(f"{ROUTING}.execute_task_processing_workflow"),
+            patch(f"{ROUTING}.dispatch_task_processing_workflow"),
             patch.object(PromptService, "build", return_value=SYS_PROMPT),
         ):
             result = self._service().open({"content": "resume please"})
@@ -669,7 +703,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
 
     def _open(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
-        with patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow:
+        with patch(f"{ROUTING}.dispatch_task_processing_workflow") as m_workflow:
             result = SandboxSession(self.conversation, self.user).open(
                 {"content": content, "trace_id": "t"},
                 resumed_context=resumed_context,
@@ -732,7 +766,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         assert self.conversation.task_id == other_task.id
 
     def test_first_message_conversion_reverts_on_workflow_start_failure(self):
-        with patch(f"{ROUTING}.execute_task_processing_workflow", side_effect=RuntimeError("boom")):
+        with patch(f"{ROUTING}.dispatch_task_processing_workflow", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 SandboxSession(self.conversation, self.user).open(
                     {"content": "continue here", "trace_id": "t"},

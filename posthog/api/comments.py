@@ -28,7 +28,11 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment, CommentSlackThread
-from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
+from posthog.models.comment.comment import (
+    COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API,
+    TICKET_COMMENT_SCOPES,
+    activity_log_scope_for,
+)
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
     DESKTOP_COMMENT_SCOPES,
@@ -354,6 +358,9 @@ class CommentSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError({"scope": ErrorDetail("This field is required.", code="required")})
         scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
         item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
+        candidate_scopes = {scope, getattr(instance, "scope", None), getattr(source_comment, "scope", None)}
+        if candidate_scopes & COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+            raise exceptions.PermissionDenied("Email thread messages cannot be managed through the comments API")
         if source_comment is not None:
             if source_comment.team_id != self.context["team_id"]:
                 raise exceptions.ValidationError({"source_comment": "Comment not found."})
@@ -898,6 +905,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
+        queryset = queryset.exclude(scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API)
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
