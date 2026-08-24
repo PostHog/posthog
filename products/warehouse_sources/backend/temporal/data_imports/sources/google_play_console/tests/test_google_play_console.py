@@ -410,20 +410,18 @@ def test_metric_set_windows_the_timeline_and_stops_at_the_freshness_date() -> No
     assert manager.saved == [GooglePlayConsoleResumeConfig(app="com.example.app", date="2024-03-10")]
 
 
-def test_metric_set_falls_back_to_a_lagged_end_date_without_freshness() -> None:
+def test_metric_set_skips_an_app_without_freshness() -> None:
     manager = _manager()
+    calls: list[str] = []
 
     def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            return {"rows": []}
+        calls.append(path)
+        # Empty freshness — the app has no queryable data for this metric set.
         return {}
 
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
+    with mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request):
         client = _client(mock.MagicMock())
-        list(
+        batches = list(
             _iter_metric_set_rows(
                 client=client,
                 endpoint=METRIC_SETS["anr_rate"],
@@ -434,8 +432,10 @@ def test_metric_set_falls_back_to_a_lagged_end_date_without_freshness() -> None:
             )
         )
 
-    # 2024-03-29 is the last day queried (today minus the freshness lag), so the checkpoint moves past it.
-    assert manager.saved[-1].date == "2024-03-30"
+    # No freshness means no queryable data: the app is skipped rather than queried with a guessed
+    # window Google rejects as an invalid timeframe. No `:query` is issued and nothing is yielded.
+    assert batches == []
+    assert not any(path.endswith(":query") for path in calls)
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
