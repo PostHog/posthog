@@ -25,9 +25,12 @@ export function digestStatusDisplay(run: DigestRunApi): { type: LemonTagType; la
 /**
  * Where a digest went, as a person would say it.
  *
- * slack_channel_name is display-only and can be blank, so the ID is the fallback — a run with
+ * slack_channel_name is display-only and can be blank, so the ID is the fallback. A run with
  * neither would otherwise render as an empty cell.
+ *
+ * Only a name takes the "#". A channel ID is not a channel name, so "#C045EF6GH" names nothing a
+ * reader can search Slack for. Backfilled runs are where a blank name actually shows up.
  */
 export function digestDestinationLabel(run: DigestRunApi): string {
-    return `#${run.slack_channel_name || run.slack_channel_id}`
+    return run.slack_channel_name ? `#${run.slack_channel_name}` : run.slack_channel_id
 }
