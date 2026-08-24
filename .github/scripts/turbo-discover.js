@@ -31,36 +31,17 @@ const { loadContractSurfaces } = require('./trunk-impacted-targets')
 // Each product is atomic for packing, but unlike Django the test pool isn't
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
-// The target is a per-shard budget for one product's test step. The runner-level
-// setup every shard pays identically (docker stack + temporal boot, deps, ~3-4 min)
-// still stays out of the math — it can't skew a split, and folding it in only
-// inflates counts (see #54280), so walls land at target + that setup. What does
-// count is the per-product cost inside the step, which scales with test count
-// rather than duration; see PRODUCT_PER_TEST_OVERHEAD_SECONDS.
+// The target is a per-shard test-WORK budget, not a wall-clock promise: the fixed
+// per-shard setup (docker stack + temporal boot, deps, collection, ~3-4 min) is paid
+// identically by every shard, so it can't skew the split and deliberately stays out
+// of the shard-count math — folding it in only inflates counts (see #54280). Walls
+// land at target + setup, evenly across shards. JUnit de-taxing in
+// optimize_test_durations.py keeps that setup cost out of the timings themselves.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
-// A product job pays for collecting and importing its test modules before the first
-// test runs, and the durations file only measures execution. That unmeasured cost
-// tracks how MANY tests a product has more than how long they take (correlation
-// 0.73 vs 0.47 against duration), so a product with thousands of fast tests is
-// sized far below its real step: `tasks` carries ~2,800 tests worth ~140s of
-// execution, yet its job runs ~460s.
-//
-// Turbo runs each product as its own pytest invocation, so a packed bucket pays the
-// floor once per product, not once per runner.
-//
-// Calibrated against the observed `Run product tests` step of 9 single-product jobs
-// (5-day p50, PR lane — the path >95% of runs take) versus their measured totals:
-//
-//   dur + 60                    MAPE 37%   (previous split estimate)
-//   dur * 1.3 + 60              MAPE 29%   (previous packing estimate)
-//   dur * 1.3 + 15 + n * 0.08   MAPE 14%   (this model)
-//
-// The floor and per-test terms trade off against each other and 9 products can't
-// resolve them precisely; anything in floor 10-20s / per-test 0.06-0.10 scores the
-// same. Both are needed: drop the floor and a tiny suite sizes near zero, keep the
-// old 60s and every product over-sizes (MAPE 43%).
-const PRODUCT_PER_INVOCATION_SECONDS = 15
-const PRODUCT_PER_TEST_OVERHEAD_SECONDS = 0.08
+// Per-product cost within a runner: turbo dispatch, pytest collection, Django
+// init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
+// average that also absorbs the amortized portion of runner startup.
+const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
 // Headroom for run-to-run variance when deciding how much fits in a bucket. Was
 // 2x originally because pytest-split data was noisy under Django Core's shared
 // session; the outlier-based merge produces cleaner numbers now. Django no
@@ -579,41 +560,21 @@ function checkProductStaleness(product, durations) {
     return { stale: coverage < STALENESS_COVERAGE_THRESHOLD, fileCount: testFiles.length, coveredCount, coverage }
 }
 
-// Durations-file entries belonging to a product's own test job.
-function productDurationEntries(product, durations) {
+function getProductDuration(product, durations) {
     if (!durations) {
-        return []
+        return 0
     }
     const prefix = productPrefix(product)
     // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
     // that runs its own temporal suite in the product job must count them toward its size.
     const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
-    return Object.entries(durations).filter(
-        ([test]) => test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))
-    )
-}
-
-function getProductDuration(product, durations) {
     let total = 0
-    for (const [, dur] of productDurationEntries(product, durations)) {
-        total += dur
+    for (const [test, dur] of Object.entries(durations)) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))) {
+            total += dur
+        }
     }
     return total
-}
-
-function getProductTestCount(product, durations) {
-    return productDurationEntries(product, durations).length
-}
-
-// Estimated wall time of a product's `Run product tests` step: measured execution,
-// plus the per-test collection cost the durations file never records.
-function estimateProductSeconds(product, durations, baseOverride = null) {
-    const base = baseOverride === null ? getProductDuration(product, durations) : baseOverride
-    return (
-        base * PRODUCT_SAFETY_FACTOR +
-        PRODUCT_PER_INVOCATION_SECONDS +
-        getProductTestCount(product, durations) * PRODUCT_PER_TEST_OVERHEAD_SECONDS
-    )
 }
 
 function productEffectiveCost(product, durations) {
@@ -622,7 +583,7 @@ function productEffectiveCost(product, durations) {
     if (staleness.stale && staleness.fileCount > 0) {
         base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
     }
-    return estimateProductSeconds(product, durations, base)
+    return base * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 }
 
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
@@ -754,23 +715,22 @@ function buildMatrix(products, durations) {
     const matrix = []
     const packable = []
 
-    // Split a product across multiple shards only when its estimated step exceeds
-    // the target wall clock. This uses the same estimate as packing: summed
-    // durations alone predict the observed step poorly (MAPE 37%), because they
-    // omit per-test collection cost entirely, and a product with many cheap tests
-    // then lands in a bucket it blows straight past.
+    // Split a product across multiple shards only when its raw duration plus
+    // one per-product overhead exceeds the target wall clock. Don't apply the
+    // safety factor here — that inflation is for packing-capacity decisions
+    // (avoid stuffing a bucket beyond budget under variance), not for the
+    // "must we split?" check. Using the inflated cost for splitting causes
+    // borderline products to fragment into uneven sub-shards (pytest-split
+    // can't balance well when many tests have flat-default 0.01s values),
+    // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
         const staleness = checkProductStaleness(product, durations)
-        let raw = estimateProductSeconds(product, durations)
+        let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 
         // Staleness guard: if .test_durations has poor coverage for this product,
         // use a file-count-based fallback to avoid under-sharding.
         if (staleness.stale && staleness.fileCount > 0) {
-            const fallbackRaw = estimateProductSeconds(
-                product,
-                durations,
-                staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
-            )
+            const fallbackRaw = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
             if (fallbackRaw > raw) {
                 console.error(
                     `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
@@ -786,7 +746,7 @@ function buildMatrix(products, durations) {
 
         if (raw > PRODUCT_TARGET_WALL_SECONDS) {
             const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min estimated → split across ${shards} shards`)
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
             // order-preserving cuts as duration_based_chunks but balances them
@@ -801,7 +761,7 @@ function buildMatrix(products, durations) {
                 })
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min estimated → dedicated bucket (never packed)`)
+            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
             matrix.push({
                 group: product,
                 filters: `--filter=@posthog/products-${product}`,
@@ -839,10 +799,6 @@ module.exports = {
     checkProductStaleness,
     productPrefix,
     productEffectiveCost,
-    estimateProductSeconds,
-    getProductTestCount,
-    PRODUCT_PER_TEST_OVERHEAD_SECONDS,
-    PRODUCT_PER_INVOCATION_SECONDS,
     STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
     parseTachModules,
