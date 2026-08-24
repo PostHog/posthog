@@ -410,7 +410,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
                     >
-                        <UsersPerMinuteChart data={chartData} />
+                        <UsersPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'top_paths':
@@ -488,7 +488,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         isLoading={isLoading}
                         contentClassName="h-64 md:h-80"
                     >
-                        <BotEventsPerMinuteChart data={chartData} />
+                        <BotEventsPerMinuteChart data={chartData} timezone={timezone} />
                     </LiveChartCard>
                 )
             case 'bot_traffic':

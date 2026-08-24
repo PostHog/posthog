@@ -211,7 +211,6 @@ export function ConfigureAgentsSection() {
         <SlackInboxNotificationsSettings
           isLoading={isLoadingSlack}
           showHeader={false}
-          showTopBorder={false}
         />
       </SettingsSubsection>
 

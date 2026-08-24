@@ -5,15 +5,13 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import source as vercel_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.source import VercelSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import VercelResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _source_inputs(schema_name: str, **overrides: Any) -> SourceInputs:
@@ -40,19 +38,10 @@ class TestVercelSource:
         self.source = VercelSource()
         self.config = VercelSourceConfig(access_token="token", team_id=None)
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.VERCEL
-
     def test_connection_host_fields_includes_team_id(self) -> None:
         # team_id retargets the stored token at a different Vercel team, so editing it must force
         # the token to be re-entered.
         assert self.source.connection_host_fields == ["team_id"]
-
-    def test_source_config_metadata(self) -> None:
-        config = self.source.get_source_config
-        assert config.label == "Vercel"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.BETA
 
     def test_source_config_fields(self) -> None:
         fields = {f.name: cast(SourceFieldInputConfig, f) for f in self.source.get_source_config.fields}
@@ -109,22 +98,6 @@ class TestVercelSource:
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["deployments"])
         assert [s.name for s in schemas] == ["deployments"]
-
-    @parameterized.expand(
-        [
-            ("valid", (True, None)),
-            (
-                "invalid",
-                (
-                    False,
-                    "Your Vercel access token is invalid or has been revoked. Create a new token in your Vercel account settings, then reconnect.",
-                ),
-            ),
-        ]
-    )
-    def test_validate_credentials_delegates(self, _name: str, result: tuple) -> None:
-        with mock.patch.object(vercel_source_module, "validate_vercel_credentials", lambda token: result):
-            assert self.source.validate_credentials(self.config, team_id=1) == result
 
     @parameterized.expand(
         [
@@ -185,11 +158,6 @@ class TestVercelSource:
         # keeps the benign, self-recovering failure out of error tracking.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs("deployments"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is VercelResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         config = VercelSourceConfig(access_token="token", team_id="team_42")

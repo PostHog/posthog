@@ -217,10 +217,12 @@ container.bind(CONNECTIVITY_CLIENT).toConstantValue(connectivityClient);
 const browserTabsClient: BrowserTabsClient = {
   getSnapshot: () => trpcClient.browserTabs.getSnapshot.query(),
   getPrimaryWindowId: () => trpcClient.browserTabs.getPrimaryWindowId.query(),
-  openOrFocus: (input) => trpcClient.browserTabs.openOrFocus.mutate(input),
-  newBlankTab: (input) => trpcClient.browserTabs.newBlankTab.mutate(input),
+  reset: () => trpcClient.browserTabs.reset.mutate(),
+  openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
   close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
+  setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
   onSnapshotChange: (sub) =>
     trpcClient.browserTabs.onSnapshotChange.subscribe(undefined, sub),

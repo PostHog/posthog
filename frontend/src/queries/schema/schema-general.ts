@@ -9111,6 +9111,8 @@ export const externalDataSources = [
     'Capterra',
     'GooglePostmasterTools',
     'Growi',
+    'Clarify',
+    'DatoCMS',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -186,6 +186,7 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     )
 
     conn = MagicMock()
+    conn.closed = False
     conn.__enter__ = MagicMock(return_value=conn)
     conn.__exit__ = MagicMock(return_value=False)
     active_transaction: object | None = None
@@ -452,6 +453,7 @@ def test_duckgres_cancel_watchdog_rejects_an_exhausted_activity_budget(monkeypat
 def test_registration_stops_after_glob_query_cancellation(monkeypatch):
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
     conn = MagicMock()
+    conn.closed = False
     cancel_requested = registration_module.threading.Event()
 
     def execute(query: object) -> MagicMock:
@@ -595,6 +597,7 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch_when_cleanup_fails(
     )
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     conn = MagicMock()
+    conn.closed = False
     counts = iter([(10,), (9,)])
 
     def execute(query: object) -> MagicMock:
@@ -638,6 +641,7 @@ def test_copy_activity_skips_publish_when_newer_generation_already_landed(monkey
     )
     monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: False)
     conn = MagicMock()
+    conn.closed = False
 
     def execute(query: object) -> MagicMock:
         if "SELECT count(*) FROM" in str(query):
@@ -690,6 +694,7 @@ def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypat
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
     monkeypatch.setattr(registration_module.time, "sleep", lambda _seconds: None)
     conn = MagicMock()
+    conn.closed = False
     commit_error = RuntimeError("commit acknowledgement lost")
 
     @contextlib.contextmanager
@@ -727,6 +732,39 @@ def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypat
         sum("DROP TABLE IF EXISTS" in query and "__ph_previous_" in query for query in executed)
         == registration_module._CLEANUP_DROP_ATTEMPTS
     )
+
+
+def test_cleanup_skips_a_closed_connection_without_reporting(monkeypatch):
+    sleep = MagicMock()
+    capture = MagicMock()
+    monkeypatch.setattr(registration_module.time, "sleep", sleep)
+    monkeypatch.setattr(registration_module, "capture_exception", capture)
+    conn = MagicMock()
+    conn.closed = True
+
+    registration_module._cleanup_registration_tables(conn, "schema", ["__ph_register_x"])
+
+    conn.execute.assert_not_called()
+    sleep.assert_not_called()
+    capture.assert_not_called()
+
+
+def test_cleanup_aborts_a_broken_connection_without_reporting(monkeypatch):
+    sleep = MagicMock()
+    capture = MagicMock()
+    monkeypatch.setattr(registration_module.time, "sleep", sleep)
+    monkeypatch.setattr(registration_module, "capture_exception", capture)
+    conn = MagicMock()
+    conn.closed = False
+    conn.execute.side_effect = registration_module.psycopg.OperationalError(
+        "SSL connection has been closed unexpectedly"
+    )
+
+    registration_module._cleanup_registration_tables(conn, "schema", ["__ph_register_x", "__ph_previous_x"])
+
+    assert conn.execute.call_count == 1
+    sleep.assert_not_called()
+    capture.assert_not_called()
 
 
 @pytest.mark.asyncio

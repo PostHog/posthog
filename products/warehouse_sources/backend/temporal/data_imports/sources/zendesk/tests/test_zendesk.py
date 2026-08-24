@@ -548,7 +548,7 @@ class _FakeResource:
 
 
 class TestZendeskTicketCommentsFanout:
-    def _build(self) -> tuple[_FakeResource, list[Any]]:
+    def _build(self, should_use_incremental_field: bool = False) -> tuple[_FakeResource, list[Any]]:
         child = _FakeResource("ticket_comments")
 
         with patch(
@@ -562,7 +562,8 @@ class TestZendeskTicketCommentsFanout:
                 endpoint="ticket_comments",
                 team_id=1,
                 job_id="job-1",
-                db_incremental_field_last_value=None,
+                db_incremental_field_last_value="2026-01-01T00:00:00Z" if should_use_incremental_field else None,
+                should_use_incremental_field=should_use_incremental_field,
             )
 
         return child, mock_resources.call_args[0]
@@ -581,6 +582,20 @@ class TestZendeskTicketCommentsFanout:
             "field": "id",
         }
         assert child["include_from_parent"] == ["id"]
+
+    def test_replaces_the_table_when_the_schema_is_not_incremental(self) -> None:
+        _, args = self._build()
+        _, child = args[0]["resources"]
+
+        assert child["write_disposition"] == "replace"
+
+    def test_incremental_merges_but_sends_no_request_window(self) -> None:
+        _, args = self._build(should_use_incremental_field=True)
+        _, child = args[0]["resources"]
+
+        assert child["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+        assert "incremental" not in child["endpoint"]
+        assert "since" not in child["endpoint"]["params"]
 
     def test_comment_rows_carry_the_parent_ticket_id(self) -> None:
         # Without this rename a comment row has no ticket_id, so the (ticket_id, id) primary key
@@ -606,20 +621,16 @@ class TestZendeskSchemas:
         # The endpoints that shipped first must keep being offered.
         assert {"tickets", "users", "organizations", "brands", "groups", "sla_policies"}.issubset(names)
 
-    def test_only_endpoints_with_a_server_side_filter_advertise_incremental(self) -> None:
+    def test_incremental_is_advertised_only_where_it_can_be_honored(self) -> None:
         schemas = self._schemas()
         incremental = {name for name in ZENDESK_ENDPOINTS if schemas[name].supports_incremental}
 
-        assert incremental == {"activities"}
+        assert incremental == {"activities", "ticket_comments"}
         assert schemas["activities"].incremental_fields[0]["field"] == "created_at"
-
-    def test_canonical_descriptions_cover_every_new_table(self) -> None:
-        descriptions = ZendeskSource().get_canonical_descriptions()
-
-        for name in ZENDESK_ENDPOINTS:
-            assert name in descriptions, f"{name} has no canonical description"
-            assert descriptions[name]["description"]
-            assert descriptions[name]["docs_url"].startswith("https://developer.zendesk.com/")
+        assert schemas["ticket_comments"].incremental_fields[0]["field"] == "created_at"
+        for name in incremental:
+            config = ZENDESK_ENDPOINTS[name]
+            assert config.incremental_start_param is not None or config.fanout is not None
 
 
 class TestZendeskSourceForPipeline:

@@ -205,6 +205,14 @@ export const personCreateStrandedClaimCounter = new Counter({
     labelNames: ['outcome'],
 })
 
+export const personCreateConflictResolvedCounter = new Counter({
+    name: 'person_create_conflict_resolved_total',
+    help: 'Person creations that lost the (team_id, uuid) key, by how the conflict was resolved',
+    // uuid: resolved to the row already holding the uuid, after recovery by distinct ID found nothing
+    // none: the holder was gone by the time we looked, so the create failed
+    labelNames: ['resolved_by'],
+})
+
 export const personJsonFieldSizeHistogram = new Histogram({
     name: 'person_json_field_size_bytes',
     help: 'Approximate size in bytes of serialized JSON fields (using string length as proxy for performance)',

@@ -40,7 +40,7 @@ export function InboxView() {
 
   useTrackInboxViewed();
 
-  const { counts } = useInboxAllReports();
+  const { counts } = useInboxAllReports({ withReportsCount: true });
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isDetailView = isInboxDetailPath(pathname);
 

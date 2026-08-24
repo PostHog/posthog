@@ -93,8 +93,13 @@ def _snapshot_key(src: str) -> str:
     return f"{safe}-{digest}" if safe else digest
 
 
-def parser_test_factory(backend: HogQLParserBackend):
-    base_classes = (MemoryLeakTestMixin, BaseTest)
+def parser_test_factory(backend: HogQLParserBackend, leak_check: bool = True):
+    # 102 re-parses per test to measure leaks is expensive at this suite's scale.
+    # The backends are separate parser implementations, so a leak is per-backend:
+    # keep the matrix on rust-py only, the production primary (PyO3-built objects
+    # are also the most binding-leak-prone path). cpp-json and rust-json run once
+    # per test — the shared snapshot still proves parity on all three.
+    base_classes = (MemoryLeakTestMixin, BaseTest) if leak_check else (BaseTest,)
 
     class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
@@ -124,10 +129,10 @@ def parser_test_factory(backend: HogQLParserBackend):
             kwargs: dict[str, Any] = {"backend": backend}
             if placeholders is not None:
                 kwargs["placeholders"] = placeholders
-            # Parse on every rerun so the leak mixin still exercises the parser 102x and a real
-            # per-parse leak is caught. Only COMPARE on the first run: syrupy / pretty_dataclasses
-            # allocate per call, so comparing on every rerun would trip the leak check with
-            # test-machinery growth that isn't a parser leak.
+            # Leak-checking backends parse on every mixin rerun so a real per-parse leak is
+            # caught. Only COMPARE on the first run: syrupy / pretty_dataclasses allocate per
+            # call, so comparing on every rerun would trip the leak check with test-machinery
+            # growth that isn't a parser leak.
             parsed = parse_fn(src, **kwargs)
             if getattr(self, "_memory_leak_run_index", 0) != 0:
                 return

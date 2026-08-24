@@ -21,7 +21,6 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -476,21 +475,6 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
-class SignalReportCanvasSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportCanvas
-        fields = [
-            "canvas_id",
-            "discussion_task_id",
-            "generation_task_id",
-            "generation_status",
-            "collaboration_mode",
-            "failure_reason",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -500,11 +484,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "Charts the report shows, in the order they were written. The summary places one with a "
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
-    )
-    canvas_session = SignalReportCanvasSerializer(
-        read_only=True,
-        allow_null=True,
-        help_text="The persistent canvas and shared discussion created for this report, when available.",
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -566,7 +545,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
-            "canvas_session",
             "priority",
             "actionability",
             "already_addressed",
