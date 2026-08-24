@@ -21,6 +21,23 @@ import type { HogFunctionApi } from './generated/api.schemas'
 // again - so the window has no fixed end and runs up to the moment of the replay.
 const INCIDENT_WINDOW_START = '2026-08-18T13:30:00.000Z'
 
+// The rerun endpoint rejects a window wider than 30 days (RERUN_MAX_WINDOW_DAYS in
+// posthog/api/hog_invocation_rerun.py), a cap that tracks the 30-day ClickHouse TTL on the failed
+// rows. Once the incident is more than 30 days old the fixed start above would push the window past
+// that cap and every replay would 400 while the banner still shows a working button. The clamped-off
+// span holds only rows the TTL has already dropped, so nothing replayable is lost.
+const REPLAY_MAX_WINDOW_DAYS = 30
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+// Clamp the replay start to the later of the incident start and 30 days before now, so the window
+// sent to the rerun endpoint never exceeds its cap. Exported for the unit test.
+export function incidentReplayWindow(now: Date): { window_start: string; window_end: string } {
+    const earliestStart = new Date(now.getTime() - REPLAY_MAX_WINDOW_DAYS * MS_PER_DAY)
+    const incidentStart = new Date(INCIDENT_WINDOW_START)
+    const windowStart = incidentStart > earliestStart ? incidentStart : earliestStart
+    return { window_start: windowStart.toISOString(), window_end: now.toISOString() }
+}
+
 // One row per destination, so a project with a long tail of unrelated failures would otherwise
 // render a wall of them. Ordered by failure count, so the cut keeps the rows worth showing.
 const MAX_LISTED_DESTINATIONS = 20
@@ -243,10 +260,7 @@ export const destinationsIncidentReplayLogic = kea<destinationsIncidentReplayLog
             }
             try {
                 await hogFunctionsRerunCreate(String(values.currentProjectId), id, {
-                    filter: {
-                        window_start: INCIDENT_WINDOW_START,
-                        window_end: new Date().toISOString(),
-                    },
+                    filter: incidentReplayWindow(new Date()),
                 })
                 actions.replayDestinationSuccess(id)
                 lemonToast.success('Replay queued. Failed events will be sent again shortly.')

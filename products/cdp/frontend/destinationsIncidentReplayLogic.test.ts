@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { destinationsIncidentReplayLogic } from './destinationsIncidentReplayLogic'
+import { destinationsIncidentReplayLogic, incidentReplayWindow } from './destinationsIncidentReplayLogic'
 
 const MASKED_ONLY_ID = '019d244c-42c9-0000-ec6c-752c8b265c4f'
 const FAILED_ONLY_ID = '019d9146-223a-0000-8165-1a3489e88b3d'
@@ -101,5 +101,23 @@ describe('destinationsIncidentReplayLogic', () => {
                 enabled: true,
             },
         ])
+    })
+
+    describe('incidentReplayWindow', () => {
+        it('uses the incident start while the incident is within the 30-day cap', () => {
+            expect(incidentReplayWindow(new Date('2026-08-25T00:00:00.000Z'))).toEqual({
+                window_start: '2026-08-18T13:30:00.000Z',
+                window_end: '2026-08-25T00:00:00.000Z',
+            })
+        })
+
+        it('clamps the start to 30 days once the incident is older than the cap', () => {
+            const { window_start, window_end } = incidentReplayWindow(new Date('2026-10-01T00:00:00.000Z'))
+            expect(window_start).toEqual('2026-09-01T00:00:00.000Z')
+            expect(window_end).toEqual('2026-10-01T00:00:00.000Z')
+            // Stays within the rerun endpoint's 30-day cap, so the request is not rejected.
+            const spanDays = (new Date(window_end).getTime() - new Date(window_start).getTime()) / (24 * 60 * 60 * 1000)
+            expect(spanDays).toBeLessThanOrEqual(30)
+        })
     })
 })
