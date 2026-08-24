@@ -22,6 +22,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  MenuLabel,
   Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -33,17 +34,24 @@ import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/Ac
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { track } from "@posthog/ui/shell/analytics";
-import type { ReactElement } from "react";
-import { useCallback, useEffect, useMemo } from "react";
+import {
+  Fragment,
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useMemo,
+} from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  groupActivityItemsByDay,
   markLoadedReadLabel,
 } from "./activityFeed";
 import { activityMetadata } from "./activityMetadata";
@@ -222,6 +230,11 @@ export function ActivityView() {
   );
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const shownItems = unreadsOnly ? unreadItems : visibleItems;
+  const dayStart = useLocalDayStart();
+  const shownItemGroups = useMemo(
+    () => groupActivityItemsByDay(shownItems, new Date(dayStart)),
+    [shownItems, dayStart],
+  );
   const visibleUnreadCount = unreadCount;
   // Opening a row is what marks it read. The server does the same when the task is
   // reached any other way, so the feed converges either way.
@@ -290,17 +303,22 @@ export function ActivityView() {
     ) : (
       <>
         <div className="flex flex-col gap-0.5">
-          {shownItems.map((item) => (
-            <ActivityRow
-              key={item.id}
-              item={item}
-              channelId={item.channelId}
-              onOpen={markRead}
-              onMarkRead={markRead}
-              onActivate={openActivityItem}
-              currentUser={currentUser}
-              blockedTaskIds={blockedTaskIds}
-            />
+          {shownItemGroups.map((group) => (
+            <Fragment key={group.key}>
+              <MenuLabel>{group.label}</MenuLabel>
+              {group.items.map((item) => (
+                <ActivityRow
+                  key={item.id}
+                  item={item}
+                  channelId={item.channelId}
+                  onOpen={markRead}
+                  onMarkRead={markRead}
+                  onActivate={openActivityItem}
+                  currentUser={currentUser}
+                  blockedTaskIds={blockedTaskIds}
+                />
+              ))}
+            </Fragment>
           ))}
         </div>
         {loadMoreButton}
