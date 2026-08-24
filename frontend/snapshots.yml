@@ -577,9 +577,9 @@ snapshots:
     components-hogcharts-barchart--grouped--light:
         hash: v1.k794b7964.8864e0c1da6ae92795c6a874cfc9f255bc45e1a8a08814306602dab2ae7ca92d.fBO791HA09WRhNATZkpJBv0ZladGjifhXVo1hbXMWRQ
     components-hogcharts-barchart--hatched-bars--dark:
-        hash: v1.k794b7964.412a01636cada1e6b7b638fcd353fbffd72da59efea03ea8c8fc5b9cc2bbd891.ki0Q3SzoToM3NA566Flpwtu6DTEIxhZUyNAM0a-YAws
+        hash: v1.k794b7964.3943dd784dc83ac78129d6dc5dabfad3c63bb49d6ab7071d3b48394bf0af3f3b.DaNzqQQfPXyugJTBm-o8AGPMBTIJetYV1AJYbcoDj0M
     components-hogcharts-barchart--hatched-bars--light:
-        hash: v1.k794b7964.ea845f61ec7b78db832a0bca3f5a19e53144d106a8c7c2fb2ef181d4969609d1.XPuQ0sl14G0b1hXbf-VtbaLXVPiOP8-h6qsrDTX7vpI
+        hash: v1.k794b7964.b92e646fc48abed260b6e65de1f544241c9c7720fb6266a6f6f1478a7fb7e43e.CryDx9qQGy6Dyi71sNbShMHCcXIeg-4f4OU0RVqacE8
     components-hogcharts-barchart--hidden-series--dark:
         hash: v1.k794b7964.2106320d660d60df4e76bcdc065ee5978e56d58ee4b2aea577bb817dc2bd827d._Ue2_rwjQqePPW2jHGlNsZZOr7t3whSx7pWAoo6z1SA
     components-hogcharts-barchart--hidden-series--light:
@@ -601,9 +601,9 @@ snapshots:
     components-hogcharts-barchart--horizontal-wide-value-labels--light:
         hash: v1.k794b7964.89212d687970a134ccb9fd1a2abeb77febebb749462c13ebe13fe5b1f829154b.XGXxDPyJG38_3STO94uvmOanmnUiLY8UbdQzDGA75rI
     components-hogcharts-barchart--incomplete-period--dark:
-        hash: v1.k794b7964.de40f58e86c313a9f9651fa60c337570babadcf51125850e076422517a99131d.zdqd2yYesvAajH64MCcmyGyJ3BlgNYa4UAc1RYuReqk
+        hash: v1.k794b7964.2533567047efae8c8699f771c2ecd7e88bdab5eaf680d79995d1d931e2e19cef.vZoBsKrNINM19SbYACO9WhcS96qzLRnWSUxJIxVBAZ0
     components-hogcharts-barchart--incomplete-period--light:
-        hash: v1.k794b7964.c3088f1f04647a5779b57ee960c146adcd42e931162e874a77e76f7bf405fd35.Ip0tylo90lPnfVpg8MmFZEBD0XDy9aE_O7cBQieEo2c
+        hash: v1.k794b7964.ab83444a5cee9946f2aa91633a344d1f8789167e31cbc0164be3c0762134e757.c7EZAUbD3CBetryUr3XEAhULAEgeDBYe28mquJ96thI
     components-hogcharts-barchart--large-dataset--dark:
         hash: v1.k794b7964.8e72a842c8ab3e2b5502ab69eb5fb3a3cf9b31592b7b040ea23c0c734ae9983f.QT0o7ak-0460EcP6jyiNJL0AMAux2PbEW06hzd90McA
     components-hogcharts-barchart--large-dataset--light:
