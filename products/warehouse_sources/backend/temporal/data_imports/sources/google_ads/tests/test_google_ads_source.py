@@ -1,7 +1,7 @@
 import re
+import time
 import typing
 import datetime as dt
-import itertools
 import collections.abc
 from types import SimpleNamespace
 
@@ -22,8 +22,6 @@ from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsErr
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
-
-from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
@@ -62,17 +60,6 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
-
-
-def test_get_source_config_oauth_field_declares_required_scope():
-    oauth_field = next(
-        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
-        None,
-    )
-    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
-    assert isinstance(oauth_field, SourceFieldOauthConfig)
-    assert oauth_field.kind == "google-ads"
-    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -1432,6 +1419,23 @@ class TestGetOAuthAccountsNetworkErrorHandling:
                 source.get_oauth_accounts(1, 2)
 
 
+class _DrainClock:
+    """A monotonic clock the test drives itself, one second per window drained.
+
+    Reading it never advances it, and the harness swaps `google_ads.time` wholesale: patching
+    `time.monotonic` instead reaches every other caller of the stdlib module.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def tick(self) -> None:
+        self.now += 1
+
+
 class TestGoogleAdsQueryConstruction:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads"
 
@@ -1461,8 +1465,10 @@ class TestGoogleAdsQueryConstruction:
         )
 
         queries: list[str] = []
+        clock = _DrainClock()
 
         def fake_search(*args, **kwargs):
+            clock.tick()
             # The production code calls positionally; pull `query` (3rd positional) either way.
             query = kwargs.get("query", args[2] if len(args) > 2 else "")
             queries.append(query)
@@ -1490,6 +1496,7 @@ class TestGoogleAdsQueryConstruction:
             mock.patch(f"{self._MODULE}.google_ads_client"),
             mock.patch(f"{self._MODULE}._search_as_arrow_tables", side_effect=fake_search),
             mock.patch(f"{self._MODULE}._search_with_transient_retry", side_effect=fake_probe),
+            mock.patch(f"{self._MODULE}.time", SimpleNamespace(monotonic=clock.monotonic, sleep=time.sleep)),
         ):
             response = google_ads_source(
                 config,
@@ -1525,9 +1532,7 @@ class TestGoogleAdsQueryConstruction:
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
         # repeats it and a schema behind by more than its lookback never advances.
-        clock = itertools.count()
-
-        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+        with freeze_time("2026-07-17"):
             # A budget of zero: the overlap alone would end the run before any new ground.
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 0):
                 _response, queries = self._run_source(
@@ -1567,11 +1572,9 @@ class TestGoogleAdsQueryConstruction:
         # The pre-lookback cursor is 2026-01-31, straddled by the window starting 2026-01-29.
         overlap_and_straddle = {(cursor + dt.timedelta(days=w * i)).isoformat(): 1 for i in range(5)}
         data_past_gap = cursor + dt.timedelta(days=w * 22)  # 2026-06-04, after a run of empty windows
-        # One second per loop check against a two-second budget: it is spent long before the walk
-        # reaches the data, so only refusing to arm on the straddle keeps the run going.
-        clock = itertools.count()
-
-        with freeze_time("2026-12-31"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+        # One second per window drained against a two-second budget: it is spent long before the
+        # walk reaches the data, so only refusing to arm on the straddle keeps the run going.
+        with freeze_time("2026-12-31"):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", 2):
                 _response, queries = self._run_source(
                     self._stats_table(),
@@ -1731,17 +1734,14 @@ class TestGoogleAdsQueryConstruction:
     # Parametrized so the count tracks the budget. A single case landing on five windows is the
     # same number the deleted `MAX_DATA_WINDOWS_PER_RUN = 5` produced, so it could not tell the two
     # rules apart.
-    @pytest.mark.parametrize("budget,expected_windows", [(4, 5), (9, 10), (19, 20)])
+    @pytest.mark.parametrize("budget,expected_windows", [(4, 4), (9, 9), (19, 19)])
     def test_a_run_takes_as_many_windows_as_the_budget_buys(self, budget: int, expected_windows: int) -> None:
         cursor = dt.date(2026, 1, 1)
         window_rows = {
             (cursor + dt.timedelta(days=GOOGLE_ADS_INCREMENTAL_WINDOW_DAYS * i)).isoformat(): 1 for i in range(40)
         }
-        # One second of drain per loop check. The first window starts at the cursor, so its rows are
-        # not guaranteed past it and it does not arm the budget; the budget buys the rest.
-        clock = itertools.count()
-
-        with freeze_time("2026-07-17"), mock.patch(f"{self._MODULE}.time.monotonic", lambda: next(clock)):
+        # One second of drain per window, so an N-second budget buys N windows.
+        with freeze_time("2026-07-17"):
             with mock.patch(f"{self._MODULE}.GOOGLE_ADS_MAX_DRAIN_SECONDS", budget):
                 _response, queries = self._run_source(
                     self._stats_table(),

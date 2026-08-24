@@ -36,6 +36,8 @@ interface Result {
   isConnecting: boolean;
   isTimedOut: boolean;
   hasError: boolean;
+  /** GitHub is waiting on an org owner to approve the install. */
+  isPending: boolean;
   connect: () => Promise<void>;
   reset: () => void;
 }
@@ -110,6 +112,12 @@ function useConnectStateMachine(
     onError: (cbError) => {
       stopPolling();
       dispatch({ type: "fail", error: cbError });
+    },
+    onPending: () => {
+      stopPolling();
+      dispatch({ type: "pending" });
+      // The install request row exists server-side now; refresh so banners pick it up.
+      invalidate(projectId);
     },
     onTimedOut: () => {
       stopPolling();

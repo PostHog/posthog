@@ -356,6 +356,7 @@ class TestValidateSchemaAndUpdateTable:
         assert schema.table is None
         table = DataWarehouseTable.objects.get(external_data_source=schema.source, deleted=False)
         assert not table.columns
+        assert table.created_via == DataWarehouseTable.CreatedVia.SOURCE
 
 
 class TestUpdateLastSyncedAt:

@@ -9,7 +9,7 @@ from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models import User
+from posthog.models import UploadedMedia, User
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import (
@@ -53,6 +53,7 @@ class _ValidatedEvidence:
     customer_quote: str
     source: str
     source_url: str
+    image_ids: tuple[UUID, ...]
 
 
 def _to_product_area_view(product_area: FeatureRequestProductArea) -> contracts.FeatureRequestProductAreaView:
@@ -74,6 +75,7 @@ def _to_evidence_view(evidence: FeatureRequestEvidence) -> contracts.FeatureRequ
         evidence_source=evidence.source,
         source_url=evidence.source_url,
         requested_on=evidence.requested_on,
+        image_ids=list(evidence.image_ids),
         created_by=evidence.created_by_id,
         updated_by=evidence.updated_by_id,
         created_at=evidence.created_at,
@@ -235,6 +237,8 @@ def _apply_filters(
             account_links__account_id__in=account_filter_ids,
             account_links__unlinked_at__isnull=True,
         )
+    if filters.created_by_ids:
+        queryset = queryset.filter(created_by_id__in=filters.created_by_ids)
     if filters.archive_state == "active":
         queryset = queryset.filter(archived_at__isnull=True)
     elif filters.archive_state == "archived":
@@ -340,6 +344,7 @@ def _evidence_snapshot(evidence: FeatureRequestEvidence, *, account: Account | N
         "source": evidence.source,
         "source_url": evidence.source_url,
         "requested_on": evidence.requested_on.isoformat() if evidence.requested_on else None,
+        "image_ids": [str(image_id) for image_id in evidence.image_ids],
     }
 
 
@@ -418,6 +423,7 @@ def _ensure_initial_history(
     *,
     accounts: list[Account] | None = None,
     product_areas: list[FeatureRequestProductArea] | None = None,
+    evidence: FeatureRequestEvidence | None = None,
 ) -> None:
     if accounts is None:
         accounts = list(
@@ -432,21 +438,30 @@ def _ensure_initial_history(
                 request_links__feature_request=feature_request
             )
         )
+    changes: list[contracts.FeatureRequestHistoryChange] = [
+        {"field": "status", "before": None, "after": feature_request.status},
+        {"field": "priority", "before": None, "after": feature_request.priority},
+        {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
+        {
+            "field": "product_areas",
+            "before": [],
+            "after": _product_area_snapshots(product_areas),
+        },
+    ]
+    if evidence is not None:
+        changes.append(
+            {
+                "field": "evidence",
+                "before": None,
+                "after": _evidence_snapshot(evidence),
+            }
+        )
     FeatureRequestHistory.objects.for_team(feature_request.team_id).get_or_create(
         team_id=feature_request.team_id,
         feature_request=feature_request,
         is_initial=True,
         defaults={
-            "changes": [
-                {"field": "status", "before": None, "after": feature_request.status},
-                {"field": "priority", "before": None, "after": feature_request.priority},
-                {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
-                {
-                    "field": "product_areas",
-                    "before": [],
-                    "after": _product_area_snapshots(product_areas),
-                },
-            ],
+            "changes": changes,
             "source": FeatureRequestHistorySource.MANUAL,
             "actor_id": feature_request.created_by_id,
             "changed_at": feature_request.created_at,
@@ -573,6 +588,10 @@ def create_feature_request(
     if not input.product_area_ids:
         raise FeatureRequestValidationError("product_area_ids", "Select at least one product area.")
 
+    evidence_input = input.evidence
+    validated_evidence = (
+        _validate_evidence(team_id=team_id, input=evidence_input) if evidence_input is not None else None
+    )
     existing = FeatureRequest.objects.for_team(team_id).filter(idempotency_key=input.idempotency_key).first()
     if existing is not None:
         accessible_existing = _feature_request_queryset(team_id, user_access_control).filter(id=existing.id).first()
@@ -610,11 +629,25 @@ def create_feature_request(
             },
         )
         if created:
-            FeatureRequestAccountLink.objects.for_team(team_id).create(
+            account_link = FeatureRequestAccountLink.objects.for_team(team_id).create(
                 team_id=team_id,
                 feature_request=feature_request,
                 account=accessible_account,
             )
+            initial_evidence = None
+            if validated_evidence is not None and evidence_input is not None:
+                initial_evidence = FeatureRequestEvidence.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    account_link=account_link,
+                    summary=validated_evidence.summary,
+                    customer_quote=validated_evidence.customer_quote,
+                    source=validated_evidence.source,
+                    source_url=validated_evidence.source_url,
+                    requested_on=evidence_input.requested_on,
+                    image_ids=list(validated_evidence.image_ids),
+                    created_by_id=actor_id,
+                    updated_by_id=actor_id,
+                )
             FeatureRequestProductAreaLink.objects.for_team(team_id).bulk_create(
                 [
                     FeatureRequestProductAreaLink(
@@ -629,6 +662,7 @@ def create_feature_request(
                 feature_request,
                 accounts=[accessible_account],
                 product_areas=product_areas,
+                evidence=initial_evidence,
             )
 
     return contracts.FeatureRequestCreateOutcome(
@@ -790,18 +824,51 @@ def update_feature_request(
     )
 
 
+def _validate_image_ids(*, team_id: int, image_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
+    unique_image_ids = tuple(dict.fromkeys(image_ids))
+    valid_image_ids = set(
+        UploadedMedia.objects.filter(
+            team_id=team_id,
+            id__in=unique_image_ids,
+            content_type__startswith="image/",
+            media_location__isnull=False,
+        ).values_list("id", flat=True)
+    )
+    if len(valid_image_ids) != len(unique_image_ids):
+        raise FeatureRequestValidationError("image_ids", "Select images uploaded to this project.")
+    return unique_image_ids
+
+
 def _validate_evidence(
+    *,
+    team_id: int,
     input: (
         contracts.FeatureRequestEvidenceInput
         | contracts.CreateFeatureRequestEvidenceInput
         | contracts.UpdateFeatureRequestEvidenceInput
     ),
+    current_image_ids: tuple[UUID, ...] = (),
 ) -> _ValidatedEvidence:
     summary = input.summary.strip()
     customer_quote = input.customer_quote.strip()
     source_url = input.source_url.strip()
-    if not summary and not customer_quote and not source_url:
-        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, or source URL.")
+    requested_image_ids = input.image_ids
+    image_ids = (
+        current_image_ids
+        if requested_image_ids is None
+        else _validate_image_ids(team_id=team_id, image_ids=requested_image_ids)
+    )
+    if (
+        not summary
+        and not customer_quote
+        and not source_url
+        and not image_ids
+        and input.requested_on is None
+        and input.evidence_source == "conversation"
+    ):
+        raise FeatureRequestValidationError(
+            "evidence", "Enter a summary, customer quote, source URL, image, request date, or change the source."
+        )
     if source_url:
         parsed_url = urlparse(source_url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
@@ -813,6 +880,7 @@ def _validate_evidence(
         customer_quote=customer_quote,
         source=input.evidence_source,
         source_url=source_url,
+        image_ids=image_ids,
     )
 
 
@@ -895,7 +963,9 @@ def add_feature_request_account(
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
     evidence_input = input.evidence
-    validated_evidence = _validate_evidence(evidence_input) if evidence_input is not None else None
+    validated_evidence = (
+        _validate_evidence(team_id=team_id, input=evidence_input) if evidence_input is not None else None
+    )
     with transaction.atomic():
         feature_request = _get_accessible_feature_request_for_update(
             team_id=team_id,
@@ -951,6 +1021,7 @@ def add_feature_request_account(
                 source=validated_evidence.source,
                 source_url=validated_evidence.source_url,
                 requested_on=evidence_input.requested_on,
+                image_ids=list(validated_evidence.image_ids),
                 created_by_id=actor_id,
                 updated_by_id=actor_id,
             )
@@ -982,7 +1053,7 @@ def create_feature_request_evidence(
     actor_id: int,
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
-    validated_evidence = _validate_evidence(input)
+    validated_evidence = _validate_evidence(team_id=team_id, input=input)
     with transaction.atomic():
         result = _get_evidence_account_link(
             team_id=team_id,
@@ -1002,6 +1073,7 @@ def create_feature_request_evidence(
             source=validated_evidence.source,
             source_url=validated_evidence.source_url,
             requested_on=input.requested_on,
+            image_ids=list(validated_evidence.image_ids),
             created_by_id=actor_id,
             updated_by_id=actor_id,
         )
@@ -1026,7 +1098,6 @@ def update_feature_request_evidence(
     actor_id: int,
     user_access_control: "UserAccessControl",
 ) -> contracts.FeatureRequestView | None:
-    validated_evidence = _validate_evidence(input)
     with transaction.atomic():
         evidence = (
             FeatureRequestEvidence.objects.for_team(team_id)
@@ -1046,12 +1117,18 @@ def update_feature_request_evidence(
         if result is None:
             return None
         feature_request, account_link = result
+        validated_evidence = _validate_evidence(
+            team_id=team_id,
+            input=input,
+            current_image_ids=tuple(evidence.image_ids),
+        )
         before = _evidence_snapshot(evidence, account=account_link.account)
         evidence.summary = validated_evidence.summary
         evidence.customer_quote = validated_evidence.customer_quote
         evidence.source = validated_evidence.source
         evidence.source_url = validated_evidence.source_url
         evidence.requested_on = input.requested_on
+        evidence.image_ids = list(validated_evidence.image_ids)
         after = _evidence_snapshot(evidence, account=account_link.account)
         if before != after:
             evidence.updated_by_id = actor_id
@@ -1062,6 +1139,7 @@ def update_feature_request_evidence(
                     "source",
                     "source_url",
                     "requested_on",
+                    "image_ids",
                     "updated_by_id",
                     "updated_at",
                 ]

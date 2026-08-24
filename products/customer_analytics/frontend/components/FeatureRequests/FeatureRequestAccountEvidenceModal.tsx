@@ -15,17 +15,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import { FeatureRequestEvidenceImagePicker } from './FeatureRequestEvidenceImagePicker'
+import { FEATURE_REQUEST_EVIDENCE_SOURCE_OPTIONS } from './featureRequestEvidenceOptions'
 import { featureRequestsLogic } from './featureRequestsLogic'
-
-const EVIDENCE_SOURCE_OPTIONS: { value: string; label: string }[] = [
-    { value: 'conversation', label: 'Customer conversation' },
-    { value: 'slack', label: 'Slack' },
-    { value: 'zendesk', label: 'Zendesk' },
-    { value: 'email', label: 'Email' },
-    { value: 'meeting', label: 'Meeting' },
-    { value: 'buildbetter', label: 'BuildBetter' },
-    { value: 'other', label: 'Other' },
-]
 
 export function FeatureRequestAccountEvidenceModal(): JSX.Element {
     const {
@@ -43,6 +35,7 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
         evidenceRequestedOn,
         evidenceError,
         savingEvidence,
+        uploadingEvidenceImages,
         evidenceSaveDisabledReason,
     } = useValues(featureRequestsLogic)
     const {
@@ -62,7 +55,11 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
     return (
         <LemonModal
             isOpen={evidenceModalOpen}
-            onClose={closeEvidence}
+            onClose={() => {
+                if (!uploadingEvidenceImages) {
+                    closeEvidence()
+                }
+            }}
             title={addingAccount ? 'Add account and evidence' : editingEvidenceId ? 'Edit evidence' : 'Add evidence'}
             width={560}
             footer={
@@ -85,12 +82,17 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
                                 })
                             }
                             loading={savingEvidence}
+                            disabledReason={uploadingEvidenceImages ? 'Uploading images' : undefined}
                             className="mr-auto"
                         >
                             Remove evidence
                         </LemonButton>
                     )}
-                    <LemonButton type="secondary" onClick={closeEvidence}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeEvidence}
+                        disabledReason={uploadingEvidenceImages ? 'Uploading images' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton
@@ -122,7 +124,7 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
                                 onChange={(values) => setAddAccountId(values[0] ?? null)}
                                 onInputChange={setAccountSearch}
                                 options={addAccountOptions}
-                                placeholder="Search for an account"
+                                placeholder="Search by account name or external key"
                                 loading={accountsLoading}
                                 fullWidth
                             />
@@ -154,7 +156,7 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
                         <LemonSelect
                             value={evidenceSource}
                             onChange={setEvidenceSource}
-                            options={EVIDENCE_SOURCE_OPTIONS}
+                            options={FEATURE_REQUEST_EVIDENCE_SOURCE_OPTIONS}
                             fullWidth
                         />
                     </div>
@@ -180,6 +182,7 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
                         fullWidth
                     />
                 </div>
+                <FeatureRequestEvidenceImagePicker />
             </div>
         </LemonModal>
     )

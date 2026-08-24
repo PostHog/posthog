@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
+import * as uploadFiles from 'lib/hooks/useUploadFiles'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -21,6 +22,7 @@ import {
 const account: AccountApi = {
     id: 'account-1',
     name: 'Acme',
+    external_id: 'cust_acme_001',
     notebooks: [],
     ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
@@ -122,12 +124,44 @@ describe('featureRequestsLogic', () => {
         )
     })
 
-    it('keeps the selected account name while search results reload', () => {
+    it('creates initial evidence from a source and request date', async () => {
+        const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
+        logic.actions.openCreateRequest()
+        logic.actions.setTitle(createdRequest.title)
+        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setProductAreaIds(['area-1'])
+        logic.actions.setEvidenceSource('meeting')
+        logic.actions.setEvidenceRequestedOn('2026-01-01')
+
+        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            title: createdRequest.title,
+            description: '',
+            account_id: createdRequest.account.id,
+            product_area_ids: ['area-1'],
+            idempotency_key: expect.any(String),
+            evidence: {
+                summary: '',
+                customer_quote: '',
+                evidence_source: 'meeting',
+                source_url: '',
+                requested_on: '2026-01-01',
+                image_ids: [],
+            },
+        })
+        expect(logic.values.evidenceSource).toBe('conversation')
+        expect(logic.values.evidenceRequestedOn).toBeNull()
+    })
+
+    it('keeps the selected account name and external key while search results reload', () => {
         logic.actions.loadAccountsSuccess([account])
         logic.actions.setAccountId(account.id)
         logic.actions.loadAccountsSuccess([])
 
-        expect(logic.values.accountOptions).toEqual([{ key: account.id, label: account.name }])
+        expect(logic.values.accountOptions).toEqual([
+            { key: account.id, label: `${account.name} (${account.external_id})` },
+        ])
     })
 
     it('filters product areas by name without changing the available areas', () => {
@@ -214,6 +248,8 @@ describe('featureRequestsLogic', () => {
             previous: null,
             results: [createdRequest],
         })
+        await expectLogic(logic, () => logic.actions.setCreatedByFilter([1, 2])).toFinishAllListeners()
+        listSpy.mockClear()
 
         await expectLogic(logic, () => logic.actions.setFeatureRequestsPage(2))
             .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
@@ -225,6 +261,7 @@ describe('featureRequestsLogic', () => {
                 limit: FEATURE_REQUESTS_PAGE_SIZE,
                 offset: FEATURE_REQUESTS_PAGE_SIZE,
                 archive_state: 'active',
+                created_by_ids: [1, 2],
                 request_ordering: '-updated_at',
             })
         )
@@ -240,6 +277,7 @@ describe('featureRequestsLogic', () => {
             priority: 'high,none',
             product_area: 'area-1,area-2',
             account: 'account-1',
+            created_by: '1,2,invalid,-3',
             archive: 'all',
             sort: 'title',
             page: '3',
@@ -251,6 +289,7 @@ describe('featureRequestsLogic', () => {
             priorityFilter: ['high', 'none'],
             productAreaFilter: ['area-1', 'area-2'],
             accountFilter: ['account-1'],
+            createdByFilter: [1, 2],
             archiveState: 'all',
             requestOrdering: 'title',
             featureRequestsPage: 3,
@@ -261,6 +300,7 @@ describe('featureRequestsLogic', () => {
             priority: 'high,none',
             product_area: 'area-1,area-2',
             account: 'account-1',
+            created_by: '1,2',
             archive: 'all',
             sort: 'title',
             page: '3',
@@ -290,7 +330,48 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.editIsStale).toBe(false)
     })
 
-    it('adds evidence to the selected account link and refreshes request state', async () => {
+    it('uploads selected evidence images into the draft', async () => {
+        const uploadSpy = jest.spyOn(uploadFiles, 'uploadFile').mockResolvedValue({
+            id: 'image-1',
+            image_location: '/uploaded_media/image-1',
+            name: 'request.png',
+        })
+        const file = new File(['image'], 'request.png', { type: 'image/png' })
+
+        await expectLogic(logic, () => logic.actions.uploadEvidenceImages([file])).toFinishAllListeners()
+
+        expect(uploadSpy).toHaveBeenCalledWith(file)
+        expect(logic.values.evidenceImageIds).toEqual(['image-1'])
+        expect(logic.values.evidenceFilesToUpload).toEqual([])
+        expect(logic.values.uploadingEvidenceImages).toBe(false)
+    })
+
+    it('does not attach an upload to a replacement evidence draft', async () => {
+        let resolveUpload: (image: { id: string; image_location: string; name: string }) => void = () => undefined
+        jest.spyOn(uploadFiles, 'uploadFile').mockReturnValue(
+            new Promise((resolve) => {
+                resolveUpload = resolve
+            })
+        )
+        const file = new File(['image'], 'request.png', { type: 'image/png' })
+        const replacementAccountLink = {
+            ...createdRequest.account_links[0],
+            id: 'account-link-2',
+            account: { id: 'account-2', name: 'Globex' },
+        }
+        logic.actions.openNewEvidence(createdRequest.account_links[0])
+
+        logic.actions.uploadEvidenceImages([file])
+        logic.actions.openNewEvidence(replacementAccountLink)
+        resolveUpload({ id: 'image-1', image_location: '/uploaded_media/image-1', name: file.name })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.evidenceAccountLinkId).toBe(replacementAccountLink.id)
+        expect(logic.values.evidenceImageIds).toEqual([])
+        expect(logic.values.uploadingEvidenceImages).toBe(false)
+    })
+
+    it('adds image-only evidence and gathers its images for the request', async () => {
         const evidenceRequest: FeatureRequestApi = {
             ...createdRequest,
             version: 2,
@@ -300,11 +381,12 @@ describe('featureRequestsLogic', () => {
                     evidence: [
                         {
                             id: 'evidence-1',
-                            summary: 'Acme needs weekly exports.',
+                            summary: '',
                             customer_quote: '',
                             evidence_source: 'conversation',
                             source_url: '',
                             requested_on: null,
+                            image_ids: ['image-1'],
                             created_by: 1,
                             updated_by: 1,
                             created_at: '2026-01-02T00:00:00Z',
@@ -318,20 +400,28 @@ describe('featureRequestsLogic', () => {
         await expectLogic(logic, () => logic.actions.setActiveRequestId(createdRequest.id)).toFinishAllListeners()
         logic.actions.loadActiveRequestSuccess(createdRequest)
         logic.actions.openNewEvidence(createdRequest.account_links[0])
-        logic.actions.setEvidenceSummary('Acme needs weekly exports.')
+        logic.actions.evidenceImageUploaded('image-1')
 
         await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
 
         expect(addSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), createdRequest.id, {
             expected_version: 1,
             account_link_id: 'account-link-1',
-            summary: 'Acme needs weekly exports.',
+            summary: '',
             customer_quote: '',
             evidence_source: 'conversation',
             source_url: '',
             requested_on: null,
+            image_ids: ['image-1'],
         })
         expect(logic.values.activeRequest).toEqual(evidenceRequest)
+        expect(logic.values.activeRequestImages).toEqual([
+            {
+                imageId: 'image-1',
+                account: evidenceRequest.account_links[0].account,
+                evidence: evidenceRequest.account_links[0].evidence[0],
+            },
+        ])
         expect(logic.values.evidenceModalOpen).toBe(false)
         expect(logic.values.savingEvidence).toBe(false)
     })
@@ -341,6 +431,7 @@ describe('featureRequestsLogic', () => {
             ...account,
             id: 'account-2',
             name: 'Globex',
+            external_id: 'cust_globex_001',
         }
         const updatedRequest: FeatureRequestApi = {
             ...createdRequest,
@@ -358,6 +449,7 @@ describe('featureRequestsLogic', () => {
                             evidence_source: 'meeting',
                             source_url: '',
                             requested_on: null,
+                            image_ids: [],
                             created_by: 1,
                             updated_by: 1,
                             created_at: '2026-01-03T00:00:00Z',
@@ -379,7 +471,9 @@ describe('featureRequestsLogic', () => {
         logic.actions.setAddAccountId(otherAccount.id)
         logic.actions.setEvidenceSummary('Globex needs a weekly export.')
         logic.actions.setEvidenceSource('meeting')
-        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
+        expect(logic.values.addAccountOptions).toEqual([
+            { key: otherAccount.id, label: `${otherAccount.name} (${otherAccount.external_id})` },
+        ])
 
         await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
 
@@ -392,6 +486,7 @@ describe('featureRequestsLogic', () => {
                 evidence_source: 'meeting',
                 source_url: '',
                 requested_on: null,
+                image_ids: [],
             },
         })
         expect(logic.values.activeRequest).toEqual(updatedRequest)
@@ -406,6 +501,7 @@ describe('featureRequestsLogic', () => {
             evidence_source: 'conversation',
             source_url: '',
             requested_on: '2026-01-03',
+            image_ids: [],
             created_by: 1,
             updated_by: 1,
             created_at: '2026-01-03T00:00:00Z',

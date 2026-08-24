@@ -9,6 +9,7 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
 use uuid::Uuid;
 
+use crate::modes::processing::redis_heal::HealGate;
 use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
@@ -43,6 +44,8 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    // Debounces heal-task spawns for the issue-buckets client (see redis_heal).
+    pub issue_buckets_heal_gate: HealGate,
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
     pub rate_limiter: Option<Arc<RedisRateLimiter>>,
@@ -188,6 +191,7 @@ impl AppContext {
             process_request_limiter,
             team_manager,
             issue_buckets_redis_client,
+            issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
             issue_cache,

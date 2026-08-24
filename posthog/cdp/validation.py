@@ -35,6 +35,27 @@ MAX_WORKFLOW_EMAIL_SENDERS = 10
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
 MASKED_SECRET_VALUE = "********"
 
+
+def masked_secret_input_keys(stored_inputs: object) -> list[str]:
+    """Input keys whose stored secret is the mask rather than a real credential.
+
+    Such an input authenticates against nothing, and the original value is gone, so only the
+    owner can restore it. The match cannot be a SQL predicate: the storage column is Fernet
+    encrypted, and Fernet embeds a random IV, so the same plaintext encrypts differently every
+    write. Callers have to decrypt and inspect.
+
+    A row encrypted under a key we no longer hold decrypts to the raw ciphertext string rather
+    than a dict, because the field swallows the failure, so the shape is checked, not assumed.
+    """
+    if not isinstance(stored_inputs, dict):
+        return []
+    return sorted(
+        key
+        for key, entry in stored_inputs.items()
+        if isinstance(entry, dict) and entry.get("value") == MASKED_SECRET_VALUE
+    )
+
+
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
@@ -742,6 +763,11 @@ class InputsSerializer(serializers.DictField):
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
 
+            if value == {} and schema.get("required") and schema.get("default") is not None:
+                # The destination editor pre-fills defaults from the template schema, but callers that
+                # build inputs by hand cannot, so a required input with a default would reject them.
+                value = {"value": schema["default"]}
+
             self.context["schema"] = schema
 
             # Propagate templating from schema to input item, if set
@@ -801,9 +827,14 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+        choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -851,8 +882,8 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
             data.pop("data_warehouse", None)
 
-        if data.get("source") == "data-warehouse-table":
-            # Don't allow events or actions for data-warehouse-table
+        if data.get("source") in DATA_WAREHOUSE_SOURCES:
+            # Don't allow events or actions for warehouse sources
             data.pop("events", None)
             data.pop("actions", None)
 

@@ -1,3 +1,4 @@
+import { isShowActionsCall } from "@posthog/core/sessions/showActions";
 import { useServiceOptional } from "@posthog/di/react";
 import { readAgentToolName, readMcpToolName } from "@posthog/shared";
 import { DeleteToolView } from "@posthog/ui/features/sessions/components/session-update/DeleteToolView";
@@ -11,7 +12,10 @@ import { ReadToolView } from "@posthog/ui/features/sessions/components/session-u
 import { SearchToolView } from "@posthog/ui/features/sessions/components/session-update/SearchToolView";
 import { ThinkToolView } from "@posthog/ui/features/sessions/components/session-update/ThinkToolView";
 import { ToolCallView } from "@posthog/ui/features/sessions/components/session-update/ToolCallView";
-import type { ToolViewProps } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
+import {
+  type ToolViewProps,
+  useToolCallStatus,
+} from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Box } from "@radix-ui/themes";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
@@ -23,6 +27,7 @@ import {
   type McpToolBlockComponent,
 } from "./identifiers";
 import { isUploadArtifactCall, readCreatedPrUrl } from "./inlineArtifacts";
+import { ShowActionsRow } from "./ShowActionsRow";
 import { SubagentToolView } from "./SubagentToolView";
 
 interface ToolCallBlockProps extends ToolViewProps {
@@ -43,6 +48,11 @@ export function ToolCallBlock({
   const toolName = readAgentToolName(toolCall._meta);
   const mcpToolName = readMcpToolName(toolCall._meta);
   const chatChrome = useChatThreadChrome();
+  const { isComplete } = useToolCallStatus(
+    toolCall.status,
+    turnCancelled,
+    turnComplete,
+  );
 
   if (toolName === "EnterPlanMode") {
     return null;
@@ -57,6 +67,18 @@ export function ToolCallBlock({
       <Box className={chatChrome ? "" : "pl-3"}>
         <UploadedArtifactCard {...props} />
       </Box>
+    );
+  }
+
+  // The buttons are the point of the call, not a step it took, so a completed
+  // call takes the row instead of a tool header the user would have to expand.
+  // A denied, failed, or cancelled call falls through to the standard view,
+  // which shows why it failed rather than live buttons the block never stopped.
+  if (isShowActionsCall(toolCall._meta) && isComplete) {
+    return (
+      <div className={chatChrome ? "my-1" : "my-1 pl-3"}>
+        <ShowActionsRow {...props} />
+      </div>
     );
   }
 

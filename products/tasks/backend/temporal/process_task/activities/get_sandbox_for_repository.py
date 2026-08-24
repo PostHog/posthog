@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
@@ -152,13 +153,14 @@ class GetSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class GetSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
+    jwt_kid: str | None = None
     agent_server_launched: bool = False
     boot_path: str = "classic"
     image_source: str | None = None

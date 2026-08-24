@@ -942,6 +942,8 @@ export interface ErrorTrackingIssueDetailApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -1356,6 +1358,8 @@ export interface ErrorTrackingIssueListItemApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -1941,6 +1945,39 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     force?: boolean
     /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
     skip_on_conflict?: boolean
+}
+
+/**
+ * Form fields to include in the multipart POST, before the file part.
+ */
+export type ErrorTrackingSymbolSetPresignedPostApiFields = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetPresignedPostApi {
+    /** S3 endpoint URL to send the multipart POST to. */
+    url: string
+    /** Form fields to include in the multipart POST, before the file part. */
+    fields: ErrorTrackingSymbolSetPresignedPostApiFields
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadEntryApi {
+    /** ID of the symbol set the upload belongs to. */
+    symbol_set_id: string
+    /** Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured. */
+    presigned_url: ErrorTrackingSymbolSetPresignedPostApi
+    /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
+    fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPostApi
+}
+
+/**
+ * Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.
+ */
+export type ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap = {
+    [key: string]: ErrorTrackingSymbolSetBulkStartUploadEntryApi
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
+    /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
+    id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {

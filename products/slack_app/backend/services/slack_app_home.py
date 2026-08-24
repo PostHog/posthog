@@ -2189,9 +2189,10 @@ def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHu
     deep-links to Personal integrations settings — the same target the
     in-thread "Connect GitHub" prompt uses.
     """
+    from products.slack_app.backend.services.slack_messages import personal_integrations_url
     from products.tasks.backend.facade import api as tasks_facade
 
-    settings_url = f"{settings.SITE_URL.rstrip('/')}/project/{integration.team_id}/settings/user-personal-integrations"
+    settings_url = personal_integrations_url(integration.team_id)
     try:
         user = _resolve_home_user(integration, slack_user_id)
         if user is None:

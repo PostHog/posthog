@@ -119,6 +119,15 @@ MODAL_TOKEN_ID=<token_id>
 MODAL_TOKEN_SECRET=<token_secret>
 ```
 
+> **Docker sandboxes derive the LLM gateway from `SITE_URL`.** It reaches the sandbox as
+> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
+> `host.docker.internal` to the local gateway on 3308. Any other host — an ngrok domain set for
+> Slack or webhook testing, for instance — falls through to the production gateway, which a local
+> run token cannot authenticate against. The failure is silent: the agent boots, sends its first
+> prompt, and idles until its inactivity window closes it, with nothing in the gateway or agent
+> logs. If `SITE_URL` is not localhost, set
+> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` as well.
+
 ### Tunnel gateway, API, and MCP
 
 If you run in a docker sandbox you don't need to do this. If you are testing with Modal sandboxes, since they run in the cloud and can't reach `localhost` directly,

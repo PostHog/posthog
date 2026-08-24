@@ -10,9 +10,17 @@ from prometheus_client import Counter, Histogram
 from redis import Redis, RedisCluster
 
 from posthog.cache_utils import cache_for
+from posthog.dataclasses import frozen
 from posthog.query_cache import storage
 
 logger = structlog.get_logger(__name__)
+
+
+@frozen
+class TeamCacheTotals:
+    total_bytes: int
+    entry_count: int
+
 
 CACHE_EVICTION_COUNTER = Counter(
     "query_cache_size_limit_evictions_total",
@@ -91,7 +99,7 @@ redis.call('EXPIRE', entries_key, tracking_ttl)
 redis.call('EXPIRE', sizes_key, tracking_ttl)
 redis.call('EXPIRE', total_key, tracking_ttl)
 
-return redis.call('GET', total_key)
+return {redis.call('GET', total_key), redis.call('ZCARD', entries_key)}
 """
 
 # Lua script for the pointer swap: replace the entry only while it still holds the exact bytes
@@ -184,7 +192,6 @@ class TeamCacheSizeTracker:
         limit = get_team_cache_limit(self.team_id)
         evicted: list[str] = []
         size_before = self.get_total_size()
-        count_before = self.redis_client.zcard(self.entries_key)
 
         # Race condition: between this check and the write below, other requests may write,
         # causing the total to exceed the limit. This is corrected on subsequent writes.
@@ -192,21 +199,18 @@ class TeamCacheSizeTracker:
             evicted = self.evict_until_under_limit(limit, data_size)
 
         self.redis_client.set(storage.entry_redis_key(cache_key), data, ex=ttl)
-        self.track_cache_write(cache_key, data_size)
+        totals = self.track_cache_write(cache_key, data_size)
 
-        total_size = self.get_total_size()
-        entry_count = self.redis_client.zcard(self.entries_key)
-        CACHE_SIZE_HISTOGRAM.observe(total_size)
+        CACHE_SIZE_HISTOGRAM.observe(totals.total_bytes)
 
         logger.info(
             "query_cache_write",
             team_id=self.team_id,
             entry_size=data_size,
             size_before=size_before,
-            size_after=total_size,
+            size_after=totals.total_bytes,
             limit=limit,
-            count_before=count_before,
-            count_after=entry_count,
+            count_after=totals.entry_count,
             evicted_count=len(evicted),
         )
 
@@ -228,13 +232,14 @@ class TeamCacheSizeTracker:
         self.track_cache_write(cache_key, len(data))
         return True
 
-    def track_cache_write(self, cache_key: str, size_bytes: int) -> None:
-        """Track a cache write with its size. Atomic via Lua script."""
+    def track_cache_write(self, cache_key: str, size_bytes: int) -> "TeamCacheTotals":
+        """Track a cache write with its size, returning the team's totals after it. Atomic via Lua script."""
         tracking_ttl = settings.CACHED_RESULTS_TTL + 86400
-        self._track_write_script(
+        total_bytes, entry_count = self._track_write_script(
             keys=[self.entries_key, self.sizes_key, self.total_key],
             args=[cache_key, size_bytes, time.time(), tracking_ttl],
         )
+        return TeamCacheTotals(total_bytes=int(total_bytes), entry_count=int(entry_count))
 
     def get_total_size(self) -> int:
         return int(self.redis_client.get(self.total_key) or 0)

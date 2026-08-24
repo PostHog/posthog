@@ -236,7 +236,7 @@ export function ImportConfigStep({ onNext, onBack }: ImportConfigStepProps) {
             <ArrowLeft size={16} weight="bold" />
             Back
           </Button>
-          <Button size="3" onClick={onNext}>
+          <Button size="3" onClick={() => onNext()}>
             Continue
             <ArrowRight size={16} weight="bold" />
           </Button>

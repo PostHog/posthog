@@ -47,6 +47,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED'
         >
     ) {
         this.sanitizer = createInvocationSanitizer(config)
@@ -92,6 +93,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
+            priorityDequeue: this.config.CDP_EMAIL_PRIORITY_DEQUEUE_ENABLED,
         })
 
         await this.worker.connect(async (jobs) => {
@@ -222,6 +224,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                         personId: extractPersonId(result.invocation),
                         actionId: extractActionId(result.invocation),
                         queueName: result.invocation.queue,
+                        // Persisted only across email-queue transitions: entering carries the
+                        // class routeEmailToQueue assigned, leaving restores the origin
+                        // priority. Elsewhere the row keeps its insert-time priority, so the
+                        // in-memory retry bumps on other queues stay unpersisted as before.
+                        priority:
+                            result.invocation.queue === 'email' || job.queueName === 'email'
+                                ? result.invocation.queuePriority
+                                : undefined,
                     })
                 }
             })

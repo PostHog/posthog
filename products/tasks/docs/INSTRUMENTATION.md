@@ -170,6 +170,18 @@ The `tasks-modal-vm-sandbox` payload supports gradual rollout by origin product:
 
 Each percentage uses a stable hash of the origin product and run ID. The same run keeps its runtime choice across activity retries.
 
+### Agent server readiness retry metric
+
+`posthog_tasks_process_agent_server_readiness_retry_total` counts readiness retries that re-enter the start path in the existing sandbox. The start path keeps a process that became healthy between attempts and replaces one that remains unready.
+
+| Label            | Description                                 |
+| ---------------- | ------------------------------------------- |
+| `attempt`        | Temporal activity attempt number            |
+| `outcome`        | `succeeded` or `failed`                     |
+| `boot_path`      | Classic or overlapping clone boot           |
+| `origin_product` | Product that created the task               |
+| `runtime`        | Sandbox runtime, currently `gvisor` or `vm` |
+
 ### `task_run_cancelled`
 
 Tracked when the workflow is cancelled via `CancelledError`.

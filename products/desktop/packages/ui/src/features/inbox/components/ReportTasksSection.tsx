@@ -12,7 +12,7 @@ interface ReportTasksSectionProps {
 
 /**
  * Slim Runs caption + one row per linked task. Each row opens the run
- * detail at `/code/inbox/runs/$reportId` — the run view is where the task
+ * detail at `/inbox/runs/$reportId` — the run view is where the task
  * log lives, this section is the doorway.
  */
 export function ReportTasksSection({ report }: ReportTasksSectionProps) {
@@ -30,7 +30,7 @@ export function ReportTasksSection({ report }: ReportTasksSectionProps) {
             purposeLabel={purposeLabel}
             onOpen={() =>
               navigate({
-                to: "/code/inbox/runs/$reportId",
+                to: "/inbox/runs/$reportId",
                 params: { reportId: report.id },
               })
             }

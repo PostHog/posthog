@@ -40,6 +40,17 @@ if TYPE_CHECKING:
 
 _REDSHIFT_IMPLEMENTATION = RedshiftImplementation()
 
+# sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
+# can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
+# down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
+# replace it with concrete guidance (the sibling SQL sources already do the same).
+_SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+    "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are "
+    "correct, the bastion host is running and reachable, and that PostHog's IP addresses are "
+    "allowed through its firewall."
+)
+
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
@@ -217,9 +228,12 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             capture_exception(e)
             return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
+            raw = e.value or ""
+            if _SSH_GATEWAY_SESSION_ERROR in raw:
+                return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
             return (
                 False,
-                e.value
+                raw
                 or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:

@@ -7,10 +7,13 @@ import {
 import {
   ANY_SOURCE,
   type ChannelItemFilters,
+  type ChannelItemGrouping,
   type ChannelItemModel,
   type ChannelItemSort,
+  channelItemSortEvent,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
   filterChannelItems,
   groupChannelItems,
@@ -18,6 +21,7 @@ import {
   PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
+import { getCanvasCellId } from "@posthog/core/command-center/grid";
 import {
   Button,
   cn,
@@ -35,6 +39,7 @@ import {
   TabsTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ChannelBackRow } from "@posthog/ui/features/canvas/components/ChannelBackRow";
 import { ChannelFilterMenu } from "@posthog/ui/features/canvas/components/ChannelFilterMenu";
@@ -52,8 +57,12 @@ import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useCh
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
-import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
+import {
+  placeCanvasInCommandCenter,
+  placeTaskInCommandCenter,
+} from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
@@ -66,6 +75,7 @@ import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSele
 import { usePinDrag } from "@posthog/ui/features/sidebar/usePinDrag";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
+import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "framer-motion";
@@ -80,6 +90,27 @@ import {
 
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
+
+function commandCenterAssigner(item: ChannelItemModel): () => void {
+  return () => {
+    if (item.kind === "canvas") {
+      placeCanvasInCommandCenter(item.id, item.title);
+    } else {
+      placeTaskInCommandCenter(item.id, item.title);
+    }
+  };
+}
+
+function isInCommandCenter(
+  item: ChannelItemModel,
+  commandCenterCells: readonly (string | null)[],
+): boolean {
+  return commandCenterCells.some((cell) =>
+    item.kind === "canvas"
+      ? getCanvasCellId(cell) === item.id
+      : cell === item.id,
+  );
+}
 
 /** The list holds two kinds of thing, and shows one of them at a time. */
 type ChannelTab = ChannelItemModel["kind"];
@@ -101,6 +132,9 @@ function RecentSectionHeader({
   onClearFilters,
   sort,
   onSortChange,
+  grouping,
+  onGroupingChange,
+  onEditAppearance,
   sources,
   showCreatedBy,
   showRunFilters,
@@ -120,6 +154,9 @@ function RecentSectionHeader({
   onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
+  grouping: ChannelItemGrouping;
+  onGroupingChange: (grouping: ChannelItemGrouping) => void;
+  onEditAppearance: () => void;
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
@@ -171,6 +208,9 @@ function RecentSectionHeader({
           onClearFilters={onClearFilters}
           sort={sort}
           onSortChange={onSortChange}
+          grouping={grouping}
+          onGroupingChange={onGroupingChange}
+          onEditAppearance={onEditAppearance}
           sources={sources}
           showCreatedBy={showCreatedBy}
           showRunFilters={showRunFilters}
@@ -311,6 +351,23 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     DEFAULT_CHANNEL_ITEM_FILTERS,
   );
   const [sort, setSort] = useState<ChannelItemSort>(DEFAULT_CHANNEL_ITEM_SORT);
+  const [rawGrouping, setGrouping] = useState<ChannelItemGrouping>(
+    DEFAULT_CHANNEL_ITEM_GROUPING,
+  );
+  // Canvases carry no repository, so grouping by one would file the whole tab
+  // under a single heading. Neutralised as well as hidden, the way the run
+  // filters above are.
+  const grouping = tab === "canvas" ? "date" : rawGrouping;
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const changeGrouping = (next: ChannelItemGrouping) => {
+    if (next === grouping) return;
+    setGrouping(next);
+    track(ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED, {
+      group_by: next,
+      sort_by: channelItemSortEvent(sort),
+      surface: "space",
+    });
+  };
   // Every session in #me is yours, so the author filter has nothing to sort by.
   // The state survives a space switch, so the value is neutralised here as well
   // as hidden — otherwise "Other people" carried in from a shared space would
@@ -360,7 +417,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   }, [isPersonalChannel, rawFilters, sources, tab]);
   const filtersActive = hasActiveChannelItemFilters(filters);
 
-  const base = `/website/${channelId}`;
+  const base = `/spaces/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
   // navigating doesn't rebuild the list.
   const activeKey = useMemo(() => {
@@ -386,8 +443,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // midnight even when the list itself hasn't changed for hours.
   const dayStart = useLocalDayStart();
   const sections = useMemo(
-    () => groupChannelItems(recentItems, sort, new Date(dayStart)),
-    [recentItems, sort, dayStart],
+    () => groupChannelItems(recentItems, sort, new Date(dayStart), grouping),
+    [recentItems, sort, dayStart, grouping],
   );
 
   const pinnedSection = sections.find(
@@ -492,9 +549,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     actions.open(item);
   };
 
-  const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
-    placeTaskInCommandCenter(taskId, taskTitle);
-
   const rowTransition = prefersReducedMotion
     ? { duration: 0 }
     : {
@@ -590,12 +644,11 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           onRename={
             item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
           }
-          // Undefined disables the menu item: a full command centre has nowhere to
-          // put the task, and an action that silently does nothing is worse than a
-          // greyed-out one.
+          // Undefined disables the menu item when this item is already present;
+          // duplicating the same task or canvas would make the grid ambiguous.
           onAddToCommandCenter={
-            item.kind === "task" && !commandCenterCells.includes(item.id)
-              ? commandCenterAssigner(item.id, item.title)
+            !isInCommandCenter(item, commandCenterCells)
+              ? commandCenterAssigner(item)
               : undefined
           }
           onEditSubmit={
@@ -644,7 +697,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-border border-t pt-1">
+    <div className="flex h-full min-h-0 flex-col">
       <ChannelBackRow channelId={channelId} />
 
       <div className="flex flex-col gap-px px-2 pt-2">
@@ -656,7 +709,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           isActive={pathname === `${base}/new`}
           onClick={() =>
             void navigate({
-              to: "/website/$channelId/new",
+              to: "/spaces/$channelId/new",
               params: { channelId },
             })
           }
@@ -668,14 +721,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           "home",
           base,
           () =>
-            void navigate({ to: "/website/$channelId", params: { channelId } }),
+            void navigate({ to: "/spaces/$channelId", params: { channelId } }),
         )}
         {sectionRow(
           "context",
           `${base}/context`,
           () =>
             void navigate({
-              to: "/website/$channelId/context",
+              to: "/spaces/$channelId/context",
               params: { channelId },
             }),
         )}
@@ -685,7 +738,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             `${base}/loops`,
             () =>
               void navigate({
-                to: "/website/$channelId/loops",
+                to: "/spaces/$channelId/loops",
                 params: { channelId },
               }),
           )}
@@ -721,6 +774,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
               onClearFilters={() => setFilters(DEFAULT_CHANNEL_ITEM_FILTERS)}
               sort={sort}
               onSortChange={setSort}
+              grouping={grouping}
+              onGroupingChange={changeGrouping}
+              onEditAppearance={() => setAppearanceOpen(true)}
               sources={sources}
               showCreatedBy={!isPersonalChannel}
               showRunFilters={tab === "task"}
@@ -805,6 +861,13 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           y={pinDrag.previewY}
         />
       ) : null}
+      {/* The list owns the dialog, as it owns every other piece of this
+          surface's state; the menu only asks for it to open. */}
+      <EditListItemAppearanceDialog
+        surface="space"
+        open={appearanceOpen}
+        onOpenChange={setAppearanceOpen}
+      />
     </div>
   );
 }

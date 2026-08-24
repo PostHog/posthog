@@ -115,6 +115,7 @@ function getTokenAndDistinctId(input: EventSubpipelineInput): string {
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
+    CFeed extends object = Record<never, never>,
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
@@ -202,6 +203,7 @@ export function createJoinedIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    pipelineWritesPersons: true,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.
@@ -230,6 +232,6 @@ export function createJoinedIngestionPipeline<
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )
-            .build()
+            .build<CFeed>()
     )
 }

@@ -51,6 +51,12 @@ export const consumerBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
+export const consumerPolls = new Counter({
+    name: 'kafka_consumer_polls_total',
+    help: 'Number of completed Kafka polls, including empty polls',
+    labelNames: ['topic', 'groupId'],
+})
+
 // v2-only metrics — kept here for symmetry. v1 doesn't reference these.
 
 export const consumerDrainDuration = new Histogram({

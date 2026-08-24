@@ -70,6 +70,8 @@ export interface ArtifactPayload {
   version: number;
   /** Names the run whose artifact tab can open this; null on rows that predate it. */
   runId: string | null;
+  referenceType: string | null;
+  objectKind: string | null;
 }
 
 export interface CanvasCreatedPayload {
@@ -155,6 +157,8 @@ function artifactPayload(payload: Record<string, unknown>): ArtifactPayload {
     artifactType: str(payload.artifact_type),
     version: num(payload.version, 1),
     runId: optionalStr(payload.run_id),
+    referenceType: optionalStr(payload.reference_type),
+    objectKind: optionalStr(payload.object_kind),
   };
 }
 
@@ -226,7 +230,12 @@ export function parseActivityEvent(message: {
     case "artifact_created":
     case "artifact_revised": {
       const parsed = artifactPayload(payload);
-      return RUN_ARTIFACT_TYPES_WITHOUT_TIMELINE_EVENTS.has(parsed.artifactType)
+      const visiblePostHogReference =
+        parsed.artifactType === "reference" &&
+        parsed.referenceType === "posthog_object";
+      return RUN_ARTIFACT_TYPES_WITHOUT_TIMELINE_EVENTS.has(
+        parsed.artifactType,
+      ) && !visiblePostHogReference
         ? null
         : { kind: event, payload: parsed };
     }
@@ -294,10 +303,24 @@ export function parseActivityEvent(message: {
   }
 }
 
-/** "owner/repo#12" when the event knows both, else the bare url. */
+const GITHUB_PR_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
+
+/** "owner/repo#12" when the event knows both, else read off the url, else the bare url. */
 export function prLabel(payload: PrPayload): string {
-  if (payload.repository && payload.prNumber !== null) {
-    return `${payload.repository}#${payload.prNumber}`;
-  }
+  const repository = prRepository(payload);
+  const number = payload.prNumber ?? prNumberFromUrl(payload.prUrl);
+  if (repository && number !== null) return `${repository}#${number}`;
   return payload.prUrl;
+}
+
+/** The repository the event names, or the one its url points at. */
+export function prRepository(payload: PrPayload): string | null {
+  if (payload.repository) return payload.repository;
+  const match = GITHUB_PR_URL.exec(payload.prUrl);
+  return match ? `${match[1]}/${match[2]}` : null;
+}
+
+function prNumberFromUrl(url: string): number | null {
+  const match = GITHUB_PR_URL.exec(url);
+  return match ? Number(match[3]) : null;
 }

@@ -94,7 +94,7 @@ export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
 
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is

@@ -16,6 +16,7 @@ import {
   detectRtkBinary,
   isMcpToolReadOnly,
   isNotification,
+  POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
@@ -75,6 +76,7 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
@@ -87,6 +89,7 @@ import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
   AGENT_AUTH_ADAPTER,
@@ -112,7 +115,9 @@ import {
   type ReconnectSessionInput,
   type RtkStatus,
   type SessionResponse,
+  type SideQuestionOutput,
   type StartSessionInput,
+  sideQuestionOutput,
 } from "./schemas";
 
 export type { InterruptReason };
@@ -301,14 +306,24 @@ interface SessionConfig {
   bedrockGatewayVariant?: BedrockGatewayVariant;
 }
 
-/** Pull the adapter's `agentCapabilities._meta.posthog.steering` from initialize. */
-function extractSteeringCapability(init: unknown): string | undefined {
-  const steering = (
+/** Pull the adapter's negotiated `agentCapabilities._meta.posthog` capabilities from initialize. */
+function extractPosthogCapabilities(init: unknown): {
+  steering?: string;
+  sideQuestion?: boolean;
+} {
+  const posthog = (
     init as {
-      agentCapabilities?: { _meta?: { posthog?: { steering?: unknown } } };
+      agentCapabilities?: { _meta?: { posthog?: Record<string, unknown> } };
     }
-  )?.agentCapabilities?._meta?.posthog?.steering;
-  return typeof steering === "string" ? steering : undefined;
+  )?.agentCapabilities?._meta?.posthog;
+  return {
+    steering:
+      typeof posthog?.steering === "string" ? posthog.steering : undefined,
+    sideQuestion:
+      typeof posthog?.sideQuestion === "boolean"
+        ? posthog.sideQuestion
+        : undefined,
+  };
 }
 
 /** A streaming turn emits many events a second; warn once a minute, not per event. */
@@ -330,8 +345,12 @@ interface ManagedSession {
   configOptions?: SessionConfigOption[];
   /** Adapter's negotiated steering capability from initialize (`_meta.posthog.steering`). */
   steering?: string;
+  /** Adapter's negotiated side-question capability from initialize (`_meta.posthog.sideQuestion`). */
+  sideQuestion?: boolean;
   /** Tracks in-flight MCP tool calls (toolCallId → toolKey) for cancellation */
   inFlightMcpToolCalls: Map<string, string>;
+  /** Count of "/btw" side questions awaiting a response, so the idle timer does not reap the session mid-answer. */
+  pendingSideQuestions: number;
   /** MCP tool approval states fetched at session start */
   mcpToolApprovals: McpToolApprovals;
   /** Maps tool keys to their installation for backend approval updates */
@@ -588,7 +607,11 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private killIdleSession(taskRunId: string): void {
     const session = this.sessions.get(taskRunId);
     if (!session) return;
-    if (session.promptPending || session.inFlightMcpToolCalls.size > 0) {
+    if (
+      session.promptPending ||
+      session.inFlightMcpToolCalls.size > 0 ||
+      session.pendingSideQuestions > 0
+    ) {
       this.recordActivity(taskRunId);
       return;
     }
@@ -616,6 +639,44 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
+  /**
+   * Local mirror of the cloud sandbox wiki mount: clone the org's context wiki
+   * and return it as an explicit per-session value the harness adapters set on
+   * their own subprocess env — never via shared process.env, where concurrent
+   * session starts would race and could leak one session's publish token into
+   * another. Best-effort — sessions start without a wiki on any failure. The
+   * token doubles as POSTHOG_PERSONAL_API_KEY so the wiki's pinned
+   * scripts/publish can land edits locally.
+   */
+  private async mountContextWiki(
+    credentials: Credentials,
+  ): Promise<AgentTypes.ContextWikiEnv | null> {
+    const authToken = await this.agentAuthAdapter.gatewayAuthToken();
+    if (!authToken) {
+      return null;
+    }
+    const mount = await prepareContextWiki({
+      apiHost: credentials.apiHost,
+      projectId: credentials.projectId,
+      authenticatedFetch: (input, init) =>
+        this.agentAuthAdapter.authenticatedFetch(input, init),
+      cacheDir: join(this.storagePaths.appDataPath, "context-wiki"),
+      log: this.log,
+    });
+    if (!mount) {
+      return null;
+    }
+    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
+    // just re-synced it, so it is absent for impersonated sessions (an
+    // impersonation credential must never reach agent subprocesses) and fresh
+    // after any token rotation or account switch.
+    return {
+      path: mount.path,
+      commitsPath: mount.commitsPath,
+      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+    };
+  }
+
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
@@ -626,9 +687,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   ): {
     append: string;
   } {
-    // Overrides replace coding guidance, but rich tags must stay available in every agent response.
+    // Overrides replace task guidance, but product engineering and rich-output rules stay available.
     if (systemPromptOverride) {
-      return { append: appendRichOutputPrompt(systemPromptOverride) };
+      return {
+        append: appendRichOutputPrompt(
+          prependProductEngineerPrompt(systemPromptOverride),
+        ),
+      };
     }
 
     let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
@@ -701,7 +766,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
     }
 
-    return { append: appendRichOutputPrompt(prompt) };
+    return {
+      append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
+    };
   }
 
   async startSession(params: StartSessionInput): Promise<SessionResponse> {
@@ -821,12 +888,17 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
     );
-    await this.agentAuthAdapter.configureProcessEnv({
-      credentials,
-      proxyUrl,
-      claudeCliPath: this.getClaudeCliPath(),
-      rtkEnabled: config.rtkEnabled,
-    });
+    // The wiki mount only needs the auth adapter, so it runs alongside the
+    // env configuration instead of serializing another round-trip before it.
+    const [, contextWiki] = await Promise.all([
+      this.agentAuthAdapter.configureProcessEnv({
+        credentials,
+        proxyUrl,
+        claudeCliPath: this.getClaudeCliPath(),
+        rtkEnabled: config.rtkEnabled,
+      }),
+      this.mountContextWiki(credentials),
+    ]);
 
     const isPreview = taskId === "__preview__";
 
@@ -879,6 +951,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         gatewayUrl: proxyUrl,
+        contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
         codexHome,
@@ -941,10 +1014,11 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         },
       });
       // The adapter advertises whether mid-turn steering folds natively into the
-      // running turn (`steering: "native"`) vs needs cancel+resend. Surface it so
-      // the host gates steer-vs-resend on the negotiated capability, not on a
-      // hardcoded adapter name (codex-acp advertises "interrupt-resend").
-      const steering = extractSteeringCapability(initResult);
+      // running turn (`steering: "native"`) vs needs cancel+resend, and whether
+      // it can answer one-shot "/btw" side questions. Surface both so the host
+      // gates on the negotiated capabilities, not on a hardcoded adapter name
+      // (codex-acp advertises "interrupt-resend").
+      const { steering, sideQuestion } = extractPosthogCapabilities(initResult);
 
       const {
         servers: mcpServers,
@@ -1191,7 +1265,9 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         promptPending: false,
         configOptions,
         steering,
+        sideQuestion,
         inFlightMcpToolCalls: new Map(),
+        pendingSideQuestions: 0,
         mcpToolApprovals: toolApprovals,
         toolInstallations,
         evaluatedPrUrls: new Set(),
@@ -1454,6 +1530,42 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       if (!this.hasActiveSessions()) {
         this.emit(AgentServiceEvent.SessionsIdle, undefined);
       }
+    }
+  }
+
+  /**
+   * Answers a one-shot "/btw" side question via the adapter's SIDE_QUESTION
+   * extension method. Never touches promptPending and never becomes part of
+   * the conversation; it does count as activity (resets the idle-kill timer),
+   * the same way refreshSession does. The exchange runs beside the
+   * conversation (ACP JSON-RPC multiplexes, so this works mid-turn).
+   *
+   * `pendingSideQuestions` keeps the session alive if the idle timer fires
+   * while the extension call is still awaited — otherwise `killIdleSession`
+   * would see no pending prompt and no in-flight tool call and clean up the
+   * session out from under this request.
+   */
+  async sideQuestion(
+    sessionId: string,
+    question: string,
+  ): Promise<SideQuestionOutput> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    session.lastActivityAt = Date.now();
+    this.recordActivity(sessionId);
+    session.pendingSideQuestions++;
+
+    try {
+      const result = await session.clientSideConnection.extMethod(
+        POSTHOG_METHODS.SIDE_QUESTION,
+        { sessionId: getAgentSessionId(session), question },
+      );
+      return sideQuestionOutput.parse(result);
+    } finally {
+      session.pendingSideQuestions--;
     }
   }
 
@@ -2218,6 +2330,7 @@ For git operations while detached:
       channel: session.channel,
       configOptions: session.configOptions,
       steering: session.steering,
+      sideQuestion: session.sideQuestion,
     };
   }
 

@@ -690,7 +690,7 @@ export function formatProductNames(names: string[]): string {
 }
 
 /**
- * Get the consequence message for a product when it exceeds its usage limit
+ * Get the consequence message for a product when it reaches its usage limit
  */
 export function getUsageLimitConsequence(productName: string): string {
     if (productName === 'Data warehouse') {
@@ -709,9 +709,9 @@ export function getUsageLimitConsequence(productName: string): string {
 }
 
 /**
- * Build a consolidated message for products that have exceeded their usage limits
+ * Build a consolidated message for products that have reached their usage limits
  */
-export function buildUsageLimitExceededMessage(
+export function buildUsageLimitReachedMessage(
     products: Array<{ name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
@@ -743,8 +743,8 @@ export function buildUsageLimitExceededMessage(
     }
 
     return {
-        title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
-        message: `You have exceeded the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
+        title: products.length === 1 ? 'Usage limit reached' : 'Usage limits reached',
+        message: `You have reached the usage limit for ${productListText}. Please ${actionText} or ${consequenceText}.`,
     }
 }
 

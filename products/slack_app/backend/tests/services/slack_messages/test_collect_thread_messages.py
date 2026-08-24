@@ -543,3 +543,31 @@ class TestCollectThreadMessages:
 
         with pytest.raises(SlackApiError):
             collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
+
+
+class TestCollectThreadMessagesUntilTs:
+    """A fork reads the thread as it stood when the reader forked it. Without the clip
+    it would answer using messages posted after they stopped looking."""
+
+    def _collect(self, until_ts=None):
+        slack = MagicMock()
+        slack.client.conversations_replies.return_value = {
+            "messages": [
+                {"ts": "1.000", "user": "U1", "text": "first"},
+                {"ts": "2.000", "user": "U1", "text": "forked here"},
+                {"ts": "3.000", "user": "U1", "text": "said afterwards"},
+            ]
+        }
+        integration = MagicMock()
+        with patch(
+            "products.slack_app.backend.services.slack_messages.get_slack_user_info",
+            return_value={"user": {"profile": {"display_name": "mira"}}},
+        ):
+            return collect_thread_messages(slack, integration, "C1", "1.000", None, until_ts=until_ts)
+
+    def test_the_clip_is_inclusive_of_the_forked_message(self):
+        assert [m["text"] for m in self._collect(until_ts="2.000")] == ["first", "forked here"]
+
+    def test_no_bound_reads_the_whole_thread(self):
+        # The mention path passes none — it answers the thread as it stands.
+        assert [m["text"] for m in self._collect()] == ["first", "forked here", "said afterwards"]
