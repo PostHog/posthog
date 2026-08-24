@@ -224,6 +224,7 @@ function App({ devToolbar }: AppProps) {
           className="h-full"
         >
           <AiApprovalScreen
+            organizationId={currentOrg.id}
             orgName={currentOrg?.name ?? null}
             isAdmin={isAdmin}
             banner={<UpdateBanner variant="compact" />}

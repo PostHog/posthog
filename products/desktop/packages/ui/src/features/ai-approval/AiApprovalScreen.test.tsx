@@ -42,7 +42,11 @@ function renderInTheme(isAdmin: boolean) {
   return render(
     <QueryClientProvider client={queryClient}>
       <Theme>
-        <AiApprovalScreen orgName="Acme" isAdmin={isAdmin} />
+        <AiApprovalScreen
+          organizationId="org-id"
+          orgName="Acme"
+          isAdmin={isAdmin}
+        />
       </Theme>
     </QueryClientProvider>,
   );
@@ -67,7 +71,9 @@ describe("AiApprovalScreen", () => {
     await user.click(button);
 
     await waitFor(() =>
-      expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith(),
+      expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith(
+        "org-id",
+      ),
     );
   });
 

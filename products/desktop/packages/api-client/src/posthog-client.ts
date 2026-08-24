@@ -1968,8 +1968,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1981,8 +1981,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async areDesktopBetaTermsAccepted(): Promise<boolean> {
-    const urlPath = `/api/organizations/@current/desktop_beta_terms/`;
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     const response = await this.api.fetcher.fetch({
       method: "get",
@@ -2000,8 +2000,8 @@ export class PostHogAPIClient {
     return data.is_desktop_beta_terms_accepted;
   }
 
-  async acceptDesktopBetaTerms(): Promise<void> {
-    const urlPath = `/api/organizations/@current/desktop_beta_terms/`;
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     const response = await this.api.fetcher.fetch({
       method: "post",
