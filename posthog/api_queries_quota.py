@@ -9,9 +9,17 @@ from datetime import UTC, datetime
 
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+
+# A transient Redis blip is expected here. The paths already fail open, so count it on the
+# Prometheus counter but do not open an error tracking issue for it.
+EXPECTED_REDIS_ERRORS = (RedisConnectionError, RedisTimeoutError)
 
 COUNTER_KEY_PREFIX = "@posthog/api-queries-bytes/"
 # Keys are month-scoped; TTL only has to outlive the month it closes over.
@@ -37,6 +45,8 @@ def increment_api_queries_bytes(org_id: str, bytes_read: int) -> None:
         pipe.incrby(key, bytes_read)
         pipe.expire(key, COUNTER_TTL_SECONDS)
         pipe.execute()
+    except EXPECTED_REDIS_ERRORS:
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="increment").inc()
     except Exception as e:
         API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="increment").inc()
         capture_exception(e)
@@ -46,6 +56,9 @@ def get_api_queries_bytes(org_id: str) -> int:
     try:
         value = get_client().get(_counter_key(org_id, datetime.now(UTC)))
         return int(value) if value else 0
+    except EXPECTED_REDIS_ERRORS:
+        API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read").inc()
+        return 0
     except Exception as e:
         API_QUERIES_QUOTA_ERRORS_COUNTER.labels(op="read").inc()
         capture_exception(e)
