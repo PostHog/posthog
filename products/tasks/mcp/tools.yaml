@@ -104,6 +104,9 @@ tools:
     code-sandbox-pricing-list:
         operation: code_sandbox_pricing_list
         enabled: false
+    desktop-access-retrieve:
+        operation: desktop_access_retrieve
+        enabled: false
     desktop-beta-terms-create:
         operation: desktop_beta_terms_create
         enabled: false

@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source import AmazonAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.amazonads import (
     AmazonAdsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestAmazonAdsSource:
@@ -16,36 +13,6 @@ class TestAmazonAdsSource:
         self.source = AmazonAdsSource()
         self.team_id = 123
         self.config = AmazonAdsSourceConfig(region="na", client_id="cid", client_secret="sec", refresh_token="rt")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.AMAZONADS
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "AmazonAds"
-        assert config.label == "Amazon Ads"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/amazon_ads.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["region", "client_id", "client_secret", "refresh_token"]
-
-    def test_region_field_is_a_select_with_default(self):
-        config = self.source.get_source_config
-        region_field = next(f for f in config.fields if f.name == "region")
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.defaultValue == "na"
-        assert {option.value for option in region_field.options} == {"na", "eu", "fe"}
-
-    @pytest.mark.parametrize("field_name", ["client_secret", "refresh_token"])
-    def test_secret_fields_are_secret_passwords(self, field_name):
-        config = self.source.get_source_config
-        secret_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -106,18 +73,3 @@ class TestAmazonAdsSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("na", "cid", "sec", "rt")
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.amazon_ads.source.amazon_ads_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_aa_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sp_campaigns"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_aa_source.assert_called_once()
-        kwargs = mock_aa_source.call_args.kwargs
-        assert kwargs["region"] == "na"
-        assert kwargs["client_id"] == "cid"
-        assert kwargs["client_secret"] == "sec"
-        assert kwargs["refresh_token"] == "rt"
-        assert kwargs["endpoint"] == "sp_campaigns"

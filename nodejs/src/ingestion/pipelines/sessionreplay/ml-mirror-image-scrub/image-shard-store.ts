@@ -10,6 +10,13 @@ export interface ScrubbedImage {
     bytes: Buffer
 }
 
+export interface ScrubbedUrlImage {
+    hash: string
+    bytes: Buffer
+    sourcePartition: number
+    sourceOffset: number
+}
+
 interface IndexRow {
     pseudoTeam: string
     hash: string
@@ -19,6 +26,9 @@ interface IndexRow {
 }
 
 const INDEX_FORMAT_VERSION = 1
+const URL_SOURCE_PARTITION_METADATA = 'source-partition'
+const URL_SOURCE_OFFSET_METADATA = 'source-offset'
+const URL_WRITE_MAX_ATTEMPTS = 8
 
 const INDEX_SCHEMA = new ParquetSchema({
     format_version: { type: 'INT64', compression: 'SNAPPY' },
@@ -109,4 +119,65 @@ export class ImageShardStore {
         }
         return { shard: shardKey, bytes: offset }
     }
+
+    public async writeUrlImage(image: ScrubbedUrlImage): Promise<void> {
+        if (
+            !Number.isSafeInteger(image.sourcePartition) ||
+            image.sourcePartition < 0 ||
+            !Number.isSafeInteger(image.sourceOffset) ||
+            image.sourceOffset < 0
+        ) {
+            throw new Error('URL image source position must contain non-negative safe integers')
+        }
+        const key = `${this.prefix}/url/${image.hash}`
+        for (let attempt = 0; attempt < URL_WRITE_MAX_ATTEMPTS; attempt++) {
+            try {
+                await this.send(
+                    new PutObjectCommand({
+                        Bucket: this.bucket,
+                        Key: key,
+                        Body: image.bytes,
+                        ContentType: 'application/octet-stream',
+                        Metadata: {
+                            [URL_SOURCE_PARTITION_METADATA]: String(image.sourcePartition),
+                            [URL_SOURCE_OFFSET_METADATA]: String(image.sourceOffset),
+                        },
+                        IfNoneMatch: '*',
+                    })
+                )
+                return
+            } catch (error) {
+                if (isPreconditionFailed(error)) {
+                    return
+                }
+                if (isConditionalRequestConflict(error)) {
+                    continue
+                }
+                throw error
+            }
+        }
+        throw new Error(`URL image ${image.hash} conditional create did not converge`)
+    }
+}
+
+function s3HttpStatus(error: unknown): number | undefined {
+    if (typeof error !== 'object' || error === null) {
+        return undefined
+    }
+    const metadata = (error as { $metadata?: { httpStatusCode?: unknown } }).$metadata
+    return typeof metadata?.httpStatusCode === 'number' ? metadata.httpStatusCode : undefined
+}
+
+function s3ErrorName(error: unknown): string {
+    return typeof error === 'object' && error !== null && typeof (error as { name?: unknown }).name === 'string'
+        ? String((error as { name: string }).name)
+        : ''
+}
+
+function isPreconditionFailed(error: unknown): boolean {
+    return s3HttpStatus(error) === 412 || s3ErrorName(error) === 'PreconditionFailed'
+}
+
+function isConditionalRequestConflict(error: unknown): boolean {
+    return s3HttpStatus(error) === 409 || s3ErrorName(error) === 'ConditionalRequestConflict'
 }

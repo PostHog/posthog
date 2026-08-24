@@ -1,34 +1,44 @@
-import { type TabsSnapshot, tabsSnapshotSchema } from "@posthog/shared";
+import {
+  type TabsSnapshot,
+  tabsSnapshotSchema,
+  tabViewStateSchema,
+} from "@posthog/shared";
 import { z } from "zod";
+
+/**
+ * Where `+` lands, and where an empty strip reseeds. The space index is the
+ * app's "pick something" screen, so a new tab shows the spaces rather than an
+ * empty placeholder.
+ */
+export const NEW_TAB_HREF = "/spaces";
 
 /** tRPC output: the full durable tab/window snapshot. */
 export const browserTabsSnapshotOutput = tabsSnapshotSchema;
 
-export const openOrFocusTabInput = z.object({
-  windowId: z.string(),
+/** The location a tab is on, plus the route-derived label/icon cache. */
+const tabLocationFields = {
+  href: z.string().nullable().default(null),
+  viewState: tabViewStateSchema.nullable().default(null),
   dashboardId: z.string().nullable().default(null),
   taskId: z.string().nullable().default(null),
   channelId: z.string().nullable().default(null),
   channelSection: z.string().nullable().default(null),
   appView: z.string().nullable().default(null),
-  // Renderer-minted id for a tab this call may create, so the optimistic local
-  // apply and the persisted state agree on the id (local-first tab sync).
-  tabId: z.string().optional(),
-});
+};
 
-export const newBlankTabInput = z.object({
+export const openTabInput = z.object({
   windowId: z.string(),
-  // Renderer-minted id (see openOrFocusTabInput.tabId).
+  ...tabLocationFields,
+  // Renderer-minted id for the tab this call creates, so the optimistic local
+  // apply and the persisted state agree on the id (local-first tab sync), and
+  // a replayed call is idempotent.
   tabId: z.string().optional(),
 });
 
 export const setTabTargetInput = z.object({
   tabId: z.string(),
-  dashboardId: z.string().nullable().default(null),
-  taskId: z.string().nullable().default(null),
-  channelId: z.string().nullable().default(null),
-  channelSection: z.string().nullable().default(null),
-  appView: z.string().nullable().default(null),
+  ...tabLocationFields,
+  activate: z.boolean().optional(),
 });
 
 export const closeTabInput = z.object({ tabId: z.string() });

@@ -17,7 +17,7 @@ import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
 import {
   selectActivityItem,
-  useActivityDetailStore,
+  useActivitySelection,
 } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import {
   showChannelList,
@@ -185,7 +185,7 @@ export function ChannelsSidebar() {
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
   const { showsActivityDetail } = useRailSurface();
-  const selectedActivityId = useActivityDetailStore((s) => s.selected?.id);
+  const selectedActivityId = useActivitySelection()?.id;
   const { feedId } = useParams({ strict: false });
   const pane = useChannelPaneStore((s) => s.pane);
   const showList = pane === "list" || currentChannelId == null;

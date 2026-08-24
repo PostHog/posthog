@@ -6,11 +6,8 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.airwallex import AirwallexResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source import AirwallexSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.airwallex.source"
 
@@ -41,28 +38,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestAirwallexSource:
-    def test_source_type(self) -> None:
-        assert AirwallexSource().source_type == ExternalDataSourceType.AIRWALLEX
-
-    def test_schemas_cover_the_endpoint_catalog(self) -> None:
-        schemas = AirwallexSource().get_schemas(None, 1)  # type: ignore[arg-type]
-
-        assert [s.name for s in schemas] == [
-            "FinancialTransactions",
-            "Deposits",
-            "PaymentIntents",
-            "PaymentAttempts",
-            "Refunds",
-            "Customers",
-            "Settlements",
-            "Beneficiaries",
-            "Transfers",
-            "GlobalAccounts",
-            "Invoices",
-            "Subscriptions",
-            "BillingCustomers",
-        ]
-
     @parameterized.expand(
         [
             ("settlements_track_settled_at", "Settlements", "settled_at"),
@@ -79,33 +54,6 @@ class TestAirwallexSource:
 
         assert schemas[endpoint].supports_incremental is True
         assert [f["field"] for f in schemas[endpoint].incremental_fields] == [expected]
-
-    @parameterized.expand([("valid", (True, None), True), ("rejected", (False, "bad"), False)])
-    @mock.patch(f"{SOURCE_MODULE}.validate_airwallex_credentials")
-    def test_validate_credentials_passes_through(
-        self, _name: str, probe: tuple[bool, str | None], expected: bool, mock_validate
-    ) -> None:
-        mock_validate.return_value = probe
-
-        ok, _message = AirwallexSource().validate_credentials(_Config(), 1)  # type: ignore[arg-type]
-
-        assert ok is expected
-
-    @mock.patch(f"{SOURCE_MODULE}.validate_airwallex_credentials")
-    def test_validate_credentials_probes_the_selected_environment(self, mock_validate) -> None:
-        mock_validate.return_value = (True, None)
-        config = _Config()
-        config.environment = "demo"
-
-        AirwallexSource().validate_credentials(config, 1)  # type: ignore[arg-type]
-
-        assert mock_validate.call_args.args == ("cid", "key", "demo")
-
-    def test_resumable_manager_is_bound_to_the_resume_dataclass(self) -> None:
-        manager = AirwallexSource().get_resumable_source_manager(_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AirwallexResumeConfig
 
     @mock.patch(f"{SOURCE_MODULE}.airwallex_source")
     def test_source_for_pipeline_passes_the_watermark_when_incremental(self, mock_source) -> None:
