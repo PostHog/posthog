@@ -31,7 +31,7 @@ describe('AccountRelatedUsersExpansion', () => {
             results: [],
         })
         jest.spyOn(api, 'query').mockResolvedValue({
-            results: [['membership-1', 'Alex', 'Mercer', 'alex+eu@example.com', 'distinct-1']],
+            results: [[42, 'membership-1', 'Alex', 'Mercer', 'alex+eu@example.com', 'distinct-1']],
         } as HogQLQueryResponse)
 
         render(
@@ -40,10 +40,7 @@ describe('AccountRelatedUsersExpansion', () => {
             </Provider>
         )
 
-        const loginButton = await screen.findByText('Log in as')
-        expect(loginButton.closest('a')).toHaveAttribute(
-            'href',
-            'http://localhost/admin/posthog/user/?q=alex%2Beu%40example.com'
-        )
+        const impersonateButton = await screen.findByText('Impersonate')
+        expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
     })
 })

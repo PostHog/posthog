@@ -48,7 +48,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             title: 'Actions',
             key: 'actions',
             render: (_, member) => {
-                const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.email)
+                const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.id)
 
                 return (
                     <LemonButton
@@ -56,13 +56,13 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
                         size="xsmall"
                         to={adminUrl}
                         targetBlank
-                        tooltip="Open this user in admin, where you can log in as them."
+                        tooltip="Open this user in admin to impersonate them."
                         data-attr="customer-analytics-account-user-admin-link"
                         onClick={() =>
                             posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })
                         }
                     >
-                        Log in as
+                        Impersonate
                     </LemonButton>
                 )
             },

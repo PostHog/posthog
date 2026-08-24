@@ -13,6 +13,7 @@ const buildMember = (overrides: Partial<OrganizationMemberType> = {}): Organizat
         id: 'membership-1',
         level: 1,
         user: {
+            id: 1,
             uuid: 'user-uuid-1',
             distinct_id: 'distinct-1',
             first_name: 'Alex',
@@ -84,6 +85,7 @@ describe('accountRelatedUsersLogic', () => {
     })
 
     const buildEuRow = (n: number): unknown[] => [
+        100 + n,
         `eu-m-${n}`,
         `First${n}`,
         `Last${n}`,
@@ -105,12 +107,12 @@ describe('accountRelatedUsersLogic', () => {
             results: [
                 {
                     id: 'eu-m-1',
-                    user: { first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' },
+                    user: { id: 101, first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' },
                     region: Region.EU,
                 },
                 {
                     id: 'eu-m-2',
-                    user: { first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' },
+                    user: { id: 102, first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' },
                     region: Region.EU,
                 },
             ],

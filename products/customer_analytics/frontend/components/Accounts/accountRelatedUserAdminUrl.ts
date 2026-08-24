@@ -6,7 +6,7 @@ const POSTHOG_CLOUD_HOSTNAMES = new Set([CLOUD_HOSTNAMES[Region.US], CLOUD_HOSTN
 
 export function getAccountRelatedUserAdminUrl(
     region: Region.US | Region.EU,
-    email: string,
+    userId: number,
     currentOrigin: string = window.location.origin
 ): string {
     const currentUrl = new URL(currentOrigin)
@@ -14,5 +14,5 @@ export function getAccountRelatedUserAdminUrl(
         ? `https://${CLOUD_HOSTNAMES[region]}`
         : currentUrl.origin
 
-    return `${adminOrigin}/admin/posthog/user/?q=${encodeURIComponent(email)}`
+    return `${adminOrigin}/admin/posthog/user/${userId}/change/`
 }

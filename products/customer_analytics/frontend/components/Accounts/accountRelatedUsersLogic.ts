@@ -45,7 +45,7 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
             kind: NodeKind.HogQLQuery,
             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
             query: hogql`
-                select membership_id, first_name, last_name, email, distinct_id
+                select user_id, membership_id, first_name, last_name, email, distinct_id
                 from eu_org_members
                 where organization_id = ${externalId}
                 order by joined_at desc
@@ -54,12 +54,13 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
         })) as HogQLQueryResponse
         const rows = (response.results ?? []) as unknown[][]
         return rows.map((row) => ({
-            id: String(row[0]),
+            id: String(row[1]),
             user: {
-                first_name: (row[1] as string | null) ?? '',
-                last_name: (row[2] as string | null) ?? '',
-                email: (row[3] as string | null) ?? '',
-                distinct_id: (row[4] as string | null) ?? '',
+                id: Number(row[0]),
+                first_name: (row[2] as string | null) ?? '',
+                last_name: (row[3] as string | null) ?? '',
+                email: (row[4] as string | null) ?? '',
+                distinct_id: (row[5] as string | null) ?? '',
             } as AccountOrganizationMember['user'],
             region: Region.EU,
         }))

@@ -11,8 +11,8 @@ const ADMIN_URL_CASES: [Region.US | Region.EU, string, string][] = [
 
 describe('getAccountRelatedUserAdminUrl', () => {
     test.each(ADMIN_URL_CASES)('opens %s users from %s in %s admin', (region, currentOrigin, expectedAdminOrigin) => {
-        expect(getAccountRelatedUserAdminUrl(region, 'alex+test@example.com', currentOrigin)).toBe(
-            `${expectedAdminOrigin}/admin/posthog/user/?q=alex%2Btest%40example.com`
+        expect(getAccountRelatedUserAdminUrl(region, 42, currentOrigin)).toBe(
+            `${expectedAdminOrigin}/admin/posthog/user/42/change/`
         )
     })
 })
