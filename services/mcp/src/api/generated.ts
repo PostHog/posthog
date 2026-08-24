@@ -30177,6 +30177,16 @@ export namespace Schemas {
       name: string;
     }
 
+    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
+
+
+    export const ErrorTrackingIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export interface ErrorTrackingTopFrame {
       /** Frame function name. */
       function?: string;
@@ -30220,6 +30230,8 @@ export namespace Schemas {
       description?: string | null;
       /** Issue status. */
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * First seen timestamp.
          * @nullable
@@ -30419,6 +30431,8 @@ export namespace Schemas {
       description?: string | null;
       /** Issue status. */
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * First seen timestamp.
          * @nullable
@@ -30489,16 +30503,6 @@ export namespace Schemas {
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
       includeSparkline?: boolean;
     }
-
-    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
-
-
-    export const ErrorTrackingIssueSeverity = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
 
     /**
      * Read-only serializer for issue contract types returned by the facade.
