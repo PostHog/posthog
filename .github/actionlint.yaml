@@ -6,7 +6,6 @@ self-hosted-runner:
         - depot-ubuntu-24.04-4
         - depot-ubuntu-24.04-8
         - depot-macos-15
-        # GitHub-hosted larger runner (8 vCPU / 32 GB), for fork PRs that must not reach Depot.
         - ubuntu-24.04-8core
 
 # The vendored .github/actions/paths-filter emits one output per filter name at
