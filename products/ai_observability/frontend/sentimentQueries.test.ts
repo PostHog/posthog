@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import {
     fetchSentimentGenerationsPage,
@@ -281,5 +282,40 @@ describe('sentimentQueries', () => {
         expect(page.hasMore).toBe(false)
         expect(mockApi.queryHogQL).toHaveBeenCalledTimes(4)
         expect(mockApi.queryHogQL.mock.calls[2][0]).toContain('OFFSET 200')
+    })
+
+    it('stops walking candidates that never hydrate and reports there is more to load', async () => {
+        mockApi.queryHogQL.mockImplementation(((query: string) =>
+            Promise.resolve(
+                query.includes('evaluation_id')
+                    ? { columns: candidateColumns, results: candidateRows(200) }
+                    : { columns: generationColumns, results: [] }
+            )) as unknown as typeof api.queryHogQL)
+
+        const page = await fetchSentimentGenerationsPage(queryValues, 0)
+
+        expect(page.generations).toEqual([])
+        expect(page.hasMore).toBe(true)
+        // Five passes of two dependent queries each, rather than an open-ended chain
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(10)
+    })
+
+    it('retries a transient query failure instead of failing the whole load', async () => {
+        mockApi.queryHogQL
+            .mockRejectedValueOnce(new ApiError('Queries are a little too busy right now', 503))
+            .mockResolvedValueOnce({ columns: candidateColumns, results: candidateRows(1) })
+            .mockResolvedValueOnce({ columns: generationColumns, results: [generationRow(0)] })
+
+        const page = await fetchSentimentGenerationsPage(queryValues, 0)
+
+        expect(page.generations).toHaveLength(1)
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(3)
+    })
+
+    it('gives up immediately on a failure a retry cannot fix', async () => {
+        mockApi.queryHogQL.mockRejectedValue(new ApiError('Invalid query', 400))
+
+        await expect(fetchSentimentGenerationsPage(queryValues, 0)).rejects.toThrow('Invalid query')
+        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
     })
 })

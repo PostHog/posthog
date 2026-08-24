@@ -5,6 +5,7 @@ import { IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
@@ -261,6 +262,29 @@ function SentimentControls(): JSX.Element {
     )
 }
 
+/** Shown when a load failed and there is nothing on screen to fall back to. */
+function SentimentLoadError({ detail }: { detail: string }): JSX.Element {
+    const { generationsLoading } = useValues(aiObservabilitySentimentLogic)
+    const { loadGenerations } = useActions(aiObservabilitySentimentLogic)
+
+    return (
+        <div className="flex flex-col items-center justify-center text-center py-20 text-muted">
+            <p className="text-lg font-medium mb-1 text-default">Couldn't load sentiment evaluation results</p>
+            <p className="text-sm max-w-xl mb-4">{detail}</p>
+            <LemonButton
+                type="primary"
+                icon={<IconRefresh />}
+                onClick={() => loadGenerations()}
+                loading={generationsLoading}
+                disabledReason={generationsLoading ? 'Loading results' : undefined}
+                data-attr="llma-sentiment-retry"
+            >
+                Try again
+            </LemonButton>
+        </div>
+    )
+}
+
 function SentimentEvaluationOnboarding(): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center text-center py-20 text-muted">
@@ -299,7 +323,7 @@ export function AIObservabilitySentiment(): JSX.Element {
         expandedCardIds,
         hasMore,
     } = useValues(aiObservabilitySentimentLogic)
-    const { loadMoreGenerations } = useActions(aiObservabilitySentimentLogic)
+    const { loadGenerations, loadMoreGenerations } = useActions(aiObservabilitySentimentLogic)
 
     if (sentimentEvaluationsLoading || !hasLoadedSentimentEvaluations) {
         return (
@@ -326,11 +350,8 @@ export function AIObservabilitySentiment(): JSX.Element {
                 <div className="flex items-center justify-center py-20">
                     <Spinner className="text-4xl" captureTime />
                 </div>
-            ) : generationsError ? (
-                <div className="text-center py-20 text-muted">
-                    <p className="text-lg font-medium mb-1">Failed to load generations</p>
-                    <p className="text-sm">There was an error fetching data. Try refreshing the page.</p>
-                </div>
+            ) : generationsError && generations.length === 0 ? (
+                <SentimentLoadError detail={generationsError} />
             ) : generations.length === 0 ? (
                 <div className="text-center py-20 text-muted">
                     <p className="text-lg font-medium mb-1">No sentiment evaluation results found</p>
@@ -349,6 +370,22 @@ export function AIObservabilitySentiment(): JSX.Element {
                 </div>
             ) : (
                 <>
+                    {generationsError && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-3"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => loadGenerations(),
+                                disabledReason: generationsLoading ? 'Loading results' : undefined,
+                                'data-attr': 'llma-sentiment-retry',
+                            }}
+                        >
+                            Couldn't load the latest sentiment evaluation results, so these may be out of date.{' '}
+                            {generationsError}
+                        </LemonBanner>
+                    )}
+
                     {groupedSentimentCards.length > 0 && (
                         <div className="space-y-2">
                             {groupedSentimentCards.map((group: GroupedSentimentCard) => (

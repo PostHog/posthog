@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
@@ -136,6 +137,14 @@ function captureEngagementEvents(
     }
 }
 
+const GENERIC_LOAD_ERROR = 'Something went wrong while loading sentiment evaluation results.'
+
+/** The query API puts the useful text in `detail`; fall back to the loader's own message. */
+function describeLoadError(error: string, errorObject?: unknown): string {
+    const detail = errorObject instanceof ApiError ? errorObject.detail : null
+    return detail || error || GENERIC_LOAD_ERROR
+}
+
 let lastPageHasMore = false
 let nextGenerationsOffset = 0
 
@@ -158,7 +167,7 @@ export interface aiObservabilitySentimentLogicValues {
     evaluationOptions: LemonSelectOption<string | null>[]
     expandedCardIds: Set<string>
     generations: SentimentGeneration[]
-    generationsError: boolean
+    generationsError: string | null
     generationsLoading: boolean
     groupedSentimentCards: GroupedSentimentCard[]
     hasLoadedOnce: boolean
@@ -260,7 +269,7 @@ export interface aiObservabilitySentimentLogicMeta {
             hasLoadedOnce: boolean,
             generations: SentimentGeneration[],
             generationsLoading: boolean,
-            generationsError: boolean,
+            generationsError: string | null,
             hasMore: boolean
         ) => boolean
     }
@@ -362,11 +371,14 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             },
         ],
         generationsError: [
-            false as boolean,
+            null as string | null,
             {
-                loadGenerations: () => false,
-                loadGenerationsFailure: () => true,
-                loadGenerationsSuccess: () => false,
+                loadGenerations: () => null,
+                loadGenerationsFailure: (_, { error, errorObject }) => describeLoadError(error, errorObject),
+                loadGenerationsSuccess: () => null,
+                loadMoreGenerations: () => null,
+                loadMoreGenerationsFailure: (_, { error, errorObject }) => describeLoadError(error, errorObject),
+                loadMoreGenerationsSuccess: () => null,
             },
         ],
     }),
@@ -531,7 +543,7 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 hasLoadedOnce: boolean,
                 generations: SentimentGeneration[],
                 generationsLoading: boolean,
-                generationsError: boolean,
+                generationsError: string | null,
                 hasMore: boolean
             ): boolean =>
                 hasLoadedSentimentEvaluations &&

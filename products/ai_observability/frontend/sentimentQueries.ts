@@ -1,11 +1,28 @@
 import api from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
+import { retryWithBackoff } from 'lib/utils/async'
 
-import { ProductKey, type RefreshType } from '~/queries/schema/schema-general'
+import { ProductKey, type HogQLQueryResponse, type RefreshType } from '~/queries/schema/schema-general'
 import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import { normalizeSentimentResult, type GenerationSentiment } from './sentimentResults'
 
 export const GENERATIONS_PAGE_SIZE = 200
+
+/**
+ * A page can need several passes when candidates don't hydrate, and each pass runs two dependent
+ * queries. Cap the passes so a poorly hydrating range can't fan out into an open-ended chain where
+ * any single timeout fails the whole load — the caller reports `hasMore` and the user pulls the rest.
+ */
+const MAX_FETCH_PASSES = 5
+
+/** These queries scan a lot, so a busy or briefly overloaded cluster is worth waiting out. */
+const TRANSIENT_QUERY_RETRY = {
+    maxAttempts: 3,
+    initialDelayMs: 500,
+    backoffMultiplier: 2,
+    shouldRetry: isTransientServerError,
+}
 
 export type SentimentCategory = 'negative' | 'positive'
 
@@ -155,6 +172,13 @@ function hasUsableInput(value: unknown): boolean {
     return value !== null && value !== undefined && value !== '' && value !== 'null'
 }
 
+/** Runs a sentiment query, waiting out a busy cluster instead of failing the whole load. */
+function querySentimentHogQL(
+    ...args: Parameters<typeof api.queryHogQL<unknown[][]>>
+): Promise<HogQLQueryResponse<unknown[][]>> {
+    return retryWithBackoff(() => api.queryHogQL<unknown[][]>(...args), TRANSIENT_QUERY_RETRY)
+}
+
 async function queryStoredGenerationSentiments(
     normalizedLookups: GenerationSentimentLookup[],
     source: SentimentQuerySource
@@ -166,7 +190,7 @@ async function queryStoredGenerationSentiments(
         return new Map()
     }
 
-    const response = await api.queryHogQL<unknown[][]>(
+    const response = await querySentimentHogQL(
         hogql`
             SELECT
                 trace_id,
@@ -286,7 +310,7 @@ async function fetchSentimentEvaluationCandidates(
         ? `AND properties.$ai_evaluation_id = ${escapeHogQLString(values.evaluationId)}`
         : ''
 
-    const response = await api.queryHogQL<unknown[][]>(
+    const response = await querySentimentHogQL(
         hogql`
             SELECT
                 evaluation_id,
@@ -359,7 +383,7 @@ async function hydrateSentimentGenerations(
         return new Map()
     }
 
-    const response = await api.queryHogQL<unknown[][]>(
+    const response = await querySentimentHogQL(
         hogql`
             SELECT
                 generation.uuid,
@@ -475,7 +499,13 @@ export async function fetchSentimentGenerationsPage(
     let rawCount = 0
     let hasMore = false
 
-    while (generations.length < GENERATIONS_PAGE_SIZE) {
+    for (let pass = 0; generations.length < GENERATIONS_PAGE_SIZE; pass++) {
+        if (pass >= MAX_FETCH_PASSES) {
+            // Every pass so far consumed a full batch, so there is more to walk — hand it to "Load more"
+            hasMore = true
+            break
+        }
+
         const candidates = await fetchSentimentEvaluationCandidates(values, offset + rawCount, refresh)
         if (candidates.length === 0) {
             break

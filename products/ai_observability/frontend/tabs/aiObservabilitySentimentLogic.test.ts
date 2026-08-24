@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 
@@ -133,5 +134,31 @@ describe('aiObservabilitySentimentLogic', () => {
         expect(logic!.values.hasSentimentEvaluations).toBe(true)
         expect(logic!.values.generations).toEqual([])
         expect(logic!.values.showSentimentEvaluationOnboarding).toBe(false)
+    })
+
+    it('keeps the rows already on screen and surfaces the error when a reload fails', async () => {
+        mockFetchSentimentGenerationsPage.mockResolvedValue({
+            generations: [generationWithSentiment],
+            rawCount: 1,
+            hasMore: false,
+        })
+        mountLogics()
+
+        await expectLogic(logic!, () => {
+            logic!.actions.activate()
+        }).toFinishAllListeners()
+
+        mockFetchSentimentGenerationsPage.mockRejectedValue(
+            new ApiError('Request failed', 504, undefined, {
+                detail: 'Query has hit the max execution time before completing.',
+            })
+        )
+
+        await expectLogic(logic!, () => {
+            logic!.actions.loadGenerations()
+        }).toFinishAllListeners()
+
+        expect(logic!.values.generationsError).toBe('Query has hit the max execution time before completing.')
+        expect(logic!.values.generations).toEqual([generationWithSentiment])
     })
 })
