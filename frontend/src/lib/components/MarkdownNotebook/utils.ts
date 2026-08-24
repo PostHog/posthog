@@ -325,10 +325,11 @@ export function toSerializablePropValue(value: unknown): NotebookPropValue | und
 // whose values markdown can't represent.
 export function getSerializableProps<T extends object>(attributes: T): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Normalize before validating, mirroring how the legacy notebook flow synced attributes.
-        // Otherwise isNotebookPropValue rejects an object holding a single nested `undefined`, and the
-        // key is dropped: a person-property filter's absent `label`/`group_type_index` inside
-        // `query.source.properties` used to fail the guard and take the whole `query` prop with it.
+        // Normalize before validating. isNotebookPropValue rejects an object that holds a nested
+        // `undefined`, so an unnormalized value loses its whole key: a person-property filter with
+        // an absent `label` or `group_type_index` inside `query.source.properties` takes the entire
+        // `query` prop with it. Normalizing first drops those keys, so the guard sees a value
+        // markdown can actually carry.
         const normalized = toSerializablePropValue(value)
         if (normalized !== undefined && isNotebookPropValue(normalized)) {
             props[key] = normalized

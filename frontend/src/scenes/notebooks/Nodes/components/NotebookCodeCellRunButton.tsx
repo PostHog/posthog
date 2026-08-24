@@ -27,7 +27,7 @@ import { getNotebookSqlEditorTabId } from './NotebookSQLEditor'
  */
 export function NotebookCodeCellRunButton({ node, updateProps }: NotebookComponentToolbarProps): JSX.Element | null {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isShared } = useValues(mountedNotebookLogic)
+    const { isShared, canEditNotebook } = useValues(mountedNotebookLogic)
     // Cells persist their own id; a parsed markdown block id is a content fingerprint that drifts
     // as soon as a run writes runId/result, so it is only the fallback for a never-run cell.
     const nodeId = typeof node.props.nodeId === 'string' && node.props.nodeId ? node.props.nodeId : node.id
@@ -47,9 +47,11 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
     const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runNode, interruptRun } = useActions(dataLogic)
 
-    // A public share is read by people the run endpoint won't answer for, so it keeps the results
-    // the notebook was saved with and offers no way to ask for new ones.
-    if (isShared) {
+    // The run endpoint requires editor access on the notebook, so it is offered only to a reader it
+    // will answer for. That excludes a public share, a viewer-level reader, and a history preview,
+    // all of which render this toolbar in view mode. Without the gate they get a control that
+    // returns 403, and a preview would run a version of the code the reader is not editing.
+    if (isShared || !canEditNotebook) {
         return null
     }
 
@@ -60,7 +62,12 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
         const editorLogic = sqlEditorLogic.findMounted({ tabId: getNotebookSqlEditorTabId(nodeId, 'datav2') })
         const overrides: RunNodeOverrides = editorLogic
             ? {
-                  code: editorLogic.values.queryInput?.trim() ? editorLogic.values.queryInput : undefined,
+                  // Pass every string the editor holds, blank included. An editor cleared a render
+                  // ahead of the document holds `''`, which has to reach the blank-code check and
+                  // be rejected. Dropping it here would fall back to the document and run the
+                  // previous query instead. Only `null`, an editor that never took input, defers to
+                  // the document.
+                  code: editorLogic.values.queryInput ?? undefined,
                   connectionId: editorLogic.values.selectedConnectionId ?? null,
                   sendRawQuery: editorLogic.values.sendRawQueryEnabled,
               }

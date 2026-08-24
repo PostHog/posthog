@@ -2,9 +2,9 @@ import { getSerializableProps } from './utils'
 
 describe('getSerializableProps', () => {
     it('preserves a query whose nested filter carries undefined fields, stripping the undefined', () => {
-        // Regression: a completed person-property filter from the DataTable arrives with absent
-        // label/group_type_index as `undefined`. Previously the whole `query` prop was dropped,
-        // so the People table never re-queried when a filter was added.
+        // A completed person-property filter from the DataTable carries an absent
+        // label/group_type_index as `undefined`. The `query` prop has to survive that, or the
+        // People table never re-queries when a filter is added.
         const result = getSerializableProps({
             query: {
                 kind: 'DataTableNode',
