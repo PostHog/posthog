@@ -374,7 +374,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 report_usage,
                 [
                     UsageRecord(
-                        record_id=f"warehouse-sync:{completed_job.id}",
+                        record_id=str(completed_job.id),
                         producer_id="warehouse-sources",
                         team_id=completed_job.team_id,
                         usage_key="warehouse_rows_synced",

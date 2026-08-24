@@ -9,9 +9,9 @@ import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -1038,7 +1038,7 @@ export class LogsIngestionConsumer {
             this.deps.usageBatch?.add(
                 teamId,
                 `${source}_bytes`,
-                `${source}:${teamId}:${now}:bytes`,
+                String(now),
                 this.appSource === 'logs' ? { retention_days: String(stats.retentionDays) } : undefined,
                 stats.bytesAllowed,
                 'bytes'
@@ -1046,7 +1046,7 @@ export class LogsIngestionConsumer {
             this.deps.usageBatch?.add(
                 teamId,
                 source === 'apm' ? 'apm_spans' : 'logs_records',
-                `${source}:${teamId}:${now}:records`,
+                String(now),
                 undefined,
                 stats.recordsAllowed,
                 'records'

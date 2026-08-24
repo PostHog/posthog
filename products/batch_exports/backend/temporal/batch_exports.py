@@ -685,7 +685,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             report_usage,
             [
                 UsageRecord(
-                    record_id=f"batch-export:{batch_export_run.id}",
+                    record_id=str(batch_export_run.id),
                     producer_id="batch-exports",
                     team_id=inputs.team_id,
                     usage_key="batch_export_rows",
