@@ -44,6 +44,12 @@ class _WithSqlstate(Exception):
             psycopg.OperationalError("ResourceExhausted: create session: initialize ducklake session metadata"),
             True,
         ),
+        # A persistent failure of the same session-create step (not a capacity blip) carries a
+        # different status, so the operation text alone must not suppress it.
+        (
+            psycopg.OperationalError("PermissionDenied: create session: initialize ducklake session metadata"),
+            False,
+        ),
         # A raw psycopg misconfiguration error must still surface.
         (psycopg.OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         # duckgres backend killed mid-query: the server shutdown raises a raw psycopg error that

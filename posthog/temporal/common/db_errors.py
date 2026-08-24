@@ -36,13 +36,22 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
     # A connect failure through a pooler, so no SQLSTATE — falls through to this message match.
     "pooler is shutting down",
+)
+
+# Transient only when every token in the group is present. Used when no single substring is
+# safe to whitelist alone: one token names the transient condition, the other only narrows it
+# to a specific operation. Each group is AND-matched against the message.
+_TRANSIENT_DB_ERROR_MARKER_GROUPS: tuple[tuple[str, ...], ...] = (
     # duckgres refusing a new session while it is out of capacity: the server answers a connect
-    # with ResourceExhausted and psycopg surfaces it as a raw OperationalError. The DuckLake
-    # registration finalizer already retries for ~25 minutes to ride out exactly this capacity
-    # blip, so the condition self-heals and must not mint an error tracking issue. Match the
-    # duckgres-specific session-create text, not the bare "ResourceExhausted", to keep the
-    # marker narrow.
-    "create session: initialize ducklake session metadata",
+    # with a ResourceExhausted status during ducklake session-metadata init, and psycopg surfaces
+    # it as a raw OperationalError. The DuckLake registration finalizer already retries for ~25
+    # minutes to ride out exactly this capacity blip, so the condition self-heals and must not mint
+    # an error tracking issue. Require the ResourceExhausted status as well as the operation text,
+    # because "create session: initialize ducklake session metadata" alone names the step, not the
+    # cause: a persistent failure of that same step (bad catalog credentials, missing S3
+    # permissions, corrupt metadata) carries a different status and must keep reaching error
+    # tracking.
+    ("ResourceExhausted", "create session: initialize ducklake session metadata"),
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
@@ -65,4 +74,6 @@ def is_transient_db_error(error: BaseException) -> bool:
     if isinstance(sqlstate, str) and sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES):
         return True
     message = str(error)
-    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+    if any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+        return True
+    return any(all(token in message for token in group) for group in _TRANSIENT_DB_ERROR_MARKER_GROUPS)
