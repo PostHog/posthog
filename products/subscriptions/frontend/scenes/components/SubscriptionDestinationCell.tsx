@@ -14,11 +14,25 @@ function parseEmailRecipients(targetValue: string): string[] {
         .filter(Boolean)
 }
 
-function truncateWebhookUrl(url: string): string {
-    if (url.length > 48) {
-        return `${url.slice(0, 24)}…${url.slice(-12)}`
+function webhookHost(url: string): string {
+    try {
+        return new URL(url).host
+    } catch {
+        return 'Invalid URL'
     }
-    return url
+}
+
+/**
+ * A webhook URL is a credential, because anyone who has it can post to the channel. Show the host
+ * only, and keep the full URL out of DOM attributes such as `title`.
+ */
+function WebhookDestinationCell({ url }: { url: string }): JSX.Element {
+    const host = webhookHost(url)
+    return (
+        <span className="text-secondary max-w-md truncate block" title={host}>
+            {host}
+        </span>
+    )
 }
 
 function DestinationListCell({ parts, copyDescription }: { parts: string[]; copyDescription: string }): JSX.Element {
@@ -79,12 +93,7 @@ export function SubscriptionDestinationCell({ sub }: { sub: SubscriptionApi }): 
         return <DestinationListCell parts={parts} copyDescription="Slack destination" />
     }
 
-    const text = truncateWebhookUrl(sub.target_value)
-    return (
-        <span className="text-secondary max-w-md truncate block" title={sub.target_value}>
-            {text}
-        </span>
-    )
+    return <WebhookDestinationCell url={sub.target_value} />
 }
 
 /** Same destination UI as {@link SubscriptionDestinationCell}, for snapshot `target_type` / `target_value` (e.g. delivery history rows). */
@@ -107,10 +116,5 @@ export function SubscriptionDeliveryDestinationCell({
             />
         )
     }
-    const text = truncateWebhookUrl(targetValue)
-    return (
-        <span className="text-secondary max-w-md truncate block" title={targetValue}>
-            {text}
-        </span>
-    )
+    return <WebhookDestinationCell url={targetValue} />
 }
