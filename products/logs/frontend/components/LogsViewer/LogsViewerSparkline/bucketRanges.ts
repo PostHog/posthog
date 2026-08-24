@@ -40,7 +40,10 @@ export function highlightedBucketRange(
     // the last start. Measuring it by that start instead would drop a window sitting inside the
     // final bucket, which is where the newest rows are on the default newest-first view.
     const lastStart = bucketTimesMs[bucketTimesMs.length - 1]
-    const interval = bucketTimesMs.length > 1 ? bucketTimesMs[1] - bucketTimesMs[0] : 0
+    // A lone bucket has no next start to measure its width from, so treat it as open-ended rather
+    // than zero-width — otherwise any window starting after its start (i.e. every row inside it)
+    // would fall past `lastStart` and drop the highlight.
+    const interval = bucketTimesMs.length > 1 ? bucketTimesMs[1] - bucketTimesMs[0] : Number.POSITIVE_INFINITY
     if (toMs < bucketTimesMs[0] || fromMs > lastStart + interval) {
         return null
     }

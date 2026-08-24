@@ -22,4 +22,8 @@ describe('bucketRanges', () => {
     it('highlights the final bucket for a window inside it', () => {
         expect(highlightedBucketRange(BUCKETS, 190_000, 200_000)).toEqual({ startIndex: 3, endIndex: 3 })
     })
+
+    it('highlights a lone bucket for a window starting after its start (open-ended width)', () => {
+        expect(highlightedBucketRange([60_000], 90_000, 150_000)).toEqual({ startIndex: 0, endIndex: 0 })
+    })
 })
