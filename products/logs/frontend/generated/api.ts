@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
@@ -141,8 +142,8 @@ export const logsAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LogsAlertConfigurationApi> => {
-    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
+): Promise<LogsAlertConfigurationDetailApi> => {
+    return apiMutator<LogsAlertConfigurationDetailApi>(getLogsAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

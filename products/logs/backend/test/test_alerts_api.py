@@ -974,6 +974,24 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert self._read_destinations(created["id"])[0]["webhook_url"] == "<redacted>"
 
+    def test_listing_alerts_reports_destination_types_without_reading_each_destination(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        listed = self.client.get(self.base_url)
+
+        assert listed.status_code == status.HTTP_200_OK
+        alert = next(row for row in listed.json()["results"] if row["id"] == created["id"])
+        assert alert["destination_types"] == ["webhook"]
+        # Reading a destination pulls its stored inputs, so the list must not carry them.
+        assert "destinations" not in alert
+
     def test_a_destination_reports_disabled_when_one_of_its_hog_functions_is_off(self) -> None:
         self._sync_destination_templates()
         created = self._create_via_api()

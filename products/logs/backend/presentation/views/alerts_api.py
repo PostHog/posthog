@@ -37,6 +37,7 @@ from products.alerts.backend.facade.api import (
     build_alert_destination_config,
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
+    owned_alert_destinations_qs,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
@@ -96,7 +97,6 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 # simulate endpoint's default cadence so it matches production when callers
 # don't override it.
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
-_DESTINATIONS_CACHE_KEY: Final = "logs_alert_destinations"
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 
@@ -309,13 +309,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "after creating an alert."
         ),
     )
-    destinations = serializers.SerializerMethodField(
-        help_text=(
-            "This alert's notification destinations, one entry per destination. Each carries the "
-            "HogFunction IDs that delete it as a group, and its configuration with credential-bearing "
-            "URL components removed."
-        ),
-    )
 
     @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
@@ -406,34 +399,23 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
-        return sorted({destination["type"] for destination in self._destinations(obj)})
-
-    @extend_schema_field(LogsAlertDestinationConfigSerializer(many=True))
-    def get_destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
-        return self._destinations(obj)
-
-    def _destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
-        # Both destination fields read one cached result, so serializing an alert stays at
-        # the single query it took before `destinations` existed. N+1 across a page is
-        # acceptable: max 20 alerts per team, each query a fast indexed lookup.
-        cache = self.context.setdefault(_DESTINATIONS_CACHE_KEY, {})
-        cached = cache.get(obj.id)
-        if cached is None:
-            groups = list_alert_destination_groups(
+        # Only template_id is read. Reading the whole destination would pull its stored
+        # inputs, several KB per row, for every alert on the page.
+        # N+1 is acceptable: max 20 alerts per team, each query a fast indexed lookup.
+        configured_template_ids = set(
+            owned_alert_destinations_qs(
                 team_id=obj.team_id,
-                alert_id=str(obj.id),
+                alert_ids=[str(obj.id)],
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
-            cached = [
-                {
-                    "hog_function_ids": list(group.hog_function_ids),
-                    "enabled": group.fully_enabled,
-                    **DESTINATION_SPECS[DestinationType(group.data["type"])].redact(group.data),
-                }
-                for group in groups
-            ]
-            cache[obj.id] = cached
-        return cached
+            .values_list("template_id", flat=True)
+            .distinct()
+        )
+        return sorted(
+            destination_type.value
+            for destination_type in LOGS_DESTINATION_TYPES
+            if DESTINATION_SPECS[destination_type].template_id in configured_template_ids
+        )
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_last_error_message(self, obj: LogsAlertConfiguration) -> str | None:
@@ -479,7 +461,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
-            "destinations",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -496,7 +477,6 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "last_error_message",
             "state_timeline",
             "destination_types",
-            "destinations",
             "first_enabled_at",
             "created_at",
             "created_by",
@@ -656,6 +636,39 @@ def _validate_filters(filters: dict) -> None:
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
+
+
+class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
+    """One alert, with the destinations attached to it. The list endpoint leaves them out:
+    reading a destination pulls its stored inputs, which run to several KB per row."""
+
+    destinations = serializers.SerializerMethodField(
+        help_text=(
+            "This alert's notification destinations, one entry per destination. Each carries the "
+            "HogFunction IDs that delete it as a group, and its configuration with credential-bearing "
+            "URL components removed."
+        ),
+    )
+
+    class Meta(LogsAlertConfigurationSerializer.Meta):
+        fields = [*LogsAlertConfigurationSerializer.Meta.fields, "destinations"]
+        read_only_fields = [*LogsAlertConfigurationSerializer.Meta.read_only_fields, "destinations"]
+
+    @extend_schema_field(LogsAlertDestinationConfigSerializer(many=True))
+    def get_destinations(self, obj: LogsAlertConfiguration) -> list[dict[str, Any]]:
+        groups = list_alert_destination_groups(
+            team_id=obj.team_id,
+            alert_id=str(obj.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+        )
+        return [
+            {
+                "hog_function_ids": list(group.hog_function_ids),
+                "enabled": group.fully_enabled,
+                **DESTINATION_SPECS[DestinationType(group.data["type"])].redact(group.data),
+            }
+            for group in groups
+        ]
 
 
 class LogsAlertEventSerializer(serializers.ModelSerializer):
@@ -897,6 +910,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
+
+    def get_serializer_class(self) -> type[LogsAlertConfigurationSerializer]:
+        # Only a single-alert read carries the destinations. Every other action would pay
+        # for their stored inputs without a caller that wants them.
+        if self.action == "retrieve":
+            return LogsAlertConfigurationDetailSerializer
+        return LogsAlertConfigurationSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
