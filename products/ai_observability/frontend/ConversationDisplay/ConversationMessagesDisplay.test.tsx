@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
-import { CompatMessage } from '../types'
+import { CompatMessage, MultiModalContentItem } from '../types'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -468,11 +468,13 @@ describe('ImageMessageDisplay', () => {
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
     })
 
-    it.each([
+    const redactedParts: [string, MultiModalContentItem, string][] = [
         ['python image sentinel', { type: 'image_url', image_url: { url: '[base64 image redacted]' } }, 'Image'],
         ['node image sentinel', { type: 'image_url', image_url: { url: '[base64 image/png redacted]' } }, 'Image'],
         ['file sentinel', { type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }, 'File'],
-    ])('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {
+    ]
+
+    it.each(redactedParts)('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {
         const message: CompatMessage = { role: 'user', content: [part] }
         const { container } = render(
             <Provider>
