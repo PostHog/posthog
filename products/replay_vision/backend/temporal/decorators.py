@@ -32,7 +32,6 @@ def track_activity(name: str | None = None, side_effect: str | None = None) -> C
                 record_side_effect_failure(side_effect)
 
         if inspect.iscoroutinefunction(fn):
-
             # thread_sensitive keeps this on the same executor thread as the activity's ORM
             # calls, so it closes the connection they will reuse rather than one on the event loop.
             close_stale_db_connections_async = sync_to_async(close_stale_db_connections, thread_sensitive=True)
