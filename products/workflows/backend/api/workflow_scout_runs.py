@@ -12,6 +12,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
+from posthog.models import Team
 
 from products.signals.backend.facade.api import (
     ScoutRunRejectionKind,
@@ -19,6 +21,7 @@ from products.signals.backend.facade.api import (
     WorkflowScoutRunStarted,
     start_workflow_scout_run,
 )
+from products.workflows.backend.api.run_scout_validation import RUN_SCOUT_TEMPLATE_ID
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.service_jwt import SIGNALS_SCOUT_RUN_PURPOSE
 
@@ -106,7 +109,7 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             ),
             403: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
-                description="Signals scouts are not enabled for this project, or the workflow lives in a child environment",
+                description="Signals scouts or the Run scout step are not enabled for this project, or the workflow lives in a child environment",
             ),
             404: OpenApiResponse(
                 response=WorkflowScoutRunRejectedSerializer,
@@ -146,6 +149,13 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         # chain), so a deleted workflow must not still be able to spend runs.
         if not HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).exists():
             return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # The template's rollout flag gates the step at save time, but a lenient draft save skips
+        # that and a draft test run executes the step for real, so the gate is re-checked here.
+        if not _run_scout_enabled(team_id):
+            return _rejected(
+                "Running a scout from a workflow is not enabled for this project.", status.HTTP_403_FORBIDDEN
+            )
 
         # Claim the key atomically before dispatching. A retry that arrives while the first
         # attempt is still dispatching (the client gave up on it, but Django is still in the
@@ -222,6 +232,13 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             workflow_id=replayed.workflow_id,
             step_key=step_key,
         )
+
+
+def _run_scout_enabled(team_id: int) -> bool:
+    flag_key = FLAG_GATED_TEMPLATE_IDS.get(RUN_SCOUT_TEMPLATE_ID)
+    if flag_key is None:
+        return True
+    return gated_template_enabled(flag_key, Team.objects.get(pk=team_id))
 
 
 def _replay(marker: Any, skill_name: str) -> WorkflowScoutRunStarted | None:

@@ -7,6 +7,7 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonTag, Spinner
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
 import { HogFunctionStatusTag } from 'scenes/hog-functions/misc/HogFunctionStatusTag'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
@@ -310,6 +311,7 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
     const { isRowScopedTrigger } = useValues(workflowLogic)
 
     const registeredCategories = getRegisteredActionNodeCategories().filter(
@@ -347,7 +349,8 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                     </span>
                 </HogFlowEditorToolbarNode>
             )}
-            {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] && (
+            {/* Scouts belong to the project's main environment, and the server refuses the step elsewhere. */}
+            {featureFlags[FEATURE_FLAGS.WORKFLOW_RUN_SCOUT_ACTION] && currentTeam?.id === currentTeam?.project_id && (
                 <HogFlowEditorToolbarNode key="run-scout" action={RUN_SCOUT_ACTION_NODE}>
                     <span className="inline-flex items-center gap-1.5">
                         {RUN_SCOUT_ACTION_NODE.name}

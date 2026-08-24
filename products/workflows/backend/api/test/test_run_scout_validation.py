@@ -64,9 +64,18 @@ class TestRunScoutFlowValidation(SimpleTestCase):
                 assert len(errors) == 1
                 assert event in errors[0]
 
-    def test_rejects_a_trigger_that_matches_every_event(self) -> None:
-        # No events and no actions compiles to always-true, so scout output would match it too.
-        errors = self._errors(actions=[RUN_SCOUT_ACTION], trigger={"type": "event", "filters": {}}, masking=MASKING)
+    @parameterized.expand(
+        [
+            ("no_filters", {}),
+            ("event_entry_without_an_id", {"events": [{"type": "events"}]}),
+        ]
+    )
+    def test_rejects_a_trigger_that_matches_every_event(self, _name: str, filters: dict) -> None:
+        # No events and no actions compiles to always-true, and so does an events entry with no
+        # id, so scout output would match either.
+        errors = self._errors(
+            actions=[RUN_SCOUT_ACTION], trigger={"type": "event", "filters": filters}, masking=MASKING
+        )
 
         assert len(errors) == 1
         assert "matches every event" in errors[0]
@@ -151,6 +160,14 @@ class TestRunScoutFlowTeamChecks(BaseTest):
 
         assert len(errors) == 1
         assert "step with no event" in errors[0]
+
+    def test_checks_a_soft_deleted_action(self) -> None:
+        # The compiler resolves a referenced action whether or not it is soft-deleted.
+        action = self._action(self.team, {"event": None})
+        action.deleted = True
+        action.save()
+
+        assert len(self._errors_for(action)) == 1
 
     def test_checks_an_action_from_a_child_environment_of_the_same_project(self) -> None:
         # The trigger compiler resolves actions project-wide, so the guard has to as well.

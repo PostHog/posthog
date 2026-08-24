@@ -37,6 +37,7 @@ SKILL = "signals-scout-error-tracking"
 _DISPATCH = "products.signals.backend.temporal.agentic.scout_scheduler.start_workflow_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.workflow_runs.sync_connect"
 _FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
+_STEP_FLAG = "products.workflows.backend.api.workflow_scout_runs.gated_template_enabled"
 
 
 def _token(
@@ -196,9 +197,10 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.client.logout()
-        flag = patch(_FLAG, return_value={"guaranteed_team_ids": [self.team.id]})
-        flag.start()
-        self.addCleanup(flag.stop)
+        for target, value in ((_FLAG, {"guaranteed_team_ids": [self.team.id]}), (_STEP_FLAG, True)):
+            flag = patch(target, return_value=value)
+            flag.start()
+            self.addCleanup(flag.stop)
         LLMSkill.objects.create(team=self.team, name=SKILL, is_latest=True, deleted=False)
         SignalScoutConfig.objects.create(
             team=self.team, skill_name=SKILL, status=SignalScoutConfig.Status.ACTIVE, enabled=True
@@ -309,6 +311,15 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
             response = self._post(body={"hog_flow_id": "00000000-0000-0000-0000-000000000000"})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+
+    def test_refuses_a_project_without_the_step_flag(self) -> None:
+        # A draft test run executes the step without the save-time gate, so the endpoint holds
+        # the rollout flag itself.
+        with patch(_STEP_FLAG, return_value=False), patch(_CONNECT), patch(_DISPATCH) as dispatch:
+            response = self._post()
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        dispatch.assert_not_called()
 
     def test_rejects_a_token_for_a_deleted_workflow(self) -> None:
         # A token outlives the workflow it names (its TTL spans the whole fetch retry chain), so

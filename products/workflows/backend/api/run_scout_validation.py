@@ -79,24 +79,26 @@ def _trigger_action_ids(trigger_config: dict) -> list[int]:
 
 
 def _trigger_is_unfiltered(trigger_config: dict) -> bool:
-    """Whether the trigger names no event and no action, i.e. it matches the whole event stream —
-    scout-emitted events included."""
+    """Whether the trigger matches the whole event stream, scout-emitted events included: it names
+    no event and no action, or one of its event entries has no `id`, which the compiler turns into
+    a match-all."""
     filters = trigger_config.get("filters") or {}
-    return not (filters.get("events") or filters.get("actions"))
+    events = filters.get("events") or []
+    if any(isinstance(entry, dict) and entry.get("id") is None for entry in events):
+        return True
+    return not (events or filters.get("actions"))
 
 
 def _actions_reaching_scout_events(team: Team, action_ids: list[int]) -> list[str]:
     """Names of the project's Actions (among `action_ids`) with a step that can match a
     scout-emitted event: one naming such an event, or one with no event at all, which matches
-    every event. Resolved across the whole project, which is the scope the trigger compiler
-    resolves them in."""
+    every event. Resolved the way the trigger compiler resolves them: across the whole project,
+    soft-deleted rows included."""
     if not action_ids:
         return []
     names: list[str] = []
     # nosemgrep: idor-lookup-without-team (scoped by team__project_id, matching posthog/cdp/filters.py)
-    for action in Action.objects.filter(team__project_id=team.project_id, id__in=action_ids, deleted=False).order_by(
-        "id"
-    ):
+    for action in Action.objects.filter(team__project_id=team.project_id, id__in=action_ids).order_by("id"):
         if any(step.event is None or step.event in SCOUT_EMITTED_EVENTS for step in action.steps):
             names.append(action.name or str(action.id))
     return names
