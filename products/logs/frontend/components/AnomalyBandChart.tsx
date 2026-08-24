@@ -16,14 +16,12 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import type { DateRange } from '~/queries/schema/schema-general'
+
+import { selectedDateRange } from 'products/logs/frontend/components/LogsViewer/LogsViewerSparkline/bucketRanges'
 import type { LogsSeriesBandBucketApi } from 'products/logs/frontend/generated/api.schemas'
 
 const OBSERVED_KEY = 'observed'
-
-export interface BucketRange {
-    dateFrom: string
-    dateTo: string
-}
 
 export type OutOfBand = 'above' | 'below'
 
@@ -71,30 +69,22 @@ const OUT_OF_BAND_LABEL: Record<OutOfBand, string> = {
     below: 'drop',
 }
 
-/** Both indices name a bucket *start*, so the range has to run to the end of the last one. A range
- *  ending at its start would exclude the very bucket the user clicked. Bucket width comes from the
- *  first gap rather than a constant, so the two can't drift. */
-export function bucketRange(
-    buckets: LogsSeriesBandBucketApi[],
-    startIndex: number,
-    endIndex: number
-): BucketRange | null {
-    const [from, to] = startIndex <= endIndex ? [startIndex, endIndex] : [endIndex, startIndex]
-    const start = buckets[from]?.time
-    const end = buckets[to]?.time
-    if (!start || !end || buckets.length < 2) {
-        return null
+/** `selectedDateRange` reads a bucket's end off the next bucket's start, and leaves the last one
+ *  open-ended at "now". That suits the viewer's sparkline, whose newest bucket is still filling,
+ *  but every bucket here is a complete interval: an open end would pull in the current, uncharted
+ *  interval on top of the one the user clicked. Appending the exclusive window end closes it. */
+export function clickableBucketTimes(times: string[]): string[] {
+    const last = times[times.length - 1]
+    const step = times.length > 1 ? Date.parse(times[1]) - Date.parse(times[0]) : 0
+    if (!(step > 0)) {
+        return times
     }
-    const bucketMs = Date.parse(buckets[1].time) - Date.parse(buckets[0].time)
-    if (!(bucketMs > 0)) {
-        return null
-    }
-    return { dateFrom: start, dateTo: new Date(Date.parse(end) + bucketMs).toISOString() }
+    return [...times, new Date(Date.parse(last) + step).toISOString()]
 }
 
 export interface AnomalyBandChartProps {
     buckets: LogsSeriesBandBucketApi[]
-    onBucketClick?: (range: BucketRange) => void
+    onBucketClick?: (dateRange: DateRange) => void
 }
 
 export function AnomalyBandChart({ buckets, onBucketClick }: AnomalyBandChartProps): JSX.Element {
@@ -128,7 +118,8 @@ export function AnomalyBandChart({ buckets, onBucketClick }: AnomalyBandChartPro
     const config = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             // Bucket times are UTC, and the timestamps around this chart render in the viewer's
-            // zone, so the axis reads there too.
+            // zone, so the axis reads there too. The grain has to be stated: without it the axis
+            // builds no date formatter and prints raw ISO labels. The endpoint is hourly-only.
             xAxis: { timezone: dayjs.tz.guess(), interval: 'hour' },
             yAxis: { tickFormatter: humanFriendlyNumber },
             confidenceIntervals: [{ seriesKey: OBSERVED_KEY, lower: data.lower, upper: data.upper }],
@@ -136,18 +127,18 @@ export function AnomalyBandChart({ buckets, onBucketClick }: AnomalyBandChartPro
         [data.lower, data.upper]
     )
 
-    const onPointClick = useMemo(
-        () =>
-            onBucketClick
-                ? ({ dataIndex }: PointClickData) => {
-                      const range = bucketRange(buckets, dataIndex, dataIndex)
-                      if (range) {
-                          onBucketClick(range)
-                      }
-                  }
-                : undefined,
-        [buckets, onBucketClick]
-    )
+    const onPointClick = useMemo(() => {
+        if (!onBucketClick) {
+            return undefined
+        }
+        const clickTimes = clickableBucketTimes(data.labels)
+        return ({ dataIndex }: PointClickData) => {
+            const dateRange = selectedDateRange(clickTimes, dataIndex, dataIndex)
+            if (dateRange) {
+                onBucketClick(dateRange)
+            }
+        }
+    }, [data.labels, onBucketClick])
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext): JSX.Element => {

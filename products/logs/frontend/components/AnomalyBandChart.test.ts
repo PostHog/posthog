@@ -1,6 +1,6 @@
 import type { LogsSeriesBandBucketApi } from 'products/logs/frontend/generated/api.schemas'
 
-import { bucketRange, buildBandChartData } from './AnomalyBandChart'
+import { buildBandChartData, clickableBucketTimes } from './AnomalyBandChart'
 
 function bucket(overrides: Partial<LogsSeriesBandBucketApi>): LogsSeriesBandBucketApi {
     return {
@@ -45,25 +45,20 @@ describe('AnomalyBandChart', () => {
         })
     })
 
-    describe('bucketRange', () => {
-        const buckets = ['10:00', '11:00', '12:00', '13:00'].map((time) => bucket({ time: `2026-08-06T${time}:00Z` }))
-
-        // Every index names a bucket start. A range ending at the last bucket's start would link
-        // to everything except the bucket the user actually picked, and a single-bucket click
-        // would resolve to an empty window.
-        it.each([
-            { name: 'a span of buckets', start: 0, end: 2, from: '10:00:00Z', to: '13:00:00.000Z' },
-            { name: 'a click on one bucket', start: 1, end: 1, from: '11:00:00Z', to: '12:00:00.000Z' },
-            { name: 'a reversed span', start: 2, end: 0, from: '10:00:00Z', to: '13:00:00.000Z' },
-        ])('covers whole buckets for $name', ({ start, end, from, to }) => {
-            expect(bucketRange(buckets, start, end)).toEqual({
-                dateFrom: `2026-08-06T${from}`,
-                dateTo: `2026-08-06T${to}`,
-            })
+    describe('clickableBucketTimes', () => {
+        // Every charted bucket is a complete interval. Without the appended end, a click on the
+        // newest one would open a range running to "now", covering the current uncharted interval
+        // on top of the one that was clicked.
+        it('closes the last bucket at its own end', () => {
+            expect(clickableBucketTimes(['2026-08-06T10:00:00Z', '2026-08-06T11:00:00Z'])).toEqual([
+                '2026-08-06T10:00:00Z',
+                '2026-08-06T11:00:00Z',
+                '2026-08-06T12:00:00.000Z',
+            ])
         })
 
-        it('returns null when the bucket width cannot be derived', () => {
-            expect(bucketRange([bucket({})], 0, 0)).toBeNull()
+        it('leaves a single bucket alone, having no width to measure', () => {
+            expect(clickableBucketTimes(['2026-08-06T10:00:00Z'])).toEqual(['2026-08-06T10:00:00Z'])
         })
     })
 })

@@ -1,12 +1,14 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
 import { logsAnomaliesSeriesBandsCreate } from 'products/logs/frontend/generated/api'
+import type { LogsSeriesBandsResponseApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { DEFAULT_VISIBLE_SERIES, logsAnomaliesLogic } from './logsAnomaliesLogic'
 
-function seriesBandsResponse(seriesCount: number): Record<string, any> {
+function seriesBandsResponse(seriesCount: number): LogsSeriesBandsResponseApi {
     return {
         service_name: 'checkout',
         window_start: '2026-08-10T10:00:00Z',
@@ -68,6 +70,44 @@ describe('logsAnomaliesLogic', () => {
         }).toFinishAllListeners()
         expect(logic.values.seriesBands).toBeNull()
         expect(logsAnomaliesSeriesBandsCreate).toHaveBeenCalledTimes(1)
+    })
+
+    it('drops a slow response for a service the user has already left', async () => {
+        // The charts carry no service name of their own, so a late response landing under the
+        // new selection would be read as that service's volume.
+        let finishFirst: (response: LogsSeriesBandsResponseApi) => void = () => {}
+        ;(logsAnomaliesSeriesBandsCreate as jest.Mock)
+            .mockReturnValueOnce(new Promise<LogsSeriesBandsResponseApi>((resolve) => (finishFirst = resolve)))
+            .mockResolvedValueOnce(seriesBandsResponse(1))
+
+        logic.actions.setServiceName('checkout')
+        logic.actions.setServiceName('worker')
+        finishFirst(seriesBandsResponse(9))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.seriesBands?.series).toHaveLength(1)
+    })
+
+    it('sends a clicked bucket to the viewer as list filters', async () => {
+        // A scalar `serviceNames` or `severityLevels` is re-split on commas by the viewer's
+        // `parseTagsFilter`, so both have to arrive as lists.
+        await expectLogic(logic, () => {
+            logic.actions.setServiceName('checkout')
+        }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.openLogsForBucket('error', {
+                date_from: '2026-08-17T09:00:00Z',
+                date_to: '2026-08-17T10:00:00Z',
+            })
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({
+            activeTab: 'viewer',
+            serviceNames: ['checkout'],
+            severityLevels: ['error'],
+            dateRange: { date_from: '2026-08-17T09:00:00Z', date_to: '2026-08-17T10:00:00Z' },
+        })
     })
 
     it('slices visible series and grows the window on show more', async () => {

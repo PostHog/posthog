@@ -1,10 +1,12 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-
-import { lemonToast } from '@posthog/lemon-ui'
+import { router } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { DateRange } from '~/queries/schema/schema-general'
+
+import { serviceViewerUrl } from 'products/logs/frontend/components/LogsServices/serviceViewerUrl'
 import { logsAnomaliesSeriesBandsCreate } from 'products/logs/frontend/generated/api'
 import type { LogsSeriesBandSeriesApi, LogsSeriesBandsResponseApi } from 'products/logs/frontend/generated/api.schemas'
 
@@ -15,6 +17,7 @@ export interface logsAnomaliesLogicValues {
     currentTeamId: number | null // teamLogic
     hiddenSeriesCount: number
     seriesBands: LogsSeriesBandsResponseApi | null
+    seriesBandsError: string | null
     seriesBandsLoading: boolean
     serviceName: string | null
     visibleSeries: LogsSeriesBandSeriesApi[]
@@ -37,6 +40,13 @@ export interface logsAnomaliesLogicActions {
     ) => {
         seriesBands: LogsSeriesBandsResponseApi | null
         payload?: any
+    }
+    openLogsForBucket: (
+        severity: string,
+        dateRange: DateRange
+    ) => {
+        severity: string
+        dateRange: DateRange
     }
     setServiceName: (serviceName: string | null) => {
         serviceName: string | null
@@ -70,18 +80,23 @@ export const logsAnomaliesLogic = kea<logsAnomaliesLogicType>([
     actions({
         setServiceName: (serviceName: string | null) => ({ serviceName }),
         showMoreSeries: true,
+        openLogsForBucket: (severity: string, dateRange: DateRange) => ({ severity, dateRange }),
     }),
     loaders(({ values }) => ({
         seriesBands: [
             null as LogsSeriesBandsResponseApi | null,
             {
-                loadSeriesBands: async () => {
+                loadSeriesBands: async (_, breakpoint) => {
                     if (!values.serviceName || !values.currentTeamId) {
                         return null
                     }
-                    return await logsAnomaliesSeriesBandsCreate(String(values.currentTeamId), {
+                    const response = await logsAnomaliesSeriesBandsCreate(String(values.currentTeamId), {
                         serviceName: values.serviceName,
                     })
+                    // A slow service can resolve after the user has moved to another one. Without
+                    // this the late response would chart itself under the new service's name.
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -98,6 +113,17 @@ export const logsAnomaliesLogic = kea<logsAnomaliesLogicType>([
         seriesBands: {
             setServiceName: () => null,
         },
+        // The loader leaves the value null on failure, which reads the same as "still loading",
+        // so the failure needs its own value for the tab to show a retry instead of a spinner.
+        seriesBandsError: [
+            null as string | null,
+            {
+                setServiceName: () => null,
+                loadSeriesBands: () => null,
+                loadSeriesBandsSuccess: () => null,
+                loadSeriesBandsFailure: (_, { error }) => error || 'The request did not complete.',
+            },
+        ],
         visibleSeriesCount: [
             DEFAULT_VISIBLE_SERIES as number,
             {
@@ -118,14 +144,17 @@ export const logsAnomaliesLogic = kea<logsAnomaliesLogicType>([
                 seriesBands ? Math.max(0, seriesBands.series.length - visibleSeriesCount) : 0,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setServiceName: ({ serviceName }) => {
             if (serviceName) {
                 actions.loadSeriesBands()
             }
         },
-        loadSeriesBandsFailure: ({ error }) => {
-            lemonToast.error(error || "Couldn't load the series charts. Try again.")
+        openLogsForBucket: ({ severity, dateRange }) => {
+            if (!values.serviceName) {
+                return
+            }
+            router.actions.push(serviceViewerUrl(values.serviceName, { severityLevels: [severity], dateRange }))
         },
     })),
 ])
