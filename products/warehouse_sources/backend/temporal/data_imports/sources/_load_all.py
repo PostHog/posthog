@@ -1154,6 +1154,7 @@ from .telnyx.source import TelnyxSource
 from .tempo.source import TempoSource
 from .temporalio.source import TemporalIOSource
 from .tenable_vulnerability_management.source import TenableVulnerabilityManagementSource
+from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
@@ -1271,6 +1272,7 @@ from .workiz.source import WorkizSource
 from .workos.source import WorkOSSource
 from .workramp.source import WorkrampSource
 from .world_bank.source import WorldBankSource
+from .wps_office.source import WPSOfficeSource
 from .wrike.source import WrikeSource
 from .writesonic.source import WritesonicSource
 from .wufoo.source import WufooSource

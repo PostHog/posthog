@@ -1372,6 +1372,8 @@ class ExternalDataSourceType(models.TextChoices):
     GROWI = "Growi", "Growi"
     CLARIFY = "Clarify", "Clarify"
     DATOCMS = "DatoCMS", "DatoCMS"
+    WPSOFFICE = "WPSOffice", "WPSOffice"
+    TERABOX = "TeraBox", "TeraBox"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:

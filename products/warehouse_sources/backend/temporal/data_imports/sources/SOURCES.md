@@ -1389,6 +1389,7 @@ doesn't conflict with concurrent PRs.
 - tebra
 - telli
 - tempo
+- terabox
 - ternary
 - terra_api
 - thinkific_courses
@@ -1452,6 +1453,7 @@ doesn't conflict with concurrent PRs.
 - workato
 - workflowmax
 - workramp
+- wps_office
 - wufoo
 - xero
 - xsolla
