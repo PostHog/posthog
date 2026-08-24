@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
 import re2
+import posthoganalytics
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -753,12 +754,43 @@ _BEHAVIORAL_COUNT_OPERATORS = {
 }
 
 
+# Keep in sync with FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER in frontend/src/lib/constants.tsx.
+BEHAVIORAL_PROPERTY_FILTER_FLAG = "behavioral-property-filter"
+
+
+def _is_behavioral_property_filter_enabled(team: Team) -> bool:
+    # Fails closed: this runs on the query compile path, so an inconclusive local evaluation must
+    # mean "off" rather than an HTTP call, and a flag-service error must not open the gate.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                BEHAVIORAL_PROPERTY_FILTER_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id), "project": str(team.id)},
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
 def _behavioral_property_to_expr(property: Property, team: Team, scope: str, strict: bool = False) -> ast.Expr:
     """Compile a behavioral ("performed event") filter into a `person_id IN (...)` subquery.
 
     Unlike cohort-backed behavioral criteria this runs at query time, with no saved cohort and no
     precalculated cohortpeople.
     """
+    # Gates every entry point, not just the UI: /query, MCP query tools, and saved insights all land here.
+    if not _is_behavioral_property_filter_enabled(team):
+        raise QueryError(
+            "Behavioral (performed event) filters aren't available for this project. "
+            "Use a cohort to filter on past behavior."
+        )
     # Person scope needs `id IN (SELECT person_id FROM events ...)`, which HogQL can't resolve under a `persons` FROM.
     if scope != "event":
         raise QueryError(f"The 'behavioral' property filter does not work in '{scope}' scope")

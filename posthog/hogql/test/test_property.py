@@ -27,6 +27,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
+    BEHAVIORAL_PROPERTY_FILTER_FLAG,
     action_to_expr,
     entity_to_expr,
     has_aggregation,
@@ -58,6 +59,15 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 
 class TestProperty(BaseTest):
     maxDiff = None
+
+    def setUp(self):
+        super().setUp()
+        flag_patch = patch(
+            "posthog.hogql.property.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == BEHAVIORAL_PROPERTY_FILTER_FLAG,
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
 
     def _property_to_expr(
         self,
@@ -2021,6 +2031,18 @@ class TestProperty(BaseTest):
             self._behavioral_filter(value="performed_event_multiple", operator="gte", operator_value=2)
         )
         self.assertEqual(has_aggregation(expr), False)
+
+    @parameterized.expand(
+        [
+            ("flag_off", {"return_value": False}),
+            ("flag_service_unavailable", {"side_effect": Exception("flag service unreachable")}),
+        ]
+    )
+    def test_behavioral_filter_requires_the_feature_flag(self, _name: str, flag_mock: dict):
+        # The gate sits in property_to_expr, so it covers the /query API and MCP, not just the UI entry point.
+        with patch("posthog.hogql.property.posthoganalytics.feature_enabled", **flag_mock):
+            with self.assertRaisesMessage(QueryError, "aren't available for this project"):
+                self._property_to_expr(self._behavioral_filter())
 
     def test_behavioral_cohort_only_criteria_raise(self):
         with self.assertRaises(QueryError):
