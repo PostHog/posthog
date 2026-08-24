@@ -38,29 +38,42 @@ describe('scoutNotePreview', () => {
     })
 
     it.each([
-        // Both of these used to shrink the preview for nothing: the first backed up 275 characters
-        // to the one space in the note, the second read `build@…` as an address and dropped it.
+        // Each of these used to shrink the preview for nothing: the first backed up 275 characters
+        // to the one space, the second read `build@…` as an address, the third read `s3://…` as a
+        // link, and the fourth measured the last word in code units so a nearby space looked far.
         ['the last whitespace sits far behind the cut', `Note: ${'あ'.repeat(400)}`, `Note: ${'あ'.repeat(274)}…`],
         [
             'an @ runs past the cut with no domain after it',
             `${'あ'.repeat(200)}build@${'a'.repeat(200)}`,
             `${'あ'.repeat(200)}build@${'a'.repeat(74)}…`,
         ],
+        [
+            'a scheme GFM never autolinks runs past the cut',
+            `${'あ'.repeat(200)}s3://bucket/${'x'.repeat(200)}`,
+            `${'あ'.repeat(200)}s3://bucket/${'x'.repeat(68)}…`,
+        ],
+        [
+            'the last word is non-BMP but the space is within reach',
+            `${'a'.repeat(249)} ${'𐐀'.repeat(100)}`,
+            `${'a'.repeat(249)}…`,
+        ],
     ])('fills the preview when %s', (_name, content, expected) => {
         expect(scoutNotePreview(content)).toBe(expected)
     })
 
-    it('previews notes in a browser with no grapheme segmenter', async () => {
+    it('shows the note in full in a browser with no grapheme segmenter', async () => {
         // The panel is one import away from every scout page, so a segmenter built at module scope
-        // takes the whole page down on a browser that has none, rather than losing only precision.
+        // takes the page down on a browser that has none. Without one, show the note in full rather
+        // than risk a code-point cut splitting a character.
         const intl = Intl as { Segmenter?: typeof Intl.Segmenter }
         const segmenter = intl.Segmenter
         try {
             delete intl.Segmenter
             jest.resetModules()
             const { scoutNotePreview: withoutSegmenter } = await import('./scoutNotePreview')
+            const note = '👨‍👩‍👧‍👦'.repeat(NOTE_PREVIEW_CHARS + 1)
 
-            expect(withoutSegmenter('🙂'.repeat(NOTE_PREVIEW_CHARS + 1))).toBe(`${'🙂'.repeat(NOTE_PREVIEW_CHARS)}…`)
+            expect(withoutSegmenter(note)).toBe(note)
         } finally {
             intl.Segmenter = segmenter
             jest.resetModules()
