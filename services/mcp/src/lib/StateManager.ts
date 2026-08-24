@@ -30,6 +30,7 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
+    private _fallbackDistinctId?: string
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -122,7 +123,7 @@ export class StateManager {
             })
 
             if (!user) {
-                return hash(this._api.config.apiToken)
+                return this._getFallbackDistinctId()
             }
 
             await this._cache.set('distinctId', user.distinct_id)
@@ -130,6 +131,31 @@ export class StateManager {
         }
 
         return _distinctId
+    }
+
+    /**
+     * Stand-in distinct id for a credential that `users/@me` refuses. It is
+     * never written to the shared cache, so a credential that later gains
+     * `user:read` resolves its real distinct id on the next session.
+     *
+     * The value is held on the instance because `hash` is a deliberately slow
+     * PBKDF2 and runs synchronously. `getCachedOrFetchUser` resolves the
+     * distinct id before anything else, and the consent, entitlement, and
+     * environment-prompt paths each reach it, so recomputing the hash would
+     * block the event loop several times per request. A StateManager lives for
+     * one request, which is what keeps the value out of the shared cache.
+     *
+     * This must stay equal to `RequestProperties.userHash`, which hashes the
+     * same bearer token with the same function.
+     * `RequestContext.resolveDistinctId` falls back to that value, and
+     * pre-session events such as `$mcp_auth_failed` are already attributed to
+     * it.
+     */
+    private _getFallbackDistinctId(): string {
+        if (!this._fallbackDistinctId) {
+            this._fallbackDistinctId = hash(this._api.config.apiToken)
+        }
+        return this._fallbackDistinctId
     }
 
     /**
@@ -148,6 +174,11 @@ export class StateManager {
     }> {
         const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([
             this.getApiKey(),
+            // Any failure resolves to no active org or team, because this method must
+            // not throw. An outage does not become a working session through this
+            // path: `RequestContext.resolveDistinctId` makes the same user call on
+            // every request and tolerates only a refused scope, so a transient
+            // failure still fails the session there.
             this.getUser().catch(() => null),
         ])
         const activeOrganization = user?.organization ?? null
@@ -340,7 +371,14 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            // A refused scope is an expected state for a narrowed credential, not a
+            // service bug, so keep it out of error tracking for the same reason
+            // `_isRecoverableNotFound` exists. Without this guard, every request from
+            // a credential that cannot read `users/@me` reports one exception for each
+            // cached entity it touches.
+            if (!findPostHogPermissionError(error)) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }

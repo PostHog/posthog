@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
+import { hash } from '@/lib/utils'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
 
@@ -78,6 +79,47 @@ describe('StateManager', () => {
             expect(result).toBe('distinct-123')
             expect(await cache.get('distinctId')).toBe('distinct-123')
             expect(getUserSpy).toHaveBeenCalledOnce()
+        })
+
+        it('falls back to the token hash and caches nothing when the user lookup is refused', async () => {
+            const apiToken = 'phx_lacks_user_read'
+            stateManager = new StateManager(cache, {
+                config: { apiToken },
+                users: () => ({
+                    me: async () => ({
+                        success: false,
+                        error: new PostHogPermissionError({
+                            detail: "API key missing required scope 'user:read'",
+                            missingScope: 'user:read',
+                            url: 'https://us.posthog.com/api/users/@me/',
+                            method: 'GET',
+                        }),
+                    }),
+                }),
+            } as unknown as ApiClient)
+
+            await expect(stateManager.getDistinctId()).resolves.toBe(hash(apiToken))
+            expect(await cache.get('distinctId')).toBeUndefined()
+        })
+
+        it('still throws when the user lookup fails for a reason other than scope', async () => {
+            stateManager = new StateManager(cache, {
+                config: { apiToken: 'phx_test' },
+                users: () => ({
+                    me: async () => ({
+                        success: false,
+                        error: new PostHogApiError({
+                            status: 503,
+                            statusText: 'Service Unavailable',
+                            body: 'upstream is down',
+                            url: 'https://us.posthog.com/api/users/@me/',
+                            method: 'GET',
+                        }),
+                    }),
+                }),
+            } as unknown as ApiClient)
+
+            await expect(stateManager.getDistinctId()).rejects.toThrow('Failed to get user')
         })
     })
 
@@ -157,6 +199,29 @@ describe('StateManager', () => {
             expect(result.projectId).toBe(123)
             expect(result.organizationId).toBeUndefined()
             expect(await cache.get('projectId')).toBe('123')
+        })
+
+        it.each([
+            {
+                name: 'resolves no project for an unscoped key when the user lookup is refused',
+                apiKey: mockApiKey,
+                expectedProjectId: undefined,
+                expectedOrganizationId: undefined,
+            },
+            {
+                name: 'still resolves the first scoped team when the user lookup is refused',
+                apiKey: { ...mockApiKey, scoped_teams: [123, 789] },
+                expectedProjectId: 123,
+                expectedOrganizationId: undefined,
+            },
+        ])('$name', async ({ apiKey, expectedProjectId, expectedOrganizationId }) => {
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(apiKey)
+            vi.spyOn(stateManager, 'getUser').mockRejectedValue(new Error('Failed to get user'))
+
+            const result = await stateManager.setDefaultOrganizationAndProject()
+
+            expect(result.projectId).toBe(expectedProjectId)
+            expect(result.organizationId).toBe(expectedOrganizationId)
         })
 
         it("should use user's active org and team when no scoped restrictions", async () => {
@@ -847,6 +912,32 @@ describe('StateManager', () => {
 
             await stateManager.getOrFetchGroupTypes(projectId)
             expect(getGroupTypes).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([
+            {
+                name: 'keeps a refused scope out of error tracking',
+                error: new PostHogPermissionError({
+                    detail: "API key missing required scope 'group:read'",
+                    missingScope: 'group:read',
+                    url: 'https://us.posthog.com/api/projects/42/groups_types/',
+                    method: 'GET',
+                }),
+                expectedReports: 0,
+            },
+            {
+                name: 'still reports an unexpected failure to error tracking',
+                error: new Error('API error'),
+                expectedReports: 1,
+            },
+        ])('$name', async ({ error, expectedReports }) => {
+            const reportException = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+            await expect(stateManager.getOrFetchGroupTypes(projectId)).resolves.toBeUndefined()
+
+            expect(reportException).toHaveBeenCalledTimes(expectedReports)
         })
 
         it('should return undefined (not stale data) when fetch succeeds then later fails', async () => {
