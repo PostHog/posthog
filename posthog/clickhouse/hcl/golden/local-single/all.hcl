@@ -361,9 +361,6 @@ database "posthog" {
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -2537,9 +2534,6 @@ database "posthog" {
     }
     column "usage_key" {
       type = "LowCardinality(String)"
-    }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
     }
     column "unit" {
       type = "LowCardinality(String)"
@@ -8822,9 +8816,6 @@ SQL
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -14899,9 +14890,6 @@ SQL
     column "usage_key" {
       type = "LowCardinality(String)"
     }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
-    }
     column "unit" {
       type = "LowCardinality(String)"
     }
@@ -17723,7 +17711,6 @@ SELECT
   team_id,
   organization_id,
   usage_key,
-  mode,
   unit,
   quantity,
   timestamp,
@@ -17751,9 +17738,6 @@ SQL
     }
     column "usage_key" {
       type = "LowCardinality(String)"
-    }
-    column "mode" {
-      type = "Enum8('delta'=1, 'snapshot'=2)"
     }
     column "unit" {
       type = "LowCardinality(String)"

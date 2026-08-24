@@ -21,7 +21,6 @@ CREATE TABLE posthog.kafka_billing_usage_records (
   team_id Int64,
   organization_id UUID,
   usage_key LowCardinality(String),
-  mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
   timestamp DateTime64(6, 'UTC'),
@@ -313,7 +312,6 @@ CREATE TABLE posthog.writable_billing_usage_records (
   team_id Int64,
   organization_id UUID,
   usage_key LowCardinality(String),
-  mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
   timestamp DateTime64(6, 'UTC'),
@@ -547,14 +545,13 @@ CREATE MATERIALIZED VIEW posthog.app_metrics_mv TO posthog.writable_app_metrics 
   _offset,
   _partition
 FROM posthog.kafka_app_metrics;
-CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_billing_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), mode Enum8('delta'=1, 'snapshot'=2), unit LowCardinality(String), quantity Int64, timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_billing_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), unit LowCardinality(String), quantity Int64, timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
   schema_version,
   record_id,
   producer_id,
   team_id,
   organization_id,
   usage_key,
-  mode,
   unit,
   quantity,
   timestamp,
