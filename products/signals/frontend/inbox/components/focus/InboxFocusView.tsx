@@ -303,10 +303,9 @@ export function InboxFocusView(): JSX.Element {
                     </div>
                 ) : !currentReport ? (
                     <div className="flex flex-col items-center gap-2 text-center">
-                        <h3 className="m-0 text-base font-semibold">Nothing left to decide</h3>
+                        <h3 className="m-0 text-base font-semibold">Inbox zero. Nice.</h3>
                         <p className="m-0 text-sm text-tertiary">
-                            Every report that needs a pull request has one. New reports show up here as agents file
-                            them.
+                            Every report has a pull request. The hedgehogs are still out sniffing for more.
                         </p>
                         <LemonButton type="secondary" size="small" to={urls.inbox('reports')}>
                             Back to reports
