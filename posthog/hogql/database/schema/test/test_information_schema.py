@@ -279,7 +279,10 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             ).results
             or []
         }
-        assert {"team_id", "producer_id", "quantity", "dimensions"}.issubset(usage_columns)
+        assert {"team_id", "producer_id", "quantity", "dimensions", "timestamp"}.issubset(usage_columns)
+        # inserted_at is the engine's version column and is withheld on purpose: it is absent from
+        # the sorting key, so a query that filtered on it would read the whole partition.
+        assert "inserted_at" not in usage_columns
 
     def test_access_scoped_system_tables_are_filtered(self):
         # Access-scoped system tables the caller can't reach must not leak into the catalog,
