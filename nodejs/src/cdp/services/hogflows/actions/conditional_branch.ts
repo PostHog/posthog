@@ -37,6 +37,7 @@ export class ConditionalBranchHandler implements ActionHandler {
     async execute({
         invocation,
         action,
+        result,
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
@@ -71,6 +72,10 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (refreshed) {
                 invocation.person = refreshed.person
                 invocation.filterGlobals = refreshed.filterGlobals
+                // The result carries a shallow clone, so rebinding only `invocation` would leave it
+                // pointing at the pre-refresh globals for anything that reads it later.
+                result.invocation.person = refreshed.person
+                result.invocation.filterGlobals = refreshed.filterGlobals
             }
         }
 
