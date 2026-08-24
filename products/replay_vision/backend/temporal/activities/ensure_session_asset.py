@@ -18,7 +18,7 @@ _ASSET_EXPIRES_AFTER_DAYS = 90
 
 
 @activity.defn
-@track_activity()
+@track_activity(close_stale_db=True)
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
     existing = (

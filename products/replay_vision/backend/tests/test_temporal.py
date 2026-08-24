@@ -1981,9 +1981,9 @@ class TestEnsureSessionAssetActivity:
 
 class TestTrackActivityDecorator:
     @pytest.mark.asyncio
-    async def test_async_wrapper_closes_stale_connections_before_body(self) -> None:
-        # Async activities reuse the worker thread's Postgres connection, so the decorator must
-        # close a stale one before the body queries, the same as the sync path.
+    async def test_async_wrapper_closes_stale_connections_when_opted_in(self) -> None:
+        # An async ORM activity reuses the shared executor thread's Postgres connection, so the
+        # decorator must close a stale one before the body queries when close_stale_db is set.
         order: list[str] = []
 
         with patch(
@@ -1991,7 +1991,7 @@ class TestTrackActivityDecorator:
             side_effect=lambda: order.append("close"),
         ) as mock_close:
 
-            @track_activity()
+            @track_activity(close_stale_db=True)
             async def body() -> str:
                 order.append("body")
                 return "ok"
@@ -2001,6 +2001,23 @@ class TestTrackActivityDecorator:
         assert result == "ok"
         mock_close.assert_called_once()
         assert order == ["close", "body"]
+
+    @pytest.mark.asyncio
+    async def test_async_wrapper_skips_cleanup_by_default(self) -> None:
+        # Default async activities touch no database on the shared thread, so the decorator must
+        # not queue them onto it with a needless cleanup.
+        with patch(
+            "products.replay_vision.backend.temporal.decorators.close_stale_db_connections",
+        ) as mock_close:
+
+            @track_activity()
+            async def body() -> str:
+                return "ok"
+
+            result = await body()
+
+        assert result == "ok"
+        mock_close.assert_not_called()
 
     def test_sync_wrapper_closes_stale_connections_before_body(self) -> None:
         order: list[str] = []

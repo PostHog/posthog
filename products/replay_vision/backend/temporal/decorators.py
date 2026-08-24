@@ -15,12 +15,20 @@ from products.replay_vision.backend.temporal.metrics import record_activity_dura
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def track_activity(name: str | None = None, side_effect: str | None = None) -> Callable[[F], F]:
+def track_activity(
+    name: str | None = None, side_effect: str | None = None, close_stale_db: bool = False
+) -> Callable[[F], F]:
     """Wrap an activity body to record `replay_vision_activity_duration_seconds`; apply below `@activity.defn`.
 
     Pass `side_effect` on fail-soft post-success activities so their failed attempts also
     count into `replay_vision_side_effect_failures_total`. The workflow swallows their
     errors, so nothing downstream would surface the degradation.
+
+    Pass `close_stale_db=True` on an async activity that reads Postgres through Django's native
+    async ORM (afirst/acreate). Those run their query on asgiref's shared thread-sensitive
+    executor, whose long-lived thread keeps expired connections between runs. Leave it False for
+    async activities that touch no database, or that route their database work through a pool
+    (thread_sensitive=False); the cleanup would only queue them onto the shared thread for no gain.
     """
 
     def decorator(fn: F) -> F:
@@ -32,16 +40,17 @@ def track_activity(name: str | None = None, side_effect: str | None = None) -> C
                 record_side_effect_failure(side_effect)
 
         if inspect.iscoroutinefunction(fn):
-            # Django's native async ORM (afirst/acreate) runs its query through
-            # sync_to_async(thread_sensitive=True), so the connection to close lives on asgiref's
-            # shared thread-sensitive executor. Match that thread here. database_sync_to_async_pool
-            # would run on a different pool thread and close the wrong connection, because Django
-            # connections are thread-local, leaving the stale one the ORM reuses in place.
-            close_stale_db_connections_async = sync_to_async(close_stale_db_connections, thread_sensitive=True)
+            # Close on the shared thread-sensitive executor, the same thread the native async ORM
+            # runs its query on, so the connection the query reuses is the one closed. A pool thread
+            # would close a different, thread-local connection and leave the stale one in place.
+            close_stale_db_connections_async = (
+                sync_to_async(close_stale_db_connections, thread_sensitive=True) if close_stale_db else None
+            )
 
             @wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                await close_stale_db_connections_async()
+                if close_stale_db_connections_async is not None:
+                    await close_stale_db_connections_async()
                 started = time.monotonic()
                 try:
                     result = await fn(*args, **kwargs)
