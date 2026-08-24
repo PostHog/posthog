@@ -25,9 +25,9 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { isContentEmpty } from "@posthog/ui/features/message-editor/content";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { isTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
-import { useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 
 /**
@@ -41,14 +41,12 @@ import { useState } from "react";
 export function ChannelsFab({ channelId }: { channelId?: string }) {
   const channelsLayout = useChannelsLayout();
   const [modalOpen, setModalOpen] = useState(false);
-  const hasDraft = useDraftStore(
-    (s) => !isContentEmpty(s.drafts["task-input"]),
+  const hasDraft = useDraftStore((state) =>
+    Object.entries(state.drafts).some(
+      ([sessionId, draft]) =>
+        isTaskInputSessionId(sessionId) && !isContentEmpty(draft),
+    ),
   );
-  // New task has no /website mirror yet, so it jumps back to Code unless we're
-  // already in the Channels space — same rule as the nav's New task row.
-  const inChannels = useRouterState({
-    select: (s) => s.location.pathname.startsWith("/website"),
-  });
 
   const newTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -62,7 +60,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
       openTaskInput({ channelId });
       return;
     }
-    openTaskInput(inChannels ? { space: "website" } : undefined);
+    openTaskInput();
   };
 
   const newChannelItem = (
@@ -72,40 +70,62 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
     </DropdownMenuItem>
   );
 
+  // Inside a space on the layout, the menu held one item, so the button is that
+  // item: a click starts the task instead of asking which kind to start.
+  const newTaskOnly = channelsLayout && !!channelId;
+
+  const draftDot = channelsLayout && hasDraft && (
+    <span
+      aria-hidden
+      className="absolute top-0.5 right-0.5 size-2 rounded-full bg-current ring-(--primary) ring-2"
+    />
+  );
+
+  const label = newTaskOnly ? "New task" : "Create";
+
   const trigger = (
     <Button
       variant="primary"
       size="icon-lg"
-      aria-label="Create"
+      aria-label={label}
       className="absolute right-3 bottom-3 z-10 rounded-full"
+      onClick={newTaskOnly ? newTask : undefined}
     >
       <PlusIcon size={20} weight="bold" />
-      {channelsLayout && hasDraft && (
-        <span
-          aria-hidden
-          className="absolute top-0.5 right-0.5 size-2 rounded-full bg-current ring-(--primary) ring-2"
-        />
-      )}
+      {draftDot}
     </Button>
   );
+
+  const tooltip = (
+    <TooltipContent side="top" align="center">
+      {channelsLayout ? (
+        <>
+          {/* The draft dot needs saying out loud, and the button is where
+              the create shortcut is worth advertising. */}
+          {hasDraft ? `${label} — you have a draft` : label}
+          <Kbd className="ml-1.5">{formatHotkey(SHORTCUTS.NEW_TASK)}</Kbd>
+        </>
+      ) : (
+        "Create something new"
+      )}
+    </TooltipContent>
+  );
+
+  if (newTaskOnly) {
+    return (
+      <Tooltip>
+        <TooltipTrigger render={trigger} />
+        {tooltip}
+      </Tooltip>
+    );
+  }
 
   return (
     <>
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger render={<DropdownMenuTrigger render={trigger} />} />
-          <TooltipContent side="top" align="center">
-            {channelsLayout ? (
-              <>
-                {/* The draft dot needs saying out loud, and the button is where
-                    the create shortcut is worth advertising. */}
-                {hasDraft ? "Create — you have a draft" : "Create"}
-                <Kbd className="ml-1.5">{formatHotkey(SHORTCUTS.NEW_TASK)}</Kbd>
-              </>
-            ) : (
-              "Create something new"
-            )}
-          </TooltipContent>
+          {tooltip}
         </Tooltip>
         <DropdownMenuContent
           align={channelId ? "end" : "center"}

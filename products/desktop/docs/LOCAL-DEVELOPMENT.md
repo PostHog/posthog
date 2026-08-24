@@ -110,8 +110,7 @@ Source: `apps/code/src/renderer/features/inbox/devtools/inboxDemoConsole.ts`.
 
 Feature flags are read through posthog-js, configured by the `VITE_POSTHOG_*`
 vars in `.env`. By default these point at PostHog's internal analytics instance,
-so flags you create locally never resolve in the dev build (and flag-gated UI —
-e.g. the agent-platform surface behind the `agent-platform` flag — stays hidden).
+so flags you create locally never resolve in the dev build.
 
 To point the flags/analytics client at your local PostHog so locally-synced
 flags take effect:
@@ -133,7 +132,7 @@ region you pick at login.
 
 > One-off override without changing `.env`: the dev build exposes the client on
 > `window.posthog`, so you can run
-> `posthog.featureFlags.override({ "agent-platform": true })` in the renderer
+> `posthog.featureFlags.override({ "mcp-gateway": true })` in the renderer
 > console (clear with `posthog.featureFlags.override(false)`).
 
 ## Troubleshooting

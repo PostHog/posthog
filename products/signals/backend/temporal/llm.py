@@ -5,7 +5,7 @@ from typing import Optional, TypeVar
 from django.conf import settings
 
 import structlog
-from anthropic.types import MessageParam
+from anthropic.types import Message, MessageParam
 
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.llm.gateway_client import (
@@ -57,8 +57,11 @@ class EmptyLLMResponseError(Exception):
     pass
 
 
-def _extract_text_content(response) -> str:
+def _extract_text_content(response: Message) -> str:
     """Extract text content from Anthropic response."""
+    if not isinstance(response, Message):
+        raise TypeError(f"Expected Anthropic Message response, got {type(response).__name__}")
+
     for block in reversed(response.content):
         if block.type == "text":
             return block.text

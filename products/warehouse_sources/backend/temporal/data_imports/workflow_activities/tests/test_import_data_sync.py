@@ -201,6 +201,29 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
 
 
 @pytest.mark.asyncio
+async def test_transient_app_db_error_in_setup_is_retryable_not_raw():
+    # The setup phase resolves this run's job/schema/source rows over the Django ORM (our own app
+    # DB). A transient connection-pool blip there — e.g. a PgBouncer server_login_retry cooldown —
+    # raises a Django OperationalError before the source's error handling runs. It's our infra, not
+    # the customer's source, so it must be re-raised as NonReportableError (Temporal retries the
+    # whole activity and it self-heals) rather than escaping raw and being stored verbatim as
+    # latest_error while minting error-tracking noise.
+    error = OperationalError("server login has been failing, cached error: (server_login_retry)")
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source) as handle_mock,
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(NonReportableError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value.__cause__ is error
+    handle_mock.assert_not_awaited()
+    source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
@@ -476,14 +499,22 @@ async def test_jsonpath_error_routes_through_handler_without_source_opt_in():
     logger.aexception.assert_not_awaited()
 
 
+@parameterized.expand(
+    [
+        # Raised in shared pipeline code (delta merge) when a keyless table syncs incrementally.
+        ("primary_key", "Primary key required for incremental syncs"),
+        # Raised by botocore when the object storage endpoint hostname is one it rejects (e.g. an
+        # underscore in a self-hosted OBJECT_STORAGE_ENDPOINT). Deterministic for the deployment, so
+        # it must stop retrying instead of looping the activity's budget and reporting every attempt.
+        ("invalid_endpoint", "Invalid endpoint: http://posthog_objectstorage:19000"),
+    ]
+)
 @pytest.mark.asyncio
-async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in():
-    # "Primary key required for incremental syncs" is raised in shared pipeline code (delta merge),
-    # not any one source, and lives in the shared Any_Source_Errors dict. It must be non-retryable in
-    # this in-activity handler for every source, not just those that duplicate the message into their
-    # own get_non_retryable_errors — otherwise a keyless incremental table retries the activity's whole
-    # budget and reports on every attempt.
-    error = Exception("Primary key required for incremental syncs")
+async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in(_name: str, message: str):
+    # These messages are raised in shared pipeline code, not any one source, and live in the shared
+    # Any_Source_Errors dict. Each must be non-retryable in this in-activity handler for every source,
+    # not just those that duplicate the message into their own get_non_retryable_errors.
+    error = Exception(message)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -562,13 +593,15 @@ def _inputs_no_reset() -> ImportDataActivityInputs:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "is_incremental,expected_last_value",
+    "is_incremental,expected_last_value,expected_before_lookback",
     [
-        (True, datetime(2026, 6, 14, 14, 33, 31, 802833)),
-        (False, datetime(2026, 6, 14, 15, 33, 31, 802833)),
+        (True, datetime(2026, 6, 14, 14, 33, 31, 802833), datetime(2026, 6, 14, 15, 33, 31, 802833)),
+        (False, datetime(2026, 6, 14, 15, 33, 31, 802833), None),
     ],
 )
-async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_incremental, expected_last_value):
+async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
+    is_incremental, expected_last_value, expected_before_lookback
+):
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
@@ -580,6 +613,10 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(is_i
     _, source_inputs = source.source_for_pipeline.call_args.args
     assert source_inputs.db_incremental_field_last_value == expected_last_value
     assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
+    # The unshifted cursor travels alongside the shifted one. A consumer needs both to tell overlap
+    # from new ground, and capturing it after the shift would make them equal and silently disarm
+    # that rule with every test still passing.
+    assert source_inputs.db_incremental_field_last_value_before_lookback == expected_before_lookback
 
 
 @pytest.mark.asyncio

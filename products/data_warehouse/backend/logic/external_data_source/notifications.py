@@ -18,22 +18,37 @@ logger = structlog.get_logger(__name__)
 # notified — the email communicates them in aggregate via the "+N more" line.
 MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
 
+# Re-notify a schema that stays failed this long after its last email. A paused
+# schema never runs again, so it produces no newer failed job to re-trigger the
+# digest — without this it gets exactly one email, then silence for weeks while
+# its data goes stale. The catch-up sweep runs daily, so it picks the schema up
+# the first day past this age and stamps a fresh time, spacing reminders evenly.
+RENOTIFY_STILL_FAILING_AFTER = dt.timedelta(days=7)
 
-def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=26)) -> list[int]:
-    """Teams with still-failing schemas that have an un-communicated recent failure.
 
-    Powers the daily catch-up digest: failures that the one-email-per-day block
-    swallowed get flushed the next day — including schemas that were paused and
-    will never produce another failed run to re-trigger the inline path. A failure
-    counts only if it is newer than the schema's `last_error_notified_at` stamp,
-    so failures already covered by an earlier digest don't trigger a duplicate.
+def get_team_ids_with_recent_sync_failures(
+    lookback: dt.timedelta = dt.timedelta(hours=26),
+    renotify_after: dt.timedelta = RENOTIFY_STILL_FAILING_AFTER,
+) -> list[int]:
+    """Teams with still-failing schemas that need a digest.
+
+    Powers the daily catch-up digest. It flushes two groups:
+
+    - Failures that the one-email-per-day block swallowed. A failure counts only
+      if it is newer than the schema's `last_error_notified_at` stamp, so failures
+      already covered by an earlier digest do not trigger a duplicate.
+    - Schemas that stay failed but produce no newer failed run — a paused schema
+      never syncs again. Their last email is older than `renotify_after`, so they
+      get a reminder instead of silence.
 
     The lookback exceeds the 24h digest day on purpose: a failure just after the
     10:00 UTC rollover, blocked because that digest day's email already went out,
     is 24h15m+ old by the next catch-up run — a 24h lookback would drop it forever
     for paused schemas. The stamp check above keeps the wider window duplicate-free.
     """
-    cutoff = dt.datetime.now(dt.UTC) - lookback
+    now = dt.datetime.now(dt.UTC)
+    cutoff = now - lookback
+    renotify_cutoff = now - renotify_after
     # Drive from the schema side: the jobs table grows with every sync run and has
     # no index on (status, finished_at), so starting there would seq-scan it daily.
     # Schemas are one row each, and their jobs are reachable via the schema_id FK index.
@@ -46,25 +61,28 @@ def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta
         ExternalDataSchema.objects.exclude(deleted=True)
         .exclude(source__deleted=True)
         .filter(status=ExternalDataSchema.Status.FAILED)
-        .filter(Exists(unnotified_failed_job))
+        .filter(Exists(unnotified_failed_job) | Q(last_error_notified_at__lt=renotify_cutoff))
         .values_list("team_id", flat=True)
         .distinct()
     )
 
 
-def notify_external_data_sync_failures(team_id: int) -> None:
-    """Email the team a digest of failing external data schemas with an un-communicated failure.
+def notify_external_data_sync_failures(
+    team_id: int, renotify_after: dt.timedelta = RENOTIFY_STILL_FAILING_AFTER
+) -> None:
+    """Email the team a digest of failing external data schemas that need a notification.
 
-    A failure is reported once: a schema is listed only if it was never notified or
-    has a failed run newer than its last notification. A stuck-but-stopped sync
-    (deleted source, paused schema) has no newer run, so it drops out after the first
-    digest instead of riding every later one. Schemas of a deleted source are excluded
-    entirely. Runs inside the digest Celery task; exceptions are swallowed so a
-    notification problem never crash-loops the task. Throttling to one email per team
-    per digest day happens in the email layer via the MessagingRecord campaign key, so
-    scheduling this for every failed job is safe.
+    A schema is listed when it was never notified, has a failed run newer than its last
+    notification, or has stayed failed for longer than `renotify_after` since its last
+    email. The last case reminds the team about a paused schema, which never runs again
+    and so produces no newer failed run to re-trigger the digest on its own. Schemas of a
+    deleted source are excluded entirely. Runs inside the digest Celery task; exceptions
+    are swallowed so a notification problem never crash-loops the task. Throttling to one
+    email per team per digest day happens in the email layer via the MessagingRecord
+    campaign key, so scheduling this for every failed job is safe.
     """
     try:
+        renotify_cutoff = dt.datetime.now(dt.UTC) - renotify_after
         newer_failed_job = ExternalDataJob.objects.filter(
             schema_id=OuterRef("id"),
             status=ExternalDataJob.Status.FAILED,
@@ -74,7 +92,11 @@ def notify_external_data_sync_failures(team_id: int) -> None:
             ExternalDataSchema.objects.exclude(deleted=True)
             .exclude(source__deleted=True)
             .filter(team_id=team_id, status=ExternalDataSchema.Status.FAILED)
-            .filter(Q(last_error_notified_at__isnull=True) | Exists(newer_failed_job))
+            .filter(
+                Q(last_error_notified_at__isnull=True)
+                | Q(last_error_notified_at__lt=renotify_cutoff)
+                | Exists(newer_failed_job)
+            )
             .select_related("source")
             .order_by("name")
         )

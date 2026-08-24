@@ -26,21 +26,27 @@ from posthog.models.organization import Organization
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
-from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,
     is_valid_session_recording_id,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.exports.backend.source_authentication import (
+    get_export_source_authentication,
+    required_scopes_for_export_target,
+)
+from products.exports.backend.stuck_exports import STUCK_EXPORT_MESSAGE, is_stuck_export
+from products.product_analytics.backend.facade.models import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
@@ -88,39 +94,17 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
     def to_representation(self, instance):
-        """Override to show stuck exports as having an exception."""
+        """Override to show stuck exports as having an exception.
+
+        Must stay free of side effects. A stuck export reads as stuck on every serialization of the
+        row, so anything emitted here — an analytics event, a write — repeats for the life of the
+        asset and on every poll of the list. Terminal state is recorded once, by whichever pipeline
+        fails the export.
+        """
         data = super().to_representation(instance)
 
-        timeout = (
-            EXPORT_WORKFLOW_TIMEOUT
-            if instance.is_dataset_export
-            else timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME)
-        )
-        timeout_threshold = now() - timeout - timedelta(seconds=30)
-        if (
-            timeout_threshold
-            and instance.created_at < timeout_threshold
-            and not instance.has_content
-            and not instance.exception
-        ):
-            timeout_message = f"Export failed without throwing an exception. Please try to rerun this export and contact support if it fails to complete multiple times."
-            data["exception"] = timeout_message
-
-            distinct_id = (
-                self.context["request"].user.distinct_id
-                if "request" in self.context and self.context["request"].user
-                else str(instance.team.uuid)
-            )
-            posthoganalytics.capture(
-                distinct_id=distinct_id,
-                event="export timeout error returned",
-                properties={
-                    **instance.get_analytics_metadata(),
-                    "timeout_message": timeout_message,
-                    "stuck_duration_seconds": (now() - instance.created_at).total_seconds(),
-                },
-                groups=groups(instance.team.organization, instance.team),
-            )
+        if is_stuck_export(instance):
+            data["exception"] = STUCK_EXPORT_MESSAGE
 
         return data
 
@@ -138,6 +122,12 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             raise ValidationError({"insight": ["This insight does not belong to your team."]})
 
         export_context = data.get("export_context") or {}
+        if export_context.get("path") and (
+            str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
+        ):
+            raise ValidationError(
+                {"export_context": ["Exports from API endpoints only support GET requests without a request body."]}
+            )
         # Truthiness, not `is not None`: an absent or empty id is a no-op everywhere downstream,
         # and rejecting it here would 400 exports that never touch a recording.
         session_recording_id = export_context.get("session_recording_id")
@@ -147,7 +137,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Check full video export limit for team (video session recording exports)
         export_format = data.get("export_format")
 
-        is_full_video_export = export_format in ("video/mp4", "video/webm", "image/gif") and export_context.get(
+        is_full_video_export = export_format in ExportedAsset.RASTERIZED_FORMATS and export_context.get(
             "session_recording_id"
         )
 
@@ -159,7 +149,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             existing_full_video_exports_count = (
                 ExportedAsset.objects.filter(
                     team_id=self.context["team_id"],
-                    export_format__in=["video/mp4", "video/webm", "image/gif"],
+                    export_format__in=list(ExportedAsset.RASTERIZED_FORMATS),
                     export_context__session_recording_id__isnull=False,
                     created_at__gte=start_of_month,
                 )
@@ -215,6 +205,13 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> ExportedAsset:
         request = self.context["request"]
+        source_authentication = get_export_source_authentication(request.successful_authenticator)
+        if source_authentication is not None:
+            validated_data.update(source_authentication)
+        else:
+            raise ValidationError(
+                {"export_context": ["Exports from API endpoints do not support this authentication method."]}
+            )
         self._assert_may_export_session_recording(validated_data)
         return self._create_asset(validated_data, user=request.user, reason=None)
 
@@ -269,7 +266,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
 
         if not force_async:
-            if instance.export_format in ("video/mp4", "video/webm", "image/gif"):
+            if instance.is_rasterized_export:
                 # recordings-only
                 if not (instance.export_context and instance.export_context.get("session_recording_id")):
                     raise serializers.ValidationError(
@@ -290,7 +287,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(hours=1),
+                        execution_timeout=RASTERIZE_WORKFLOW_TIMEOUT,
                         search_attributes=TypedSearchAttributes(
                             search_attributes=[
                                 SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id),
@@ -499,6 +496,16 @@ class ExportedAssetViewSet(
     # Both FKs are read on every retrieve to authorize the asset, so fetch them with it.
     queryset = ExportedAsset.objects.select_related("dashboard", "insight").order_by("-created_at")
     serializer_class = ExportedAssetSerializer
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if self.action != "create":
+            return None
+        export_context = request.data.get("export_context") if isinstance(request.data, dict) else None
+        return required_scopes_for_export_target(
+            insight_id=request.data.get("insight") if isinstance(request.data, dict) else None,
+            dashboard_id=request.data.get("dashboard") if isinstance(request.data, dict) else None,
+            export_context=export_context if isinstance(export_context, dict) else None,
+        )
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return ExportedAssetCreateSerializer if self.action == "create" else ExportedAssetSerializer

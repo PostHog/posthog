@@ -14,6 +14,34 @@ const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const DATA_REQUEST_TIMEOUT_MS = 30_000;
+const REPLAYABLE_SHORTCUT_KEYS = new Set([
+  ",",
+  "/",
+  "[",
+  "]",
+  "{",
+  "}",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "arrowup",
+  "b",
+  "i",
+  "j",
+  "k",
+  "n",
+  "t",
+  "tab",
+]);
 
 function isBoundedPayload(payload: unknown): boolean {
   try {
@@ -68,7 +96,7 @@ export function createCanvasHostMessageRouter(
 
   return async (message) => {
     switch (message.type) {
-      case "data-request":
+      case "data-request": {
         // Canvas code is untrusted, so the host is what stops a canvas from
         // firing writes just by being loaded or rendered.
         if (
@@ -88,8 +116,13 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
+        // agentRequest settles on a viewer's decision, not on I/O, so it stays
+        // out of the shared slot pool: an approval dialog left open must not
+        // starve the canvas's ordinary reads/writes. Its own bound is the
+        // host's single-flight guard (one request awaiting approval at a time).
+        const holdsSlot = message.method !== "agentRequest";
         if (
-          activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS ||
+          (holdsSlot && activeDataRequests >= MAX_CONCURRENT_DATA_REQUESTS) ||
           !isBoundedPayload(message.payload)
         ) {
           options.post({
@@ -101,7 +134,7 @@ export function createCanvasHostMessageRouter(
           });
           break;
         }
-        activeDataRequests += 1;
+        if (holdsSlot) activeDataRequests += 1;
         try {
           const call = options
             .callbacks()
@@ -139,9 +172,10 @@ export function createCanvasHostMessageRouter(
             error: error instanceof Error ? error.message : String(error),
           });
         } finally {
-          activeDataRequests -= 1;
+          if (holdsSlot) activeDataRequests -= 1;
         }
         break;
+      }
       case "error":
         options.callbacks().onError?.(message.message, message.stack);
         break;
@@ -177,6 +211,22 @@ export function createCanvasHostMessageRouter(
           options.openExternal(message.url);
         }
         break;
+      case "keydown": {
+        if (!message.metaKey && !message.ctrlKey) break;
+        if (!REPLAYABLE_SHORTCUT_KEYS.has(message.key.toLowerCase())) break;
+        if (!(document.activeElement instanceof HTMLIFrameElement)) break;
+        const init = {
+          key: message.key,
+          code: message.code,
+          metaKey: message.metaKey,
+          ctrlKey: message.ctrlKey,
+          shiftKey: message.shiftKey,
+          altKey: message.altKey,
+        };
+        document.dispatchEvent(new KeyboardEvent("keydown", init));
+        document.dispatchEvent(new KeyboardEvent("keyup", init));
+        break;
+      }
       case "ready":
         options.callbacks().onReady?.();
         break;

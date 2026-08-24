@@ -484,8 +484,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
 
-    @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
             if "authorization" in request.headers:
                 authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
@@ -495,6 +494,8 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
                         return (user, None)
+                    except AuthenticationFailed:
+                        raise
                     except jwt.DecodeError:
                         # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
                         return None
@@ -958,6 +959,84 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[str, Any] | None:
+    authorization = request.headers.get("authorization")
+    if not authorization:
+        return None
+    authorization_match = re.match(r"^Bearer\s+(\S.+)$", authorization)
+    if not authorization_match:
+        return None
+    try:
+        return decode_jwt(authorization_match.group(1).strip(), PosthogJwtAudience.DELEGATED_USER)
+    except (jwt.DecodeError, jwt.InvalidAudienceError):
+        return None
+    except jwt.InvalidTokenError as error:
+        raise AuthenticationFailed(detail="Token invalid.") from error
+
+
+class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        personal_api_key_id = claims.get("personal_api_key_id")
+        if not personal_api_key_id:
+            return None
+        try:
+            personal_api_key = PersonalAPIKey.objects.select_related("user").get(
+                id=personal_api_key_id,
+                user_id=claims["id"],
+                user__is_active=True,
+            )
+        except (KeyError, PersonalAPIKey.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+
+        self.personal_api_key = personal_api_key
+        tag_authentication(
+            user_id=personal_api_key.user.pk,
+            team_id=personal_api_key.user.current_team_id,
+            access_method=AccessMethod.PERSONAL_API_KEY,
+            api_key_mask=personal_api_key.mask_value,
+            api_key_label=personal_api_key.label,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(personal_api_key.user)
+        return personal_api_key.user, None
+
+
+class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        claims = _decode_delegated_user_token(request)
+        if claims is None:
+            return None
+        oauth_access_token_id = claims.get("oauth_access_token_id")
+        if not oauth_access_token_id:
+            return None
+        try:
+            access_token = OAuthAccessToken.objects.select_related("user", "application").get(
+                id=oauth_access_token_id,
+                user_id=claims["id"],
+                user__is_active=True,
+                application__isnull=False,
+                expires__gt=timezone.now(),
+            )
+        except (KeyError, OAuthAccessToken.DoesNotExist) as error:
+            raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
+
+        self._enforce_toolbar_access(access_token)
+        self.access_token = access_token
+        tag_authentication(
+            user_id=access_token.user.pk,
+            team_id=access_token.user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(access_token.user)
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+        return access_token.user, None
+
+
 class WidgetAuthentication(authentication.BaseAuthentication):
     """
     Authenticate widget requests via conversations_settings.widget_public_token.
@@ -1167,15 +1246,18 @@ def _team_id_from_request_path(request: Request) -> Optional[str]:
     parser_context = getattr(request, "parser_context", None)
     if isinstance(parser_context, dict):
         kwargs = parser_context.get("kwargs")
-        if isinstance(kwargs, dict) and kwargs.get("team_id") is not None:
-            return str(kwargs["team_id"])
+        if isinstance(kwargs, dict):
+            for lookup in ("parent_lookup_team_id", "team_id"):
+                if kwargs.get(lookup) is not None:
+                    return str(kwargs[lookup])
 
     django_request = getattr(request, "_request", request)
     resolver_match = getattr(django_request, "resolver_match", None)
     if resolver_match and getattr(resolver_match, "kwargs", None):
-        team_id = resolver_match.kwargs.get("team_id")
-        if team_id is not None:
-            return str(team_id)
+        for lookup in ("parent_lookup_team_id", "team_id"):
+            team_id = resolver_match.kwargs.get(lookup)
+            if team_id is not None:
+                return str(team_id)
 
     return None
 

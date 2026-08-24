@@ -1,3 +1,4 @@
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { create } from "zustand";
 
 /**
@@ -23,36 +24,63 @@ export const useChannelPaneStore = create<ChannelPaneState>()((set) => ({
 }));
 
 /**
- * Set by a navigation that is not a request to enter the space it belongs to —
- * opening a session from the list's tree. The route effect that otherwise
- * slides into the space consumes it.
- *
- * Deliberately not store state: it decides what a single navigation does, and a
- * render pass is the wrong lifetime for that. Any explicit pane change below
- * drops it, so it can't outlive the navigation it was set for.
+ * Keyed on the channel rather than consumed on first read so it survives a
+ * re-run of the same route effect (React StrictMode double-invokes mount
+ * effects) and expires on its own once the route moves to another channel.
  */
-let keepListOnNextRoute = false;
+let keepListForChannelId: string | null = null;
 
-/** Keep the sidebar on the list through the navigation that follows. */
-export function keepListForNextRoute(): void {
-  keepListOnNextRoute = true;
+export function keepListForRoute(channelId: string): void {
+  keepListForChannelId = channelId;
 }
 
-/** Reads the flag and clears it. */
-export function consumeKeepListForNextRoute(): boolean {
-  const keep = keepListOnNextRoute;
-  keepListOnNextRoute = false;
-  return keep;
+export function shouldKeepListForRoute(channelId: string): boolean {
+  if (keepListForChannelId === channelId) return true;
+  keepListForChannelId = null;
+  return false;
 }
 
-/** Slide back to the channel list, keeping the scoped channel as it is. */
-export function showChannelList(): void {
-  keepListOnNextRoute = false;
+export function clearKeepListForRoute(): void {
+  keepListForChannelId = null;
+}
+
+/**
+ * Slide back to the channel list, keeping the scoped channel as it is.
+ *
+ * Pass `keepForRoute` when the caller is about to navigate into that channel:
+ * arriving at a channel pulls the slider to it, and the latch holds the list
+ * across that navigation.
+ */
+export function showChannelList(keepForRoute?: string): void {
+  keepListForChannelId = keepForRoute ?? null;
   useChannelPaneStore.getState().setPane("list");
 }
 
 /** Slide to the channel pane — every channel entry point goes through here. */
 export function showChannelPane(): void {
-  keepListOnNextRoute = false;
+  keepListForChannelId = null;
   useChannelPaneStore.getState().setPane("channel");
+}
+
+/**
+ * Put the sidebar back the way a tab left it.
+ *
+ * The pane and the scoped space are window-global stores, but each tab has its
+ * own. Switching tabs has to restore them, or the next navigation effect reads
+ * the tab you *left* and writes that over the tab you arrived at.
+ *
+ * `showChannelList` arms the keep-list latch, so an in-flight navigation into
+ * the space does not immediately slide the list away again.
+ */
+export function applyTabViewState(view: {
+  listOpen?: boolean;
+  spaceId?: string | null;
+}): void {
+  // A stored null explicitly clears the space; only an absent value is skipped.
+  if (view.spaceId !== undefined) {
+    useCurrentChannelStore.getState().setCurrentChannel(view.spaceId);
+  }
+  if (view.listOpen === undefined) return;
+  if (view.listOpen) showChannelList(view.spaceId ?? undefined);
+  else showChannelPane();
 }

@@ -129,18 +129,60 @@ describe("createCanvasHostMessageRouter", () => {
       expect(post).not.toHaveBeenCalled();
 
       // The viewer's approval is the only response the canvas receives.
-      approve({ requestOutcome: "started" });
+      approve({ requestOutcome: "new_run" });
       await routed;
       expect(post).toHaveBeenCalledTimes(1);
       expect(post).toHaveBeenCalledWith(
         expect.objectContaining({
           id: "request-1",
           ok: true,
-          result: { requestOutcome: "started" },
+          result: { requestOutcome: "new_run" },
         }),
       );
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not count a pending agent request against the concurrency limit", async () => {
+    const post = vi.fn();
+    const onDataRequest = vi.fn((method: string) =>
+      method === "agentRequest"
+        ? new Promise<unknown>(() => {}) // dialog open, never settles
+        : Promise.resolve(null),
+    );
+    const route = createCanvasHostMessageRouter({
+      post,
+      callbacks: () => ({ onDataRequest }),
+      hasUserActivation: () => true,
+      openExternal: vi.fn(),
+    });
+
+    void route({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "agent-1",
+      method: "agentRequest",
+      payload: { prompt: "Change it" },
+    });
+
+    // With the dialog sitting unanswered, the canvas's ordinary reads must
+    // still get all 8 slots: none may be rejected for runtime limits.
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        route({
+          channel: "posthog-canvas",
+          type: "data-request",
+          id: `query-${i}`,
+          method: "stateGet",
+          payload: { scope: "user", key: `k${i}` },
+        }),
+      ),
+    );
+
+    expect(post).toHaveBeenCalledTimes(8);
+    expect(post.mock.calls.every(([message]) => message.ok === true)).toBe(
+      true,
+    );
   });
 });

@@ -76,6 +76,7 @@ jobs:
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout.
@@ -128,6 +129,7 @@ jobs:
                         - 'posthog/exceptions_capture.py'
                         - 'posthog/metrics.py'
                         - 'posthog/git.py'
+                        - 'posthog/job_owners.py'
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
@@ -164,6 +166,9 @@ jobs:
                         - 'products/warehouse_sources/backend/models/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
+                        # The postgres-to-clickhouse ETL DAG imports the encrypted-flag
+                        # payload redaction constant from the flags backend.
+                        - 'products/feature_flags/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
                         - 'products/signals/backend/**/*.py'
                         - 'products/marketing_analytics/backend/**/*.py'
@@ -173,6 +178,10 @@ jobs:
                         - 'products/web_analytics/backend/**/*.py'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
+                        # The test selector guards itself: selector changes run the
+                        # suite (full mode), which executes its unit tests first
+                        - tools/dagster_test_selection.py
+                        - tools/test_dagster_test_selection.py
                         - .github/clickhouse-versions.json
                         # Composite action used to install sqlx-cli
                         - '.github/actions/setup-sqlx-cli/**'
@@ -209,6 +218,8 @@ jobs:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
                         - .github/workflows/ci-dagster.yml
+                        - tools/dagster_test_selection.py
+                        - tools/test_dagster_test_selection.py
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -278,6 +289,16 @@ jobs:
                       exit 0
                   fi
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
@@ -293,18 +314,110 @@ jobs:
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
+    # Narrow ordinary PR runs to the dag tests the diff can affect (snob import
+    # graph with whole-tree fallbacks for conftest/non-Python changes). The
+    # merge-queue run keeps the broad filter and the full suite, so the merge
+    # gate is unchanged and a selection miss surfaces there. Fail-open: if this
+    # job fails or is skipped its outputs stay empty and the dagster job falls
+    # back to the full matrix. The run-ci-dagster label forces the full suite.
+    select-tests:
+        name: Select dagster tests
+        needs: [changes]
+        if: >-
+            github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
+            && needs.changes.outputs.dagster_direct == 'true'
+            && !contains(github.event.pull_request.labels.*.name, 'run-ci-dagster')
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            test_paths: ${{ steps.classify.outputs.test_paths }}
+            matrix_include: ${{ steps.classify.outputs.matrix_include }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+
+            # A broken selector must degrade to the full suite, never to a
+            # silently wrong subset — prove it healthy before trusting it.
+            - name: Guard the selector with its unit tests
+              id: selftest
+              continue-on-error: true
+              run: python3 tools/test_dagster_test_selection.py
+
+            - name: Run selector
+              id: select
+              continue-on-error: true
+              if: steps.selftest.outcome == 'success'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  uv run tools/dagster_test_selection.py --base-ref "origin/$BASE_REF" > /tmp/dagster-selection.json
+
+            - name: Classify selection
+              id: classify
+              env:
+                  OLDEST_SUPPORTED: ${{ needs.changes.outputs.oldest_supported }}
+                  SELECT_OUTCOME: ${{ steps.select.outcome }}
+              run: |
+                  set -euo pipefail
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/dagster-selection.json ]]; then
+                      echo "::warning::dagster test selector unavailable; running the full suite"
+                      exit 0
+                  fi
+                  mode=$(jq -r '.mode' /tmp/dagster-selection.json)
+                  echo "mode=$mode" >> "$GITHUB_OUTPUT"
+                  {
+                      echo "## Dagster test selection"
+                      echo
+                      echo "Mode: \`$mode\` — $(jq -r '.count' /tmp/dagster-selection.json) test files, $(jq -r '.selected_seconds' /tmp/dagster-selection.json)s of $(jq -r '.suite_seconds' /tmp/dagster-selection.json)s suite time"
+                      jq -r '.reasons[]? | "- " + .' /tmp/dagster-selection.json
+                      jq -r '.tests[]? | "- `" + . + "`"' /tmp/dagster-selection.json
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  if [[ "$mode" != "selected" ]]; then
+                      exit 0
+                  fi
+                  echo "test_paths=$(jq -r '.tests | join(" ")' /tmp/dagster-selection.json)" >> "$GITHUB_OUTPUT"
+                  shards=$(jq -r '.shards' /tmp/dagster-selection.json)
+                  image=$(echo "$OLDEST_SUPPORTED" | jq -r '.[0]')
+                  # Same shape as the changes job's build-matrix step, with the
+                  # shard count sized to the selection instead of fixed at 3.
+                  include=$(jq -cn --arg image "$image" --argjson shards "$shards" '
+                    [range(1; $shards + 1) | {
+                      "clickhouse-server-image": $image,
+                      concurrency: $shards,
+                      group: .
+                    }]
+                  ')
+                  echo "matrix_include=$include" >> "$GITHUB_OUTPUT"
+
     dagster:
         name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
-        needs: [changes]
+        needs: [changes, select-tests]
         timeout-minutes: 40
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
+                include: ${{ fromJson(needs.select-tests.outputs.matrix_include || needs.changes.outputs.matrix_include || '[]') }}
+        # !cancelled() lets this run when select-tests is skipped (master,
+        # merge queue) or failed (fall back to the full matrix); mode 'none'
+        # means the diff cannot affect any dagster test, so nothing runs and
+        # the merge-queue full suite remains the gate.
         if: >-
-            needs.changes.outputs.dagster_direct == 'true'
-            || (needs.changes.outputs.merge_queue == 'true'
-                && needs.changes.outputs.dagster == 'true')
+            ${{ !cancelled()
+            && needs.select-tests.outputs.mode != 'none'
+            && (needs.changes.outputs.dagster_direct == 'true'
+                || (needs.changes.outputs.merge_queue == 'true'
+                    && needs.changes.outputs.dagster == 'true')) }}
         runs-on: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -409,39 +522,56 @@ jobs:
               id: schema-cache
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and the
+                  # full-migrate fallthrough (~17 min) has blown this job's 40-minute budget
+                  # before; pytest's keepdb migrate tops a slightly stale dump up in seconds,
+                  # the same way it already layers PR-added migrations.
                   key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.changes.outputs.schema_cache_key }}
+                      ${{ needs.changes.outputs.schema_prefix_key }}
 
-            - name: Prime test_posthog and posthog from cached schema (PR)
-              # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
-              # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
-              # keepdb=True path layers any PR-added migrations on top.
-              # On cache miss, fall through to a full migrate so migrate_clickhouse works.
+            - name: Prime test_posthog from cached schema
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — falling through to full migrate"
-                      python manage.py migrate
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-schema-fresh; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — falling through to full migrate"
-                      python manage.py migrate
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master pushes, PR cache misses)
+              # replays the full migration chain here, in a process that exits before
+              # tests: the executor's memory high-water stays resident in whichever
+              # process runs it, and pytest must not carry it through the test phase.
+              # pytest --reuse-db adopts the DB like the PR prime above; any failure
+              # falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
                       exit 0
                   fi
-                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
-                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
-
-            - name: Run Django migrations (master)
-              # Master pushes don't restore from cache (the artifact-producing run
-              # is in ci-backend, not here). Run a full migrate so migrate_clickhouse
-              # can read posthog_instancesetting from a populated posthog db.
-              if: ${{ github.event_name != 'pull_request' }}
-              run: python manage.py migrate
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
+                  fi
 
             - name: Run persons migrations
               run: |
@@ -451,6 +581,11 @@ jobs:
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
+              # Reads posthog_instancesetting through Django, so it needs a migrated
+              # Postgres db. test_posthog is the only one this job maintains, which is
+              # what ci-mcp.yml and ci-e2e-playwright.yml do with their own single db.
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: python manage.py migrate_clickhouse
 
             - name: Restore test durations from cache
@@ -467,6 +602,8 @@ jobs:
                       posthog-test-durations-
 
             - name: Run Dagster tests
+              env:
+                  TEST_PATHS: ${{ needs.select-tests.outputs.test_paths }}
               run: |
                   # Pick the split algorithm and granularity at runtime: optimal_chunks +
                   # file granularity only when the installed pytest-split offers them, else
@@ -479,7 +616,15 @@ jobs:
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                   fi
-                  pytest posthog/dags products/**/dags \
+                  # Selected mode: run only the test files chosen by the dagster
+                  # selector. products/*/dags expands identically to the old
+                  # products/**/dags (bash globs without globstar).
+                  if [ -n "${TEST_PATHS:-}" ]; then
+                      read -r -a TEST_TARGETS <<< "$TEST_PATHS"
+                  else
+                      TEST_TARGETS=(posthog/dags products/*/dags)
+                  fi
+                  pytest "${TEST_TARGETS[@]}" \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \

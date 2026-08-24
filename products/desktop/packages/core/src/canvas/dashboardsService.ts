@@ -22,6 +22,12 @@ import {
   FREEFORM_TEMPLATE_ID,
 } from "./freeformSchemas";
 import {
+  type CanvasLayout,
+  type CanvasLayoutResult,
+  componentMetaSchema,
+  type LayoutOperation,
+} from "./gridLayoutSchemas";
+import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
   ProjectApiError,
@@ -31,6 +37,9 @@ import {
 interface ApiCanvas {
   id: string;
   name: string;
+  kind?: "freeform" | "grid" | "component";
+  description?: string;
+  component_meta?: unknown;
   channel: string;
   template_id: string;
   context: string;
@@ -82,10 +91,16 @@ function toEpoch(value: string | null | undefined): number | undefined {
 }
 
 function toRecord(api: ApiCanvas): DashboardRecord {
+  // Fail-soft on the contract shape: a meta this client doesn't understand
+  // renders as "not placeable", never a crashed record list.
+  const meta = componentMetaSchema.safeParse(api.component_meta);
   return {
     id: api.id,
     channelId: api.channel,
     name: api.name,
+    kind: api.kind ?? "freeform",
+    description: api.description ?? "",
+    componentMeta: meta.success ? meta.data : null,
     templateId: api.template_id || FREEFORM_TEMPLATE_ID,
     context: api.context ?? "",
     generationTaskId: api.generation_task_id,
@@ -154,6 +169,20 @@ export class DashboardsService {
     return toRecord((await res.json()) as ApiCanvas);
   }
 
+  // The component store: component-kind canvases across every channel visible
+  // to the caller, optionally narrowed by a name/description search.
+  async listComponents(input: { search?: string }): Promise<DashboardRecord[]> {
+    const search = input.search
+      ? `&search=${encodeURIComponent(input.search)}`
+      : "";
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      `canvases/?kind=component${search}`,
+      "list canvas components",
+      { limit: 200 },
+    );
+    return rows.map(toRecord);
+  }
+
   async create(input: {
     channelId: string;
     name: string;
@@ -169,6 +198,90 @@ export class DashboardsService {
       }),
     });
     return toRecord(api);
+  }
+
+  // Get-or-create the caller's home canvas: a grid canvas in their personal
+  // channel, pointed at by their home preference. Idempotent.
+  async home(): Promise<DashboardRecord> {
+    const api = await this.api.json<ApiCanvas>(
+      `canvases/home/`,
+      "provision home canvas",
+      { method: "POST" },
+    );
+    return toRecord(api);
+  }
+
+  // Read a grid canvas's layout document — the head, or a historical version.
+  async getLayout(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasLayoutResult> {
+    const suffix = input.versionId
+      ? `?version_id=${encodeURIComponent(input.versionId)}`
+      : "";
+    const body = await this.api.json<{
+      layout: CanvasLayout;
+      current_version_id: string | null;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/layout/${suffix}`,
+      "load canvas layout",
+    );
+    return { layout: body.layout, currentVersionId: body.current_version_id };
+  }
+
+  // Publish a complete layout document as the grid canvas's new head. Live
+  // immediately — layout is data, no build runs.
+  async publishLayout(input: {
+    id: string;
+    layout: CanvasLayout;
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult> {
+    const body = await this.api.json<{
+      layout: CanvasLayout;
+      current_version_id: string;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/layout/publish/`,
+      "publish canvas layout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layout: input.layout,
+          prompt: input.prompt,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return { layout: body.layout, currentVersionId: body.current_version_id };
+  }
+
+  // Apply surgical operations to the grid canvas's current layout — the
+  // default write path, guarded so concurrent edits conflict (409) instead of
+  // silently merging.
+  async patchLayout(input: {
+    id: string;
+    operations: LayoutOperation[];
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult> {
+    const body = await this.api.json<{
+      layout: CanvasLayout;
+      current_version_id: string;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/layout/patch/`,
+      "patch canvas layout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operations: input.operations,
+          prompt: input.prompt,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return { layout: body.layout, currentVersionId: body.current_version_id };
   }
 
   private async patch(
@@ -216,6 +329,14 @@ export class DashboardsService {
   // Pin (or unpin) a canvas to its channel (shared across users).
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord> {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
+  }
+
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord> {
+    return this.patch(
+      input.id,
+      { channel_id: input.channelId },
+      "file canvas to space",
+    );
   }
 
   // File a rendering error in the canvas's authoring-task thread (the server
@@ -494,18 +615,28 @@ export class DashboardsService {
     id: string;
     prompt: string;
   }): Promise<CanvasAgentRequestResult> {
-    const body = await this.api.json<{
-      request_outcome: string;
-      task_id: string;
-    }>(
+    const res = await this.api.fetch(
       `canvases/${encodeURIComponent(input.id)}/request_agent/`,
-      "request canvas agent",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: input.prompt }),
       },
     );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      request_outcome?: string;
+      task_id?: string;
+    };
+    // The backend answers quota, capability, and missing-task refusals with a
+    // structured `detail`; surface it so the viewer sees the reason, not a bare
+    // status code.
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to request canvas agent (${res.status})`,
+        res.status,
+      );
+    }
     return canvasAgentRequestResultSchema.parse({
       requestOutcome: body.request_outcome,
       taskId: body.task_id,

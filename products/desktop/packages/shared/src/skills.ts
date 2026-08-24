@@ -98,3 +98,50 @@ export function stripFrontmatter(content: string): string {
   if (!match) return content;
   return content.slice(match[0].length).replace(/^(?:[ \t]*\r?\n)+/, "");
 }
+
+const IGNORED_SKILL_ENTRIES: ReadonlySet<string> = new Set([
+  ".DS_Store",
+  ".git",
+  "node_modules",
+  "__pycache__",
+]);
+
+/**
+ * Whether a skill directory entry is excluded from skill walks. Lives here
+ * (shared) so the file tree, team export, and cloud bundlers all agree on a
+ * skill's contents. Dot-directories are never skill content: skill-private
+ * state like a `.worktrees` or `.venv` would otherwise count toward the
+ * bundle file limit and upload with the skill. Dot-files such as `.gitignore`
+ * are legitimate assets and stay. The literal set covers junk that is not
+ * dot-named, plus `.git` when it is a worktree pointer file.
+ */
+export function isIgnoredSkillEntry(
+  name: string,
+  kind: "file" | "directory",
+): boolean {
+  if (IGNORED_SKILL_ENTRIES.has(name)) return true;
+  return kind === "directory" && name.startsWith(".");
+}
+
+/**
+ * Path form of `isIgnoredSkillEntry` for callers holding "/"-separated
+ * relative paths instead of walking a directory (the web bundler's
+ * API-supplied file lists, per `ExportedSkillFile`'s "using '/' separators"
+ * contract): every non-final segment is a directory and the final segment is
+ * the file. A backslash is an ordinary character, never a separator — this
+ * function is host-neutral and cannot assume a platform's path semantics, so
+ * a caller with a raw OS-native path decides for itself whether a backslash
+ * should be normalized or rejected. Empty segments (which cover "", trailing
+ * slashes, and absolute or doubled-slash paths) and `.`/`..` segments are
+ * rejected too, which hardens against hostile API-supplied paths.
+ */
+export function isIgnoredSkillPath(relativePath: string): boolean {
+  const segments = relativePath.split("/");
+  return segments.some((segment, index) => {
+    if (!segment || segment === "." || segment === "..") return true;
+    return isIgnoredSkillEntry(
+      segment,
+      index === segments.length - 1 ? "file" : "directory",
+    );
+  });
+}

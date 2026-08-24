@@ -9,6 +9,7 @@ import { HarnessSettings } from "@posthog/ui/features/settings/sections/HarnessS
 import { NotificationsSettings } from "@posthog/ui/features/settings/sections/NotificationsSettings";
 import { PersonalizationSettings } from "@posthog/ui/features/settings/sections/PersonalizationSettings";
 import { PlanUsageSettings } from "@posthog/ui/features/settings/sections/PlanUsageSettings";
+import { QuickAskSettings } from "@posthog/ui/features/settings/sections/QuickAskSettings";
 import { ShortcutsSettings } from "@posthog/ui/features/settings/sections/ShortcutsSettings";
 import { SignalSourcesSettings } from "@posthog/ui/features/settings/sections/SignalSourcesSettings";
 import { SlackSettings } from "@posthog/ui/features/settings/sections/SlackSettings";
@@ -72,8 +73,9 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   terminal: defineSettingsPage("Terminal", TerminalSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
+  "quick-ask": defineSettingsPage("Quick ask", QuickAskSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),
-  slack: defineSettingsPage("Slack integration", SlackSettings),
+  slack: defineSettingsPage("Slack", SlackSettings),
   discord: defineSettingsPage("Discord", DiscordSettings),
   // Slack notification config lives in the dedicated Slack section; the Signals
   // section links out to it rather than duplicating the controls.
@@ -117,7 +119,7 @@ function ContainedSettingsPageLayout({
   title,
 }: SettingsPageLayoutProps) {
   return (
-    <div className="h-full w-full overflow-y-auto">
+    <div className="h-full w-full overflow-y-auto [scrollbar-gutter:stable_both-edges]">
       <div className="relative z-[1] mx-auto max-w-[800px] p-6">
         <div className="flex flex-col gap-5">
           <SettingsPageHeader formMode={formMode} icon={icon} title={title} />

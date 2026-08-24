@@ -191,6 +191,7 @@ def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]
         "external_id": account.external_id,
         "name": account.name,
         "churned_at": account.churned_at,
+        "ignored_at": account.ignored_at,
         "properties": account.properties,
         "tags": account.tags,
         "relationships": account.relationships,
@@ -300,6 +301,10 @@ class ExternalAccountSerializer(serializers.Serializer):
     churned_at = serializers.DateTimeField(
         allow_null=True,
         help_text="When the account churned, or null if it has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When Track Rules ignored the account, or null if it is tracked.",
     )
     properties = serializers.DictField(
         child=serializers.JSONField(help_text="Property value: a string or null."),
@@ -456,6 +461,11 @@ class ExternalAccountListQuerySerializer(serializers.Serializer):
             "to a current member of the project's organization."
         ),
     )
+    include_ignored = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include ignored accounts. Ignored accounts are hidden by default.",
+    )
 
     def validate_limit(self, value: int) -> int:
         return max(1, min(value, EXTERNAL_ACCOUNT_LIST_MAX_LIMIT))
@@ -485,6 +495,10 @@ class ExternalAccountListItemSerializer(serializers.Serializer):
     churned_at = serializers.DateTimeField(
         allow_null=True,
         help_text="When the account churned, or null if it has not churned.",
+    )
+    ignored_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When Track Rules ignored the account, or null if it is tracked.",
     )
     relationships = serializers.DictField(
         child=ExternalAccountListAssignmentSerializer(many=True),
@@ -554,8 +568,9 @@ class ExternalAccountListView(APIView):
         },
         summary="List external customer analytics accounts",
         description=(
-            "List accounts with external IDs, churn timestamps, and active relationship assignments. "
-            "Requires a project secret API key with the `account:read` scope."
+            "List tracked accounts with external IDs, lifecycle timestamps, and active relationship assignments. "
+            "Set `include_ignored=true` to include ignored accounts. Requires a project secret API key with the "
+            "`account:read` scope."
         ),
     )
     def get(self, request: Request) -> Response:
@@ -576,6 +591,7 @@ class ExternalAccountListView(APIView):
             cursor=query_data.get("cursor"),
             limit=query_data["limit"],
             assigned_only=query_data["assigned_only"],
+            include_ignored=query_data["include_ignored"],
         )
         return Response(ExternalAccountListPageSerializer(page).data)
 
