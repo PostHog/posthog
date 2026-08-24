@@ -26,8 +26,9 @@ ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 # destination's payload limit on its own.
 _MAX_ASSET_ERROR_LENGTH = 2000
 # Locally rendered assets live on a localhost URL that Slack and Microsoft cannot fetch, so the
-# message links a public placeholder instead of an image that would render broken.
-DEBUG_PLACEHOLDER_IMAGE_URL = "https://source.unsplash.com/random"
+# message links a public placeholder instead of an image that would render broken. Keep this on a
+# domain we control, because a third-party placeholder can be retired without warning.
+DEBUG_PLACEHOLDER_IMAGE_URL = "https://posthog.com/brand/posthog-logo.png"
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
