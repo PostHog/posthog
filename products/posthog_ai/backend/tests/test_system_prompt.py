@@ -30,6 +30,7 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "<posthog_trusted_context>" in prompt
         assert "<posthog_untrusted_context>" in prompt
         assert "AI observability** (also called AIO, LLM analytics, or LLMA)" in prompt
+        assert "mostly Simplified Technical English" in prompt
 
     def test_does_not_inject_groups_billing_core_memory_or_project_context(self):
         prompt = self._build()["append"]
