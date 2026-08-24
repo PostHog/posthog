@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import status
+from structlog.testing import capture_logs
 
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, UserBudget
 from posthog.models.user_gateway_node import gateway_user_node
@@ -67,3 +68,28 @@ class TestUserSpendLimit(APIBaseTest):
     def test_write_surfaces_a_gateway_failure(self, _set_user_budget):
         response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    def test_gateway_failures_are_logged_with_operation_and_team(self):
+        cases = (
+            ("get_user_budget", "read", lambda: self.client.get(self._url())),
+            (
+                "set_user_budget",
+                "write",
+                lambda: self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000}),
+            ),
+            ("clear_user_budget", "clear", lambda: self.client.delete(self._url("clear/"))),
+        )
+        for helper_name, operation, request in cases:
+            with (
+                self.subTest(operation=operation),
+                patch(f"{CLIENT}.{helper_name}", side_effect=AIGatewayInternalError("boom")),
+            ):
+                with capture_logs() as logs:
+                    response = request()
+
+            self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+            failure_logs = [log for log in logs if log.get("event") == "ai_gateway_user_spend_limit_gateway_error"]
+            self.assertEqual(len(failure_logs), 1)
+            self.assertEqual(failure_logs[0]["operation"], operation)
+            self.assertEqual(failure_logs[0]["team_id"], self.team.id)
+            self.assertEqual(failure_logs[0]["error"], "boom")

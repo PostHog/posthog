@@ -19,6 +19,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import cast
 
+import structlog
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -38,6 +39,8 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models import User
 from posthog.models.user_gateway_node import gateway_user_node
+
+logger = structlog.get_logger(__name__)
 
 # A window shorter than an hour would reset faster than settlement lands, so a
 # limit set there could never bind. The ceiling matches the gateway's.
@@ -121,7 +124,13 @@ class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             budget = get_user_budget(self.team_id, _scope_value(request))
         except AIGatewayNotConfigured:
             return Response(_unenforced())
-        except AIGatewayInternalError:
+        except AIGatewayInternalError as exc:
+            logger.warning(
+                "ai_gateway_user_spend_limit_gateway_error",
+                operation="read",
+                team_id=self.team_id,
+                error=str(exc),
+            )
             return _gateway_unreachable()
         if budget is None:
             return Response(_unenforced(enforced=True))
@@ -147,7 +156,13 @@ class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             budget = set_user_budget(self.team_id, _scope_value(request), str(limit_usd), window_seconds)
         except AIGatewayNotConfigured:
             return _not_available()
-        except AIGatewayInternalError:
+        except AIGatewayInternalError as exc:
+            logger.warning(
+                "ai_gateway_user_spend_limit_gateway_error",
+                operation="write",
+                team_id=self.team_id,
+                error=str(exc),
+            )
             return _gateway_unreachable()
         return Response(
             UserSpendLimitSerializer(
@@ -170,7 +185,13 @@ class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             clear_user_budget(self.team_id, _scope_value(request))
         except AIGatewayNotConfigured:
             return _not_available()
-        except AIGatewayInternalError:
+        except AIGatewayInternalError as exc:
+            logger.warning(
+                "ai_gateway_user_spend_limit_gateway_error",
+                operation="clear",
+                team_id=self.team_id,
+                error=str(exc),
+            )
             return _gateway_unreachable()
         return Response(_unenforced(enforced=True))
 
