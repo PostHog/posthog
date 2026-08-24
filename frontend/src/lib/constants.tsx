@@ -465,6 +465,7 @@ export const FEATURE_FLAGS = {
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
+    RELATIVE_DAY_RANGE_NOTICE: 'relative-day-range-notice', // owner: #team-product-analytics, kill switch for the corrected relative day range notice
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_COLLAPSE_INSPECTOR_ITEMS: 'replay-collapse-inspector-items', // owner: @fasyy612 #team-replay
     REPLAY_EXPERIMENT_CONTEXT: 'replay-experiment-context', // owner: @mp-hog #team-experiments

@@ -62,6 +62,7 @@ import { Journeys } from 'products/product_analytics/frontend/insights/journeys/
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
+import { RelativeDayRangeNotice } from './RelativeDayRangeNotice'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
@@ -513,6 +514,7 @@ export function InsightVizDisplay({
                 {disableHeader ? null : <InsightDisplayConfig />}
                 {showingResults && (
                     <>
+                        {!isInDashboardContext && <RelativeDayRangeNotice source={querySource} className="m-2" />}
                         {!embedded &&
                             ((isFunnels && hasFunnelResults) ||
                                 isPaths ||

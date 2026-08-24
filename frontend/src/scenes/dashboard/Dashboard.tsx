@@ -32,6 +32,7 @@ import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+import { RelativeDayRangeDashboardNotice } from './RelativeDayRangeDashboardNotice'
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
 function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
@@ -162,6 +163,7 @@ function DashboardScene({
                     })}
                 >
                     <DashboardOverridesBanner />
+                    <RelativeDayRangeDashboardNotice />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
