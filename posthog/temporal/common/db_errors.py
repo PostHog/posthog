@@ -46,9 +46,9 @@ _TRANSIENT_DB_ERROR_MARKERS = (
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
-# refusing work while it does, which clears once it comes back. Available on the wrapped
-# psycopg error for server-raised failures; connect failures carry no SQLSTATE and fall
-# through to the message markers above.
+# refusing work while it does, which clears once it comes back. A raw psycopg error carries the
+# SQLSTATE on itself; a Django-wrapped error carries it on the psycopg __cause__. Connect
+# failures carry no SQLSTATE and fall through to the message markers above.
 _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 
 
@@ -61,7 +61,7 @@ _TRANSIENT_DB_ERROR_CLASSES = (OperationalError, InterfaceError, psycopg.Operati
 def is_transient_db_error(error: BaseException) -> bool:
     if not isinstance(error, _TRANSIENT_DB_ERROR_CLASSES):
         return False
-    sqlstate = getattr(error.__cause__, "sqlstate", None)
+    sqlstate = getattr(error, "sqlstate", None) or getattr(error.__cause__, "sqlstate", None)
     if isinstance(sqlstate, str) and sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES):
         return True
     message = str(error)
