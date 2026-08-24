@@ -50,7 +50,7 @@ from posthog.rate_limit import (
 )
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
-from products.ai_observability.backend.summarization.constants import MAX_TEXT_REPR_CHARS
+from products.ai_observability.backend.summarization.budget import bounded_text_repr, text_repr_budget
 from products.ai_observability.backend.summarization.llm import summarize
 from products.ai_observability.backend.summarization.models import SummarizationMode
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
@@ -59,7 +59,6 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_event_text_repr,
     format_trace_text_repr,
     llm_trace_to_formatter_format,
-    reduce_by_uniform_sampling,
 )
 
 logger = structlog.get_logger(__name__)
@@ -412,7 +411,7 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
 
         return dict(zip(HEAVY_COLUMN_NAMES, result.results[0]))
 
-    def _generate_text_repr(self, summarize_type: str, entity_data: dict) -> str:
+    def _generate_text_repr(self, summarize_type: str, entity_data: dict, model: str | None = None) -> str:
         """Generate line-numbered text representation for summarization.
 
         Args:
@@ -422,12 +421,13 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         Returns:
             Line-numbered text representation
         """
+        budget = text_repr_budget(model)
         options: FormatterOptions = {
             "include_line_numbers": True,
             "truncated": False,
             "include_markers": False,
             "collapsed": False,
-            "max_length": MAX_TEXT_REPR_CHARS,
+            "max_length": budget,
         }
 
         if summarize_type == "trace":
@@ -438,11 +438,8 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             )
             return text
 
-        text = format_event_text_repr(event=entity_data["event"], options=options)
-        # format_event_text_repr ignores max_length, so bound it here as api/text_repr.py does.
-        if len(text) > MAX_TEXT_REPR_CHARS:
-            text, _ = reduce_by_uniform_sampling(text, MAX_TEXT_REPR_CHARS)
-        return text
+        # format_event_text_repr ignores max_length, so the budget has to be applied to its result.
+        return bounded_text_repr(format_event_text_repr(event=entity_data["event"], options=options), budget)
 
     def _build_summary_response(self, summary, text_repr: str, summarize_type: str) -> dict:
         """Build the API response dict from summary and text representation.
@@ -617,7 +614,7 @@ The response includes the structured summary, the text representation, and metad
             if entity_data is None:
                 raise exceptions.ValidationError("No trace or event data was provided for summarization.")
 
-            text_repr = self._generate_text_repr(summarize_type, entity_data)
+            text_repr = self._generate_text_repr(summarize_type, entity_data, model)
 
             start_time = time.time()
             user_distinct_id = getattr(request.user, "distinct_id", None)

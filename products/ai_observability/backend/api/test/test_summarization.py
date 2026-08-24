@@ -176,10 +176,13 @@ class TestSummarizationAPI(APIBaseTest):
             ("trace_one_long_line", "trace", True),
         ]
     )
-    @patch("products.ai_observability.backend.api.summarization.MAX_TEXT_REPR_CHARS", TEST_TEXT_REPR_BUDGET)
+    @patch(
+        "products.ai_observability.backend.api.summarization.text_repr_budget",
+        return_value=TEST_TEXT_REPR_BUDGET,
+    )
     @patch("products.ai_observability.backend.api.summarization.summarize")
     def test_oversized_entity_is_bounded_before_the_model_call(
-        self, _name, summarize_type, one_long_line, mock_summarize
+        self, _name, summarize_type, one_long_line, mock_summarize, _mock_budget
     ):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
