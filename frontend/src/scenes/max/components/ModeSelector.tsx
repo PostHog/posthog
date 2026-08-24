@@ -12,7 +12,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationType } from '~/types'
 
-import { MODE_DEFINITIONS, SPECIAL_MODES, SpecialMode, ToolDefinition, getDefaultTools } from '../max-constants'
+import {
+    MODE_DEFINITIONS,
+    ModeDefinition,
+    SPECIAL_MODES,
+    SpecialMode,
+    ToolDefinition,
+    getDefaultTools,
+} from '../max-constants'
 import { maxThreadLogic } from '../maxThreadLogic'
 
 type ModeValue = AgentMode | SpecialMode | null
@@ -20,12 +27,11 @@ type ModeValue = AgentMode | SpecialMode | null
 // One fixed tooltip on the trigger describes every mode. Per-row tooltips are
 // avoided on purpose: they mount a differently sized popover at a different
 // anchor on each hover, which makes the menu flicker and the rows shift.
-function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]): JSX.Element {
-    const modeEntries = Object.entries(MODE_DEFINITIONS) as [
-        AgentMode,
-        (typeof MODE_DEFINITIONS)[keyof typeof MODE_DEFINITIONS],
-    ][]
-
+function buildGeneralTooltip(
+    description: string,
+    defaultTools: ToolDefinition[],
+    modes: ModeDefinition[]
+): JSX.Element {
     return (
         <div className="max-w-sm max-h-[calc(100vh_-_var(--spacing)*5)] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
             <div>{description}</div>
@@ -44,13 +50,13 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
                     </ul>
                 </div>
             )}
-            {modeEntries.length > 0 && (
+            {modes.length > 0 && (
                 <div>
                     <div className="font-semibold mb-0.5">Modes:</div>
                     <ul className="space-y-1 text-sm">
-                        {modeEntries.map(([mode, def]) => (
-                            <li key={mode}>
-                                <em>{def.name}:</em> {def.description}
+                        {modes.map((mode) => (
+                            <li key={mode.name}>
+                                <em>{mode.name}:</em> {mode.description}
                             </li>
                         ))}
                     </ul>
@@ -150,6 +156,29 @@ function getModeOptions({
     ]
 }
 
+// The modes shown in the menu, in menu order, so the trigger tooltip describes exactly what a user can pick.
+function getVisibleModes({
+    planModeEnabled,
+    researchEnabled,
+    featureFlags,
+    hasExistingMessages,
+}: GetModeOptionsParams): ModeDefinition[] {
+    const modes: ModeDefinition[] = [SPECIAL_MODES.auto]
+    if (planModeEnabled) {
+        modes.push(SPECIAL_MODES.plan)
+    }
+    if (researchEnabled && !hasExistingMessages) {
+        modes.push(SPECIAL_MODES.research)
+    }
+    for (const def of Object.values(MODE_DEFINITIONS)) {
+        if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
+            continue
+        }
+        modes.push(def)
+    }
+    return modes
+}
+
 export function ModeSelector(): JSX.Element | null {
     const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
     const { setAgentMode } = useActions(maxThreadLogic)
@@ -161,6 +190,16 @@ export function ModeSelector(): JSX.Element | null {
     const modeOptions = useMemo(
         () =>
             getModeOptions({
+                planModeEnabled,
+                researchEnabled,
+                featureFlags,
+                hasExistingMessages,
+            }),
+        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
+    )
+    const visibleModes = useMemo(
+        () =>
+            getVisibleModes({
                 planModeEnabled,
                 researchEnabled,
                 featureFlags,
@@ -196,7 +235,8 @@ export function ModeSelector(): JSX.Element | null {
             }
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools()
+                getDefaultTools(),
+                visibleModes
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
