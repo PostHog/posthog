@@ -7562,7 +7562,7 @@ async function handleFetch(
                 is_shared_view: isSharedView(),
                 failure_reason: reason,
             })
-            throw new NetworkError(reason, error)
+            throw new NetworkError(reason)
         }
         throw new ApiError(error as any, response?.status)
     }
