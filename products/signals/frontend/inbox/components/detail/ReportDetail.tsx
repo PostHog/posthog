@@ -221,7 +221,7 @@ function EvidenceSkeleton({ count }: { count: number }): JSX.Element {
 }
 
 /** Column classes shared by the frame and its skeleton, so the two can't drift apart. */
-const DETAIL_PAGE_CLASS = '@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-4 text-sm'
+const DETAIL_PAGE_CLASS = '@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 pb-4 text-sm'
 const DETAIL_CONTAINER_CLASS =
     'flex flex-col rounded-lg border border-primary bg-surface-primary @5xl:flex-row @5xl:items-start'
 // The evidence rail: first in the DOM so it leads on wide layouts, ordered after the summary when

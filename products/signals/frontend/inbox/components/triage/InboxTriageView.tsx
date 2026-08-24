@@ -279,12 +279,13 @@ export function InboxTriageView(): JSX.Element {
         // on a page that doesn't stretch its scene (Storybook, an embedded frame) instead of
         // collapsing to the top.
         <div className="flex min-h-[70vh] flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-4 pt-3">
+            <div className="flex items-center justify-between gap-2 px-4">
                 <LemonButton
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
                     to={urls.inbox('reports')}
+                    className="-ml-2"
                     data-attr="inbox-triage-back"
                 >
                     Reports
