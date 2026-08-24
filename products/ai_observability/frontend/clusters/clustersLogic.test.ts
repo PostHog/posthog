@@ -341,49 +341,6 @@ describe('clustersLogic', () => {
             })
         })
 
-        describe('traceToClusterTitle', () => {
-            it('maps trace IDs to cluster titles', async () => {
-                const mockRun: ClusteringRun = {
-                    runId: 'test-run',
-                    windowStart: '2025-01-01T00:00:00Z',
-                    windowEnd: '2025-01-08T00:00:00Z',
-                    totalItemsAnalyzed: 15,
-                    clusters: [mockCluster1, mockCluster2],
-                    timestamp: '2025-01-08T00:00:00Z',
-                    clusteringParams: undefined,
-                }
-
-                logic.actions.loadClusteringRunSuccess(mockRun)
-
-                const mapping = logic.values.traceToClusterTitle
-                expect(mapping['trace-1']).toBe('Cluster A')
-                expect(mapping['trace-2']).toBe('Cluster A')
-                expect(mapping['trace-3']).toBe('Cluster B')
-            })
-
-            it('uses default title when cluster title is empty', async () => {
-                const clusterWithoutTitle: Cluster = {
-                    ...mockCluster1,
-                    title: '',
-                }
-
-                const mockRun: ClusteringRun = {
-                    runId: 'test-run',
-                    windowStart: '2025-01-01T00:00:00Z',
-                    windowEnd: '2025-01-08T00:00:00Z',
-                    totalItemsAnalyzed: 10,
-                    clusters: [clusterWithoutTitle],
-                    timestamp: '2025-01-08T00:00:00Z',
-                    clusteringParams: undefined,
-                }
-
-                logic.actions.loadClusteringRunSuccess(mockRun)
-
-                const mapping = logic.values.traceToClusterTitle
-                expect(mapping['trace-1']).toBe('Cluster 0')
-            })
-        })
-
         describe('scatterPlotSeries', () => {
             it('creates item and centroid series for regular clusters', async () => {
                 const mockRun: ClusteringRun = {

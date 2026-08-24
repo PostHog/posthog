@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useMemo, useState } from 'react'
 
 import { ScatterChart } from '@posthog/quill-charts'
@@ -7,10 +6,14 @@ import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from
 
 import { useChartTheme } from 'lib/charts/hooks'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
 import { clusterDetailLogic } from './clusterDetailLogic'
 import { navigateToClusterItem } from './clusterScatter'
 import type { ClusterScatterMeta } from './clusterScatter'
 import { ClusterDetailTooltip } from './ClusterScatterTooltip'
+
+const handleChartError = makeChartErrorHandler('ai-cluster-detail-scatter')
 
 export function ClusterDetailScatterPlot(): JSX.Element {
     const { cluster, traceSummaries, scatterPlotSeries, clusteringLevel } = useValues(clusterDetailLogic)
@@ -46,12 +49,7 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                 dataAttr="ai-cluster-detail-scatter"
                 onPointClick={handlePointClick}
                 onAreaSelect={setZoom}
-                onError={(error, info) =>
-                    posthog.captureException(error, {
-                        feature: 'ai-cluster-detail-scatter',
-                        componentStack: info.componentStack ?? undefined,
-                    })
-                }
+                onError={handleChartError}
                 tooltip={({ point }) => (
                     <ClusterDetailTooltip
                         point={point}
