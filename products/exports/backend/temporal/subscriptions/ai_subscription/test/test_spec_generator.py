@@ -108,7 +108,9 @@ WHERE timestamp >= now() - INTERVAL 7 DAY
 ```
 """
 
-        assert _extract_verbatim_hogql(prompt) == "SELECT count()\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY"
+        assert (
+            _extract_verbatim_hogql(prompt) == "SELECT count()\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY"
+        )
 
     @patch(f"{_SG}.generate_query_plan")
     @patch(f"{_SG}.build_context_blob", return_value="context")
