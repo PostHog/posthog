@@ -375,8 +375,9 @@ describe('scoutFleetLogic', () => {
         })
 
         it('moves scouts out of cold start when an unchanged runs poll crosses the boundary', async () => {
-            jest.useFakeTimers().setSystemTime('2026-08-04T00:00:00Z')
+            jest.useFakeTimers()
             try {
+                jest.setSystemTime(Date.UTC(2026, 7, 4))
                 const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
                 mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [
                     JSON.parse(JSON.stringify(settledRun)),
@@ -392,7 +393,7 @@ describe('scoutFleetLogic', () => {
 
                 expect(logic.values.rosterScouts[0].group).toBe('settling_in')
 
-                jest.setSystemTime('2026-08-06T00:00:00Z')
+                jest.setSystemTime(Date.UTC(2026, 7, 6))
                 logic.actions.loadScoutRuns()
                 await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
 
