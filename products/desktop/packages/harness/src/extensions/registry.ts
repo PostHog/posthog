@@ -11,6 +11,7 @@ import type { PosthogMcpPolicyOptions } from "./posthog-mcp-policy/extension";
 import { createPosthogMcpPolicyExtension } from "./posthog-mcp-policy/extension";
 import { createPosthogProviderExtension } from "./posthog-provider/extension";
 import type { PosthogProviderOptions } from "./posthog-provider/provider";
+import { createProductEngineerExtension } from "./product-engineer/extension";
 import { createWebAccessExtension } from "./web-access/extension";
 
 export type HarnessExtensionOptions = PosthogProviderOptions &
@@ -27,6 +28,7 @@ interface HarnessExtension {
 const EXTENSIONS: HarnessExtension[] = [
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
+  { name: "product-engineer", create: () => createProductEngineerExtension() },
   { name: "web-access", create: createWebAccessExtension },
   {
     name: "mcp",

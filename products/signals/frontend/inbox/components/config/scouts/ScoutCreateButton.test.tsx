@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { ScoutCreateButton } from './ScoutCreateButton'
+import { ScoutsRosterActions } from './ScoutsRosterActions'
 import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
@@ -78,6 +79,17 @@ describe('scout creation buttons', () => {
 
         await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
         expect(queryByText('Manual scout form')).toBeNull()
+    })
+
+    it('spins only the button that started the task', async () => {
+        const { getByText } = render(<ScoutsRosterActions />)
+
+        fireEvent.click(getByText('Suggest a scout'))
+
+        // Both assertions read the same render, before the task resolves and clears the state.
+        expect(getByText('Suggest a scout').closest('button')?.querySelector('.Spinner')).toBeTruthy()
+        expect(getByText('Ask').closest('button')?.querySelector('.Spinner')).toBeNull()
+        await waitFor(() => expect(startedChatTypes).toEqual(['author_scout']))
     })
 
     it.each([

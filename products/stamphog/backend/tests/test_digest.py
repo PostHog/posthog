@@ -19,8 +19,10 @@ from posthog.models.scoping import team_scope
 
 from products.stamphog.backend.facade.enums import AudienceReason, DigestRunStatus
 from products.stamphog.backend.logic.digest import (
+    MAX_DIGEST_PRS,
     DigestPRSummary,
     DigestSummary,
+    _capped_summary,
     _parse_llm_response,
     summarize_merged_prs,
 )
@@ -47,10 +49,13 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim)."""
-    return DigestSummary(
-        intro=f"{len(prs)} merged.",
-        prs=[
+    keeps nothing is its own path (the digest posts nothing and releases the claim).
+
+    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
+    truncation a real run would."""
+    return _capped_summary(
+        len(prs),
+        [
             DigestPRSummary(
                 pr_number=pr.pr_number,
                 title=pr.title,
@@ -76,6 +81,9 @@ def _seed_channel_and_prs(team_id: int, pr_count: int = 2) -> str:
             team_id=team_id,
             repo_config=repo_config,
             pr_number=number,
+            title=f"Change number {number}",
+            author_login="devex-dev",
+            pr_url=f"https://github.com/{REPO}/pull/{number}",
             merged_at=timezone.now(),
         )
         PullRequestAudience.objects.for_team(team_id).create(
@@ -272,6 +280,28 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
+    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
+    # digest that never showed it and no later digest can reach it. The overflow has to go back to
+    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+    overflow = 2
+    channel_id = _seed_channel_and_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
+
+    with (
+        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
+    ):
+        send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
+
+    assert post.called
+    posted = post.call_args.args[2]
+    assert len(posted.prs) == MAX_DIGEST_PRS
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     # A Slack failure must not hide the PRs: they're claimed before posting, so on failure they have
     # to be unlinked again (the retry query filters digest_run__isnull=True). Otherwise they'd stay
@@ -413,9 +443,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps(
-        {"intro": "two", "prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]}
-    )
+    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
 
     with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
         summary = summarize_merged_prs(prs)
@@ -430,9 +458,9 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
 
 @parameterized.expand(
     [
-        ("empty_list_is_intentional_filtering", '{"intro": "quiet week", "prs": []}', True),
-        ("unrecognizable_entries_are_not", '{"intro": "x", "prs": [{"index": 99}, "junk"]}', False),
-        ("missing_key_is_not", '{"intro": "x"}', False),
+        ("empty_list_is_intentional_filtering", '{"prs": []}', True),
+        ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
+        ("missing_key_is_not", '{"summary": "x"}', False),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -506,7 +534,7 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
         slack_channel_name="team-devex",
     )
     summary = DigestSummary(
-        intro="1 merged.",
+        considered=1,
         prs=[
             DigestPRSummary(
                 pr_number=1,

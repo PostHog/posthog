@@ -20,21 +20,14 @@ export function CreateScannerButton({
     acceptedLabel,
     dataAttr,
     size = 'small',
-    consentRequested: controlledConsentRequested,
-    onConsentRequestedChange,
 }: {
     acceptedLabel: string
     dataAttr: string
     size?: 'small' | 'medium'
-    // Controlled mode, for surfaces with several AI entry points that share one consent popover slot.
-    consentRequested?: boolean
-    onConsentRequestedChange?: (requested: boolean) => void
 }): JSX.Element {
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { push } = useActions(router)
-    const [internalConsentRequested, setInternalConsentRequested] = useState(false)
-    const consentRequested = controlledConsentRequested ?? internalConsentRequested
-    const setConsentRequested = onConsentRequestedChange ?? setInternalConsentRequested
+    const [consentRequested, setConsentRequested] = useState(false)
     const goToCreate = (): void => push(urls.replayVisionTemplates())
 
     const button = (

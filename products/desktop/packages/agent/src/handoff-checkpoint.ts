@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -128,7 +128,7 @@ export class HandoffCheckpointTracker {
         !!capture.headPack && !uploads.pack?.storagePath;
       const indexUploadMissing = !uploads.index?.storagePath;
       if (packUploadMissing || indexUploadMissing) {
-        this.logger.debug(
+        this.logger.warn(
           "Discarding handoff checkpoint: required artifact uploads did not complete",
           {
             checkpointId: capture.checkpoint.checkpointId,
@@ -243,18 +243,20 @@ export class HandoffCheckpointTracker {
       return { rawBytes: 0, wireBytes: 0 };
     }
 
-    const content = await readFile(filePath);
-    if (content.byteLength > MAX_ARTIFACT_UPLOAD_BYTES) {
-      this.logger.debug(
+    const { size } = await stat(filePath);
+    if (size > MAX_ARTIFACT_UPLOAD_BYTES) {
+      this.logger.warn(
         "Skipping handoff artifact upload: file exceeds the artifact size limit",
         {
           name,
-          rawBytes: content.byteLength,
+          rawBytes: size,
           maxBytes: MAX_ARTIFACT_UPLOAD_BYTES,
         },
       );
-      return { rawBytes: content.byteLength, wireBytes: 0 };
+      return { rawBytes: size, wireBytes: 0 };
     }
+
+    const content = await readFile(filePath);
 
     try {
       const storagePath = await this.uploadArtifactDirect(

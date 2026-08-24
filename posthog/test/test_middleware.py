@@ -35,7 +35,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _social_auth_backend() -> BaseAuth:
@@ -2059,8 +2059,10 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     from django.http import HttpResponse
     from django.test import RequestFactory
 
-    from posthog.clickhouse.query_tagging import get_query_tags
+    from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
     from posthog.middleware import CHQueries
+
+    reset_query_tags()
 
     captured: dict = {}
 

@@ -1,6 +1,6 @@
 import uuid
 import datetime as dt
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,6 +8,8 @@ import pyarrow as pa
 import deltalake
 import structlog
 import pyarrow.compute as pc
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import get_schema_if_exists
@@ -75,35 +77,61 @@ def _physical_columns_by_api_name(
     return physical_by_api_name
 
 
-def _row_filter_expression(
-    delta_table: "deltalake.DeltaTable", parent_name: str, row_filter: ParentRowFilter
-) -> pc.Expression:
-    """Predicate pushed into the parquet scan so filtered-out parents are never read.
+@frozen
+class _ResolvedRowFilter:
+    """A row filter resolved against a Delta table's actual column type."""
 
-    NULLs are kept: a row without the filter field carries no recency signal, and the
-    tag-values iterator's per-row cutoff (the semantics this reproduces) keeps them too.
-    The cutoff adapts to the column's physical type because the Delta writer may store the
-    API's ISO-8601 string either parsed as a timestamp or verbatim; ISO-8601 UTC strings
-    order lexicographically, so a string floor compares correctly. Any other physical type
-    raises the fallback signal rather than guessing.
+    scan_filter: pc.Expression | None
+    row_passes: Callable[[dict[str, Any]], bool]
+    physical_column: str
+
+
+def _row_filter_scan_and_predicate(
+    delta_table: "deltalake.DeltaTable", parent_name: str, row_filter: ParentRowFilter
+) -> _ResolvedRowFilter:
+    """Resolve a row filter into an optional parquet-scan pushdown and a matching row check.
+
+    The row check (applied to every materialized row regardless of whether a pushdown ran) is
+    the single source of truth for the filter's semantics, not just an optimization on top of
+    it: pyarrow's `greater_equal`/`array_filter` compute kernels have no implementation for its
+    canonical `string_view` type, and pyarrow's Parquet dataset scanner can materialize a
+    string/large_string column as `string_view` internally while evaluating a pushed-down
+    filter — regardless of the column's declared schema type — crashing the scan. So a string
+    field's cutoff is only ever checked here, in Python, after the value is materialized;
+    pushdown is built only for the timestamp type that isn't affected, as a pure I/O
+    optimization. NULLs are kept: a row without the filter field carries no recency signal, and
+    the tag-values iterator's per-row cutoff (the semantics this reproduces) keeps them too.
+
+    `physical_column` is the filter field's physical column name; the caller must ensure it's
+    projected, even if not requested as output, or the row check would see it as absent and
+    keep every row.
     """
     physical = _physical_columns_by_api_name(delta_table, parent_name, [row_filter.field])[row_filter.field]
     field_type = pyarrow_schema_from_arrow_exportable(delta_table.schema()).field(physical).type
     cutoff = row_filter.floor(dt.datetime.now(dt.UTC))
 
-    cutoff_scalar: pa.Scalar
+    scan_filter: pc.Expression | None
+    floor: dt.datetime | str
     if pa.types.is_timestamp(field_type):
-        cutoff_scalar = pa.scalar(cutoff if field_type.tz is not None else cutoff.replace(tzinfo=None), type=field_type)
+        floor = cutoff if field_type.tz is not None else cutoff.replace(tzinfo=None)
+        field_ref = pc.field(physical)
+        scan_filter = field_ref.is_null() | (field_ref >= pa.scalar(floor, type=field_type))
     elif pa.types.is_string(field_type) or pa.types.is_large_string(field_type):
-        cutoff_scalar = pa.scalar(cutoff.strftime("%Y-%m-%dT%H:%M:%S"), type=field_type)
+        # ISO-8601 UTC strings order lexicographically, so a string floor compares correctly —
+        # just not through pyarrow's own kernel (see the missing-kernel note above).
+        floor = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+        scan_filter = None
     else:
         raise WarehouseParentTableNotFoundError(
             f"Parent table '{parent_name}' stores filter field '{row_filter.field}' as {field_type}, "
             f"which can't be compared against a time floor"
         )
 
-    field_ref = pc.field(physical)
-    return field_ref.is_null() | (field_ref >= cutoff_scalar)
+    def _passes_floor(row: dict[str, Any]) -> bool:
+        value = row.get(physical)
+        return value is None or value >= floor
+
+    return _ResolvedRowFilter(scan_filter=scan_filter, row_passes=_passes_floor, physical_column=physical)
 
 
 def resolve_parent_table_ref(
@@ -165,9 +193,9 @@ def resolve_parent_table_ref(
             # surface deep inside the pipeline, past the caller's fall-back-to-the-API branch.
             _physical_columns_by_api_name(delta_table, parent_name, required_columns)
         if row_filter is not None:
-            # Same eagerness for the filter: the reader rebuilds this expression, but a missing
-            # or unfilterable column must surface while the API fallback is still possible.
-            _row_filter_expression(delta_table, parent_name, row_filter)
+            # Same eagerness for the filter: the reader rebuilds this, but a missing or
+            # unfilterable column must surface while the API fallback is still possible.
+            _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
         return ParentTableRef(uri=uri, version=delta_table.version())
     except WarehouseParentTableNotFoundError:
         raise
@@ -303,9 +331,18 @@ def iter_parent_pages_from_warehouse(
     page_size = max(1, min(page_size, MAX_PARENT_PAGE_SIZE))
     delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
     physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
-    scan_filter = None if row_filter is None else _row_filter_expression(delta_table, parent_name, row_filter)
 
+    resolved_row_filter: _ResolvedRowFilter | None = None
     projected = list(dict.fromkeys(physical_by_api_name.values()))
+    if row_filter is not None:
+        resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
+        if resolved_row_filter.physical_column not in projected:
+            # The row check below needs the value even when the caller didn't ask for it as
+            # output — otherwise it reads as absent and every row would pass.
+            projected.append(resolved_row_filter.physical_column)
+
+    scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
+
     dataset = delta_table.to_pyarrow_dataset()
 
     rows_streamed = 0
@@ -314,6 +351,8 @@ def iter_parent_pages_from_warehouse(
         page: list[dict[str, Any]] = []
         for batch in dataset.to_batches(columns=projected, batch_size=page_size, filter=scan_filter):
             for row in batch.to_pylist():
+                if resolved_row_filter is not None and not resolved_row_filter.row_passes(row):
+                    continue
                 page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
                 rows_streamed += 1
                 if len(page) >= page_size:

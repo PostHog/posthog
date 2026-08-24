@@ -29,6 +29,8 @@ export function deriveSessionViewState(
   workspace: Workspace | null,
   isCloud: boolean,
 ): SessionViewState {
+  // The live session knows it is cloud before the workspace query or `latest_run`
+  // metadata lands, so trust either source.
   const effectiveIsCloud = isCloud || session?.isCloud === true;
   const cloudStatus = resolveEffectiveCloudStatus(task, session);
   const isCloudRunTerminal = effectiveIsCloud && isTerminalStatus(cloudStatus);

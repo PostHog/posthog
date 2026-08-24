@@ -287,6 +287,7 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
     """In tests the query_cache alias is backed by LocMem, which has no Redis connection
     to hand out, so raw-client lookups against it get the shared fakeredis instead."""
     from posthog import redis  # noqa: PLC0415
-    from posthog.query_cache import size_tracker  # noqa: PLC0415
+    from posthog.query_cache import storage  # noqa: PLC0415
 
-    monkeypatch.setattr(size_tracker, "get_redis_connection", lambda alias: redis.get_client())
+    monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
+    monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())

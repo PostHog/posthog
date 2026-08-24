@@ -6,6 +6,7 @@ from requests.exceptions import ChunkedEncodingError, SSLError
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
+    SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyRetryableError,
@@ -53,6 +54,7 @@ def test_get_access_token_4xx_is_non_retryable(status_code):
     [
         ("invalid_client", SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR),
         ("unsupported_grant_type", SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR),
+        ("shop_not_permitted", SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR),
     ],
 )
 def test_get_access_token_4xx_maps_shopify_error_code(error_code, expected_message):
@@ -71,6 +73,37 @@ def test_get_access_token_4xx_maps_shopify_error_code(error_code, expected_messa
     assert any(pattern in error_message for pattern in patterns), (
         f"4xx token error '{error_message}' should match a non-retryable pattern"
     )
+
+
+def test_get_access_token_asks_shopify_for_json_errors():
+    # Without an explicit JSON Accept header Shopify renders 4xx OAuth errors as an HTML page,
+    # so _parse_oauth_error never sees the error code and every failure collapses to the
+    # generic message.
+    session_factory = mock.MagicMock(
+        return_value=mock.MagicMock(
+            post=mock.MagicMock(return_value=_mock_response(200, ok=True, json_data={"access_token": "tok"}))
+        )
+    )
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
+        session_factory,
+    ):
+        _get_shopify_access_token("store", "client-id", "client-secret")
+    assert session_factory.call_args.kwargs["headers"] == {"Accept": "application/json"}
+
+
+def test_get_access_token_4xx_html_body_falls_back_to_generic_message():
+    # Shopify (or an intermediary) can still answer a 4xx with a non-JSON body; the parse must
+    # degrade to the generic credentials message instead of raising a decode error.
+    response = _mock_response(400, ok=False)
+    response.json.side_effect = ValueError("Expecting value: line 1 column 1 (char 0)")
+    with _patched_token_call(response):
+        with pytest.raises(Exception) as exc_info:
+            _get_shopify_access_token("store", "client-id", "client-secret")
+
+    error_message = str(exc_info.value)
+    assert SHOPIFY_ACCESS_TOKEN_AUTH_ERROR in error_message
+    assert "HTTP 400" in error_message
 
 
 def test_get_access_token_404_reports_missing_store():

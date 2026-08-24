@@ -5817,25 +5817,34 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         "distinct_id": distinct_id,
     });
 
-    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
-    let bucket_field = current_bucket().to_string();
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
 
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
+    let bucket_after = current_bucket();
 
     if skip_writes {
         // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
         // an erroneous `record()` behind a delayed first tick.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        let counter = client.hget(billing_key, bucket_field).await;
-        assert!(
-            counter.is_err(),
-            "billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
-        );
+        for bucket in bucket_before..=bucket_after {
+            let counter = client.hget(billing_key.clone(), bucket.to_string()).await;
+            assert!(
+                counter.is_err(),
+                "billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
+            );
+        }
     } else {
-        let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+        let counter = poll_for_billing_counter_across_buckets(
+            &client,
+            &billing_key,
+            bucket_before,
+            bucket_after,
+        )
+        .await;
         assert_eq!(
             counter, "1",
             "billing counter should be incremented when skip_writes=false"
@@ -5903,8 +5912,8 @@ async fn test_billing_increments_land_in_production_keyspace() -> Result<()> {
         "distinct_id": distinct_id,
     });
 
-    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
-    let bucket_field = current_bucket().to_string();
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
 
     // Direct reqwest call so we can set the SDK user-agent that drives
     // Library::from_headers → Library::PosthogNode.
@@ -5917,11 +5926,16 @@ async fn test_billing_increments_land_in_production_keyspace() -> Result<()> {
         .send()
         .await?;
     assert_eq!(StatusCode::OK, res.status());
+    let bucket_after = current_bucket();
 
-    let team_counter = poll_for_billing_counter(&client, &team_key, &bucket_field).await;
+    let team_counter =
+        poll_for_billing_counter_across_buckets(&client, &team_key, bucket_before, bucket_after)
+            .await;
     assert_eq!(team_counter, "1", "team key should reflect one request");
 
-    let library_counter = poll_for_billing_counter(&client, &library_key, &bucket_field).await;
+    let library_counter =
+        poll_for_billing_counter_across_buckets(&client, &library_key, bucket_before, bucket_after)
+            .await;
     assert_eq!(
         library_counter, "1",
         "library key should reflect one request"
@@ -5976,30 +5990,34 @@ async fn test_shutdown_flush_writes_production_billing_counter() -> Result<()> {
     insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
     let billing_key = get_team_request_key(team.id, FlagRequestType::Decide);
-    let bucket_field = current_bucket().to_string();
     client.del(billing_key.clone()).await.unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
     let payload = json!({ "token": token, "distinct_id": distinct_id });
+    // Bracket the request: the record lands in whichever 2-minute bucket it crosses.
+    let bucket_before = current_bucket();
     let res = server
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
+    let bucket_after = current_bucket();
 
     // Confirm the periodic flusher has NOT yet landed the aggregator's
     // write — sanity check that we're really exercising the shutdown
     // path. With a 60s flush interval and immediate-after-request
     // lookup, the target counter should still be missing.
-    let pre_shutdown = client.hget(billing_key.clone(), bucket_field.clone()).await;
-    assert!(
-        pre_shutdown.is_err(),
-        "billing counter at {billing_key} should NOT be in Redis before \
-         shutdown — the aggregator's periodic flusher is set to 60s and \
-         the test is faster than that. Got {pre_shutdown:?}, which means \
-         the flush window collapsed and this test no longer proves what \
-         it claims."
-    );
+    for bucket in bucket_before..=bucket_after {
+        let pre_shutdown = client.hget(billing_key.clone(), bucket.to_string()).await;
+        assert!(
+            pre_shutdown.is_err(),
+            "billing counter at {billing_key} should NOT be in Redis before \
+             shutdown — the aggregator's periodic flusher is set to 60s and \
+             the test is faster than that. Got {pre_shutdown:?}, which means \
+             the flush window collapsed and this test no longer proves what \
+             it claims."
+        );
+    }
 
     // Trigger graceful shutdown. axum drains in-flight requests, then
     // `serve()` calls `billing_aggregator.shutdown().await` which performs
@@ -6009,7 +6027,9 @@ async fn test_shutdown_flush_writes_production_billing_counter() -> Result<()> {
     // Poll for the counter to land. The helper polls for ~1s
     // (40 × 25ms) — the graceful-drain window plus a single shutdown
     // flush against a healthy local Redis is well under that.
-    let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
+    let counter =
+        poll_for_billing_counter_across_buckets(&client, &billing_key, bucket_before, bucket_after)
+            .await;
     assert_eq!(
         counter, "1",
         "billing counter must reach Redis via the shutdown flush path"

@@ -203,6 +203,9 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # product:lint --all checks this generated file against the tree,
+                        # so a baseline-only edit must run it too
+                        - products/isolation_baseline.txt
                         # Make sure we run if someone is explicitly changing the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -397,6 +400,7 @@ jobs:
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
 
         steps:
@@ -441,6 +445,16 @@ jobs:
                   fi
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
@@ -595,6 +609,8 @@ jobs:
             turbo_result: ${{ steps.fallback.outputs.turbo_result }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
+            # Shards per segment for a narrowed run; build_django_matrix reads them as-is.
+            segment_shards: ${{ steps.classify.outputs.segment_shards }}
         steps:
             # Ahead of the checkout on purpose: this reads job outputs only, and when it
             # decides selection can't be trusted, cloning the repo would just delay the
@@ -770,7 +786,7 @@ jobs:
                           posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
                               poe+=("$f")
                               core+=("$f")
                               ;;
@@ -803,6 +819,9 @@ jobs:
                   echo "compat_files=${compat[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  # Shards per narrowed segment: turbo-discover's per-shard budget applied
+                  # to the selected tests' recorded seconds. Degrades to 1 per segment.
+                  echo "segment_shards=$(node .github/scripts/selected-django-shards.js /tmp/selection.json)" >> "$GITHUB_OUTPUT"
                   emit_metrics true ""
 
                   echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal, ${#compat[@]} compat"
@@ -983,10 +1002,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
@@ -1210,11 +1234,20 @@ jobs:
             - name: Generate snapshot patch
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   mkdir -p /tmp/patches
                   git add -N '*.ambr' || true
-                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
+                  # Same leg scoping as the django job: a leg may only ship its own
+                  # schema mode's snapshot files (see the comment there).
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
+                  if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
+                    git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-Products-${{ strategy.job-index }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-Products-${{ strategy.job-index }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"
@@ -2013,9 +2046,20 @@ jobs:
                   python manage.py makemigrations --check --dry-run
 
             - name: Check CH migrations
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
+                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  DIFF_BASE=origin/master
+                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
+                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                          DIFF_BASE="origin/$BASE_REF"
+                      else
+                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                      fi
+                  fi
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
             - name: Render CH migration SQL per cloud environment
               # CH migrations can build different `operations` lists at import time depending on
@@ -2402,6 +2446,7 @@ jobs:
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
+                  SEGMENT_SHARDS: ${{ needs.select-tests.outputs.segment_shards }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
                   # select-tests deliberately does not run for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
@@ -2441,10 +2486,17 @@ jobs:
                   fi
 
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: collapse to one shard per active segment and skip
-                      # segments with no selected files.
+                      # Selected mode: run only the segments that have selected files. Shard
+                      # counts come from select-tests, where selected-django-shards.js applied
+                      # turbo-discover's per-shard budget to the selected tests' recorded
+                      # seconds. A wide selection therefore spreads over several jobs instead
+                      # of running to the job timeout in one. No counts means one shard per
+                      # segment.
+                      segment_shards="${SEGMENT_SHARDS:-}"
+                      [[ -z "$segment_shards" ]] && segment_shards='{"core": 1, "poe": 1, "temporal": 1}'
+
                       core_count=0
-                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      [[ -n "$CORE_FILES" ]] && core_count=$(jq -r '.core' <<< "$segment_shards")
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2452,9 +2504,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2465,14 +2517,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2480,9 +2532,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2493,14 +2545,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       temporal_count=0
-                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(jq -r '.temporal' <<< "$segment_shards")
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
                         [range(1; $n + 1) | {
                           segment: "Temporal",
@@ -2508,9 +2560,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2521,9 +2573,9 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -2669,9 +2721,9 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
-                      # Unlabeled PRs skip the doubled schema matrix; note their snapshot
-                      # bot commits then leave [new_events_schema] .ambr blocks untouched,
-                      # so those blocks only refresh on labeled PRs and stay stale between.
+                      # Unlabeled PRs skip the doubled schema matrix; their snapshot
+                      # bot commits leave *.new_events_schema.ambr files untouched, so
+                      # those only refresh on labeled PRs / dispatch and stay stale between.
                       echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
@@ -2944,10 +2996,15 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
 
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
@@ -3057,9 +3114,10 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
               # --snapshot-warn-unused: pytest-split shards individual tests across
-              # runners, so each shard only exercises a subset of snapshots per file.
-              # Without this flag, --snapshot-update deletes "unused" snapshots that
-              # belong to other shards, causing cross-shard data loss.
+              # runners, so a shard reports other shards' snapshots as "unused". The flag
+              # downgrades that from a failure to a warning. It does NOT prevent deletion:
+              # --snapshot-update only spares a snapshot when syrupy matches it to a test
+              # (by file and name) that did not run on this shard.
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
             - name: Add snapshot flags for compat subset runs
@@ -3171,8 +3229,9 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), no --store-durations (don't pollute timing
-                      # data with a partial run), and no --reruns (fail loud on the narrow subset).
+                      # Sharded only when build_django_matrix sized the segment above one shard,
+                      # no --store-durations (don't pollute timing data with a partial run), and
+                      # no --reruns (fail loud on the narrow subset).
                       # The full run below also runs without --reruns: retries mask the raw flake
                       # signal Trunk needs, and the quarantine gate is the flake net instead.
                       if [[ "${{ matrix.compat }}" == "true" ]]; then
@@ -3182,8 +3241,18 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
@@ -3194,7 +3263,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/tests/api/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
@@ -3299,11 +3368,21 @@ jobs:
                       fi
                   fi
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no sharding, no --store-durations (don't pollute
-                      # timing data with a partial run), no --reruns. See the core selected branch;
-                      # the full run also skips --reruns so raw flake signal reaches Trunk.
+                      # Selected mode: no --store-durations (don't pollute timing data with a
+                      # partial run), no --reruns. See the core selected branch; the full run
+                      # also skips --reruns so raw flake signal reaches Trunk.
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
@@ -3360,13 +3439,24 @@ jobs:
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
+              env:
+                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
                   mkdir -p /tmp/patches
                   # Stage any new/modified .ambr files so they appear in git diff
                   git add -N '*.ambr' || true
+                  # Each schema leg may only ship its own snapshot files. A leg still
+                  # *claims* the other schema mode's snapshot names without writing them,
+                  # so syrupy deletes them from the working tree as unused; scoping the
+                  # patch keeps those deletions out of the committed diff.
+                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                    ambr_pathspec=('*.new_events_schema.ambr')
+                  else
+                    ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
+                  fi
                   # Generate patch if there are changes
-                  if ! git diff --quiet '*.ambr' 2>/dev/null; then
-                    git diff --binary --full-index '*.ambr' > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
+                  if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
+                    git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
                   else
                     echo "No snapshot changes to patch"

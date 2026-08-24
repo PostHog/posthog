@@ -22,6 +22,7 @@ jest.mock('kea', () => ({
 
 jest.mock('scenes/dashboard/dashboardLogic', () => ({
     dashboardLogic: { __mock: 'dashboardLogic' },
+    DashboardLoadAction: { Update: 'update' },
 }))
 
 jest.mock('~/models/dashboardsModel', () => ({
@@ -62,15 +63,17 @@ jest.mock('scenes/surveys/utils/opportunityDetection', () => ({
 }))
 
 jest.mock('scenes/insights/EmptyStates', () => ({
-    InsightErrorState: ({ title, supportOnly }: { title: string; supportOnly?: boolean }) => (
-        <div data-attr="insight-error-state" data-support-only={supportOnly ? 'true' : undefined}>
+    InsightErrorState: ({ title, onRetry }: { title: string; onRetry?: () => void }) => (
+        <div data-attr="insight-error-state" data-has-retry={onRetry ? 'true' : undefined}>
             {title}
+            {onRetry && <button onClick={onRetry}>Retry error tile</button>}
         </div>
     ),
 }))
 
 jest.mock('~/exporter/exporterViewLogic', () => ({
     getCurrentExporterData: () => null,
+    isSharedView: () => false,
 }))
 
 jest.mock('scenes/urls', () => ({
@@ -82,27 +85,33 @@ jest.mock('scenes/urls', () => ({
 }))
 
 jest.mock('lib/components/Cards/InsightCard', () => ({
-    InsightCard: ({
-        tile,
-        showResizeHandles,
-        apiErrored,
-        apiError,
-    }: {
+    InsightCard: (props: {
         tile: { id: number }
         showResizeHandles: boolean
         apiErrored?: boolean
-        apiError?: Error & { status?: number; detail?: string | null; code?: string | null }
-    }) => (
-        <div
-            data-attr="insight-card"
-            data-tile-id={String(tile.id)}
-            data-show-resize-handles={String(showResizeHandles)}
-            data-api-errored={apiErrored ? 'true' : undefined}
-            data-api-error-status={apiError?.status}
-            data-api-error-detail={apiError?.detail ?? undefined}
-            data-api-error-code={apiError?.code ?? undefined}
-        />
-    ),
+        queryId?: string
+        apiError?: Error & {
+            status?: number
+            detail?: string | null
+            code?: string | null
+            data?: { queryId?: string }
+        }
+        refresh?: () => void
+    }): JSX.Element => {
+        mockInsightCard(props)
+        const { tile, showResizeHandles, apiErrored, apiError } = props
+        return (
+            <div
+                data-attr="insight-card"
+                data-tile-id={String(tile.id)}
+                data-show-resize-handles={String(showResizeHandles)}
+                data-api-errored={apiErrored ? 'true' : undefined}
+                data-api-error-status={apiError?.status}
+                data-api-error-detail={apiError?.detail ?? undefined}
+                data-api-error-code={apiError?.code ?? undefined}
+            />
+        )
+    },
 }))
 
 jest.mock('./items/DashboardTextItem', () => ({
@@ -171,9 +180,12 @@ const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
 const mockedUseAsyncActions = useAsyncActions as jest.Mock
 const mockRemoveTile = jest.fn()
+const mockTriggerDashboardRefresh = jest.fn()
+const mockInsightCard = jest.fn()
 
 describe('DashboardItems', () => {
     beforeEach(() => {
+        mockInsightCard.mockClear()
         jest.clearAllMocks()
 
         mockedUseValues.mockImplementation((logic) => {
@@ -226,6 +238,7 @@ describe('DashboardItems', () => {
                     removeTile: mockRemoveTile,
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
+                    loadDashboard: mockTriggerDashboardRefresh,
                     refreshDashboardWidgets: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
@@ -424,10 +437,10 @@ describe('DashboardItems', () => {
 
         const { findByText, getByTestId, getByText } = render(<DashboardItems />)
         expect(getByText('Tile')).toBeInTheDocument()
-        expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute(
-            'data-support-only',
-            'true'
-        )
+        expect(getByText('There is a problem loading this dashboard tile.')).toHaveAttribute('data-has-retry', 'true')
+
+        fireEvent.click(getByText('Retry error tile'))
+        expect(mockTriggerDashboardRefresh).toHaveBeenCalled()
 
         fireEvent.click(getByTestId('more-button'))
         fireEvent.click(await findByText('Remove from dashboard'))
@@ -538,6 +551,12 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
+        expect(mockInsightCard).toHaveBeenCalledWith(
+            expect.objectContaining({
+                refresh: expect.any(Function),
+                queryId: 'failed-query-id',
+            })
+        )
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'

@@ -569,6 +569,19 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
+# Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
+# session callers and prevent forced refreshes from consuming application workers without bound.
+class ErrorTrackingFingerprintProjectionBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or

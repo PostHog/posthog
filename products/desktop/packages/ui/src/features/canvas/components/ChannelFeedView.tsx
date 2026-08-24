@@ -16,12 +16,14 @@ import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type { PrCheck } from "@posthog/core/git/router-schemas";
 import { parsePrNumber } from "@posthog/core/git-interaction/prStatus";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
+import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import {
   AvatarGroup,
   Badge,
   Card,
   CardContent,
   cn,
+  Input,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -38,6 +40,8 @@ import type {
   TaskRunStatus,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
+import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
 import {
@@ -45,6 +49,11 @@ import {
   mergeFeedEntries,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
+import {
+  TaskRowContextMenu,
+  TaskRowDropdownMenu,
+  type TaskRowMenuProps,
+} from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
@@ -54,17 +63,24 @@ import type { ThreadPanelTab } from "@posthog/ui/features/canvas/stores/threadPa
 import { taskCardNavigation } from "@posthog/ui/features/canvas/taskCardNavigation";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
+import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
 import { usePrTitles } from "@posthog/ui/features/git-interaction/usePrDetails";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
+import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
+import { ArchiveRunningTaskDialog } from "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog";
+import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import {
   type SidebarPrState,
   useTaskPrStatus,
 } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { Text } from "@radix-ui/themes";
@@ -709,6 +725,17 @@ const FeedItem = memo(function FeedItem({
   const { mutate: markTasksRead } = useMarkTaskActivityRead();
   const statusDisplay = useTaskStatusDisplay(task);
   const taskData = useChannelTaskData(task);
+  const { togglePin } = usePinnedTasks();
+  const { archiveTask } = useArchiveTask();
+  const { renameTask } = useRenameTask();
+  const commandCenterCells = useCommandCenterStore((state) => state.cells);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleValue, setTitleValue] = useState(task.title);
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const isActive = taskData ? isTaskActivelyRunning(taskData) : false;
+  const canStop = taskData?.taskRunEnvironment === "cloud" && isActive;
   const starter = channelTaskStarter(task);
   const prompt = useMemo(
     () => stripContextBlocks(xmlToPlainText(task.description ?? "")),
@@ -768,6 +795,81 @@ const FeedItem = memo(function FeedItem({
     markRead();
     onOpenTask(task);
   }, [markRead, onOpenTask, task]);
+  const beginTitleEdit = useCallback(() => {
+    setTitleValue(task.title);
+    setEditingTitle(true);
+  }, [task.title]);
+  const saveTitle = useCallback(() => {
+    if (isSavingTitle) return;
+    const newTitle = titleValue.trim();
+    if (!newTitle || newTitle === task.title) {
+      setEditingTitle(false);
+      return;
+    }
+    setIsSavingTitle(true);
+    void renameTask({
+      taskId: task.id,
+      currentTitle: task.title,
+      newTitle,
+    })
+      .then(() => setEditingTitle(false))
+      .catch(() => {
+        toast.error("Couldn't rename task", { description: "Try again." });
+      })
+      .finally(() => setIsSavingTitle(false));
+  }, [isSavingTitle, renameTask, task.id, task.title, titleValue]);
+  const runArchive = useCallback(async () => {
+    try {
+      await archiveTask({ taskId: task.id });
+    } catch (error) {
+      toast.error("Couldn't archive task", { description: "Try again." });
+      throw error;
+    }
+  }, [archiveTask, task.id]);
+  const archiveTaskFromFeed = useCallback(() => {
+    if (isActive) {
+      setArchiveConfirmOpen(true);
+      return;
+    }
+    void runArchive().catch(() => undefined);
+  }, [isActive, runArchive]);
+  const confirmArchive = useCallback(async () => {
+    await runArchive();
+    setArchiveConfirmOpen(false);
+  }, [runArchive]);
+  const menu: TaskRowMenuProps = useMemo(
+    () => ({
+      kind: "task",
+      id: task.id,
+      title: task.title,
+      isPinned: taskData?.isPinned ?? false,
+      task,
+      channelId: task.channel ?? undefined,
+      onAddToCommandCenter: commandCenterCells.includes(task.id)
+        ? undefined
+        : () => placeTaskInCommandCenter(task.id, task.title),
+      onRename: beginTitleEdit,
+      onStop: canStop ? () => setStopConfirmOpen(true) : undefined,
+      onTogglePin: () => {
+        void togglePin(task.id).catch(() => {
+          toast.error("Couldn't update pin", { description: "Try again." });
+        });
+      },
+      onArchive: archiveTaskFromFeed,
+    }),
+    [
+      archiveTaskFromFeed,
+      beginTitleEdit,
+      canStop,
+      task,
+      commandCenterCells,
+      task.channel,
+      task.id,
+      task.title,
+      taskData?.isPinned,
+      togglePin,
+    ],
+  );
   // A chip opens its artifact directly: canvases navigate to the canvas, files
   // open as a tab in the task view (the tab is staged in the layout store, then
   // the task view is opened to show it). Anything unopenable falls back to the
@@ -803,193 +905,242 @@ const FeedItem = memo(function FeedItem({
 
   const visiblePrCount = prUrls.length >= 5 ? 1 : 2;
   return (
-    <Card
-      size="sm"
-      role="button"
-      tabIndex={0}
-      className="mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
-      onClick={() => {
-        markRead();
-        onOpenThread(task);
-      }}
-      onKeyDown={(event) => {
-        // Only when the card itself has focus: descendant buttons (title, PR
-        // and comment chips, the prompt toggle) bubble their key events here,
-        // and preventDefault would swallow their own Enter/Space activation.
-        if (event.target !== event.currentTarget) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
+    <TaskRowContextMenu menu={menu}>
+      <Card
+        size="sm"
+        role="button"
+        tabIndex={0}
+        className="mx-auto my-1.5 w-full max-w-[660px] cursor-pointer rounded-xl bg-(--gray-2) py-0 transition-colors hover:border-(--gray-7) hover:bg-(--gray-3)"
+        onClick={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest('[data-slot="dropdown-menu-trigger"]')
+          ) {
+            return;
+          }
           markRead();
           onOpenThread(task);
-        }
-      }}
-    >
-      <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
-        <div className="flex items-center gap-3">
-          <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
-            <button
-              type="button"
-              className="min-w-0 truncate text-left font-semibold text-sm leading-snug"
-              onClick={(event) => {
-                event.stopPropagation();
-                openTask();
-              }}
-            >
-              {task.title || "Untitled task"}
-            </button>
-            <span className="shrink-0 text-(--gray-9) text-xs">
-              · {formatRelativeTimeShort(task.updated_at)}
-            </span>
-          </div>
-          <TaskStatusBadge display={statusDisplay} />
-        </div>
-        <div className="mt-1.5 text-(--gray-9) text-xs leading-normal">
-          <ExpandablePrompt
-            lines={2}
-            expandedContent={
-              <div className="whitespace-normal text-(--gray-11) [&_pre]:my-1.5">
-                <MarkdownRenderer content={prompt} />
-              </div>
-            }
-          >
-            {prompt || "A new task was started"}
-          </ExpandablePrompt>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {showRepo && task.repository && (
-            <span
-              className={cn(CHIP_CLASS, "border-transparent bg-transparent")}
-            >
-              <GitBranchIcon size={12} />
-              {task.repository}
-            </span>
-          )}
-          {prUrls.slice(0, visiblePrCount).map((url) => (
-            <PrChip key={url} url={url} />
-          ))}
-          {prUrls.length > visiblePrCount && (
-            <OverflowChip
-              label={`+${prUrls.length - visiblePrCount} ${
-                prUrls.length - visiblePrCount === 1 ? "PR" : "PRs"
-              }`}
-            >
-              {prUrls.slice(visiblePrCount).map((url) => (
-                <PrPopoverRow key={url} url={url} />
-              ))}
-            </OverflowChip>
-          )}
-          {artifacts.slice(0, 2).map((artifact) => (
-            <button
-              key={artifact.key}
-              type="button"
-              className={CHIP_CLASS}
-              onClick={(event) => {
-                event.stopPropagation();
-                openArtifact(artifact);
-              }}
-            >
-              {artifact.kind === "canvas" ? (
-                <AppWindowIcon size={12} />
+        }}
+        onKeyDown={(event) => {
+          // Only when the card itself has focus: descendant buttons (title, PR
+          // and comment chips, the prompt toggle) bubble their key events here,
+          // and preventDefault would swallow their own Enter/Space activation.
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            markRead();
+            onOpenThread(task);
+          }
+        }}
+      >
+        <CardContent className="flex flex-col px-4 pt-3.5 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+              {editingTitle ? (
+                <Input
+                  autoFocus
+                  aria-label="Task title"
+                  value={titleValue}
+                  disabled={isSavingTitle}
+                  className="h-6 min-w-0 font-semibold text-sm"
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => setTitleValue(event.target.value)}
+                  onBlur={saveTitle}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      saveTitle();
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      setEditingTitle(false);
+                    }
+                  }}
+                />
               ) : (
-                <FileIcon filename={artifact.name} size={12} />
-              )}
-              <span className="max-w-40 truncate">{artifact.name}</span>
-            </button>
-          ))}
-          {artifacts.length > 2 && (
-            <OverflowChip
-              label={`+${artifacts.length - 2} ${
-                artifacts.length - 2 === 1 ? "file" : "files"
-              }`}
-            >
-              {artifacts.slice(2).map((artifact) => (
                 <button
-                  key={artifact.key}
                   type="button"
-                  className={cn(CHIP_CLASS, "w-full")}
+                  className="min-w-0 truncate text-left font-semibold text-sm leading-snug"
                   onClick={(event) => {
                     event.stopPropagation();
-                    openArtifact(artifact);
+                    openTask();
                   }}
                 >
-                  {artifact.kind === "canvas" ? (
-                    <AppWindowIcon size={12} />
-                  ) : (
-                    <FileIcon filename={artifact.name} size={12} />
-                  )}
-                  <span className="truncate">{artifact.name}</span>
+                  {task.title || "Untitled task"}
                 </button>
-              ))}
-            </OverflowChip>
-          )}
-          {humanMessages.length > 0 ? (
-            <button
-              type="button"
-              className={CHIP_CLASS}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenThread(task, "comments");
-              }}
-            >
-              <ChatCircleIcon size={12} />
-              <span className="font-semibold text-(--gray-9)">
-                {humanMessages.length}
+              )}
+              <span className="shrink-0 text-(--gray-9) text-xs">
+                · {formatRelativeTimeShort(task.updated_at)}
               </span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={CHIP_CLASS}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenThread(task, "comments");
-              }}
-            >
-              <PlusIcon size={12} />
-              Comment
-            </button>
-          )}
-          <span className="flex-1" />
-          {authors.length > 0 && (
-            <HoverPopover
-              trigger={
-                // A real button: the popover trigger expects native button
-                // semantics, and it gives keyboard users a way to open the
-                // participant list.
-                <button
-                  type="button"
-                  aria-label="Participants"
-                  className="inline-flex cursor-default"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {/* reverse: the stack sits at the card's right edge, so the
-                      hover expansion must spread left, into the card — the
-                      default spreads right, off the edge and clipped. */}
-                  <AvatarGroup size="xs" stacked reverse>
-                    {authors.map((author) => (
-                      <UserAvatar key={author.uuid} user={author} size="xs" />
-                    ))}
-                  </AvatarGroup>
-                </button>
-              }
-              content={
-                <div className="flex flex-col gap-1.5">
-                  {authors.map((author) => (
-                    <div
-                      key={author.uuid}
-                      className="flex items-center gap-2 text-xs"
-                    >
-                      <UserAvatar user={author} size="xs" />
-                      {userDisplayName(author)}
-                    </div>
-                  ))}
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <TaskStatusBadge display={statusDisplay} />
+              <TaskRowDropdownMenu menu={menu} />
+            </div>
+          </div>
+          <div className="mt-1.5 text-(--gray-9) text-xs leading-normal">
+            <ExpandablePrompt
+              lines={2}
+              expandedContent={
+                <div className="whitespace-normal text-(--gray-11) [&_pre]:my-1.5">
+                  <MarkdownRenderer content={prompt} />
                 </div>
               }
-            />
-          )}
-        </div>
-      </CardContent>
-    </Card>
+            >
+              {prompt || "A new task was started"}
+            </ExpandablePrompt>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {showRepo && task.repository && (
+              <span
+                className={cn(CHIP_CLASS, "border-transparent bg-transparent")}
+              >
+                <GitBranchIcon size={12} />
+                {task.repository}
+              </span>
+            )}
+            {prUrls.slice(0, visiblePrCount).map((url) => (
+              <PrChip key={url} url={url} />
+            ))}
+            {prUrls.length > visiblePrCount && (
+              <OverflowChip
+                label={`+${prUrls.length - visiblePrCount} ${
+                  prUrls.length - visiblePrCount === 1 ? "PR" : "PRs"
+                }`}
+              >
+                {prUrls.slice(visiblePrCount).map((url) => (
+                  <PrPopoverRow key={url} url={url} />
+                ))}
+              </OverflowChip>
+            )}
+            {artifacts.slice(0, 2).map((artifact) => (
+              <button
+                key={artifact.key}
+                type="button"
+                className={CHIP_CLASS}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openArtifact(artifact);
+                }}
+              >
+                {artifact.kind === "canvas" ? (
+                  <AppWindowIcon size={12} />
+                ) : (
+                  <FileIcon filename={artifact.name} size={12} />
+                )}
+                <span className="max-w-40 truncate">{artifact.name}</span>
+              </button>
+            ))}
+            {artifacts.length > 2 && (
+              <OverflowChip
+                label={`+${artifacts.length - 2} ${
+                  artifacts.length - 2 === 1 ? "file" : "files"
+                }`}
+              >
+                {artifacts.slice(2).map((artifact) => (
+                  <button
+                    key={artifact.key}
+                    type="button"
+                    className={cn(CHIP_CLASS, "w-full")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openArtifact(artifact);
+                    }}
+                  >
+                    {artifact.kind === "canvas" ? (
+                      <AppWindowIcon size={12} />
+                    ) : (
+                      <FileIcon filename={artifact.name} size={12} />
+                    )}
+                    <span className="truncate">{artifact.name}</span>
+                  </button>
+                ))}
+              </OverflowChip>
+            )}
+            {humanMessages.length > 0 ? (
+              <button
+                type="button"
+                className={CHIP_CLASS}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenThread(task, "comments");
+                }}
+              >
+                <ChatCircleIcon size={12} />
+                <span className="font-semibold text-(--gray-9)">
+                  {humanMessages.length}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={CHIP_CLASS}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenThread(task, "comments");
+                }}
+              >
+                <PlusIcon size={12} />
+                Comment
+              </button>
+            )}
+            <span className="flex-1" />
+            {authors.length > 0 && (
+              <HoverPopover
+                trigger={
+                  // A real button: the popover trigger expects native button
+                  // semantics, and it gives keyboard users a way to open the
+                  // participant list.
+                  <button
+                    type="button"
+                    aria-label="Participants"
+                    className="inline-flex cursor-default"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {/* reverse: the stack sits at the card's right edge, so the
+                      hover expansion must spread left, into the card — the
+                      default spreads right, off the edge and clipped. */}
+                    <AvatarGroup size="xs" stacked reverse>
+                      {authors.map((author) => (
+                        <UserAvatar key={author.uuid} user={author} size="xs" />
+                      ))}
+                    </AvatarGroup>
+                  </button>
+                }
+                content={
+                  <div className="flex flex-col gap-1.5">
+                    {authors.map((author) => (
+                      <div
+                        key={author.uuid}
+                        className="flex items-center gap-2 text-xs"
+                      >
+                        <UserAvatar user={author} size="xs" />
+                        {userDisplayName(author)}
+                      </div>
+                    ))}
+                  </div>
+                }
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      <ArchiveRunningTaskDialog
+        open={archiveConfirmOpen}
+        taskTitle={task.title}
+        stopsCloudSandbox={taskData?.taskRunEnvironment === "cloud"}
+        onConfirm={confirmArchive}
+        onCancel={() => setArchiveConfirmOpen(false)}
+      />
+      <StopCloudRunDialog
+        open={stopConfirmOpen}
+        taskId={task.id}
+        runId={task.latest_run?.id}
+        title={`Stop "${task.title}"?`}
+        buttonLabel="Stop task"
+        onOpenChange={setStopConfirmOpen}
+        onStopped={() => toast.success("Stop requested")}
+      />
+    </TaskRowContextMenu>
   );
 });
 
@@ -1203,9 +1354,18 @@ export function ChannelFeedView({
   onOpenTask: (task: Task) => void;
   onOpenThread: (task: Task, tab?: ThreadPanelTab) => void;
 }) {
+  // Archiving is local-only host state the server task list doesn't know about,
+  // so a just-archived card would otherwise reappear on the next poll. Drop
+  // archived tasks here, the same way the sidebar tree does via useChannelItems.
+  const archivedTaskIds = useArchivedTaskIds();
+  const visibleTasks = useMemo(
+    () => tasks.filter((task) => !archivedTaskIds.has(task.id)),
+    [tasks, archivedTaskIds],
+  );
+
   const entries = useMemo<FeedEntry[]>(
-    () => mergeFeedEntries(tasks, systemMessages ?? []),
-    [tasks, systemMessages],
+    () => mergeFeedEntries(visibleTasks, systemMessages ?? []),
+    [visibleTasks, systemMessages],
   );
 
   // The channel's dominant repo: on a single-repo channel every card would
@@ -1213,7 +1373,7 @@ export function ChannelFeedView({
   // different repo than most of the channel.
   const dominantRepo = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const task of tasks) {
+    for (const task of visibleTasks) {
       if (!task.repository) continue;
       counts.set(task.repository, (counts.get(task.repository) ?? 0) + 1);
     }
@@ -1226,7 +1386,7 @@ export function ChannelFeedView({
       }
     }
     return best;
-  }, [tasks]);
+  }, [visibleTasks]);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: channelId is a trigger — switching channels or finishing the initial load swaps/completes the rows without a remount, so re-land at the latest cards

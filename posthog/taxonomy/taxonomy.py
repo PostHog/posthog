@@ -484,6 +484,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$slack_message_received": {
+            "label": "Slack message received",
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+        },
     },
     "elements": {
         "tag_name": {

@@ -1,11 +1,18 @@
-import type { SparklineReferenceLine } from 'lib/components/Sparkline'
+import type { ReferenceLineLabelPosition } from '@posthog/quill-charts'
+
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import type { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 
-export function thresholdReferenceLines(alertForm: AlertFormType): SparklineReferenceLine[] {
+export interface AlertThresholdLine {
+    value: number
+    label: string
+    labelPosition: ReferenceLineLabelPosition
+}
+
+export function thresholdReferenceLines(alertForm: AlertFormType): AlertThresholdLine[] {
     if (alertForm.detector_config) {
         return []
     }
@@ -15,12 +22,11 @@ export function thresholdReferenceLines(alertForm: AlertFormType): SparklineRefe
         alertForm.condition?.type !== AlertConditionType.ABSOLUTE_VALUE &&
         configuration?.type === InsightThresholdType.PERCENTAGE
     const displayValue = (value: number): number => (relativePercentage ? value * 100 : value)
-    const lines: SparklineReferenceLine[] = []
+    const lines: AlertThresholdLine[] = []
     if (bounds?.upper != null && !Number.isNaN(bounds.upper)) {
         const value = displayValue(bounds.upper)
         lines.push({
             value,
-            color: 'danger',
             label: `above ${humanFriendlyNumber(value)}`,
             labelPosition: 'end',
         })
@@ -29,7 +35,6 @@ export function thresholdReferenceLines(alertForm: AlertFormType): SparklineRefe
         const value = displayValue(bounds.lower)
         lines.push({
             value,
-            color: 'danger',
             label: `below ${humanFriendlyNumber(value)}`,
             labelPosition: 'start',
         })
@@ -37,15 +42,7 @@ export function thresholdReferenceLines(alertForm: AlertFormType): SparklineRefe
     return lines
 }
 
-export function toLogScale(value: number): number {
-    return Math.log10(value + 1)
-}
-
-export function fromLogScale(value: number): string {
-    return humanFriendlyNumber(10 ** value - 1)
-}
-
-export function shouldUseLogScale(values: number[], referenceLines: SparklineReferenceLine[]): boolean {
+export function shouldUseLogScale(values: number[], referenceLines: AlertThresholdLine[]): boolean {
     if (
         referenceLines.length === 0 ||
         values.some((value) => value < 0 || !Number.isFinite(value)) ||

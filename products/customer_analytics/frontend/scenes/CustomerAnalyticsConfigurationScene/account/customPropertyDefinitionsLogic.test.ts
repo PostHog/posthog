@@ -393,6 +393,88 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.serializedColumnDescriptions).toEqual({ plan: 'The plan tier' })
     })
 
+    describe('mapping every column at once', () => {
+        const openWithColumns = async (formValues: Record<string, any>): Promise<void> => {
+            // oxlint-disable-next-line react-hooks/rules-of-hooks
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+                'loadSavedQueriesSuccess',
+            ])
+            logic.actions.setCustomPropertyFormValues({ targetType: 'person', ...formValues })
+            await expectLogic(logic, () =>
+                logic.actions.loadSelectedTableColumns({ source: 'view:view-1' })
+            ).toDispatchActions(['loadSelectedTableColumnsSuccess'])
+        }
+
+        const mapAll = async (formValues: Record<string, any>): Promise<void> => {
+            await openWithColumns(formValues)
+            logic.actions.mapAllColumns()
+        }
+
+        it('maps every column but the key column, keeping the warehouse names', async () => {
+            // The whole point of the action: a wide table should not have to be mapped by hand, and the
+            // key column must not become a property, since its values identify the person.
+            await mapAll({ keyColumn: 'org_id' })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+        })
+
+        it('keeps rows the user already started and never duplicates their columns', async () => {
+            // Bulk mapping on top of hand-entered work must not discard a renamed property or map the
+            // same column twice.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: 'mrr', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: 'mrr', property: 'monthly_revenue', description: '' },
+            ])
+        })
+
+        it('keeps a started row that has a property but no column yet', async () => {
+            // A property typed before its column, or left after a source switch clears columns but keeps
+            // the name, must not be discarded by the bulk map.
+            await mapAll({
+                keyColumn: 'org_id',
+                columnMappings: [{ column: '', property: 'monthly_revenue', description: '' }],
+            })
+
+            expect(logic.values.customPropertyForm.columnMappings).toEqual([
+                { column: '', property: 'monthly_revenue', description: '' },
+                { column: 'mrr', property: 'mrr', description: '' },
+            ])
+        })
+
+        it('offers nothing to map once every column is spoken for', async () => {
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.mappableColumns).toEqual([])
+        })
+
+        it('never serializes the key column as a property, even after the key changes', async () => {
+            // Bulk mapping excludes whatever key column is set at the time, but the key can change
+            // afterwards. The column_property_map is create-only, so writing the new identifier column as
+            // a property would be unrecoverable, and it must be dropped from the payload.
+            await mapAll({ keyColumn: 'org_id' })
+            expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+
+            logic.actions.setCustomPropertyFormValue('keyColumn', 'mrr')
+
+            expect(logic.values.serializedColumnPropertyMap).toEqual({})
+        })
+
+        it('leaves the key column mappable until one is chosen', async () => {
+            // The button is gated on this in the modal — without a key column the action would map the
+            // identifier as a property.
+            await openWithColumns({ keyColumn: '' })
+            expect(logic.values.mappableColumns.map((column) => column.name)).toEqual(['org_id', 'mrr'])
+        })
+    })
+
     it('binds a person source to a materialized view when one is picked', async () => {
         let sourceBody: Record<string, any> | null = null
         useMocks({

@@ -1,27 +1,21 @@
 import pytest
 from freezegun import freeze_time
 
-from products.tasks.backend.exceptions import (
-    RequiredMcpUnavailableError,
-    SandboxExecutionError,
-    SandboxMissingRepositoryError,
-)
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
     _agentsh_domains_for,
     _ensure_repository_on_disk,
-    _ensure_required_posthog_mcp_available,
     _include_personal_mcp_for_task,
-    _invoke_start_agent_server,
     _LaunchParams,
     _network_enforcement_observation,
     _record_boot_total,
     _resolve_protected_base_branch,
+    await_agent_server_ready,
     start_agent_server,
 )
-from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
 @freeze_time("2026-08-06T12:01:30Z")
@@ -161,6 +155,127 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
     record_observation.assert_not_called()
 
 
+@pytest.mark.parametrize(("attempt", "expects_relaunch"), [(1, False), (2, True), (3, True)])
+async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.read_agent_server_session_init_ms.return_value = None
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=sandbox,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
+        return_value=attempt,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=_LaunchParams(
+            mcp_configs=[],
+            relayed_mcp_servers=[],
+            actor_user_id=None,
+            agentsh_domains=None,
+            protected_base_branch=None,
+            event_ingest_token=None,
+            task_run_session_token=None,
+            event_ingest_url=None,
+            event_ingest_keep_stream_open=False,
+        ),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.update_state_atomic"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._record_network_enforcement_observation"
+    )
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._spawn_post_ready_diagnostics"
+    )
+    record_retry = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.increment_agent_server_readiness_retry"
+    )
+
+    result = await await_agent_server_ready(
+        StartAgentServerInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            sandbox_url="https://sandbox.example",
+            boot_path="overlap",
+        )
+    )
+
+    assert result.sandbox_url == "https://sandbox.example"
+    if expects_relaunch:
+        sandbox.wait_for_agent_server_ready.assert_not_called()
+        sandbox.start_agent_server.assert_called_once()
+        record_retry.assert_called_once_with(
+            attempt,
+            "succeeded",
+            boot_path="overlap",
+            origin_product=None,
+            runtime="gvisor",
+        )
+    else:
+        sandbox.wait_for_agent_server_ready.assert_called_once_with(None)
+        sandbox.start_agent_server.assert_not_called()
+        record_retry.assert_not_called()
+
+
+async def test_await_agent_server_ready_records_failed_relaunch(mocker) -> None:
+    context = _context()
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.start_agent_server.side_effect = RuntimeError("session did not initialize")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
+        return_value=sandbox,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.current_activity_attempt",
+        return_value=2,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch",
+        return_value=_LaunchParams(
+            mcp_configs=[],
+            relayed_mcp_servers=[],
+            actor_user_id=None,
+            agentsh_domains=None,
+            protected_base_branch=None,
+            event_ingest_token=None,
+            task_run_session_token=None,
+            event_ingest_url=None,
+            event_ingest_keep_stream_open=False,
+        ),
+    )
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+    mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+    record_retry = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.increment_agent_server_readiness_retry"
+    )
+
+    with pytest.raises(SandboxExecutionError, match="Failed to start agent server in sandbox"):
+        await await_agent_server_ready(
+            StartAgentServerInput(
+                context=context,
+                sandbox_id="sandbox-id",
+                sandbox_url="https://sandbox.example",
+                boot_path="overlap",
+            )
+        )
+
+    record_retry.assert_called_once_with(
+        2,
+        "failed",
+        boot_path="overlap",
+        origin_product=None,
+        runtime="gvisor",
+    )
+
+
 def _mock_github_integration(mocker, pr_base: str | None):
     integration = mocker.Mock()
     integration.access_token_expired.return_value = False
@@ -209,12 +324,11 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
 
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
-    # Repo-less runs (e.g. Slack) must pass the branch through untouched, with no GitHub lookup.
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
-    assert _resolve_protected_base_branch(context) == "some-branch"
+    assert _resolve_protected_base_branch(context) is None
     get.assert_not_called()
 
 
@@ -277,64 +391,6 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     _ensure_repository_on_disk(_context(repository=None), sandbox)
 
     sandbox.execute.assert_not_called()
-
-
-def test_report_canvas_run_fails_when_posthog_mcp_is_unreachable(mocker) -> None:
-    sandbox = mocker.Mock()
-    sandbox.execute.return_value = ExecutionResult(
-        stdout="",
-        stderr="curl: (7) Failed to connect",
-        exit_code=7,
-    )
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-    config = McpServerConfig(type="http", name="posthog", url="http://host.docker.internal:8787/mcp")
-
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _ensure_required_posthog_mcp_available(context, sandbox, [config])
-
-    assert exc_info.value.non_retryable is True
-    assert "Start the MCP server and retry" in str(exc_info.value)
-
-
-def test_report_canvas_run_fails_when_posthog_mcp_is_not_configured(mocker) -> None:
-    sandbox = mocker.Mock()
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _ensure_required_posthog_mcp_available(context, sandbox, [])
-
-    assert exc_info.value.non_retryable is True
-    assert "SANDBOX_MCP_URL" in str(exc_info.value)
-    sandbox.execute.assert_not_called()
-
-
-def test_invoke_start_agent_server_preserves_required_mcp_error(mocker) -> None:
-    # The probe runs inside _invoke_start_agent_server's try, whose broad handler rewraps failures as
-    # retryable SandboxExecutionError. A fatal RequiredMcpUnavailableError must survive that unchanged,
-    # otherwise a missing MCP config burns all three activity attempts. The direct-probe tests above
-    # pass regardless of this, so they don't cover the integrated path.
-    mocker.patch("products.tasks.backend.exceptions.capture_exception")
-    sandbox = mocker.Mock()
-    sandbox.id = "sandbox-id"
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-    params = _LaunchParams(
-        mcp_configs=[],
-        relayed_mcp_servers=[],
-        actor_user_id=None,
-        agentsh_domains=None,
-        protected_base_branch=None,
-        event_ingest_token=None,
-        task_run_session_token=None,
-        event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
-    )
-
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None, wait_for_health=True)
-
-    assert exc_info.value.non_retryable is True
-    assert not isinstance(exc_info.value, SandboxExecutionError)
-    sandbox.start_agent_server.assert_not_called()
 
 
 @pytest.mark.django_db

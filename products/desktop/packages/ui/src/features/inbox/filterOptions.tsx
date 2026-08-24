@@ -116,37 +116,6 @@ export const INBOX_SOURCE_OPTIONS: InboxSourceOption[] = [
   }),
 ];
 
-const EXTERNAL_SOURCE_PRODUCTS = new Set<string>(
-  EXTERNAL_INBOX_SOURCES.map((source) => source.product),
-);
-
-/**
- * Narrow the source filter down to what a project actually uses.
- *
- * The registry carries every warehouse-backed integration we support (~40),
- * while a project runs a handful — listing them all makes the filter taller than
- * the screen. So warehouse sources are kept only when they are switched on, plus
- * anything currently selected, so an active filter is never invisible. PostHog's
- * own products stay listed unconditionally: they need no setup, and some
- * (Scouts) emit reports without a `signal_source_config` row at all.
- *
- * Pass `undefined` when the enabled set is unknown (still loading, or the
- * request failed) and nothing is hidden — better a long list than a filter that
- * silently can't reach a source.
- */
-export function filterInboxSourceOptions(
-  enabledSourceProducts: ReadonlySet<string> | undefined,
-  selected: readonly SourceProduct[],
-): InboxSourceOption[] {
-  if (!enabledSourceProducts) return INBOX_SOURCE_OPTIONS;
-  return INBOX_SOURCE_OPTIONS.filter(
-    (option) =>
-      !EXTERNAL_SOURCE_PRODUCTS.has(option.value) ||
-      enabledSourceProducts.has(option.value) ||
-      selected.includes(option.value),
-  );
-}
-
 export function inboxSortOptionKey(
   field: InboxSortField,
   direction: "asc" | "desc",

@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.utils import timezone
 
 from products.signals.backend.artefact_schemas import ArtefactContent, SuggestedReviewers
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
@@ -43,6 +44,9 @@ def create_custom_agent_ready_report(
             summary=final_report.description,
             signal_count=0,
             total_weight=0.0,
+            # Born directly READY without passing through transition_to (which stamps this for
+            # pipeline reports), so the daily report limit counts it from creation.
+            first_visible_at=timezone.now(),
         )
 
         # Written through the model helpers (the single artefact write path). Auto-start is

@@ -810,6 +810,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
+name = "findshlibs"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40b9e59cd0f7e0806cca4be089683ecb6434e602038df21fe6bf6711b2f07f64"
+dependencies = [
+ "cc",
+ "lazy_static",
+ "libc",
+ "winapi",
+]
+
+[[package]]
 name = "flate2"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2085,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-cli"
-version = "0.13.0"
+version = "0.15.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2130,13 +2142,14 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.15.1"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78a4557dd7d995d8c86c74d9f0b5116db21ac3fd207413fbca820aaa6910b22b"
+checksum = "38c087af2df10d14fbb44f303298896bb40d751831ed72ed69a560c75fa175c4"
 dependencies = [
  "backtrace",
  "chrono",
  "derive_builder",
+ "findshlibs",
  "flate2",
  "os_info",
  "regex",

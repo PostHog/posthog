@@ -16,8 +16,13 @@ from posthog.api.github_callback.state import (
     store_unified_authorize_state,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.models import OrganizationMembership, User
-from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
+from posthog.models import OrganizationMembership, Team, User
+from posthog.models.integration import (
+    GitHubInstallationAccess,
+    GitHubIntegrationError,
+    GitHubUserAuthorization,
+    Integration,
+)
 from posthog.models.user_integration import (
     GitHubInstallRequest,
     ReauthorizationRequired,
@@ -79,6 +84,84 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["installation_id"], "12345")
         self.assertFalse(results[0]["uses_shared_installation"])
+        self.assertFalse(results[0]["installation_shared"])
+        self.assertEqual(results[0]["installation_status"], "connected")
+
+    @parameterized.expand(
+        [
+            ("team_row_on_another_project", "team"),
+            ("another_users_personal_row", "user"),
+        ]
+    )
+    def test_list_installation_shared_counts_any_other_reference(self, _name, other_kind):
+        _create_user_integration(self.user)
+        if other_kind == "team":
+            other_team = Team.objects.create(organization=self.organization, name="Other Team")
+            Integration.objects.create(
+                team=other_team, kind="github", integration_id="12345", config={}, sensitive_config={}
+            )
+        else:
+            other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+            _create_user_integration(other_user)
+
+        response = self.client.get("/api/users/@me/integrations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertTrue(results[0]["installation_shared"])
+        # The active-project flag stays narrow: neither of these rows is on the current team.
+        self.assertFalse(results[0]["uses_shared_installation"])
+
+    def test_list_reports_unavailable_installation(self):
+        integration = _create_user_integration(self.user)
+        integration.config = {**integration.config, "installation_unavailable_since": 1704110400}
+        integration.save()
+
+        response = self.client.get("/api/users/@me/integrations/")
+
+        self.assertEqual(response.json()["results"][0]["installation_status"], "unavailable")
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_list_heals_a_placeholder_account_name(self, mock_client_request):
+        mock_client_request.return_value = MagicMock(
+            status_code=200, json=lambda: {"account": {"login": "PostHog", "type": "Organization"}}
+        )
+        integration = _create_user_integration(self.user)
+        integration.config = {**integration.config, "account": {"type": None, "name": "12345"}}
+        integration.save()
+
+        response = self.client.get("/api/users/@me/integrations/")
+
+        self.assertEqual(response.json()["results"][0]["account"], {"type": "Organization", "name": "PostHog"})
+        mock_client_request.assert_called_once_with("installations/12345")
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories")
+    def test_github_repos_returns_total_across_pages(self, mock_list_all):
+        mock_list_all.return_value = [{"id": i, "name": f"repo{i}", "full_name": f"octocat/repo{i}"} for i in range(5)]
+        _create_user_integration(self.user)
+
+        response = self.client.get("/api/users/@me/integrations/github/12345/repos/?limit=2&offset=0")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["repositories"]), 2)
+        self.assertTrue(data["has_more"])
+        self.assertEqual(data["total"], 5)
+
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.sync_repository_cache")
+    def test_github_repos_refresh_reports_unavailable_installation(self, mock_sync):
+        mock_sync.side_effect = GitHubIntegrationError("token refresh after 401 failed")
+        integration = _create_user_integration(self.user)
+        integration.config = {**integration.config, "installation_unavailable_since": 1704110400}
+        integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+        integration.save()
+
+        response = self.client.post("/api/users/@me/integrations/github/12345/repos/refresh/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["installation_status"], "unavailable")
+        self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
 
     def test_list_returns_multiple_github_integrations(self):
         _create_user_integration(self.user, integration_id="12345")
@@ -139,6 +222,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             github_login="octocat-org",
             status=GitHubInstallRequest.Status.APPROVED,
             installation_id="55555",
+            account_login="posthog-org",
+            account_type="Organization",
         )
         GitHubInstallRequest.objects.create(
             user=other_user,
@@ -155,8 +240,49 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(results[0]["id"], str(approved.id))
         self.assertEqual(results[0]["status"], "approved")
         self.assertEqual(results[0]["installation_id"], "55555")
+        self.assertEqual(results[0]["account_login"], "posthog-org")
+        self.assertEqual(results[0]["account_type"], "Organization")
+        self.assertIsNone(results[1]["account_login"])
         logins = {r["github_login"] for r in results}
         self.assertEqual(logins, {"octocat", "octocat-org"})
+
+    @parameterized.expand(
+        [
+            (
+                "app_configured",
+                {"GITHUB_APP_SLUG": "posthog-dev"},
+                "https://github.com/apps/posthog-dev/installations/new",
+            ),
+            ("app_not_configured", {}, None),
+        ]
+    )
+    def test_github_install_requests_includes_shareable_install_url(self, _name, instance_settings, expected):
+        with patch("posthog.api.github_callback.types.get_instance_settings", return_value=instance_settings):
+            response = self.client.get("/api/users/@me/integrations/github/install_requests/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["install_url"], expected)
+
+    def test_dismiss_install_request_deletes_own_row(self):
+        own = GitHubInstallRequest.objects.create(
+            user=self.user, github_user_id=4242, github_login="octocat", status=GitHubInstallRequest.Status.PENDING
+        )
+
+        response = self.client.delete(f"/api/users/@me/integrations/github/install_requests/{own.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(GitHubInstallRequest.objects.filter(id=own.id).exists())
+
+    def test_dismiss_install_request_refuses_another_users_row(self):
+        other_user = User.objects.create_and_join(self.organization, "other-installer@example.com", None)
+        theirs = GitHubInstallRequest.objects.create(
+            user=other_user, github_user_id=9999, github_login="someone", status=GitHubInstallRequest.Status.PENDING
+        )
+
+        response = self.client.delete(f"/api/users/@me/integrations/github/install_requests/{theirs.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(GitHubInstallRequest.objects.filter(id=theirs.id).exists())
 
     def test_delete_removes_specific_installation(self):
         _create_user_integration(self.user, integration_id="12345")
@@ -357,19 +483,19 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_callback_creates_user_integration_without_installation_in_query(
         self, mock_user_from_code, mock_client_request, mock_verify_get
     ):
         """OAuth-only flow: GET has code + state; installation_id is only in server state cache."""
         mock_verify_get.return_value = MagicMock(status_code=200)
         mock_user_from_code.return_value = _authorization()
-        mock_install_info = MagicMock()
+        mock_install_info = MagicMock(status_code=200)
         mock_install_info.json.return_value = {
             "account": {"type": "User", "login": "octocat"},
         }
-        mock_access_token = MagicMock()
+        mock_access_token = MagicMock(status_code=201)
         mock_access_token.json.return_value = {
             "token": "ghs_install_token",
             "expires_at": "2099-01-01T00:00:00Z",
@@ -417,8 +543,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_callback_ignores_query_installation_id_when_state_binds_one(
         self, mock_user_from_code, mock_client_request, mock_verify_get
     ):
@@ -427,9 +553,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         # UserIntegration to a different installation.
         mock_verify_get.return_value = MagicMock(status_code=200)
         mock_user_from_code.return_value = _authorization()
-        mock_install_info = MagicMock()
+        mock_install_info = MagicMock(status_code=200)
         mock_install_info.json.return_value = {"account": {"type": "User", "login": "octocat"}}
-        mock_access_token = MagicMock()
+        mock_access_token = MagicMock(status_code=201)
         mock_access_token.json.return_value = {
             "token": "ghs_install_token",
             "expires_at": "2099-01-01T00:00:00Z",
@@ -476,8 +602,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_creates_user_integration_from_visible_installation(
         self, mock_user_from_code, mock_client_request, mock_requests_get
     ):
@@ -486,11 +612,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             status_code=200,
             json=lambda: {"installations": [{"id": 12345}]},
         )
-        mock_install_info = MagicMock()
+        mock_install_info = MagicMock(status_code=200)
         mock_install_info.json.return_value = {
             "account": {"type": "User", "login": "octocat"},
         }
-        mock_access_token = MagicMock()
+        mock_access_token = MagicMock(status_code=201)
         mock_access_token.json.return_value = {
             "token": "ghs_install_token",
             "expires_at": "2099-01-01T00:00:00Z",
@@ -532,7 +658,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_redirects_to_app_install_when_no_installations(
         self, mock_user_from_code, mock_requests_get, _mock_settings
     ):
@@ -562,18 +688,18 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_creates_user_integration(
         self, mock_user_from_code, mock_client_request, mock_verify_get
     ):
         mock_verify_get.return_value = MagicMock(status_code=200)
         mock_user_from_code.return_value = _authorization()
-        mock_install_info = MagicMock()
+        mock_install_info = MagicMock(status_code=200)
         mock_install_info.json.return_value = {
             "account": {"type": "User", "login": "octocat"},
         }
-        mock_access_token = MagicMock()
+        mock_access_token = MagicMock(status_code=201)
         mock_access_token.json.return_value = {
             "token": "ghs_install_token",
             "expires_at": "2099-01-01T00:00:00Z",
@@ -608,8 +734,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_redirects_to_client_destination_on_success(
         self,
         connect_from,
@@ -621,11 +747,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         """First-party clients pass ``connect_from`` via start payload → cache; success redirects to their destination."""
         mock_verify_get.return_value = MagicMock(status_code=200)
         mock_user_from_code.return_value = _authorization()
-        mock_install_info = MagicMock()
+        mock_install_info = MagicMock(status_code=200)
         mock_install_info.json.return_value = {
             "account": {"type": "User", "login": "octocat"},
         }
-        mock_access_token = MagicMock()
+        mock_access_token = MagicMock(status_code=201)
         mock_access_token.json.return_value = {
             "token": "ghs_install_token",
             "expires_at": "2099-01-01T00:00:00Z",
@@ -783,10 +909,10 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(discover_state.connect_from, "posthog_code")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_team_oauth_authorize_creates_team_integration(
         self,
         mock_user_from_code,
@@ -797,9 +923,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         # Verify-access call returns 200 → user has access to the installation.
         mock_verify_get.return_value = MagicMock(status_code=200)
         mock_user_from_code.return_value = _authorization()
-        mock_install_info = MagicMock()
+        mock_install_info = MagicMock(status_code=200)
         mock_install_info.json.return_value = {"account": {"type": "Organization", "login": "acme"}}
-        mock_access_token = MagicMock()
+        mock_access_token = MagicMock(status_code=201)
         mock_access_token.json.return_value = {
             "token": "ghs_install_token",
             "expires_at": "2099-01-01T00:00:00Z",
@@ -1176,7 +1302,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
 
 class TestGithubUserFromCode(APIBaseTest):
     @patch("posthog.egress.transport.transport.requests.request")
-    @patch("posthog.models.integration.requests.post")
+    @patch("posthog.models.integration.github.requests.post")
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     def test_returns_full_authorization_including_tokens(self, mock_post, mock_get):
         mock_post.return_value = MagicMock(

@@ -141,6 +141,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             source_type=self._source.source_type,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -450,6 +451,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             logger=self._logger,
             last_incremental_field_value=self._last_incremental_field_value,
             resource=self._resource,
+            allow_zero_row_skip=True,
         )
 
 

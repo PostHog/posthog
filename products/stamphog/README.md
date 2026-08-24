@@ -2,12 +2,11 @@
 
 Approve-first PR review: an LLM reviewer that runs deterministic gates plus a scoped review over a pull request and, when the policy allows it, posts an actual GitHub **approval** — not just comments. Repos opt in per-repo; everything else stays untouched.
 
-## Two runtimes, one engine
+## The engine
 
-The review engine lives in [`tools/pr-approval-agent/`](../../tools/pr-approval-agent/) and runs in two places:
-
-- **GitHub Action** — runs in the repo's own CI with the repo's own secrets (`review_pr.py`).
-- **Hosted** (this product) — a GitHub App delivers webhooks here; reviews run in an isolated Modal sandbox with per-run minted credentials (`review_local.py` consumes a pre-fetched context, no GitHub token inside the sandbox).
+The review engine lives in [`packages/pr-approval-agent/`](packages/pr-approval-agent/).
+A GitHub App delivers webhooks here, and reviews run in an isolated Modal sandbox with per-run minted credentials: `review_local.py` consumes a pre-fetched context, with no GitHub token inside the sandbox.
+`review_pr.py` in the same directory is the manual entrypoint for reviewing a PR from your own checkout, which fetches over the network instead.
 
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`). The workflow dismisses stale approvals _first_, waits out other in-flight reviewer bots, then reviews.
 

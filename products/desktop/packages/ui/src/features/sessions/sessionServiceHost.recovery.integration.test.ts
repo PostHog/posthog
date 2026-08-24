@@ -91,7 +91,7 @@ const mockAuth = vi.hoisted(() => ({
     },
     currentOrgId: "org-1",
     currentProjectId: 123,
-    hasCodeAccess: true,
+    desktopAccess: { projectId: 123, status: "allowed", reason: null },
     needsScopeReauth: false,
   })),
   getAuthenticatedClient: vi.fn<() => Promise<Record<string, unknown> | null>>(
@@ -245,6 +245,7 @@ vi.mock("@posthog/ui/shell/posthogAnalyticsImpl", () => ({
   buildPermissionToolMetadata: vi.fn(() => ({})),
   posthogFeatureFlags: {
     isEnabled: vi.fn(() => undefined),
+    getVariant: vi.fn(() => undefined),
     onFlagsLoaded: vi.fn(),
   },
 }));
@@ -373,7 +374,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
       },
       currentOrgId: "org-1",
       currentProjectId: 123,
-      hasCodeAccess: true,
+      desktopAccess: { projectId: 123, status: "allowed", reason: null },
       needsScopeReauth: false,
     });
     mockTrpcAgent.onSessionEvent.subscribe.mockReturnValue({

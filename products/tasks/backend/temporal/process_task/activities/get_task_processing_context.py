@@ -10,8 +10,10 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
+from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
@@ -20,6 +22,7 @@ from products.tasks.backend.constants import (
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    SANDBOX_ROTATION_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -47,7 +50,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
-from products.tasks.backend.temporal.oauth import is_interactive_signals_task
+from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -88,6 +91,7 @@ class TaskProcessingContext:
     create_pr: bool = True
     pr_loop_enabled: bool = False
     pr_babysit_enabled: bool = False
+    context_layer_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
     sandbox_environment_name: str | None = None
@@ -105,6 +109,7 @@ class TaskProcessingContext:
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    sandbox_rotation_enabled: bool = False
     # Captured at workflow start so telemetry env injection (and the run-log mirror,
     # which reads the same state stamp) is deterministic for the full run.
     agent_otel_telemetry_enabled: bool = False
@@ -131,6 +136,9 @@ class TaskProcessingContext:
     # default is what pre-existing run histories decode, so replays schedule no new timer
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
+    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
+    # Exposure only: the peers endpoints re-check authorization server-side on every call.
+    peer_messaging_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -349,6 +357,36 @@ def _is_agent_proxy_keep_stream_open_enabled(
         run_id=run_id,
         agent_proxy_keep_stream_open=enabled,
     )
+    return enabled
+
+
+def _is_peer_messaging_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    """Whether the agent peer-messaging tools should surface in the sandbox.
+
+    Fail-closed exposure gate only — the peers list/message endpoints enforce the
+    flag and runtime again server-side, so a stale env var in a resumed sandbox
+    can never authorize anything."""
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                AGENT_PEER_MESSAGING_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("peer_messaging_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+    if enabled:
+        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
     return enabled
 
 
@@ -747,6 +785,31 @@ def _is_pr_babysit_snapshot_enabled(
     return enabled
 
 
+def _is_sandbox_rotation_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                SANDBOX_ROTATION_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("sandbox_rotation_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("sandbox_rotation_flag_checked", run_id=run_id, sandbox_rotation_enabled=enabled)
+    return enabled
+
+
 def _is_continue_as_new_enabled(
     *,
     distinct_id: str,
@@ -800,6 +863,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if not task_run.matches_task_ownership(task):
+        raise TaskInvalidStateError(
+            f"TaskRun {run_id} belongs to a previous task owner",
+            {"task_id": str(task.id), "run_id": run_id},
+            cause=RuntimeError(f"TaskRun {run_id} ownership version is stale"),
+        )
     if task.runtime == Task.Runtime.PI:
         ensure_task_run_session(task_run.id)
 
@@ -946,6 +1015,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    context_layer_enabled = context_layer_facade.is_context_layer_enabled(
+        organization_id=organization_id, distinct_id=distinct_id
+    )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1072,7 +1144,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     interactive_max_run_duration_seconds = None
     if (
         (state or {}).get("mode") == "interactive"
-        and is_interactive_signals_task(task)
+        and is_interactive_signals_run(task, state)
         and settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS > 0
     ):
         interactive_max_run_duration_seconds = settings.TASKS_INTERACTIVE_SIGNALS_MAX_RUN_DURATION_SECONDS
@@ -1117,6 +1189,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
+        context_layer_enabled=context_layer_enabled,
         state=state,
         _branch=task_run.branch,
         sandbox_environment_name=sandbox_environment_name,
@@ -1135,6 +1208,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=True,
         use_modal_directory_resume_snapshots=True,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        sandbox_rotation_enabled=_is_sandbox_rotation_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
@@ -1151,4 +1229,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         ),
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
+        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
+        # so ACP runs never even evaluate it.
+        peer_messaging_enabled=task.runtime == Task.Runtime.PI
+        and _is_peer_messaging_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
     )

@@ -31,16 +31,30 @@ function AskAboutScoutsMenu(): JSX.Element {
         { label: 'How is my scout troop performing?', chatType: 'fleet_overview' },
         { label: 'What signals were emitted recently?', chatType: 'recent_signals' },
     ]
+    // Only spin for this menu's own prompts, so kicking off a task from a sibling button
+    // doesn't make every scout CTA in the header look like it's loading.
+    const isStarting = prompts.some(({ chatType }) => chatType === runningChatType)
+    const anotherTaskIsStarting = runningChatType !== null && !isStarting
 
     return (
         <LemonMenu
             items={prompts.map(({ label, chatType }) => ({
                 label,
                 onClick: () => startScoutChatTask(chatType, label),
-                disabledReason: runningChatType !== null ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined),
+                disabledReason: anotherTaskIsStarting
+                    ? 'Starting another task…'
+                    : isStarting
+                      ? 'Starting a task…'
+                      : (aiConsentDisabledReason ?? undefined),
             }))}
         >
-            <LemonButton type="secondary" size="small" icon={<IconSparkles />} loading={runningChatType !== null}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconSparkles />}
+                loading={isStarting}
+                disabledReason={anotherTaskIsStarting ? 'Starting another task…' : undefined}
+            >
                 Ask
             </LemonButton>
         </LemonMenu>

@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -16,6 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -41,40 +42,6 @@ from products.signals.backend.temporal.types import SignalData, SignalReportSumm
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 TASK_QUEUE = "test-summary-workflow-queue"
-
-
-@pytest.mark.asyncio
-async def test_disabled_report_canvases_do_not_start_child_workflow() -> None:
-    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()))
-    execute_activity = AsyncMock(return_value=False)
-    start_child_workflow = AsyncMock()
-
-    with (
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.patched", return_value=True),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.execute_activity", execute_activity),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.start_child_workflow", start_child_workflow),
-    ):
-        await SignalReportSummaryWorkflow()._start_report_canvas(inputs)
-
-    execute_activity.assert_awaited_once()
-    start_child_workflow.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_report_canvas_gate_failure_does_not_fail_completed_report() -> None:
-    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()))
-    execute_activity = AsyncMock(side_effect=RuntimeError("database unavailable"))
-    start_child_workflow = AsyncMock()
-
-    with (
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.patched", return_value=True),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.execute_activity", execute_activity),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.start_child_workflow", start_child_workflow),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.logger"),
-    ):
-        await SignalReportSummaryWorkflow()._start_report_canvas(inputs)
-
-    start_child_workflow.assert_not_awaited()
 
 
 @pytest_asyncio.fixture
@@ -116,6 +83,29 @@ async def test_check_activity_returns_enforced(ateam, enforced):
             CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
         )
     assert result is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
+    # The daily report limit must pause the run on its own: it has no enforcement flag, so
+    # `limited` alone blocks even while the billing quota gate stays clear.
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
+        ),
+        patch("products.signals.backend.daily_limit.posthoganalytics.capture") as capture,
+    ):
+        result = await check_report_quota_gate_activity(
+            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="pre_research")
+        )
+    assert result is True
+    assert capture.call_args.kwargs["event"] == "signal_report_daily_limit_paused"
+    properties = capture.call_args.kwargs["properties"]
+    assert properties["stage"] == "pre_research"
+    assert properties["limit"] == 3
+    assert properties["reports_today"] == 3
 
 
 @pytest.mark.asyncio

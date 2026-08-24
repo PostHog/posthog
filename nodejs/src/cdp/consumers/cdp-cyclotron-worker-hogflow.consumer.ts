@@ -5,6 +5,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
+import { isRowScopedTrigger } from '../schema/hogflow'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
@@ -119,7 +120,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
                 // rather than relying on event.distinct_id being empty so future changes to the
                 // synthetic event shape don't accidentally re-enable the lookup.
-                const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
+                const isWarehouseRow = isRowScopedTrigger(hogFlow.trigger)
                 // Account-audience batch invocations carry the account's group key as
                 // event.distinct_id; resolving it as a person distinct_id would attach an
                 // unrelated person to the run. Accounts have no person — skip the lookup.

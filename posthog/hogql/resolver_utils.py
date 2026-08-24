@@ -27,6 +27,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
 def lookup_field_by_name(
@@ -165,6 +166,25 @@ def suggest_field_names(
     if not candidates:
         return []
     return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
+
+
+def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
+    """Replacement text for the range `node` marks, or None when no edit is safe to offer.
+
+    Three conditions have to hold. The node needs a span, because a notice without one marks the
+    whole query and applying the fix would overwrite it. The chain has to be a single name, because
+    the span covers the whole chain while the suggestion only stands in for its head, and a head
+    that is really a table alias draws its suggestions from field names, so the edit would be
+    confidently wrong. And the name has to survive escaping, which rejects a few.
+    """
+    if node.start is None or node.end is None:
+        return None
+    if len(node.chain) != 1:
+        return None
+    try:
+        return escape_hogql_identifier(suggestion)
+    except QueryError:
+        return None
 
 
 def lookup_table_by_name(

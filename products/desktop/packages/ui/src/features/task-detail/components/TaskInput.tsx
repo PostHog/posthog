@@ -123,6 +123,7 @@ import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
 interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
+  onTaskCreatedEffect?: (task: Task) => void;
   initialPrompt?: string;
   initialPromptKey?: string;
   initialCloudRepository?: string;
@@ -131,6 +132,15 @@ interface TaskInputProps {
   reportAssociation?: TaskInputReportAssociation;
   /** Optional channel CONTEXT.md, appended to the initial prompt as background. */
   channelContext?: string;
+  /** Repo-relative context wiki page used instead of injecting the legacy body. */
+  channelContextPath?: string;
+  /** Hold submission while the space's wiki context is unresolved and could still arrive. */
+  channelContextBlocked?: boolean;
+  /** The wiki lookup failed in a way a retry can fix. */
+  channelContextFailed?: boolean;
+  /** The wiki is permanently unavailable, so the task goes without its space context. */
+  channelContextUnavailable?: boolean;
+  onChannelContextRetry?: () => void;
   /** Display name of the channel the CONTEXT.md came from (for the chip). */
   channelName?: string;
   /** Backend channel UUID that owns the created task and feed entry. */
@@ -142,9 +152,10 @@ interface TaskInputProps {
    */
   channelContextId?: string;
   /**
-   * Channels "generic chat box" mode: hide the repo/branch pickers and let the
-   * task be submitted without a repo. The agent decides at runtime whether it
-   * needs a repo and attaches one lazily.
+   * Channels "generic chat box" mode: in cloud mode, swap the repo/branch
+   * pickers for the multi-repository chip and let the task be submitted without
+   * a repo. The agent decides at runtime whether it needs a repo and attaches
+   * one lazily. Local mode keeps the repo + branch pickers a worktree needs.
    */
   allowNoRepo?: boolean;
   channelRepositories?: string[];
@@ -180,6 +191,7 @@ interface TaskInputProps {
 export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
+  onTaskCreatedEffect,
   initialPrompt,
   initialPromptKey,
   initialCloudRepository,
@@ -187,6 +199,11 @@ export function TaskInput({
   initialMode,
   reportAssociation,
   channelContext,
+  channelContextPath,
+  channelContextBlocked = false,
+  channelContextFailed = false,
+  channelContextUnavailable = false,
+  onChannelContextRetry,
   channelName,
   channelId,
   channelContextId,
@@ -327,14 +344,16 @@ export function TaskInput({
   // from this task's prompt. Re-include whenever the source context changes
   // (e.g. switching channels) so a dismissal doesn't stick across channels.
   const [channelContextDismissed, setChannelContextDismissed] = useState(false);
-  const lastChannelContextRef = useRef(channelContext);
+  const channelContextSource = channelContextPath ?? channelContext;
+  const lastChannelContextRef = useRef(channelContextSource);
   useEffect(() => {
-    if (lastChannelContextRef.current !== channelContext) {
-      lastChannelContextRef.current = channelContext;
+    if (lastChannelContextRef.current !== channelContextSource) {
+      lastChannelContextRef.current = channelContextSource;
       setChannelContextDismissed(false);
     }
-  }, [channelContext]);
-  const includeChannelContext = !!channelContext && !channelContextDismissed;
+  }, [channelContextSource]);
+  const includeChannelContext =
+    !!channelContextSource && !channelContextDismissed;
 
   const adapter = lastUsedAdapter;
   const prefillRequestKey = initialPromptKey ?? initialPrompt;
@@ -795,6 +814,8 @@ export function TaskInput({
 
   const effectiveWorkspaceMode = workspaceMode;
 
+  const repoOptional = !!allowNoRepo && workspaceMode === "cloud";
+
   // Get current values from preview config options for task creation.
   // Defaults ensure values are always passed even before the preview config loads.
   const currentModel =
@@ -862,11 +883,11 @@ export function TaskInput({
   useWarmTask({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
-    repositories: allowNoRepo ? taskRepositories : undefined,
-    githubIntegrationId: allowNoRepo
+    repositories: repoOptional ? taskRepositories : undefined,
+    githubIntegrationId: repoOptional
       ? (taskGithubIntegration ?? undefined)
       : orgGithubIntegrationId,
-    allowNoRepo,
+    allowNoRepo: repoOptional,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,
@@ -974,6 +995,14 @@ export function TaskInput({
     [autoresearchService],
   );
 
+  const handleTaskCreatedEffect = useCallback(
+    (task: Task) => {
+      handleAutoresearchTaskCreated(task);
+      onTaskCreatedEffect?.(task);
+    },
+    [handleAutoresearchTaskCreated, onTaskCreatedEffect],
+  );
+
   const {
     isCreatingTask,
     isExitingComposer,
@@ -984,14 +1013,12 @@ export function TaskInput({
   } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory: allowNoRepo ? taskFolder : selectedDirectory,
+    selectedDirectory: repoOptional ? taskFolder : selectedDirectory,
     selectedRepository: selectedCloudRepository,
-    repositories:
-      allowNoRepo && workspaceMode === "cloud" ? taskRepositories : undefined,
-    githubIntegrationId:
-      allowNoRepo && workspaceMode === "cloud"
-        ? (taskGithubIntegration ?? undefined)
-        : undefined,
+    repositories: repoOptional ? taskRepositories : undefined,
+    githubIntegrationId: repoOptional
+      ? (taskGithubIntegration ?? undefined)
+      : undefined,
     githubUserIntegrationId: selectedGithubUserIntegrationId,
     workspaceMode: effectiveWorkspaceMode,
     branch: branchForTaskCreation,
@@ -1004,7 +1031,7 @@ export function TaskInput({
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     onTaskCreated,
-    onTaskCreatedEffect: handleAutoresearchTaskCreated,
+    onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
     sandboxEnvironmentId:
       effectiveWorkspaceMode === "cloud" && selectedCloudEnvId
@@ -1016,10 +1043,12 @@ export function TaskInput({
         : undefined,
     signalReportId: activeReportAssociation?.reportId,
     channelContext: includeChannelContext ? channelContext : undefined,
+    channelContextPath: includeChannelContext ? channelContextPath : undefined,
     channelName,
     channelId,
     channelContextId,
-    allowNoRepo,
+    submissionBlocked: channelContextBlocked,
+    allowNoRepo: repoOptional,
   });
 
   // Wraps the prompt in the autoresearch kickoff: protocol preamble first,
@@ -1293,7 +1322,7 @@ export function TaskInput({
                   onCustomImageChange={setSelectedCustomImageId}
                   size="1"
                 />
-                {allowNoRepo && (
+                {repoOptional && (
                   <TaskRepositoryChip
                     cloud={workspaceMode === "cloud"}
                     repositoryCount={taskRepositories.length}
@@ -1302,7 +1331,7 @@ export function TaskInput({
                     onOpen={() => setRepositoryDialogOpen(true)}
                   />
                 )}
-                {!allowNoRepo && workspaceMode === "worktree" && (
+                {!repoOptional && workspaceMode === "worktree" && (
                   <EnvironmentSelector
                     repoPath={effectiveRepoPath ?? null}
                     value={selectedEnvironment}
@@ -1315,7 +1344,7 @@ export function TaskInput({
                     }
                   />
                 )}
-                {!allowNoRepo && (
+                {!repoOptional && (
                   <ButtonGroup
                     ref={buttonGroupRef}
                     data-tour="folder-picker"
@@ -1405,7 +1434,7 @@ export function TaskInput({
                     />
                   </ButtonGroup>
                 )}
-                {!allowNoRepo && workspaceMode !== "cloud" && (
+                {!repoOptional && workspaceMode !== "cloud" && (
                   <AdditionalDirectoriesButton
                     values={additionalDirectories}
                     onChange={setAdditionalDirectories}
@@ -1463,13 +1492,31 @@ export function TaskInput({
                   submitDisabledExternal={
                     !canSubmit ||
                     isCreatingTask ||
+                    channelContextBlocked ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
                     (runtime === "pi" && !currentPiModel)
                   }
                   tourTarget="task-input"
                   submitAdornment={
-                    includeChannelContext ? (
+                    channelContextUnavailable || channelContextFailed ? (
+                      // The chip slot is where context status is read, so it is
+                      // also where its absence has to be said.
+                      <span className="flex items-center gap-1.5 text-[12px] text-gray-10">
+                        {channelContextUnavailable
+                          ? "Space context unavailable"
+                          : "Couldn't load space context"}
+                        {channelContextFailed && onChannelContextRetry ? (
+                          <button
+                            type="button"
+                            className="underline"
+                            onClick={onChannelContextRetry}
+                          >
+                            Try again
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : includeChannelContext ? (
                       <ChannelContextChip
                         channelName={channelName}
                         onView={onContextChipClick}
@@ -1656,7 +1703,7 @@ export function TaskInput({
         </Box>
       </Flex>
 
-      {allowNoRepo && (
+      {repoOptional && (
         <TaskRepositoryDialog
           open={repositoryDialogOpen}
           onOpenChange={setRepositoryDialogOpen}

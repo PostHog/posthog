@@ -100,7 +100,12 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.logs import (
+    LogAttributesTable,
+    LogsKafkaMetricsTable,
+    LogsTable,
+    LogsVolumeBucketsTable,
+)
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
@@ -406,6 +411,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 children={
                     **clone_root_tables(),
                     # Add new tables here
+                    "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
@@ -593,6 +599,21 @@ class Database(BaseModel):
     # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
     _data_warehouse_sync_warnings: dict[str, list[DataWarehouseSyncWarning]] = {}
 
+    # Deferred Postgres foreign-key wiring. On teams with many warehouse tables, wiring foreign-key
+    # lazy joins for every table dominates database construction, yet a query that touches no
+    # warehouse table never needs them. The work is stashed here and built the first time a
+    # warehouse table is accessed (see get_table / _ensure_foreign_keys_built).
+    _deferred_foreign_key_tables: list[Any] = []
+    _foreign_keys_built: bool = True
+    _foreign_keys_building: bool = False
+    # Lowercased, because Snowflake nodes resolve case-insensitively and a query may name a table with
+    # casing that differs from the canonical catalog name.
+    _foreign_key_trigger_names: Optional[set[str]] = None
+    # ids of the ExpressionField objects saved expressions added at build time. The deferred build
+    # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
+    # mappings event modifiers write, which the eager path preserved.
+    _deferred_overridable_expression_field_ids: set[int] = set()
+
     _timezone: str | None
     _week_start_day: WeekStartDay | None
 
@@ -617,6 +638,11 @@ class Database(BaseModel):
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
+        self._deferred_foreign_key_tables = []
+        self._foreign_keys_built = True
+        self._foreign_keys_building = False
+        self._foreign_key_trigger_names = None
+        self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -654,7 +680,7 @@ class Database(BaseModel):
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
-            return cast(Table, self.get_table_node(table_name).get())
+            table = cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
@@ -663,6 +689,53 @@ class Database(BaseModel):
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
+
+        # First access to any warehouse table wires the deferred foreign-key joins for the whole graph.
+        if not self._foreign_keys_built and self._should_build_foreign_keys_for(table_name):
+            self._ensure_foreign_keys_built()
+
+        return table
+
+    def _should_build_foreign_keys_for(self, table_name: str | list[str]) -> bool:
+        trigger_names = self._foreign_key_trigger_names
+        if not trigger_names:
+            return False
+        name = ".".join(str(part) for part in table_name) if isinstance(table_name, list) else table_name
+        # Fold case so a Snowflake reference that resolved through the case-insensitive fallback still
+        # arms the build. Over-triggering only costs the build we deferred; under-triggering would drop
+        # foreign-key fields the eager path had.
+        return name.lower() in trigger_names
+
+    def _ensure_foreign_keys_built(self) -> None:
+        """Wire the deferred Postgres foreign-key lazy joins, at most once.
+
+        The full graph is built in a single pass (not just the accessed table) so reverse joins and
+        field precedence match the eager path exactly. Resolving a foreign-key target re-enters
+        get_table, so `_foreign_keys_building` guards that recursion rather than the built flag — the
+        work stays pending until the pass finishes, so a mid-pass failure doesn't leave a half-wired
+        graph behind. Callers that swallow resolution errors retry on their next access instead.
+        Saved expressions were applied at build time (before this runs), so foreign keys are allowed
+        to replace a colliding saved-expression field — preserving the eager "saved expressions never
+        shadow a join field" invariant. Only fields saved expressions created are overridable; the
+        id/timestamp mappings event modifiers write stay put, as they did in the eager order.
+        """
+        if self._foreign_keys_built or self._foreign_keys_building:
+            return
+        self._foreign_keys_building = True
+        try:
+            with tracer.start_as_current_span("warehouse_foreign_keys"):
+                for hogql_table, warehouse_table_model in self._deferred_foreign_key_tables:
+                    add_postgres_foreign_key_lazy_joins(
+                        hogql_table=hogql_table,
+                        warehouse_table=warehouse_table_model,
+                        database=self,
+                        schemas=_get_active_external_data_schemas(warehouse_table_model),
+                        overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
+                    )
+        finally:
+            self._foreign_keys_building = False
+        self._foreign_keys_built = True
+        self._deferred_foreign_key_tables = []
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
@@ -1452,6 +1525,7 @@ class Database(BaseModel):
 
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             saved_queries: list[DataWarehouseSavedQuery] = []
+            all_saved_queries: list[DataWarehouseSavedQuery] = []
             # Direct-connection queries do not expose saved queries.
             if not is_direct_query:
                 with timings.measure("select"):
@@ -1463,9 +1537,12 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset", "created_by")
                         # credential attached in bulk below, not joined per row
                     )
-                    if not is_managed_viewset_enabled:
-                        queryset = queryset.filter(managed_viewset__isnull=True)
-                    saved_queries = list(queryset)
+                    all_saved_queries = list(queryset)
+                    saved_queries = (
+                        all_saved_queries
+                        if is_managed_viewset_enabled
+                        else [sq for sq in all_saved_queries if sq.managed_viewset_id is None]
+                    )
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             endpoint_saved_queries: list[DataWarehouseSavedQuery] = []
@@ -1499,7 +1576,7 @@ class Database(BaseModel):
         # Exclude that private storage table so the view owns access control, even after a rename.
         backing_table_ids = {
             sq.table_id
-            for sq in (*saved_queries, *endpoint_saved_queries)
+            for sq in (*all_saved_queries, *endpoint_saved_queries)
             if sq.table_id is not None and sq.table is not None and sq.folder_path in sq.table.url_pattern
         }
 
@@ -2142,14 +2219,10 @@ class Database(BaseModel):
         database._add_views(views)
 
         if build_postgres_foreign_keys:
-            with timings.measure("warehouse_foreign_keys", emit_span=True):
-                for hogql_table, warehouse_table_model in warehouse_tables_to_process:
-                    add_postgres_foreign_key_lazy_joins(
-                        hogql_table=hogql_table,
-                        warehouse_table=warehouse_table_model,
-                        database=database,
-                        schemas=_get_active_external_data_schemas(warehouse_table_model),
-                    )
+            # Stash the work now; _ensure_foreign_keys_built wires it on first warehouse-table access.
+            # Arming (below, after apply_schema_scope) is deliberately deferred so build-time
+            # get_table calls — e.g. saved expressions — don't trigger the build prematurely.
+            database._deferred_foreign_key_tables = warehouse_tables_to_process
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
@@ -2278,15 +2351,33 @@ class Database(BaseModel):
                     # off chance duplicates exist.
                     if saved_expression.field_name in expression_table.fields:
                         continue
-                    expression_table.fields[saved_expression.field_name] = ExpressionField(
+                    saved_expression_field = ExpressionField(
                         name=saved_expression.field_name,
                         expr=parse_expr(saved_expression.expression),
                         isolate_scope=True,
                     )
+                    expression_table.fields[saved_expression.field_name] = saved_expression_field
+                    # A deferred foreign key may replace this saved-expression field (eager order wired
+                    # foreign keys first); track it so only these fields, not event-modifier mappings, are
+                    # overridable when the deferred build runs.
+                    database._deferred_overridable_expression_field_ids.add(id(saved_expression_field))
                 except Exception as e:
                     capture_exception(e)
 
         database.apply_schema_scope()
+
+        # Arm the deferred foreign-key build only once the schema scope is final, so the trigger set
+        # reflects the tables that actually survive pruning. Until now _foreign_keys_built stayed
+        # True, keeping build-time get_table calls from wiring foreign keys eagerly.
+        if build_postgres_foreign_keys and database._deferred_foreign_key_tables:
+            trigger_names = (
+                set(database._warehouse_table_names)
+                | set(database._warehouse_self_managed_table_names)
+                | set(database._direct_access_warehouse_table_names)
+                | _foreign_key_join_entry_points(database, sources.data_warehouse_joins)
+            )
+            database._foreign_key_trigger_names = {name.lower() for name in trigger_names}
+            database._foreign_keys_built = False
 
         return database
 
@@ -2316,7 +2407,6 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
@@ -2344,6 +2434,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
         "issue_status": parse_expr("fingerprint_issue_state.issue_status", start=None),
+        "issue_severity": parse_expr("fingerprint_issue_state.issue_severity", start=None),
         "issue_assigned_user_id": parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
         "issue_assigned_role_id": parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
         "issue_first_seen": parse_expr("fingerprint_issue_state.first_seen", start=None),
@@ -2372,6 +2463,7 @@ def _add_error_tracking_fields(database: Database) -> None:
     table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])
     table.fields["issue_description"] = ExpressionField(name="issue_description", expr=exprs["issue_description"])
     table.fields["issue_status"] = ExpressionField(name="issue_status", expr=exprs["issue_status"])
+    table.fields["issue_severity"] = ExpressionField(name="issue_severity", expr=exprs["issue_severity"], hidden=True)
     table.fields["issue_assigned_user_id"] = ExpressionField(
         name="issue_assigned_user_id", expr=exprs["issue_assigned_user_id"]
     )
@@ -2607,6 +2699,31 @@ def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> li
         return []
 
     return list(ExternalDataSchema.objects.filter(_not_deleted_q(), table_id=warehouse_table.id))
+
+
+def _foreign_key_join_entry_points(database: Database, joins: Sequence[DataWarehouseJoin]) -> set[str]:
+    """Extra table names that must arm the deferred foreign-key build.
+
+    A data warehouse join holds its joining table as a `Table` object, so resolving
+    `persons.orders.customer` reaches `orders` without ever calling `get_table` on it. Arming on the
+    join's source table keeps the foreign-key fields behind such a join present.
+    """
+    deferred_tables = {id(hogql_table) for hogql_table, _ in database._deferred_foreign_key_tables}
+    entry_points: set[str] = set()
+    for join in joins:
+        if not database.has_table(join.joining_table_name):
+            continue
+        try:
+            joining_table = database.get_table(join.joining_table_name)
+        except QueryError:
+            continue
+        if id(joining_table) not in deferred_tables:
+            continue
+        entry_points.add(join.source_table_name)
+        # A join from `persons` is mirrored onto `events` and the person virtual table.
+        if join.source_table_name == "persons":
+            entry_points.add("events")
+    return entry_points
 
 
 def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:

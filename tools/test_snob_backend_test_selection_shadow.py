@@ -308,6 +308,33 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         # path are excluded, so a draft can never be credited with skipping them.
         self.assertEqual(selection.narrowable_baseline_seconds(durations), 380.0)
 
+    def test_selected_seconds_by_segment_splits_the_matrix_legs(self) -> None:
+        selection = _load_selection_module()
+
+        durations = {
+            "posthog/models/test_a.py::t1": 100.0,
+            "posthog/clickhouse/test_b.py::t2": 70.0,
+            "posthog/temporal/tests/test_c.py::t3": 210.0,
+            "posthog/models/test_unselected.py::t4": 5_000.0,
+            "products/warehouse_sources/backend/test_d.py::t5": 100_000.0,
+            "posthog/dags/test_e.py::t6": 42.0,
+        }
+        selected = [
+            "posthog/models/test_a.py",
+            "posthog/clickhouse/test_b.py",
+            "posthog/temporal/tests/test_c.py",
+            "products/warehouse_sources/backend/test_d.py",
+            "posthog/dags/test_e.py",
+        ]
+
+        # The clickhouse file runs in both the Core and the person-on-events leg, so its
+        # seconds count once per leg. Turbo product tests and ignored paths size no Django
+        # shard, and an unselected file never contributes.
+        self.assertEqual(
+            selection.selected_seconds_by_segment(selected, durations),
+            {"core": 170, "poe": 70, "temporal": 210},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

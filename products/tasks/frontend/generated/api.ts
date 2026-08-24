@@ -19,6 +19,9 @@ import type {
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    DesktopAccessResponseApi,
+    DesktopBetaTermsAcceptanceDTOApi,
+    LegacyDesktopAccessResponseApi,
     LoopDTOApi,
     LoopFireResultApi,
     LoopPreviewDTOApi,
@@ -32,6 +35,7 @@ import type {
     LoopsTriggerCreateBodyThree,
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
+    OnboardingSessionApi,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
@@ -52,6 +56,7 @@ import type {
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
     PinnedTaskIdsResponseApi,
+    ProvisionedChannelsApi,
     RepositoryReadinessResponseApi,
     SandboxComputePricingApi,
     SandboxCustomImageBuildApi,
@@ -74,11 +79,15 @@ import type {
     TaskCommentsResponseApi,
     TaskCreateApi,
     TaskDetailDTOApi,
+    TaskHandoffRequestApi,
     TaskMentionsListParams,
     TaskPinRequestApi,
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
+    TaskRunAnalysisInsightRequestApi,
+    TaskRunAnalysisInsightResponseApi,
+    TaskRunAnalyzeResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -103,6 +112,11 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
+    TaskRunPeerMessageRequestApi,
+    TaskRunPeerMessageResponseApi,
+    TaskRunPeersResponseApi,
+    TaskRunPostHogReferencesRequestApi,
+    TaskRunPostHogReferencesResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -139,11 +153,13 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Desktop and to Loops.
+ * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
  * @summary Check access
  */
-export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+export const codeInvitesCheckAccessRetrieve = async (
+    options?: RequestInit
+): Promise<LegacyDesktopAccessResponseApi> => {
+    return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -154,7 +170,7 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable legacy access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (
@@ -179,6 +195,52 @@ export const getCodeSandboxPricingListUrl = () => {
  */
 export const codeSandboxPricingList = async (options?: RequestInit): Promise<SandboxComputePricingApi> => {
     return apiMutator<SandboxComputePricingApi>(getCodeSandboxPricingListUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsCreate = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDesktopAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop/access/`
+}
+
+/**
+ * Evaluate Desktop access for the selected project and organization.
+ * @summary Check PostHog Desktop access
+ */
+export const desktopAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopAccessResponseApi> => {
+    return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -733,7 +795,7 @@ export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsL
 }
 
 /**
- * All live public channels plus the requester's personal #me channel (created on first list).
+ * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels.
  * @summary List channels
  */
 export const taskChannelsList = async (
@@ -752,7 +814,7 @@ export const getTaskChannelsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false.
+ * Returns the existing public channel with the (normalized) name, creating it if needed. A channel created here is starred for the requester unless star is false. The general name returns the team's general space; names that read as a private space ("me", "personal") are rejected.
  * @summary Resolve or create a public channel
  */
 export const taskChannelsCreate = async (
@@ -833,9 +895,10 @@ export const getTaskChannelsRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Get a channel
  */
 export const taskChannelsRetrieve = async (
@@ -854,9 +917,10 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Rename a public channel
  */
 export const taskChannelsPartialUpdate = async (
@@ -878,9 +942,10 @@ export const getTaskChannelsDestroyUrl = (projectId: string, id: string) => {
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Delete a public channel
  */
 export const taskChannelsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -895,9 +960,10 @@ export const getTaskChannelsContextGenerationRetrieveUrl = (projectId: string, i
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Get the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationRetrieve = async (
@@ -916,9 +982,10 @@ export const getTaskChannelsContextGenerationUpdateUrl = (projectId: string, id:
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Set or clear the channel's CONTEXT.md generation task
  */
 export const taskChannelsContextGenerationUpdate = async (
@@ -1003,9 +1070,10 @@ export const getTaskChannelsInstructionsDestroyUrl = (projectId: string, id: str
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Delete channel instructions
  */
 export const taskChannelsInstructionsDestroy = async (
@@ -1024,9 +1092,10 @@ export const getTaskChannelsInstructionsVersionsRetrieveUrl = (projectId: string
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary List channel instruction versions
  */
 export const taskChannelsInstructionsVersionsRetrieve = async (
@@ -1048,9 +1117,10 @@ export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * API for task channels — the shared feeds tasks are kicked off in. Listing lazily
- * provisions the requester's personal "#me" channel; creation is resolve-or-create
- * by normalized name so clients can map channel-like surfaces onto backend channels.
+ * API for task channels — the shared feeds tasks are kicked off in. The
+ * provision_defaults action get-or-creates the requester's personal "#me" channel and
+ * the team's shared "#general" channel; creation is resolve-or-create by normalized
+ * name so clients can map channel-like surfaces onto backend channels.
  * @summary Star or unstar a channel for the requesting user
  */
 export const taskChannelsStarCreate = async (
@@ -1064,6 +1134,42 @@ export const taskChannelsStarCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsOnboardingSessionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session/`
+}
+
+/**
+ * Open the agent session a new user lands in, in the team's #general space. Reads the company's homepage, so it takes a few seconds and is deliberately not part of provisioning, which blocks the app opening. Callers fire it without awaiting it when provision_defaults reports personal_created.
+ * @summary Start a first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<OnboardingSessionApi> => {
+    return apiMutator<OnboardingSessionApi>(getTaskChannelsOnboardingSessionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTaskChannelsProvisionDefaultsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/provision_defaults/`
+}
+
+/**
+ * Get-or-create the requester's personal #me channel and the team's shared #general channel, and report which of the two this call created. Idempotent.
+ * @summary Provision default channels
+ */
+export const taskChannelsProvisionDefaultsCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProvisionedChannelsApi> => {
+    return apiMutator<ProvisionedChannelsApi>(getTaskChannelsProvisionDefaultsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -1307,6 +1413,28 @@ export const tasksCommentsRetrieve = async (
     return apiMutator<TaskCommentDetailApi>(getTasksCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksHandoffCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/handoff/`
+}
+
+/**
+ * Transfer ownership of a task to another member of the project: they take over driving it (steering, archiving, running), and future runs resolve GitHub authorship and notification recipients from them. Only the task's current owner can hand it off. Every run must be finished or canceled, and every sandbox must be shut down first. A task in a private space moves into the recipient's private space; a task in a shared space stays there.
+ * @summary Hand a task off to a colleague
+ */
+export const tasksHandoffCreate = async (
+    projectId: string,
+    id: string,
+    taskHandoffRequestApi: TaskHandoffRequestApi,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksHandoffCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskHandoffRequestApi),
     })
 }
 
@@ -1556,6 +1684,49 @@ export const tasksRunsPartialUpdate = async (
     })
 }
 
+export const getTasksRunsAnalysisInsightCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-insight/`
+}
+
+/**
+ * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis finding
+ */
+export const tasksRunsAnalysisInsightCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunAnalysisInsightRequestApi?: TaskRunAnalysisInsightRequestApi,
+    options?: RequestInit
+): Promise<TaskRunAnalysisInsightResponseApi> => {
+    return apiMutator<TaskRunAnalysisInsightResponseApi>(getTasksRunsAnalysisInsightCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunAnalysisInsightRequestApi),
+    })
+}
+
+export const getTasksRunsAnalyzeCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analyze/`
+}
+
+/**
+ * Create a PostHog-funded analysis task that reviews this run's transcript for inefficiencies and reports findings. Idempotent per run: if an analysis task already exists for this run, it is returned instead of creating another. The analysis is not billed to the customer.
+ * @summary Analyze this run
+ */
+export const tasksRunsAnalyzeCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunAnalyzeResponseApi> => {
+    return apiMutator<TaskRunAnalyzeResponseApi>(getTasksRunsAnalyzeCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsAppendLogCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/append_log/`
 }
@@ -1752,6 +1923,32 @@ export const tasksRunsArtifactsPresignCreate = async (
     })
 }
 
+export const getTasksRunsArtifactsReferencesCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/references/`
+}
+
+/**
+ * Attach live PostHog object references to the run artifact manifest without uploading files.
+ * @summary Register PostHog object references for a task run
+ */
+export const tasksRunsArtifactsReferencesCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunPostHogReferencesRequestApi: TaskRunPostHogReferencesRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPostHogReferencesResponseApi> => {
+    return apiMutator<TaskRunPostHogReferencesResponseApi>(
+        getTasksRunsArtifactsReferencesCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPostHogReferencesRequestApi),
+        }
+    )
+}
+
 export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/cancel/`
 }
@@ -1800,7 +1997,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -1836,6 +2033,58 @@ export const tasksRunsConnectionTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsPeersRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/`
+}
+
+/**
+ * Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, currently in progress or queued. Discovery and send validation share one visibility policy, so a run can only message what it can list; the per-entry `sendable` flag is the liveness contract.
+ * @summary List peer agent runs
+ */
+export const tasksRunsPeersRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunPeersResponseApi> => {
+    return apiMutator<TaskRunPeersResponseApi>(getTasksRunsPeersRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsPeersMessageCreateUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    targetRunId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/${targetRunId}/message/`
+}
+
+/**
+ * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
+ * @summary Send a message to a peer agent run
+ */
+export const tasksRunsPeersMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    targetRunId: string,
+    taskRunPeerMessageRequestApi: TaskRunPeerMessageRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPeerMessageResponseApi> => {
+    return apiMutator<TaskRunPeerMessageResponseApi>(
+        getTasksRunsPeersMessageCreateUrl(projectId, taskId, id, targetRunId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunPeerMessageRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {

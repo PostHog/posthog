@@ -33,6 +33,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
+from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
@@ -802,10 +803,11 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 )
             ):
                 if suppress_promotion:
-                    # The team's org is over its self-driving credits quota with enforcement on: the signal is still
-                    # assigned, weighted, and emitted, but no summary run spawns. The status is left
-                    # untouched, so the first matching signal after the quota lifts re-evaluates
-                    # promotion under the same rules.
+                    # The team's org is over its self-driving credits quota with enforcement on, or
+                    # the team hit its daily report limit: the signal is still assigned, weighted,
+                    # and emitted, but no summary run spawns. The status is left untouched, so the
+                    # first matching signal after the limit lifts re-evaluates promotion under the
+                    # same rules.
                     promotion_suppressed = True
                 # If candidate got here - it usually means CH issue down the way
                 # (e.g. CH wait raised before start_child_workflow)
@@ -857,11 +859,14 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
 
     try:
         team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-        # Resolved before the assign transaction: the quota gate is Redis + flag network I/O that
-        # must not run while holding the report row lock.
+        # Resolved before the assign transaction: the gates are Redis/Postgres + flag network I/O
+        # that must not run while holding the report row lock.
         quota_gate = await database_sync_to_async(self_driving_quota_gate, thread_sensitive=False)(team)
+        daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
 
-        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(quota_gate.enforced)
+        db_result = await database_sync_to_async(do_assign_and_emit, thread_sensitive=False)(
+            quota_gate.enforced or daily_gate.limited
+        )
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
@@ -950,10 +955,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         source_id=input.source_id,
                     )
             # Emitted only when the signal would have promoted the report, so the event volume
-            # measures withheld summary runs rather than every assignment on a limited team.
+            # measures withheld summary runs rather than every assignment on a limited team. Both
+            # events fire when both limits are hit, keeping each stream complete for its own gate.
             if quota_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
                 capture_signal_report_quota_paused(
                     team, report_id=db_result.report_id, stage="promotion", enforced=quota_gate.enforced
+                )
+            if daily_gate.limited and (db_result.promoted or db_result.promotion_suppressed):
+                capture_signal_report_daily_limit_paused(
+                    team, report_id=db_result.report_id, stage="promotion", gate=daily_gate
                 )
 
         if not db_result.matched_deleted_report:
