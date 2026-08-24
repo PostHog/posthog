@@ -1,14 +1,9 @@
-import { resolveService } from "@posthog/di/container";
 import {
   setTabTarget as setTabTargetLocal,
   type TabIdentity,
 } from "@posthog/shared";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
-import {
-  BROWSER_TABS_CLIENT,
-  type BrowserTabsClient,
-} from "./browserTabsClient";
-import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
+import { applyLocalTransform, persistTabTarget, readMirror } from "./tabsSync";
 
 export interface BrowserTabDestination extends Partial<TabIdentity> {
   href: string;
@@ -64,7 +59,6 @@ export function navigateBrowserTab(
   applyLocalTransform((snapshot) =>
     setTabTargetLocal(snapshot, { ...target, now: Date.now }),
   );
-  const client = resolveService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
-  void persistWrite(() => client.setTabTarget(target));
+  persistTabTarget(target);
   return "background";
 }

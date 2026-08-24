@@ -441,6 +441,9 @@ const browserTabsRouter = router({
   getPrimaryWindowId: publicProcedure
     .output(z.string())
     .query(() => webBrowserTabsStore.getPrimaryWindowId()),
+  reset: publicProcedure
+    .output(tabsSnapshotSchema)
+    .mutation(() => webBrowserTabsStore.reset()),
   openTab: publicProcedure
     .input(
       z.object({

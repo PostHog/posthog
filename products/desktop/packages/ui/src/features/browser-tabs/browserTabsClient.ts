@@ -17,6 +17,8 @@ interface Subscriber<T> {
 export interface BrowserTabsClient {
   getSnapshot(): Promise<TabsSnapshot>;
   getPrimaryWindowId(): Promise<string>;
+  /** Clear auth-scoped locations and seed a fresh tab in every window. */
+  reset(): Promise<TabsSnapshot>;
   openTab(
     input: TabLocationInput & {
       windowId: string;

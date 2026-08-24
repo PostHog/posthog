@@ -3,6 +3,7 @@ import {
   closeTab,
   closeTabs,
   openTab,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
@@ -26,6 +27,7 @@ const now = () => Date.now();
 export interface IBrowserTabsService {
   getSnapshot(): TabsSnapshot;
   getPrimaryWindowId(): string;
+  reset(): TabsSnapshot;
   openTab(
     input: TabTarget &
       TabLocation & {
@@ -137,6 +139,12 @@ export class BrowserTabsService
     const primary = this.snapshot.windows.find((w) => w.isPrimary);
     if (!primary) throw new Error("browser-tabs: no primary window");
     return primary.id;
+  }
+
+  reset(): TabsSnapshot {
+    return this.commit(
+      resetTabs(this.snapshot, { href: NEW_TAB_HREF, makeId, now }),
+    );
   }
 
   openTab(

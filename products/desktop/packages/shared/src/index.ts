@@ -57,6 +57,7 @@ export {
   openTab,
   POSITION_GAP,
   primaryWindow,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,

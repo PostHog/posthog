@@ -6,6 +6,7 @@ import {
   openTab,
   POSITION_GAP,
   primaryWindow,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
@@ -123,6 +124,37 @@ describe("openTab", () => {
       .map((t) => t.position)
       .sort((x, y) => x - y);
     expect(positions).toEqual([POSITION_GAP, POSITION_GAP * 2]);
+  });
+});
+
+describe("resetTabs", () => {
+  it("removes auth-scoped metadata from every window", () => {
+    const withWindows = snapshot({
+      windows: [
+        { id: "w1", isPrimary: true, bounds: null, activeTabId: null },
+        { id: "w2", isPrimary: false, bounds: null, activeTabId: null },
+      ],
+    });
+    const first = openAt(withWindows, "w1", "/tasks/private-a");
+    const second = openAt(first.snapshot, "w2", "/inbox/private-b");
+
+    const reset = resetTabs(second.snapshot, {
+      href: "/spaces",
+      makeId,
+      now,
+    });
+
+    expect(reset.tabs).toHaveLength(2);
+    expect(reset.tabs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ windowId: "w1", href: "/spaces" }),
+        expect.objectContaining({ windowId: "w2", href: "/spaces" }),
+      ]),
+    );
+    expect(reset.tabs.every((tab) => tab.viewState === null)).toBe(true);
+    expect(reset.windows.every((window) => window.activeTabId !== null)).toBe(
+      true,
+    );
   });
 });
 

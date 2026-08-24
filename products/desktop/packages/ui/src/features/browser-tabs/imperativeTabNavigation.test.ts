@@ -6,23 +6,19 @@ import {
 } from "./imperativeTabNavigation";
 
 const mocks = vi.hoisted(() => ({
-  resolveService: vi.fn(),
   getRouterOrNull: vi.fn(),
   applyLocalTransform: vi.fn(),
-  persistWrite: vi.fn(),
+  persistTabTarget: vi.fn(),
   readMirror: vi.fn(),
   setTabTarget: vi.fn(),
 }));
 
-vi.mock("@posthog/di/container", () => ({
-  resolveService: mocks.resolveService,
-}));
 vi.mock("@posthog/ui/router/routerRef", () => ({
   getRouterOrNull: mocks.getRouterOrNull,
 }));
 vi.mock("./tabsSync", () => ({
   applyLocalTransform: mocks.applyLocalTransform,
-  persistWrite: mocks.persistWrite,
+  persistTabTarget: mocks.persistTabTarget,
   readMirror: mocks.readMirror,
 }));
 vi.mock("@posthog/shared", async (importOriginal) => {
@@ -87,20 +83,15 @@ function snapshot(): TabsSnapshot {
 
 describe("imperative browser-tab navigation", () => {
   const history = { location: { state: { tabId: "tab-b" } } };
-  const client = { setTabTarget: vi.fn().mockResolvedValue(snapshot()) };
 
   beforeEach(() => {
     vi.clearAllMocks();
     history.location.state.tabId = "tab-b";
     mocks.getRouterOrNull.mockReturnValue({ history });
     mocks.readMirror.mockReturnValue(snapshot());
-    mocks.resolveService.mockReturnValue(client);
     mocks.applyLocalTransform.mockImplementation((transform) =>
       transform(snapshot()),
     );
-    mocks.persistWrite.mockImplementation(async (write) => {
-      await write();
-    });
     mocks.setTabTarget.mockImplementation((state) => state);
   });
 
@@ -132,7 +123,7 @@ describe("imperative browser-tab navigation", () => {
         activate: false,
       }),
     );
-    expect(client.setTabTarget).toHaveBeenCalledWith(
+    expect(mocks.persistTabTarget).toHaveBeenCalledWith(
       expect.objectContaining({ tabId: "tab-a", activate: false }),
     );
     expect(fallback).not.toHaveBeenCalled();

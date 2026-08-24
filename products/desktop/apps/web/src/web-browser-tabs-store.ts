@@ -3,6 +3,7 @@ import {
   closeTab,
   closeTabs,
   openTab,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
@@ -70,6 +71,12 @@ class WebBrowserTabsStore extends TypedEventEmitter<SnapshotChangeEvents> {
     const primary = this.snapshot.windows.find((w) => w.isPrimary);
     if (!primary) throw new Error("browser-tabs: no primary window");
     return primary.id;
+  }
+
+  reset(): TabsSnapshot {
+    return this.commit(
+      resetTabs(this.snapshot, { href: "/spaces", makeId, now }),
+    );
   }
 
   openTab(

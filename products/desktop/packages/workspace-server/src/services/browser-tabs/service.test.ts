@@ -103,6 +103,45 @@ describe("BrowserTabsService boot invariants", () => {
         ?.title,
     ).toBe("Investigate checkout drop-off");
   });
+
+  it("clears persisted locations and titles when the auth scope changes", () => {
+    const initial: TabsSnapshot = {
+      windows: [
+        { id: "win-1", isPrimary: true, bounds: null, activeTabId: "tab-1" },
+      ],
+      tabs: [
+        blankTab({
+          href: "/tasks/private-task",
+          viewState: {
+            title: "Private task title",
+            lastByPane: {
+              inbox: { href: "/inbox/private-report" },
+            },
+          },
+          taskId: "private-task",
+          appView: "inbox",
+        }),
+      ],
+    };
+    const repo = new FakeRepository(initial);
+    const service = new BrowserTabsService(repo);
+
+    const reset = service.reset();
+
+    expect(reset.windows).toEqual([
+      expect.objectContaining({ id: "win-1", activeTabId: expect.any(String) }),
+    ]);
+    expect(reset.tabs).toEqual([
+      expect.objectContaining({
+        windowId: "win-1",
+        href: NEW_TAB_HREF,
+        viewState: null,
+        taskId: null,
+        appView: null,
+      }),
+    ]);
+    expect(repo.saved).toEqual(reset);
+  });
 });
 
 describe("BrowserTabsService window-id healing", () => {

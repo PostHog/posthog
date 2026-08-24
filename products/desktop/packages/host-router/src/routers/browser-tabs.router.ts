@@ -25,6 +25,10 @@ export const browserTabsRouter = router({
     .output(z.string())
     .query(({ ctx }) => svc(ctx.container).getPrimaryWindowId()),
 
+  reset: publicProcedure
+    .output(browserTabsSnapshotOutput)
+    .mutation(({ ctx }) => svc(ctx.container).reset()),
+
   openTab: publicProcedure
     .input(openTabInput)
     .output(browserTabsSnapshotOutput)

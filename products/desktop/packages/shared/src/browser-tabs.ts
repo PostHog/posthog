@@ -168,6 +168,39 @@ export function openTab(
 }
 
 /**
+ * Remove every persisted location and replace it with one fresh tab per window.
+ * Window identities stay stable so live renderer windows remain attached, while
+ * all route, title, and view-state metadata from the previous scope disappears.
+ */
+export function resetTabs(
+  snapshot: TabsSnapshot,
+  input: { href: string; makeId: IdFactory; now: Clock },
+): TabsSnapshot {
+  let reset: TabsSnapshot = {
+    windows: snapshot.windows.map((window) => ({
+      ...window,
+      activeTabId: null,
+    })),
+    tabs: [],
+  };
+
+  for (const window of reset.windows) {
+    reset = openTab(reset, {
+      windowId: window.id,
+      href: input.href,
+      viewState: null,
+      dashboardId: null,
+      taskId: null,
+      channelId: null,
+      makeId: input.makeId,
+      now: input.now,
+    }).snapshot;
+  }
+
+  return reset;
+}
+
+/**
  * Point an existing tab at a location: the in-tab navigation primitive. Used
  * when the user navigates while a tab is active, so the location replaces the
  * tab's contents instead of opening a new tab. Focuses it unless the caller is
