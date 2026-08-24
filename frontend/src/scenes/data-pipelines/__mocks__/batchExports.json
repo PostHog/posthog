@@ -315,7 +315,7 @@
             "team_id": 2,
             "name": "S3 Export",
             "destination": {
-                "type": "S3",
+                "type": "AwsS3",
                 "config": {
                     "prefix": "us-cloud/",
                     "region": "us-east-1",
@@ -469,7 +469,7 @@
             "team_id": 2,
             "name": "Test S3 Export",
             "destination": {
-                "type": "S3",
+                "type": "AwsS3",
                 "config": {
                     "prefix": "posthog-events/",
                     "region": "us-east-1",

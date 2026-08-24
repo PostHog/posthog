@@ -114,6 +114,105 @@ export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
         .describe('The anomaly characterization to run.'),
 })
 
+/**
+ * Take one chart point apart into the series and samples behind it,
+ * and recompute it independently so the plotted number can be checked
+ * rather than trusted.
+ */
+export const metricsExplainCreateBodyQueryOneMetricNameMax = 255
+
+export const metricsExplainCreateBodyQueryOneAggregationDefault = `sum`
+export const metricsExplainCreateBodyQueryOneQuantileMin = 0
+export const metricsExplainCreateBodyQueryOneQuantileMax = 1
+
+export const metricsExplainCreateBodyQueryOneFiltersItemKeyMax = 255
+
+export const metricsExplainCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsExplainCreateBodyQueryOneFiltersItemValueMax = 1024
+
+export const metricsExplainCreateBodyQueryOneFiltersItemScopeDefault = `auto`
+
+export const MetricsExplainCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            metricName: zod
+                .string()
+                .max(metricsExplainCreateBodyQueryOneMetricNameMax)
+                .describe('Exact metric name whose bucket should be taken apart.'),
+            metricType: zod
+                .union([
+                    zod
+                        .enum(['gauge', 'sum', 'histogram', 'exponential_histogram', 'summary'])
+                        .describe(
+                            '\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary'
+                        ),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Constrain the bucket to one metric type. A name can exist as several types; without this, rows of every type sharing the name are decomposed together.\n\n\* `gauge` - gauge\n\* `sum` - sum\n\* `histogram` - histogram\n\* `exponential_histogram` - exponential_histogram\n\* `summary` - summary'
+                ),
+            aggregation: zod
+                .enum(['sum', 'avg', 'count', 'p95', 'rate', 'increase', 'histogram_quantile'])
+                .describe(
+                    '\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
+                )
+                .default(metricsExplainCreateBodyQueryOneAggregationDefault)
+                .describe(
+                    "The aggregation whose result should be explained. 'histogram_quantile' is rejected: it reduces bucket-count arrays rather than scalar samples, so there is no per-series value to lay out.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                ),
+            quantile: zod
+                .number()
+                .min(metricsExplainCreateBodyQueryOneQuantileMin)
+                .max(metricsExplainCreateBodyQueryOneQuantileMax)
+                .nullish()
+                .describe("Quantile in (0, 1) applied across series. Defaults to 0.95 for the 'p95' aggregation."),
+            filters: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .max(metricsExplainCreateBodyQueryOneFiltersItemKeyMax)
+                            .describe(
+                                "Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env')."
+                            ),
+                        op: zod
+                            .enum(['eq', 'neq', 'regex', 'not_regex'])
+                            .describe('\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex')
+                            .default(metricsExplainCreateBodyQueryOneFiltersItemOpDefault)
+                            .describe(
+                                "Comparison operator. 'regex'\/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.\n\n\* `eq` - eq\n\* `neq` - neq\n\* `regex` - regex\n\* `not_regex` - not_regex"
+                            ),
+                        value: zod
+                            .string()
+                            .max(metricsExplainCreateBodyQueryOneFiltersItemValueMax)
+                            .describe('Value to compare against. For regex operators this is the pattern.'),
+                        scope: zod
+                            .enum(['resource', 'attribute', 'auto'])
+                            .describe('\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto')
+                            .default(metricsExplainCreateBodyQueryOneFiltersItemScopeDefault)
+                            .describe(
+                                "Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.\n\n\* `resource` - resource\n\* `attribute` - attribute\n\* `auto` - auto"
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Label predicates ANDed together, matching the chart the point came from.'),
+            bucketStart: zod.iso
+                .datetime({ offset: true })
+                .describe("Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601."),
+            interval: zod
+                .enum(['second', 'minute', 'minute_5', 'minute_15', 'hour', 'hour_6', 'day', 'week'])
+                .describe(
+                    '\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                )
+                .describe(
+                    'Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.\n\n\* `second` - second\n\* `minute` - minute\n\* `minute_5` - minute_5\n\* `minute_15` - minute_15\n\* `hour` - hour\n\* `hour_6` - hour_6\n\* `day` - day\n\* `week` - week'
+                ),
+        })
+        .describe('The chart point to take apart.'),
+})
+
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
 export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`
@@ -178,7 +277,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(metricsQueryCreateBodyQueryOneAggregationDefault)
                 .describe(
-                    "Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.\n\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
             quantile: zod
                 .number()

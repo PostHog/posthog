@@ -138,6 +138,9 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true, // Sessions must stay on the same partition
+                                        // Replay never reads or writes persons. The line above pins
+                                        // locality either way, so this only records the fact.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 // Validate the headers capture guarantees (DLQ if missing) and narrow the type

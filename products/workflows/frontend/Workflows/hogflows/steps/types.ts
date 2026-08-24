@@ -93,6 +93,9 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'non_failure_status_codes',
         'customer_analytics_account_properties',
         'customer_analytics_account_relationships',
+        'task_model',
+        'task_repository',
+        'task_mcp_installations',
     ]),
     key: z.string(),
     label: z.string(),
@@ -173,6 +176,22 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('data-warehouse-table'),
         // Dot-notated table name matching the Python CDPProducer naming
+        table_name: z.string(),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+        }),
+        key_property: z.string().optional(),
+    }),
+    z.object({
+        type: z.literal('slack-message'),
+        filters: z.object({
+            // Message properties only, channel included — see the trigger registry entry
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
+        type: z.literal('data-warehouse-view'),
+        // The materialized view's own name, which is also its HogQL name
         table_name: z.string(),
         filters: z.object({
             properties: z.array(z.any()).optional(),

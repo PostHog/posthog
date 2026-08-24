@@ -113,6 +113,16 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 1])
         })
 
+        it('treats a series with null data as empty instead of throwing', () => {
+            // A query that returned no points can hand the chart `data: null`, which the `number[]`
+            // type forbids but the runtime still sees. Iterating it used to crash the whole chart.
+            const nullData = { ...makeSeries({ key: 'empty', data: [] }), data: null as unknown as number[] }
+            const withData = makeSeries({ key: 's1', data: [10, 20] })
+            const [domainMin, domainMax] = createYScale([withData, nullData], dimensions).domain()
+            expect(domainMin).toBe(0)
+            expect(domainMax).toBeGreaterThanOrEqual(20)
+        })
+
         it('excludes visibility.excluded series from the domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10] })
             const hidden = makeSeries({ key: 'h', data: [0, 1000], visibility: { excluded: true } })
@@ -467,6 +477,19 @@ describe('hog-charts scales', () => {
             const result = createScales([small, large], ['a', 'b'], dimensions, { valueDomain: { max: 5 } })
             expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(5)
             expect(result.yAxes!.y1.scale.domain()[1]).toBe(1000)
+        })
+
+        // A reference line outside its axis's domain doesn't render, so an axis whose meaning fixes
+        // its range (a 0-1 probability) has to say so — the chart-level valueDomain above only
+        // reaches the primary axis.
+        it('honors a secondary axis own valueDomain', () => {
+            const value = makeSeries({ key: 'value', data: [0, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const score = makeSeries({ key: 'score', data: [0, 0.25], yAxisId: 'y1' })
+            const result = createScales([value, score], ['a', 'b'], dimensions, {
+                axes: [{ id: 'y1', valueDomain: { min: 0, max: 1 } }],
+            })
+            expect(result.yAxes!.y1.scale.domain()).toEqual([0, 1])
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBe(1000)
         })
 
         it.each([
