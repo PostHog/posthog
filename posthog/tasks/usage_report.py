@@ -73,6 +73,7 @@ from products.tasks.backend.facade.billing import (
     get_task_sandbox_usage_by_team,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_job import billable_destination_multiplier
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -2052,7 +2053,7 @@ def _rows_synced_totals(
     return list(
         ExternalDataJob.objects.filter(filters)
         .values("team_id")
-        .annotate(total=Sum(F("rows_synced") * F("destination_count")))
+        .annotate(total=Sum(F("rows_synced") * billable_destination_multiplier()))
     )
 
 

@@ -21,7 +21,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -178,7 +178,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
                     finished_at__gte=current_billing_cycle_start_dt,
                     billable=True,
                     status=ExternalDataJob.Status.COMPLETED,
-                ).aggregate(total_rows=Sum(F("rows_synced") * F("destination_count")))
+                ).aggregate(total_rows=Sum(F("rows_synced") * billable_destination_multiplier()))
 
             return (
                 organization.id,

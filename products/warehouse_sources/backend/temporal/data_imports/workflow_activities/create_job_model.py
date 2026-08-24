@@ -155,7 +155,6 @@ def _create_job(
     pipeline_version: str,
     billable: bool,
     schema_snapshot: dict[str, Any],
-    destination_count: int = 1,
     destination_ids: list[str] | None = None,
 ) -> ExternalDataJob:
     # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
@@ -172,7 +171,6 @@ def _create_job(
         pipeline_version=pipeline_version,
         billable=billable,
         schema_snapshot=schema_snapshot,
-        destination_count=destination_count,
         destination_ids=destination_ids or [],
     )
 
@@ -266,9 +264,6 @@ def create_external_data_job_model_activity(
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
-            # Rows bill once per destination. One when nothing is configured, which is the
-            # warehouse on its own.
-            destination_count=max(len(destination_ids), 1),
             destination_ids=destination_ids,
         )
         schema.save(update_fields=["status", "updated_at"])

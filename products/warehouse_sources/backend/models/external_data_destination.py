@@ -66,6 +66,7 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         ]
         indexes = [
             models.Index(fields=["team", "type"], name="wsd_team_type_idx"),
+            models.Index(fields=["updated_at"], name="wsd_dest_updated_idx"),
         ]
 
     @property
@@ -73,7 +74,7 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         return self.type == self.Type.POSTHOG_WAREHOUSE
 
 
-class ExternalDataSourceDestination(TeamScopedRootMixin, UUIDTModel):
+class ExternalDataSourceDestination(TeamScopedRootMixin, UpdatedMetaFields, UUIDTModel):
     """Source-level default destination set, inherited by every schema that does not override it."""
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
@@ -91,9 +92,12 @@ class ExternalDataSourceDestination(TeamScopedRootMixin, UUIDTModel):
         constraints = [
             models.UniqueConstraint(fields=["source", "destination"], name="wsd_source_dest_uniq"),
         ]
+        indexes = [
+            models.Index(fields=["updated_at"], name="wsd_src_link_updated_idx"),
+        ]
 
 
-class ExternalDataSchemaDestination(TeamScopedRootMixin, UUIDTModel):
+class ExternalDataSchemaDestination(TeamScopedRootMixin, UpdatedMetaFields, UUIDTModel):
     """Schema-level destination override.
 
     Any row here — even a fully disabled set — replaces the source-level set for that schema,
@@ -114,6 +118,9 @@ class ExternalDataSchemaDestination(TeamScopedRootMixin, UUIDTModel):
         db_table = "posthog_externaldataschemadestination"
         constraints = [
             models.UniqueConstraint(fields=["schema", "destination"], name="wsd_schema_dest_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["updated_at"], name="wsd_schema_link_upd_idx"),
         ]
 
 

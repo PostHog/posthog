@@ -2,7 +2,8 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Prefetch
+from django.db.models import F, Func, IntegerField, Prefetch, Value
+from django.db.models.functions import Greatest
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -33,13 +34,9 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
-    # How many destinations this run delivers to, snapshotted when the run started. Rows bill
-    # once per destination, and reading the count from the job rather than live config keeps a
-    # config change mid-run from changing what an in-flight run charges.
-    destination_count = models.PositiveSmallIntegerField(default=1, db_default=1)
-    # The same set as a list of ids, which the load path needs to resolve writers. Kept
-    # beside the count rather than derived from it, because billing aggregates the count in
-    # SQL and measuring a JSON array's length there is awkward.
+    # The destinations this run delivers to, snapshotted when the run started so a config
+    # change mid-run cannot alter where an in-flight run lands or what it bills. Empty means
+    # the PostHog warehouse alone, which is every run that predates destinations.
     destination_ids = models.JSONField(default=list, blank=True, db_default=[])
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
@@ -105,3 +102,16 @@ def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob
     )
 
     return job
+
+
+def billable_destination_multiplier() -> Greatest:
+    """How many destinations a run billed for, derived from the ids it snapshotted.
+
+    An empty list means the PostHog warehouse alone, so the floor is one. Derived rather than
+    stored beside the ids: the count is exactly `len(destination_ids)`, and a second column
+    holding the same fact can drift from it without anything noticing.
+    """
+    return Greatest(
+        Func(F("destination_ids"), function="jsonb_array_length", output_field=IntegerField()),
+        Value(1),
+    )

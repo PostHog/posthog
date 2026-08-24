@@ -5107,7 +5107,7 @@ async def test_a_run_with_a_destination_bills_for_both(
     run = await sync_to_async(ExternalDataJob.objects.filter(team_id=team.pk).order_by("-created_at").first)()
     assert run is not None
     # The warehouse and the Postgres destination, so rows bill twice over.
-    assert run.destination_count == 2
+    assert len(run.destination_ids) == 2
     assert sorted(run.destination_ids) == sorted([str(warehouse.id), str(destination.id)])
 
 
@@ -5179,4 +5179,4 @@ async def test_a_source_can_sync_to_a_destination_and_not_to_posthog(
 
     run = await sync_to_async(ExternalDataJob.objects.filter(team_id=team.pk).order_by("-created_at").first)()
     assert run is not None
-    assert run.destination_count == 1
+    assert len(run.destination_ids) == 1
