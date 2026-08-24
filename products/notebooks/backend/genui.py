@@ -33,20 +33,18 @@ from products.notebooks.backend.genui_snapshot_store import (
 )
 from products.notebooks.backend.models import Notebook, NotebookGenUI, NotebookNodeRun
 from products.notebooks.backend.sql_v2_state import NotebookCellState, build_notebook_cell_state
+from products.notebooks.backend.tasks import process_genui_generation
 from products.notebooks.backend.util import (
     _get_markdown_notebook_markdown,
     _iter_markdown_component_blocks,
     _parse_markdown_component_props,
 )
-from products.tasks.backend.facade import (
-    access as tasks_access_facade,
-    api as tasks_facade,
-)
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 _otel = OtelInstrumentFactory("notebooks")
 
-GENUI_GENERATOR_VERSION = "1"
+GENUI_GENERATOR_VERSION = "2"
 MAX_INPUTS = 4
 MAX_INPUT_NAME_LENGTH = 128
 MAX_PROMPT_LENGTH = 20_000
@@ -97,7 +95,6 @@ class GenUIStatus:
     error_detail: str | None
     artifact_url: str | None
     frame_names: list[str]
-    task_id: UUID | None
     source_version_id: UUID | None
     build_id: UUID | None
     input_states: list[dict[str, object]]
@@ -274,6 +271,7 @@ def inspect_inputs(notebook: Notebook, inputs: list[str]) -> GenUIInputInspectio
     )
     metadata: dict[str, object] = {
         "inputs": states,
+        "schemas": schemas,
         "schema_hash": schema_hash,
         "captured_at": timezone.now().isoformat(),
     }
@@ -322,41 +320,6 @@ def _display_name(prompt: str) -> str:
     return prompt if len(prompt) <= 80 else f"{prompt[:77].rstrip()}..."
 
 
-def _generation_prompt(
-    *, canvas_id: UUID, prompt: str, schemas: list[dict[str, object]], input_names: list[str], is_edit: bool
-) -> str:
-    capabilities = {
-        "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
-        "network": {"origins": []},
-        "notebook": {"frames": input_names},
-    }
-    action = "Update" if is_edit else "Build"
-    return f"""{prompt}
-
-<genui_generation_instructions>
-{action} the existing canvas \"{_display_name(prompt)}\" (id \"{canvas_id}\") as a live embedded notebook visualization. Do not create another canvas or write local files.
-
-Use the bundled `building-canvases` skill for the project format and validation rules.
-
-Canvas operations are commands inside the PostHog MCP `exec` tool. In Claude, this tool is named `mcp__posthog__exec`. Do not use ToolSearch or call canvas commands as standalone tools.
-
-Follow this sequence:
-1. Call `mcp__posthog__exec` with `command: call canvas-source-retrieve {{\"id\":\"{canvas_id}\"}}`. Keep `current_version_id`.
-2. Build the complete source project.
-3. Validate it with `call canvas-validate-create` and a JSON object containing `id` and `project`.
-4. Publish it with `call canvas-publish-create` and a JSON object containing `id`, `project`, `prompt`, and `expected_current_version_id`.
-5. Check it with `call canvas-builds-retrieve {{\"id\":\"{canvas_id}\"}}`. Fix and publish again if the build fails.
-
-Read notebook data only with `await ph.readFrame(name)`. It returns `{{ name, columns: [{{ name, type }}], rows: unknown[][], totalRowCount, includedRowCount, truncated }}`.
-
-Set `project.capabilities` to exactly `{json.dumps(capabilities, separators=(",", ":"))}`. Do not add PostHog or network capabilities. Never call `fetch`, `ph.query`, or `ph.loadInsight` for notebook dataframe data.
-
-Requested frames: {json.dumps(schemas, separators=(",", ":"))}
-
-Build a responsive, self-contained visualization without navigation or application chrome. Keep decorative assets self-contained. For 3D work, import `three` from the pinned platform dependencies, size the renderer with its container, and dispose animation frames, listeners, geometries, materials, textures, and the renderer on unmount. Show loading, error, empty, and truncated-data states where applicable.
-</genui_generation_instructions>"""
-
-
 def _check_generation_rate(team_id: int, user_id: int) -> None:
     minute = int(timezone.now().timestamp() // 60)
     key = f"notebook_genui_generation:{team_id}:{user_id}:{minute}"
@@ -372,9 +335,17 @@ def _check_generation_rate(team_id: int, user_id: int) -> None:
         raise GenUIRateLimitError("Too many visualization generations started. Try again in a minute.", "rate_limited")
 
 
+def _is_ai_usage_limited(team_api_token: str) -> bool:
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps billing's query stack off Django startup
+        is_team_over_ai_credit_budget,
+    )
+
+    return is_team_over_ai_credit_budget(team_api_token)
+
+
 def _assert_generation_allowed(*, notebook: Notebook, user_id: int) -> None:
     _check_generation_rate(notebook.team_id, user_id)
-    if tasks_access_facade.usage_limit_reached(user_id=user_id, team_id=notebook.team_id):
+    if _is_ai_usage_limited(notebook.team.api_token):
         _otel.counter("notebooks.genui.generation.rejected").add(1, {"reason": "usage_limit"})
         raise GenUIRateLimitError(
             "Visualization generation is unavailable because this project's AI usage limit has been reached.",
@@ -453,63 +424,30 @@ def _capture_lifecycle(
 def _start_generation(
     *, row: NotebookGenUI, notebook: Notebook, user_id: int, inspection: GenUIInputInspection
 ) -> NotebookGenUI:
-
-    task = tasks_facade.create_task(
-        notebook.team_id,
-        user_id,
-        validated_data={
-            "title": f'Build notebook visualization "{_display_name(row.prompt)}"',
-            "title_manually_set": True,
-            "description": row.prompt,
-        },
-    )
-    if task.channel is None:
-        raise GenUIError("Could not create a task space for this visualization.", "task_channel_unavailable")
+    channel_id = tasks_facade.ensure_personal_channel_id(team_id=notebook.team_id, user_id=user_id)
 
     if row.canvas_id is None:
         canvas_id = canvas_facade.create_notebook_canvas(
             team_id=notebook.team_id,
             user_id=user_id,
-            channel_id=task.channel,
+            channel_id=channel_id,
             name=_display_name(row.prompt),
             context=row.prompt,
-            generation_task_id=task.id,
         )
         row.canvas_id = canvas_id
     elif not canvas_facade.update_notebook_canvas_generation(
         team_id=notebook.team_id,
         canvas_id=row.canvas_id,
         context=row.prompt,
-        generation_task_id=task.id,
     ):
         raise GenUIError("The generated visualization no longer exists.", "canvas_missing")
 
-    generation_prompt = _generation_prompt(
-        canvas_id=row.canvas_id,
-        prompt=row.prompt,
-        schemas=inspection.schemas,
-        input_names=row.inputs,
-        is_edit=bool(row.source_version_id),
-    )
-    row.generation_task_id = task.id
     row.lifecycle_status = NotebookGenUI.LifecycleStatus.GENERATING
     row.last_error_code = None
     row.last_error = None
     row.save()
 
-    result = tasks_facade.run_task(
-        task.id,
-        notebook.team_id,
-        user_id,
-        validated_data={"mode": "background", "pending_user_message": generation_prompt},
-    )
-    if result is None or result.error is not None:
-        detail = result.error.detail if result and result.error else "Could not start the visualization task."
-        row.lifecycle_status = NotebookGenUI.LifecycleStatus.FAILED
-        row.last_error_code = "task_start_failed"
-        row.last_error = detail[:MAX_ERROR_LENGTH]
-        row.save(update_fields=["lifecycle_status", "last_error_code", "last_error", "updated_at"])
-        raise GenUIError(detail, "task_start_failed")
+    process_genui_generation.delay(notebook.team_id, str(row.id), user_id, row.pending_generation_hash)
 
     _otel.counter("notebooks.genui.generation.started").add(1, {"operation": "generation"})
     _capture_lifecycle(
@@ -525,7 +463,6 @@ def _start_generation(
         notebook_id=str(notebook.id),
         node_id=row.node_id,
         genui_id=str(row.id),
-        task_id=str(row.generation_task_id),
         canvas_id=str(row.canvas_id),
         dependency_count=len(inspection.states),
     )
@@ -538,11 +475,11 @@ def _run_claimed_generation(
     try:
         return _start_generation(row=row, notebook=notebook, user_id=user_id, inspection=inspection)
     except Exception as error:
-        detail = error.detail if isinstance(error, GenUIError) else "Could not start the visualization task."
+        detail = error.detail if isinstance(error, GenUIError) else "Could not start visualization generation."
         NotebookGenUI.objects.for_team(row.team_id).filter(id=row.id).update(
             lifecycle_status=NotebookGenUI.LifecycleStatus.FAILED,
             last_error_code=error.code if isinstance(error, GenUIError) else "generation_start_failed",
-            last_error=(detail or "Could not start the visualization task.")[:MAX_ERROR_LENGTH],
+            last_error=(detail or "Could not start visualization generation.")[:MAX_ERROR_LENGTH],
             updated_at=timezone.now(),
         )
         if isinstance(error, GenUIError):
@@ -646,7 +583,6 @@ def reconcile_generation(row: NotebookGenUI, inspection: GenUIInputInspection) -
             team_id=row.team_id,
             notebook_id=str(row.notebook_id),
             node_id=row.node_id,
-            task_id=str(row.generation_task_id),
             canvas_id=str(row.canvas_id),
             build_id=str(locked.build_id),
             outcome="ready",
@@ -707,64 +643,12 @@ def reconcile_generation(row: NotebookGenUI, inspection: GenUIInputInspection) -
                 team_id=row.team_id,
                 notebook_id=str(row.notebook_id),
                 node_id=row.node_id,
-                task_id=str(row.generation_task_id),
                 canvas_id=str(row.canvas_id),
                 build_id=str(canvas.current_build_id),
                 outcome="build_failed",
             )
         return row
 
-    if row.generation_task_id:
-        task = tasks_facade.get_task_detail(row.generation_task_id, row.team_id, None, bypass_visibility=True)
-        latest_run = task.latest_run if task else None
-        if latest_run and latest_run.status in {"failed", "cancelled"}:
-            if row.lifecycle_status != NotebookGenUI.LifecycleStatus.FAILED:
-                row.lifecycle_status = NotebookGenUI.LifecycleStatus.FAILED
-                row.last_error_code = "task_failed"
-                row.last_error = (latest_run.error_message or "Could not generate this visualization. Try again.")[
-                    :MAX_ERROR_LENGTH
-                ]
-                row.save(update_fields=["lifecycle_status", "last_error_code", "last_error", "updated_at"])
-                _otel.counter("notebooks.genui.generation.completed").add(1, {"outcome": "task_failed"})
-                _capture_lifecycle(
-                    event=GENUI_GENERATION_COMPLETED_EVENT,
-                    row=row,
-                    inspection=inspection,
-                    outcome="task_failed",
-                )
-                logger.info(
-                    "notebook_genui_generation_completed",
-                    team_id=row.team_id,
-                    notebook_id=str(row.notebook_id),
-                    node_id=row.node_id,
-                    task_id=str(row.generation_task_id),
-                    canvas_id=str(row.canvas_id),
-                    outcome="task_failed",
-                )
-        elif latest_run and latest_run.status == "completed":
-            row.lifecycle_status = NotebookGenUI.LifecycleStatus.FAILED
-            row.last_error_code = "source_not_published"
-            row.last_error = "The generation task finished without publishing a new visualization."
-            row.save(update_fields=["lifecycle_status", "last_error_code", "last_error", "updated_at"])
-            _capture_lifecycle(
-                event=GENUI_GENERATION_COMPLETED_EVENT,
-                row=row,
-                inspection=inspection,
-                outcome="source_not_published",
-            )
-        elif row.pending_generation_hash:
-            if row.lifecycle_status != NotebookGenUI.LifecycleStatus.GENERATING:
-                row.lifecycle_status = NotebookGenUI.LifecycleStatus.GENERATING
-                row.save(update_fields=["lifecycle_status", "updated_at"])
-    elif (
-        row.pending_generation_hash
-        and row.lifecycle_status == NotebookGenUI.LifecycleStatus.GENERATING
-        and row.updated_at < timezone.now() - timedelta(minutes=2)
-    ):
-        row.lifecycle_status = NotebookGenUI.LifecycleStatus.FAILED
-        row.last_error_code = "task_start_timeout"
-        row.last_error = "The generation task did not start. Try again."
-        row.save(update_fields=["lifecycle_status", "last_error_code", "last_error", "updated_at"])
     return row
 
 
@@ -1084,7 +968,6 @@ def restore_genui_version(
     row.pending_generation_hash = row.generated_hash
     row.pending_schema_hash = row.generated_schema_hash or inspection.schema_hash
     row.lifecycle_status = NotebookGenUI.LifecycleStatus.BUILDING
-    row.generation_task_id = None
     row.generation_started_at = timezone.now()
     row.last_error_code = None
     row.last_error = None
@@ -1093,7 +976,6 @@ def restore_genui_version(
             "pending_generation_hash",
             "pending_schema_hash",
             "lifecycle_status",
-            "generation_task_id",
             "generation_started_at",
             "last_error_code",
             "last_error",
@@ -1146,7 +1028,6 @@ def status_payload(
         error_detail=row.last_error,
         artifact_url=resolved_artifact_url,
         frame_names=cast(list[str], row.inputs),
-        task_id=row.generation_task_id,
         source_version_id=row.source_version_id,
         build_id=row.build_id,
         input_states=inspection.states,

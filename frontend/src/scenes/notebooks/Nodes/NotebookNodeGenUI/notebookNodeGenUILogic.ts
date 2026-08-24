@@ -130,7 +130,7 @@ export interface notebookNodeGenUILogicMeta {
             inputRefreshIntent: GenUIRefreshIntent | null,
             status: GenUIStatusApi | null
         ) => boolean
-        isSwitchingVersion: (mutationIntent: GenUIRefreshIntent | null, status: GenUIStatusApi | null) => boolean
+        isSwitchingVersion: (mutationIntent: GenUIRefreshIntent | null) => boolean
     }
 }
 
@@ -312,13 +312,9 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
             (mutationIntent, inputRefreshIntent, status): boolean =>
                 ['ensure', 'regenerate', 'retry'].includes(mutationIntent ?? '') ||
                 ['ensure', 'regenerate', 'retry'].includes(inputRefreshIntent ?? '') ||
-                (shouldPoll(status) && !!status?.task_id),
+                (shouldPoll(status) && mutationIntent !== 'restore' && mutationIntent !== 'run'),
         ],
-        isSwitchingVersion: [
-            (s) => [s.mutationIntent, s.status],
-            (mutationIntent, status): boolean =>
-                mutationIntent === 'restore' || (shouldPoll(status) && !status?.task_id),
-        ],
+        isSwitchingVersion: [(s) => [s.mutationIntent], (mutationIntent): boolean => mutationIntent === 'restore'],
     }),
     listeners(({ actions, values, props, cache }) => {
         const requestBody = (): { prompt: string; inputs: string[]; legacy_canvas_id?: string } => ({
@@ -427,7 +423,9 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
             cache.disposables.dispose('statusPoll')
             if (values.pollAttempts >= STATUS_POLL_MAX_ATTEMPTS) {
                 if (!values.error) {
-                    actions.statusFailed('Generation is taking longer than expected. Open the task to check progress.')
+                    actions.statusFailed(
+                        'Generation is taking longer than expected. Reload the notebook to check its status.'
+                    )
                 }
                 return
             }

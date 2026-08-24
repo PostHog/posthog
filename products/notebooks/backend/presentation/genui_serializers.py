@@ -102,11 +102,6 @@ class GenUIStatusSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Dataframes the artifact may request through ph.readFrame.",
     )
-    task_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text="Current or most recent generation task, for progress navigation.",
-    )
     source_version_id = serializers.UUIDField(
         required=False,
         allow_null=True,

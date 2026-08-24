@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -9,7 +10,12 @@ from products.canvas.backend import build_service
 from products.canvas.backend.artifacts import create_canvas_artifact_url
 from products.canvas.backend.build_service import MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
-from products.canvas.backend.source import CANVAS_COMPONENT_PATH
+from products.canvas.backend.source import (
+    CANVAS_COMPONENT_PATH,
+    has_errors,
+    synthetic_source_project,
+    validate_source_project,
+)
 
 
 @frozen
@@ -59,26 +65,84 @@ class NotebookCanvasSourceUnavailableError(NotebookCanvasError):
     pass
 
 
-def create_notebook_canvas(
-    *, team_id: int, user_id: int, channel_id: UUID, name: str, context: str, generation_task_id: UUID
-) -> UUID:
+class NotebookCanvasSourceInvalidError(NotebookCanvasError):
+    pass
+
+
+def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name: str, context: str) -> UUID:
     canvas = Canvas.objects.create(
         team_id=team_id,
         channel_id=channel_id,
         name=name,
         context=context,
-        generation_task_id=generation_task_id,
         created_by_id=user_id,
     )
     return canvas.id
 
 
-def update_notebook_canvas_generation(*, team_id: int, canvas_id: UUID, context: str, generation_task_id: UUID) -> bool:
+def update_notebook_canvas_generation(*, team_id: int, canvas_id: UUID, context: str) -> bool:
     return bool(
         Canvas.objects.for_team(team_id)
         .filter(id=canvas_id, deleted=False)
-        .update(context=context, generation_task_id=generation_task_id)
+        .update(context=context, generation_task_id=None)
     )
+
+
+def _notebook_canvas_project(source: str, input_names: list[str]) -> dict[str, Any]:
+    project = synthetic_source_project(source)
+    project["capabilities"] = {
+        "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+        "network": {"origins": []},
+        "notebook": {"frames": input_names},
+    }
+    return project
+
+
+def validate_notebook_canvas_source(source: str, input_names: list[str]) -> list[dict[str, Any]]:
+    diagnostics = validate_source_project(_notebook_canvas_project(source, input_names))
+    return [
+        {**diagnostic, "severity": "error"}
+        if diagnostic.get("code") in {"network_fetch", "network_xhr"}
+        else diagnostic
+        for diagnostic in diagnostics
+    ]
+
+
+def publish_notebook_canvas_source(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    user_id: int,
+    source: str,
+    input_names: list[str],
+    prompt: str,
+    name: str,
+    expected_current_version_id: UUID | None,
+) -> None:
+    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).first()
+    user = User.objects.filter(id=user_id).first()
+    if canvas is None or user is None:
+        raise NotebookCanvasNotFoundError
+
+    project = _notebook_canvas_project(source, input_names)
+    if has_errors(validate_notebook_canvas_source(source, input_names)):
+        raise NotebookCanvasSourceInvalidError
+
+    try:
+        build_service.publish_source_project(
+            canvas,
+            project=project,
+            prompt=prompt,
+            name=name,
+            has_expected_version=True,
+            expected_version_id=str(expected_current_version_id) if expected_current_version_id else None,
+            task_id=None,
+            created_by=user,
+        )
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
 
 
 def _canvas_generation_state(

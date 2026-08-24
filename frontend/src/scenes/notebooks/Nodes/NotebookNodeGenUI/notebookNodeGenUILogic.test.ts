@@ -106,6 +106,16 @@ describe('notebookNodeGenUILogic', () => {
         }
     )
 
+    it('treats server-side generation without a task as regeneration', async () => {
+        jest.mocked(notebooksGenuiEnsure).mockResolvedValue(status('generating'))
+        logic = notebookNodeGenUILogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRegenerating).toBe(true)
+        expect(logic.values.isSwitchingVersion).toBe(false)
+    })
+
     it('does not duplicate an ensure request while the first request is in flight', async () => {
         let resolveEnsure: (value: GenUIStatusApi) => void = () => undefined
         jest.mocked(notebooksGenuiEnsure).mockReturnValue(

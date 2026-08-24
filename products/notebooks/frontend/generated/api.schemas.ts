@@ -436,11 +436,6 @@ export interface GenUIStatusApi {
     /** Dataframes the artifact may request through ph.readFrame. */
     frame_names: string[]
     /**
-     * Current or most recent generation task, for progress navigation.
-     * @nullable
-     */
-    task_id?: string | null
-    /**
      * Last successfully published Canvas source version.
      * @nullable
      */

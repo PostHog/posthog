@@ -31,6 +31,7 @@ Product = Literal[
     "slack-twig",
     "customer_archetype_classification",
     "product_analytics",
+    "posthog_ai",
     "subscriptions",
     "signals",
     "review_hog",

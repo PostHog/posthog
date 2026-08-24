@@ -7,13 +7,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { notebookNodeStalenessLogic } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
-import { urls } from 'scenes/urls'
 
 import { NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { GenUICapabilities } from './genUIArtifactBridge'
 import { GenUIArtifactFrame } from './GenUIArtifactFrame'
-import { GenUIGenerationActivity } from './GenUIGenerationActivity'
 import { inferGenUIInputs } from './genUIInputInference'
 import { validateGenUIInputs } from './genUIInputs'
 import { getGenUIName } from './genUIName'
@@ -124,7 +122,7 @@ function Component({
                                   ? 'Switching visualization version'
                                   : lifecycleStatus === 'building'
                                     ? 'Building visualization'
-                                    : 'Agent is building the visualization'}
+                                    : 'Generating visualization'}
                         </span>
                     </div>
                     <div className="ml-5 text-muted">
@@ -135,17 +133,11 @@ function Component({
                                     : 'Updating the visualization with the latest saved dataframe rows.'
                                 : isSwitchingVersion
                                   ? 'Building the selected version. Your current visualization stays available until it is ready.'
-                                  : 'This can take a few minutes.')}
+                                  : lifecycleStatus === 'building'
+                                    ? 'Packaging the visualization for the notebook.'
+                                    : 'Creating the visualization from your prompt.')}
                     </div>
-                    {isRegenerating && !isRefreshingInputs && status?.task_id ? (
-                        <GenUIGenerationActivity taskId={status.task_id} />
-                    ) : null}
                 </div>
-                {isRegenerating && !isRefreshingInputs && status?.task_id ? (
-                    <LemonButton size="xsmall" to={urls.taskDetail(status.task_id)} targetBlank>
-                        View task
-                    </LemonButton>
-                ) : null}
             </div>
         ) : null
     const staleBanner =
@@ -249,11 +241,6 @@ function Component({
                     {isEditable ? (
                         <LemonButton type="primary" onClick={() => retryAction()} loading={isWorking}>
                             Try again
-                        </LemonButton>
-                    ) : null}
-                    {status?.task_id ? (
-                        <LemonButton to={urls.taskDetail(status.task_id)} targetBlank>
-                            View task
                         </LemonButton>
                     ) : null}
                 </div>

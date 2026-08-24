@@ -84,7 +84,7 @@ export function NotebookNodeGenUISettings({
         LemonDialog.open({
             title: 'Regenerate visualization?',
             content:
-                'This asks the agent to rebuild the visualization. It can take a few minutes and use AI credits. Refresh data instead if only the dataframe results changed.',
+                'This generates new visualization code and uses AI credits. Refresh data instead if only the dataframe results changed.',
             primaryButton: {
                 children: 'Regenerate',
                 onClick: regenerateVisualization,
@@ -214,7 +214,7 @@ export function NotebookNodeGenUISettings({
                                 onClick={confirmRegeneration}
                                 loading={isRegenerating}
                                 disabledReason={commonDisabledReason}
-                                tooltip="Rebuild with the agent. This can take a few minutes and use AI credits."
+                                tooltip="Generate new visualization code using AI credits."
                             >
                                 Regenerate
                             </LemonButton>
@@ -244,7 +244,7 @@ export function NotebookNodeGenUISettings({
                 ) : isRefreshingData ? (
                     <div className="text-xs text-muted">Refreshing saved dataframe rows.</div>
                 ) : isRegenerating ? (
-                    <div className="text-xs text-muted">The agent is rebuilding the visualization.</div>
+                    <div className="text-xs text-muted">Generating new visualization code.</div>
                 ) : null}
             </div>
             <GenUISourceModal logic={logic} />

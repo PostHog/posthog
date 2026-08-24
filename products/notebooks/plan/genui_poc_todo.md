@@ -10,14 +10,14 @@ The current branch implements an end-to-end browser path:
 
 - AI notebook instructions can emit `<GenUI prompt="..." />`, while preferring native `Query` visualizations for standard charts.
 - The node detects dataframe dependencies from exact names in the prompt, existing serialized inputs, or the closest preceding SQL and Python outputs.
-- An editable GenUI node creates or reuses a backing Canvas, starts a background generation task, polls it to a terminal state, and renders the last published build inline.
+- An editable GenUI node creates or reuses a backing Canvas, queues one source-generation job, polls it to a terminal state, and renders the last published build inline.
 - Generated code reads only explicitly declared notebook dataframes with `ph.readFrame(name)`.
-- The notebook host serves bounded rows from saved SQL V2 or Python V2 preview results. It sends schemas and preview sizes, but no row values, to the generation task.
+- The notebook host serves bounded rows from saved SQL V2 or Python V2 preview results. It sends schemas and preview sizes, but no row values, to the model.
 - The artifact runs behind two sandboxed iframe boundaries with network access disabled. The host rejects all data methods except `readFrame` and rejects undeclared frame names.
 - The Canvas build platform pins Three.js and its source validator checks declared notebook frame capabilities.
-- Regeneration keeps the last successful artifact visible and replaces it only after the task publishes a ready build.
+- Regeneration keeps the last successful artifact visible and replaces it only after Canvas publishes a ready build.
 - Data refresh is a separate, fast action that reuses generated source and runs automatically after an upstream notebook chain finishes.
-- Generated React source is available read-only, and immutable source versions can be selected without invoking the generation agent.
+- Generated React source is available read-only, and immutable source versions can be selected without invoking the model.
 
 The hardened implementation moves generation coordination into notebook-specific backend services and generated notebook API clients.
 It persists a team-scoped GenUI lifecycle row, stores notebook-owned snapshots in object storage, and exposes Canvas only through a narrow backend facade.
@@ -29,8 +29,8 @@ The artifact bridge also retains its request concurrency, payload, and timeout b
 ### Local development
 
 Start the development stack through `./bin/start` so it loads `.env.development`.
-The `ai_features` intent includes the MCP server because GenUI task sandboxes publish through `mcp__posthog__exec`.
-The development environment also provides a local-only Canvas artifact signing key so ready builds include iframe artifact URLs.
+GenUI source generation uses the configured AI gateway and does not need a Tasks sandbox or MCP server.
+The development environment provides a local-only Canvas artifact signing key so ready builds include iframe artifact URLs.
 
 ## Objective
 
@@ -84,7 +84,7 @@ The serialized form remains comma-separated for multiple inputs:
 - [x] The ready artifact renders inline and follows the notebook node's height and resize behavior.
 - [x] The settings view exposes the prompt, detected inputs, separate data refresh and regenerate actions, and does not ask for dataframe names.
 - [x] The settings view exposes generated source read-only and keeps Canvas metadata, channel selection, task controls, drafts, publishing controls, and source editing hidden.
-- [x] The settings view lists immutable generated versions and can switch the live visualization to an earlier version without invoking the agent.
+- [x] The settings view lists immutable generated versions and can switch the live visualization to an earlier version without invoking the model.
 - [x] Editing the prompt creates a new generated source version after an explicit regenerate action.
 - [x] Re-running upstream cells marks the GenUI node stale.
 - [x] Running a stale GenUI node captures new input snapshots without invoking the model when the input schemas and prompt are unchanged.
@@ -133,10 +133,10 @@ Notebook node calls an idempotent materialization endpoint
 Backend resolves input schemas and captures bounded snapshots
                               |
                               v
-Canvas generation task receives prompt and schema metadata
+One structured model call receives prompt and schema metadata
                               |
                               v
-Agent writes source that calls ph.readFrame("pandas_df")
+Backend validates source that calls ph.readFrame("pandas_df")
                               |
                               v
 Existing Canvas validation and build pipeline creates an artifact
@@ -149,7 +149,7 @@ The host serves only the saved snapshots declared by this GenUI node
 ```
 
 The implementation uses a normal Canvas as a hidden backing detail.
-The notebook backend owns Canvas and task coordination behind GenUI-specific endpoints.
+The notebook backend owns Canvas and generation coordination behind GenUI-specific endpoints.
 The frontend knows only about the GenUI node, its consolidated lifecycle status, its signed artifact URL, and its declared snapshots.
 
 Record the backing Canvas limitation in the implementation PR.
@@ -164,7 +164,7 @@ A later production design can introduce a generic artifact owner or another stor
 - [x] Store the normalized prompt and normalized input bindings.
 - [x] Store a generation hash derived from the prompt, bindings, input schemas, and generator version.
 - [x] Store the backing Canvas ID as a soft UUID reference for the proof of concept.
-- [x] Store the generation task ID as a soft UUID reference.
+- [x] Keep the initial nullable task ID column migration-compatible without exposing or using it in generation.
 - [x] Store lifecycle status, a typed error code, and a bounded error message.
 - [x] Store the current source version and build IDs needed to find the last successful artifact.
 - [x] Store snapshot metadata and object-storage references instead of dataframe contents in Postgres.
@@ -206,7 +206,7 @@ Do not store generated source, artifact files, or complete dataframe values in n
 - [x] Do not start generation for a view-only user.
 
 For the proof of concept, an editable browser may call the idempotent materialization endpoint when it sees a new unresolved node.
-The endpoint must make concurrent calls safe so two open tabs cannot create duplicate tasks or backing canvases.
+The endpoint must make concurrent calls safe so two open tabs cannot create duplicate jobs or backing canvases.
 Server-side materialization during notebook writes can follow after the experience is proven.
 
 ## Input snapshot contract
@@ -296,23 +296,25 @@ The POC may implement the method as a small extension to the existing Canvas run
 Do not refactor every Canvas host or introduce a general data-source protocol in this branch.
 If Desktop opens a backing Canvas that requires notebook frames, it may show a clear unsupported-host error.
 
-## Generation task
+## Source generation
 
-- [x] Create a GenUI-specific generation prompt around the existing Canvas-building task path.
-- [x] Tell the agent that it is producing one embedded notebook visualization, not a standalone dashboard or document.
+- [x] Queue one background Celery job without provisioning a Tasks sandbox or general coding agent.
+- [x] Request one structured response containing the complete `src/canvas.tsx` source.
+- [x] Run at most one repair call when the response or static source validation fails.
+- [x] Tell the model that it is producing one embedded notebook visualization, not a standalone dashboard or document.
 - [x] Include the prompt, theme expectations, declared input schemas, and the `ph.readFrame` API contract.
-- [x] Tell the agent not to query PostHog directly.
-- [x] Tell the agent not to hardcode dataframe values.
-- [x] Tell the agent to handle empty data and truncation.
-- [x] Tell the agent to render responsively without assuming a fixed notebook width.
-- [x] Tell the agent to clean up animation frames, WebGL resources, timers, and event listeners.
-- [x] Tell the agent to include a useful empty or error state in the artifact.
-- [x] Give the agent the complete disabled PostHog and network capability objects required by Canvas validation.
-- [x] Require the agent to validate, publish, and check the build instead of stopping after it writes source code.
+- [x] Tell the model not to query PostHog directly.
+- [x] Tell the model not to hardcode dataframe values.
+- [x] Tell the model to handle empty data and truncation.
+- [x] Tell the model to render responsively without assuming a fixed notebook width.
+- [x] Tell the model to clean up animation frames, WebGL resources, timers, and event listeners.
+- [x] Tell the model to include a useful empty or error state in the artifact.
+- [x] Attach disabled PostHog and network capabilities in trusted backend code instead of model output.
+- [x] Validate and publish through the Canvas facade, then let the existing Canvas builder create the artifact.
 - [x] Keep source generation separate from dataframe reads so customer values do not enter the model prompt.
 - [x] Make generation idempotent for one generation hash.
 - [x] Keep the previous ready artifact if generation or building fails.
-- [x] Poll task and build completion through the backend service rather than reproducing the full lifecycle in Kea logic.
+- [x] Poll generation and build completion through the backend service rather than reproducing the full lifecycle in Kea logic.
 
 ## Three.js support
 
@@ -356,7 +358,7 @@ POST /api/projects/:team_id/notebooks/:short_id/genui/:node_id/versions/restore
 - [x] Validate notebook view access for status, artifact URL, snapshots, generated source, and version history.
 - [x] Resolve all GenUI records through both team and notebook scope.
 - [x] Rate-limit generation and cap active builds using existing Canvas limits.
-- [x] Return one consolidated status response so the node does not coordinate Canvas, task, and build APIs itself.
+- [x] Return one consolidated status response so the node does not coordinate generation and Canvas build APIs itself.
 
 Suggested status response fields:
 
@@ -367,7 +369,6 @@ prompt
 inputs
 input_schemas
 stale
-generation_task_id
 source_version_id
 build_id
 artifact_url
@@ -449,7 +450,7 @@ Use separate hashes for source generation and input snapshots.
 - [x] Capture GenUI materialization requested, generation completed, build completed, run completed, and render failed events.
 - [x] Record outcome, duration, dependency count, input row count bucket, truncation, source size, and artifact size.
 - [x] Do not capture prompt text, generated source, dataframe names, column names, or dataframe values.
-- [x] Add structured logs with notebook ID, node ID, task ID, Canvas ID, build ID, and outcome.
+- [x] Add structured logs with notebook ID, node ID, Canvas ID, build ID, and outcome.
 - [x] Add counters for idempotency hits and rejected input reads.
 
 ## Tests
@@ -461,7 +462,7 @@ Read the repository's test-writing skill before adding or changing tests.
 - [x] Parsing and normalization of `inputs`.
 - [x] Team and notebook scoping for every action.
 - [x] Idempotent ensure calls under concurrent requests.
-- [x] One backing Canvas and task per generation hash.
+- [x] One backing Canvas and one queued source-generation job per generation hash.
 - [x] Missing and failed upstream input handling.
 - [x] Preview-frame bounds and explicit truncation.
 - [x] Input values excluded from the generation prompt.
@@ -481,7 +482,7 @@ Read the repository's test-writing skill before adding or changing tests.
 - [x] Undeclared frame requests rejected by the host.
 - [x] Runtime error and expired artifact URL handling.
 - [x] Last-good artifact remains visible during regeneration.
-- [x] A bounded live agent activity preview remains visible during generation.
+- [x] Generating and building appear as separate progress states without exposing an internal task UI.
 
 ### Reviewer acceptance scenarios
 
@@ -489,7 +490,7 @@ The implementation checklist is complete. Reviewers can use these scenarios to e
 
 - Build a Python dataframe with `lat`, `lng`, and `timestamp` columns through the notebook UI.
 - Insert the example `<GenUI />` tag through PostHog AI.
-- Generate a spinning globe using Three.js through the GenUI task flow.
+- Generate a spinning globe using Three.js through the direct GenUI generation flow.
 - Verify points come from the dataframe snapshot.
 - Resize the notebook node and confirm the WebGL scene follows it.
 - Switch light and dark themes.
@@ -505,10 +506,10 @@ The implementation checklist is complete. Reviewers can use these scenarios to e
 
 - [x] Register `<GenUI />` and render node states.
 - [x] Add the team-scoped GenUI materialization model and API.
-- [x] Create a hidden backing Canvas and generation task through the backend.
+- [x] Create a hidden backing Canvas and queue direct source generation through the backend.
 - [x] Return one consolidated status response.
 - [x] Render the signed artifact with a minimal sandbox host.
-- [x] Generate and display a data-free animation through the GenUI task flow.
+- [x] Generate and display a data-free animation through the direct GenUI flow.
 
 This proves prompt to code to build to notebook rendering before adding dataframe transport.
 
