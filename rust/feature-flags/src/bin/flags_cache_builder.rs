@@ -102,6 +102,12 @@ const SHADOW_BUILDS: &str = "flags_cache_shadow_builds_total";
 const SHADOW_MISMATCH: &str = "flags_cache_shadow_mismatch_total";
 const SHADOW_MISMATCH_FIRST_SIGHT: &str = "flags_cache_shadow_mismatch_first_sight_total";
 const SHADOW_FAILURES: &str = "flags_cache_shadow_build_failures_total";
+// Per-team wall time for one shadow compare (build + live read + diff). Shadow
+// teams run sequentially after the batch's real builds, so this is the quantity
+// that sets how long a batch of shadow work delays the next real invalidation —
+// the head-of-line span to watch during the producer-side ramp. Seconds-shaped,
+// same buckets as the real-build duration histogram.
+const SHADOW_BUILD_DURATION_SECONDS: &str = "flags_cache_shadow_build_duration_seconds";
 
 /// Caps on the confirmed-mismatch log line (see `summarize_diffs`).
 const SHADOW_LOG_MAX_ENTRIES: usize = 20;
@@ -602,7 +608,12 @@ async fn process_shadow_team(
     team_id: TeamId,
     team_batch: TeamBatch,
 ) -> Vec<Offset> {
-    match shadow_compare(pg_reader, live_reader, tracker, team_id).await {
+    let start = Instant::now();
+    let outcome = shadow_compare(pg_reader, live_reader, tracker, team_id).await;
+    // Recorded for every outcome: the per-team wall time delays the next batch
+    // whether the compare matched, mismatched, or failed.
+    metrics::histogram!(SHADOW_BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
+    match outcome {
         ShadowOutcome::Match => {
             metrics::counter!(SHADOW_BUILDS, "outcome" => "match").increment(1);
         }
@@ -952,7 +963,7 @@ fn spawn_metrics_server(
             .route("/_liveness", get(move || async move { liveness.check() }));
 
         // Reuse the crate's shared recorder/router setup (prometheus install +
-        // /metrics + product label + HTTP metrics middleware), overriding the two
+        // /metrics + product label + HTTP metrics middleware), overriding the
         // seconds-shaped histograms off its ms-shaped default buckets.
         let overrides = [
             (
@@ -962,6 +973,10 @@ fn spawn_metrics_server(
             (
                 Matcher::Full(E2E_LATENCY_SECONDS.to_string()),
                 E2E_LATENCY_BUCKETS,
+            ),
+            (
+                Matcher::Full(SHADOW_BUILD_DURATION_SECONDS.to_string()),
+                BUILD_DURATION_BUCKETS,
             ),
         ];
         let router = setup_metrics_routes_for_product_with_overrides(
