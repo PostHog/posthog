@@ -40,8 +40,17 @@ const {
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
+// Channel reports defaults off here so the Inbox item renders; the flag-on
+// test flips it via `channelReportsFlag`.
+let channelReportsFlag = false;
+let reportsInboxFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports"
+      ? channelReportsFlag
+      : flag === "posthog-desktop-reports-inbox"
+        ? reportsInboxFlag
+        : true,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -78,8 +87,11 @@ vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
     selector: (s: { cells: (string | null)[] }) => unknown,
   ) => selector({ cells: [] }),
 }));
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxDecisionCount", () => ({
+  useInboxDecisionCount: () => 0,
+}));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({ counts: { pulls: 0 } }),
+  useInboxAllReports: () => ({ scopedReports: [], counts: { pulls: 0 } }),
 }));
 vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
   useTasks: () => ({ data: [] }),
@@ -183,6 +195,30 @@ describe("SidebarNavSection", () => {
 
     expect(openSettings).toHaveBeenCalledOnce();
     expect(openBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it("removes the Inbox item when channel reports replace the inbox", () => {
+    channelReportsFlag = true;
+    try {
+      renderNav();
+      expect(
+        screen.queryByRole("button", { name: /Inbox/ }),
+      ).not.toBeInTheDocument();
+    } finally {
+      channelReportsFlag = false;
+    }
+  });
+
+  it("keeps the Inbox item when the reports inbox reclaims the slot", () => {
+    channelReportsFlag = true;
+    reportsInboxFlag = true;
+    try {
+      renderNav();
+      expect(screen.getByRole("button", { name: /Inbox/ })).toBeInTheDocument();
+    } finally {
+      channelReportsFlag = false;
+      reportsInboxFlag = false;
+    }
   });
 
   it("does not render the Channels mode toggle in navigation", () => {

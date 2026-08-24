@@ -31,7 +31,6 @@ import {
   type ConsentRequirement,
   sampleConsentRequirement,
 } from "./consentRequirement";
-import { useHasImportableConfig } from "./useHasImportableConfig";
 
 export type { DetectedRepo };
 
@@ -134,7 +133,6 @@ export function useOnboardingFlow() {
     ],
   );
 
-  const hasImportableConfig = useHasImportableConfig();
   const { data: githubUserIntegrations } = useUserGithubIntegrations();
   const hasGithubIntegration = githubUserIntegrations
     ? githubUserIntegrations.length > 0
@@ -188,12 +186,11 @@ export function useOnboardingFlow() {
   const activeSteps = useMemo(
     () =>
       computeActiveSteps({
-        hasImportableConfig,
         hasGithubIntegration,
         projectCount,
         consentRequired,
       }),
-    [hasImportableConfig, hasGithubIntegration, projectCount, consentRequired],
+    [hasGithubIntegration, projectCount, consentRequired],
   );
 
   useEffect(() => {
