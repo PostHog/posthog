@@ -1116,8 +1116,7 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     )
 
     def validate_verdict(self, value: str) -> str:
-        # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a
-        # silently empty result. Raised as a plain string so the error lands under `verdict`.
+        # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a silent empty result.
         invalid = sorted({v for v in split_csv(value) if v not in _MONITOR_VERDICTS})
         if invalid:
             raise serializers.ValidationError(f"Invalid value(s) {invalid}; allowed: {sorted(_MONITOR_VERDICTS)}.")
@@ -1127,8 +1126,13 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
 class ObservationSearchResultSerializer(serializers.Serializer):
     observation = ReplayObservationSerializer(help_text="The matching observation.")
     distance = serializers.FloatField(
-        help_text="Cosine distance between the search text and the observation's closest embedding; lower is a "
+        help_text="Cosine distance between the search text and the observation's closest embedding. Lower is a "
         "closer match. Only comparable to other results in the same response.",
+    )
+    matched_content = serializers.CharField(
+        allow_blank=True,
+        help_text="Excerpt of the observation text that best matched the search, truncated. Empty for "
+        "observations analyzed before excerpts were stored.",
     )
 
 
@@ -1226,7 +1230,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 self.team, validated["q"], model=OBSERVATION_EMBEDDING_MODEL.value, timeout=10.0
             )
         except httpx.HTTPError:
-            # Only transport failures are retryable; anything else is a bug and should surface as a 500.
+            # Only transport failures are retryable. Anything else is a bug and should surface as a 500.
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(
@@ -1243,12 +1247,19 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             validated["limit"],
             filters,
         )
-        distance_by_id = {match.observation_id: match.distance for match in matches}
+        match_by_id = {match.observation_id: match for match in matches}
         observations = fetch_ranked_observations(
             self.team_id, scanner_ids, [match.observation_id for match in matches], self.user_access_control
         )
         return self._search_response(
-            [{"observation": obs, "distance": distance_by_id[str(obs.id)]} for obs in observations]
+            [
+                {
+                    "observation": obs,
+                    "distance": match_by_id[str(obs.id)].distance,
+                    "matched_content": match_by_id[str(obs.id)].matched_content,
+                }
+                for obs in observations
+            ]
         )
 
     def _search_response(self, results: list[dict[str, Any]]) -> Response:

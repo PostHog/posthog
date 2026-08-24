@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { SEARCH_RESULT_LIMIT, observationSearchLogic } from './observationSearchLogic'
+import { snippetSegments } from './snippetSegments'
 
 const EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
 
@@ -23,10 +25,12 @@ function countLabel(count: number): string {
 
 function SearchResultCard({
     result,
+    searchedQuery,
     showScanner,
     strongMatch,
 }: {
     result: ObservationSearchResultApi
+    searchedQuery: string
     showScanner: boolean
     strongMatch: boolean
 }): JSX.Element {
@@ -58,6 +62,19 @@ function SearchResultCard({
                     <TZLabel time={observation.created_at} />
                 </span>
             </div>
+            {result.matched_content && (
+                <div className="text-sm text-secondary line-clamp-2">
+                    {snippetSegments(result.matched_content, searchedQuery).map((segment, index) =>
+                        segment.highlighted ? (
+                            <span key={index} className="font-semibold text-accent">
+                                {segment.text}
+                            </span>
+                        ) : (
+                            <Fragment key={index}>{segment.text}</Fragment>
+                        )
+                    )}
+                </div>
+            )}
             <ObservationResultSummary observation={observation} />
         </Link>
     )
@@ -139,6 +156,7 @@ export function ObservationSearchTab({ scannerId }: { scannerId: string | null }
                                     <SearchResultCard
                                         key={result.observation.id}
                                         result={result}
+                                        searchedQuery={searchedQuery ?? ''}
                                         showScanner={crossScanner}
                                         strongMatch={
                                             strongMatchDistanceCutoff !== null &&

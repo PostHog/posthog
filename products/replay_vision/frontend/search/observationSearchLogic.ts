@@ -9,14 +9,14 @@ import { visionObservationsSearchRetrieve } from '../generated/api'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { ReplayScannerTab } from '../replay_scanners/replayScannerSceneLogic'
 
-// The server's MAX_SEARCH_LIMIT; a larger value would 400.
+// The server's MAX_SEARCH_LIMIT. A larger value would 400.
 export const SEARCH_RESULT_LIMIT = 50
 
 // Relative to the best match, because distances are only comparable within one response.
 const STRONG_MATCH_MARGIN = 0.05
 
 export interface ObservationSearchLogicProps {
-    /** Scope the search to one scanner; null searches every scanner the user can read. */
+    /** Scope the search to one scanner. Null searches every scanner the user can read. */
     scannerId: string | null
 }
 
@@ -138,7 +138,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                     limit: SEARCH_RESULT_LIMIT,
                     ...(props.scannerId ? { scanner_id: props.scannerId } : {}),
                 })
-                // Drop out-of-order responses; the newest search owns the results.
+                // Drop out-of-order responses. The newest search owns the results.
                 breakpoint()
                 actions.searchSuccess(response.results ?? [], query)
             } catch (error: any) {
@@ -165,7 +165,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             if (searchParams.tab !== ReplayScannerTab.Search) {
                 return
             }
-            // kea-router decodes ?q=true to a boolean; stringify instead of dropping it.
+            // kea-router decodes ?q=true to a boolean, so stringify instead of dropping it.
             const raw = searchParams.q
             const q = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
             // Run a deep-linked query once. The in-flight guard stops the actionToUrl echo of an

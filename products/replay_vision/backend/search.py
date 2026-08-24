@@ -30,13 +30,15 @@ from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_
 # Default and hard cap on how many observations a search returns.
 DEFAULT_SEARCH_LIMIT = 20
 MAX_SEARCH_LIMIT = 50
+# Cut in ClickHouse so full facet paragraphs never travel over the wire.
+_MATCHED_CONTENT_MAX_CHARS = 300
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
-# ranks over. Set well above realistic per-team volume so it only bites a runaway team — keeping latency
+# ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
 _MAX_CANDIDATE_ROWS = 50_000
 
 # Slugify each stored metadata tag before `hasAny`, so the case/format-insensitive match works against rows
-# whose fixed-vocab tags were stamped verbatim — no backfill. The caller passes already-slugified values in
+# whose fixed-vocab tags were stamped verbatim, with no backfill. The caller passes already-slugified values in
 # `{tags}`. Built from hardcoded literals only (no user/LLM input), preserving the `_append_filter` invariant.
 _TAGS_FILTER_CLAUSE = (
     f"hasAny(arrayMap(t -> {clickhouse_slugify_sql('t')}, JSONExtract(metadata, 'tags', 'Array(String)')), {{tags}})"
@@ -49,6 +51,8 @@ class ObservationMatch:
 
     observation_id: str
     distance: float
+    # Excerpt of the row that ranked this hit. Empty for rows written before `content` was stored.
+    matched_content: str
 
 
 @dataclass(frozen=True)
@@ -70,7 +74,7 @@ class ObservationSearchFilters:
         max_score: float | None,
     ) -> "ObservationSearchFilters":
         """Normalize caller-supplied values: tags slugified to match the stored side, verdicts lowercased so
-        a casing slip doesn't silently match nothing; both order-preserving deduped."""
+        a casing slip doesn't silently match nothing. Both are order-preserving deduped."""
         normalized_tags = list(dict.fromkeys(s for t in (tags or []) if (s := slugify_tag(t)))) or None
         normalized_verdict = list(dict.fromkeys(v.strip().lower() for v in (verdict or []) if v.strip())) or None
         return cls(verdict=normalized_verdict, tags=normalized_tags, min_score=min_score, max_score=max_score)
@@ -79,10 +83,9 @@ class ObservationSearchFilters:
         """HogQL predicates over `metadata`, registering their values into `placeholders`. The metadata key is
         absent for scanner types that don't carry it, so each predicate naturally matches only the right type.
 
-        Every clause MUST be added via `_append_filter` — that helper is the only path that pairs a
-        hardcoded-literal clause string with a parameterized placeholder. Never append a clause built from
-        anything other than a static string literal; user/LLM-controlled input belongs in `value`, not in
-        `clause`."""
+        Every clause MUST be added via `_append_filter`, the only path that pairs a hardcoded-literal
+        clause string with a parameterized placeholder. Never append a clause built from anything other
+        than a static string literal. User/LLM-controlled input belongs in `value`, not in `clause`."""
         clauses: list[str] = []
         if self.verdict:
             self._append_filter(
@@ -118,7 +121,7 @@ class ObservationSearchFilters:
     ) -> None:
         """Register one filter atomically: the value goes into `placeholders` (parameterized), the clause is
         the hardcoded literal that references it. The structure/value split lives in one place so callers
-        can't half-do it — any future filter must come through here, which makes the "clause is a static
+        can't half-do it. Any future filter must come through here, which makes the "clause is a static
         literal" invariant impossible to break by accident."""
         placeholders[key] = ast.Constant(value=value)
         clauses.append(clause)
@@ -132,15 +135,15 @@ def rank_observations(
     limit: int,
     filters: ObservationSearchFilters,
 ) -> list[ObservationMatch]:
-    """Closest observations by cosine distance, restricted to the given scanners — and to the structured
-    outcome filters — via the embedding metadata, so filter and rank happen in a single query.
+    """Closest observations by cosine distance, restricted to the given scanners and to the structured
+    outcome filters via the embedding metadata, so filter and rank happen in a single query.
 
     `min(...)` collapses an observation's multiple renderings (the summarizer's per-facet rows) to its
     single best-matching distance, so each observation appears once.
 
     The distance scan is exact (brute-force), so we bound it: the inner query takes the most recent
     `_MAX_CANDIDATE_ROWS` matching embedding rows before ranking. Below that volume (all teams at launch
-    scale) it's a no-op; a high-volume team is capped to its most recent embeddings, keeping latency
+    scale) it's a no-op. A high-volume team is capped to its most recent embeddings, keeping latency
     predictable at the cost of not ranking its oldest observations.
     """
     placeholders: dict[str, ast.Expr] = {
@@ -152,14 +155,16 @@ def rank_observations(
         "scanner_ids": ast.Constant(value=scanner_ids),
         "candidate_cap": ast.Constant(value=_MAX_CANDIDATE_ROWS),
         "limit": ast.Constant(value=limit),
+        "snippet_chars": ast.Constant(value=_MATCHED_CONTENT_MAX_CHARS),
     }
     filter_clause = "".join(f"\n              AND {clause}" for clause in filters.where_clauses(placeholders))
     hogql_query = f"""
         SELECT
             document_id,
-            min(cosineDistance(embedding, {{embedding}})) AS distance
+            min(cosineDistance(embedding, {{embedding}})) AS distance,
+            argMin(substring(content, 1, {{snippet_chars}}), cosineDistance(embedding, {{embedding}})) AS matched_content
         FROM (
-            SELECT document_id, embedding
+            SELECT document_id, embedding, content
             FROM document_embeddings
             WHERE model_name = {{model_name}}
               AND product = {{product}}
@@ -181,7 +186,10 @@ def rank_observations(
         placeholders=placeholders,
         ch_user=ClickHouseUser.REPLAY_VISION,
     )
-    return [ObservationMatch(observation_id=row[0], distance=row[1]) for row in (result.results or [])]
+    return [
+        ObservationMatch(observation_id=row[0], distance=row[1], matched_content=row[2])
+        for row in (result.results or [])
+    ]
 
 
 def fetch_ranked_observations(

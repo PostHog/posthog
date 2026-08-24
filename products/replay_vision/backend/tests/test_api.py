@@ -3079,17 +3079,17 @@ class TestObservationSearchAction(_VisionAPITestCase):
         mock_embed.return_value = MagicMock(embedding=[0.1, 0.2])
         # A ranked id with no readable row must be skipped, not 500 or leak.
         mock_rank.return_value = [
-            ObservationMatch(observation_id=str(second.id), distance=0.1),
-            ObservationMatch(observation_id=str(uuid7()), distance=0.2),
-            ObservationMatch(observation_id=str(first.id), distance=0.3),
+            ObservationMatch(observation_id=str(second.id), distance=0.1, matched_content="user rage-clicked"),
+            ObservationMatch(observation_id=str(uuid7()), distance=0.2, matched_content=""),
+            ObservationMatch(observation_id=str(first.id), distance=0.3, matched_content=""),
         ]
 
         resp = self.client.get(f"{self.search_url}?q=confused users")
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(
-            [(r["observation"]["id"], r["distance"]) for r in resp.json()["results"]],
-            [(str(second.id), 0.1), (str(first.id), 0.3)],
+            [(r["observation"]["id"], r["distance"], r["matched_content"]) for r in resp.json()["results"]],
+            [(str(second.id), 0.1, "user rage-clicked"), (str(first.id), 0.3, "")],
         )
 
     @patch("products.replay_vision.backend.api.observations.rank_observations")
@@ -3102,14 +3102,14 @@ class TestObservationSearchAction(_VisionAPITestCase):
             name="was-targeted", experiment_targeting={"experiment_id": experiment.id, "variant": "test"}
         )
         restricted = self._create_succeeded_observation("sess-restricted", scanner=targeted)
-        # Clear the targeting so the scanner passes the scanner gate; the row's snapshot must still block it.
+        # Clear the targeting so the scanner passes the scanner gate. The row's snapshot must still block it.
         targeted.experiment_targeting = None
         targeted.save(update_fields=["experiment_targeting"])
         visible = self._create_succeeded_observation("sess-visible")
         mock_embed.return_value = MagicMock(embedding=[0.1])
         mock_rank.return_value = [
-            ObservationMatch(observation_id=str(restricted.id), distance=0.1),
-            ObservationMatch(observation_id=str(visible.id), distance=0.2),
+            ObservationMatch(observation_id=str(restricted.id), distance=0.1, matched_content=""),
+            ObservationMatch(observation_id=str(visible.id), distance=0.2, matched_content=""),
         ]
 
         with patch(

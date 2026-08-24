@@ -50641,8 +50641,10 @@ export namespace Schemas {
     export interface ObservationSearchResult {
       /** The matching observation. */
       observation: ReplayObservation;
-      /** Cosine distance between the search text and the observation's closest embedding; lower is a closer match. Only comparable to other results in the same response. */
+      /** Cosine distance between the search text and the observation's closest embedding. Lower is a closer match. Only comparable to other results in the same response. */
       distance: number;
+      /** Excerpt of the observation text that best matched the search, truncated. Empty for observations analyzed before excerpts were stored. */
+      matched_content: string;
     }
 
     export interface ObservationSearchResponse {
