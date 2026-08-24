@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo, type CSSProperties } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 
 import { IconLogomark } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
@@ -41,22 +41,15 @@ export function ExceptionCard({
     loading,
     ...contentProps
 }: ExceptionCardProps): JSX.Element {
-    const cardLogicProps = useMemo(() => ({ issueId }), [issueId])
-    const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
+    const cardLogicProps = useMemo(() => ({ issueId, loading }), [issueId, loading])
 
-    useEffect(() => {
-        setLoading(loading)
-    }, [setLoading, loading])
-
-    const eventProps = useMemo(
-        () =>
-            ({
-                properties: event?.properties,
-                id: event?.uuid ?? issueId ?? 'error',
-                timestamp: event?.timestamp,
-            }) as ErrorPropertiesLogicProps,
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [event?.uuid ?? issueId]
+    const eventProps = useMemo<ErrorPropertiesLogicProps>(
+        () => ({
+            properties: event?.properties,
+            id: event?.uuid ?? issueId,
+            timestamp: event?.timestamp,
+        }),
+        [event?.properties, event?.timestamp, event?.uuid, issueId]
     )
     const fingerprint = event?.properties?.$exception_fingerprint
 
@@ -90,7 +83,16 @@ function ExceptionCardContent({
         <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
             <Tabs
                 value={currentTab}
-                onValueChange={(value) => setCurrentTab(String(value))}
+                onValueChange={(value) => {
+                    if (
+                        value === 'stack_trace' ||
+                        value === 'properties' ||
+                        value === 'timeline' ||
+                        value === 'recording'
+                    ) {
+                        setCurrentTab(value)
+                    }
+                }}
                 className="flex min-h-0 flex-1 flex-col gap-0"
             >
                 <div className="grid h-10 w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-2">
