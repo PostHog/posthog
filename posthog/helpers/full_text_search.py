@@ -3,9 +3,18 @@ from typing import Literal, cast
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db.models.expressions import CombinedExpression
+from django.db.models.functions import Left
 
 UNSAFE_CHARACTERS = r"[\'&|!<>():]"
 """Characters unsafe in a `tsquery`."""
+
+MAX_SEARCH_FIELD_LENGTH = 100_000
+"""
+Characters kept from each field before it reaches `to_tsvector`.
+Postgres rejects any `to_tsvector` input over 1 MB, and an unbounded field such as a
+notebook's `text_content` can exceed that. A match this deep adds almost nothing to the
+rank, so the cap does not change results in practice.
+"""
 
 
 def process_query(query: str) -> str | None:
@@ -30,7 +39,10 @@ def build_search_vector(
     Builds a search vector from a dict, whereby the key is the search field and the value
     is the Postgres weight e.g. `{"name": "A", "description": "C"}`.
     """
-    search_vectors = [SearchVector(key, weight=value, config=config) for key, value in search_fields.items()]
+    search_vectors = [
+        SearchVector(Left(key, MAX_SEARCH_FIELD_LENGTH), weight=value, config=config)
+        for key, value in search_fields.items()
+    ]
     if not search_vectors:
         raise ValueError("search_fields cannot be empty")
     vector = cast(CombinedExpression, search_vectors[0])

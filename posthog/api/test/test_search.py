@@ -198,6 +198,21 @@ class TestSearch(APIBaseTest):
         with pytest.raises(ValueError, match="search_fields cannot be empty"):
             build_search_vector({})
 
+    def test_search_with_oversized_notebook(self):
+        # Postgres rejects `to_tsvector` input over 1 MB, so an unbounded field such as a
+        # notebook's `text_content` must be capped before it reaches the query.
+        Notebook.objects.create(
+            team=self.team,
+            created_by=self.user,
+            short_id="huge1",
+            title="huge notebook",
+            text_content="lorem ipsum " * 200_000,
+        )
+
+        response = self.client.get("/api/projects/@current/search?q=sec")
+
+        self.assertEqual(response.status_code, 200)
+
     def test_filters(self):
         # Create feature flags with specific tags to identify them
         FeatureFlag.objects.create(
