@@ -227,6 +227,9 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             date_range,
             exclude_resource_attribute=facet.key if facet.attribute_type == "resource" else None,
         )
+        # Level and service also arrive as `log` filters in filterGroup, which is where the viewer
+        # keeps a facet selection. The builder strips whichever one this facet owns.
+        where_exprs.extend(filter_builder.column_filter_exprs())
         where_exprs.append(filter_builder.resource_filter(existing_filters=where_exprs))
 
         query = parse_select(

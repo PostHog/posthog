@@ -89,6 +89,11 @@ def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
         log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
 
 
+# The two `log` filter keys that name a top-level column rather than an attribute. Kept here so the
+# WHERE loop and column_filter_exprs() agree on which keys the translation owns.
+COLUMN_FILTER_KEYS = ("severity_level", "service_name")
+
+
 def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
     """Translate a `severity_level` log property filter to a HogQL expression on `severity_text`.
 
@@ -331,6 +336,29 @@ class LogsFilterBuilder:
                 f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
             ]
 
+    def _column_filter_expr(self, log_filter: LogPropertyFilter) -> ast.Expr | None:
+        """Translate a severity_level or service_name filter, or None when this facet owns it.
+
+        A facet must not apply its own filter to its own counts, or selecting a value would zero out
+        every sibling — the same strip `exclude_facet_field` performs for the dedicated fields.
+        """
+        if log_filter.key == "severity_level":
+            return None if self.exclude_facet_field == "severity_text" else _severity_level_to_expr(log_filter)
+        if log_filter.key == "service_name":
+            return None if self.exclude_facet_field == "service_name" else property_to_expr(log_filter, team=self.team)
+        return None
+
+    def column_filter_exprs(self) -> list[ast.Expr]:
+        """The severity and service filters from `filterGroup`, as exprs on the columns they name.
+
+        Facet counts and the taxonomic key/value suggestions read pre-aggregated tables that carry
+        `service_name` and `severity_text` and nothing else from a log row, so these two filters are
+        the only ones from the group they can apply. Everything else in the group (message, trace ids,
+        log attributes) has no column to match against there.
+        """
+        exprs = [self._column_filter_expr(log_filter) for log_filter in self.log_filters]
+        return [expr for expr in exprs if expr is not None]
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -383,15 +411,10 @@ class LogsFilterBuilder:
 
             if self.log_filters:
                 for log_filter in self.log_filters:
-                    if log_filter.key == "severity_level":
-                        if self.exclude_facet_field != "severity_text":
-                            exprs.append(_severity_level_to_expr(log_filter))
-                        continue
-                    if log_filter.key == "service_name":
-                        # Same own-facet strip as severity: the rail's service exclusions must not
-                        # zero out their own value's count when faceting on service_name.
-                        if self.exclude_facet_field != "service_name":
-                            exprs.append(property_to_expr(log_filter, team=self.team))
+                    if log_filter.key in COLUMN_FILTER_KEYS:
+                        column_expr = self._column_filter_expr(log_filter)
+                        if column_expr is not None:
+                            exprs.append(column_expr)
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
@@ -648,6 +671,9 @@ class LogsQueryRunnerMixin(QueryRunner):
 
     def resource_filter(self, *, existing_filters):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)
+
+    def column_filter_exprs(self):
+        return self._filter_builder.column_filter_exprs()
 
 
 # Number of fixed SELECT columns in to_query; custom columns are appended after these,
