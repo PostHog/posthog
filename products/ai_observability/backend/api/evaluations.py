@@ -2,13 +2,16 @@ from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from django.http import Http404
 
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -28,6 +31,7 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_prope
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
@@ -268,7 +272,9 @@ class EvaluationConditionSerializer(serializers.Serializer):
     )
 
 
-class EvaluationSerializer(serializers.ModelSerializer):
+class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """An evaluation that scores LLM generations, traces, or sessions."""
+
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -354,6 +360,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "deleted",
+            "user_access_level",
         ]
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
         # system transitions). Clients toggle `enabled`; the model's save() keeps the status fields consistent.
@@ -992,6 +999,20 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             queryset = queryset.filter(deleted=False)
         return queryset
 
+    def safely_get_object(self, queryset: QuerySet[Evaluation]) -> Evaluation:
+        evaluation_id = self.kwargs["pk"]
+        try:
+            # Matches what DRF's own get_object() does, including coercing an unparseable pk to a
+            # 404, so only the message differs.
+            return get_object_or_404(queryset, pk=evaluation_id)
+        except Http404:
+            # DRF's bare "Not found." points a caller at nothing it can act on. A name passed where
+            # the id belongs lands here too, since it can't parse as a UUID.
+            raise NotFound(
+                f"No evaluation '{evaluation_id}' in this project. "
+                "List the project's evaluations to look one up by name."
+            )
+
     @staticmethod
     def _get_config_length(instance) -> int:
         """Get the relevant config content length for tracking."""
@@ -1157,6 +1178,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
+
         serializer = TestHogRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"error": serializer.errors}, status=400)

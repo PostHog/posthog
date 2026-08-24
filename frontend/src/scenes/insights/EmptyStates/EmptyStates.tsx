@@ -26,7 +26,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
-import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
+import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
@@ -66,10 +66,6 @@ const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 )
-
-// Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
-// a clean href. No `g` flag needed: split() finds all matches and interleaves the captured URLs.
-const DETAIL_URL_REGEX = /(https?:\/\/[^\s]*[^\s.,;:!?)\]}'"])/
 
 export function InsightEmptyState({
     heading,
@@ -577,21 +573,6 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 
             <QueryIdDisplay queryId={queryId} />
         </div>
-    )
-}
-
-// Render embedded URLs (e.g. backend docs links) as clickable links. Only PostHog-host URLs are
-// linkified — error detail can echo user-controlled text.
-export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
-    // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
-    return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        index % 2 === 1 && isTrustedPostHogUrl(part) ? (
-            <Link key={index} to={part} target="_blank">
-                {part}
-            </Link>
-        ) : (
-            part
-        )
     )
 }
 

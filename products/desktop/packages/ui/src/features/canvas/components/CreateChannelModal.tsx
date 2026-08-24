@@ -246,7 +246,7 @@ export function CreateChannelModal({
 
     onOpenChange(false);
     void navigate({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId: contextId },
     });
   };
@@ -271,7 +271,7 @@ export function CreateChannelModal({
     // task card show. The user clicks the card to open the session.
     onOpenChange(false);
     void navigate({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId: existingContext.channelId },
     });
   };
