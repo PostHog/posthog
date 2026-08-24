@@ -12,6 +12,7 @@ export type SelfDrivingOnboardingStepId =
     | 'goals'
     | 'tools'
     | 'install'
+    | 'sources'
     | 'authorized-urls'
     | 'ai-observability'
     | 'billing'

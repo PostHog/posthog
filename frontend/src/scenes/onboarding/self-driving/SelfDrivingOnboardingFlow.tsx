@@ -27,6 +27,7 @@ import { AIObservabilityStep } from './steps/AIObservabilityStep'
 import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
 import { InstallStep } from './steps/InstallStep'
+import { SourcesStep } from './steps/SourcesStep'
 import { ToolsStep } from './steps/ToolsStep'
 import { UseCasesStep } from './steps/UseCasesStep'
 import { WelcomeStep } from './steps/WelcomeStep'
@@ -85,6 +86,17 @@ function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
         // finish line without. These steps render their own action zone, so the footer Continue is
         // suppressed.
         ...(resolveSetup(useCase).extraSteps ?? []).map((id) => EXTRA_STEPS[id]),
+        // Shown to every goal: ad platforms (Google Ads, Meta Ads) and other warehouse sources
+        // have no other onboarding surface, and connecting one is what makes cross-source
+        // insights possible later.
+        {
+            id: 'sources',
+            title: 'Connect your data',
+            Content: SourcesStep,
+            skippable: true,
+            hideContinue: true,
+            maxWidth: 'max-w-3xl',
+        },
         {
             id: 'billing',
             title: 'Pick a plan',
