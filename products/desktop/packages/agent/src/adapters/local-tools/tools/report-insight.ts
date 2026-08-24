@@ -45,7 +45,7 @@ const WASTED_EFFORT_REQUIRED_CATEGORIES = new Set([
 const evidenceSchema = z.object({
   quote: z
     .string()
-    .min(10)
+    .min(20)
     .max(300)
     .describe(
       "Verbatim span copied from your jq query output. Checked against the raw run log; a paraphrase is rejected.",
@@ -92,6 +92,18 @@ function enqueueReport<T>(run: () => Promise<T>): Promise<T> {
 
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
+}
+
+// Desktop ships on its own schedule with no orchestration against backend deploys, so a
+// report can hit an older server contract (a 10-19 char quote, an output_bytes-only
+// finding). The API throws a raw `Failed request: [400] {...}` blob that loses the finding
+// silently. Turn a rejection into an actionable error so the model can correct the input
+// and retry, matching the coaching style of every other rejection path in this tool.
+function reportRejectionResult(error: unknown, what: string): LocalToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return errorResult(
+    `The ${what} was rejected by the server and was not recorded. Correct the flagged field and call report_insight again. Server response: ${message}`,
+  );
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ESC byte is the point
@@ -302,16 +314,20 @@ export const reportInsightTool = defineLocalTool({
             "no_findings_reason cannot be combined with a finding. Either report the finding (drop no_findings_reason) or report no findings (drop every other field).",
           );
         }
-        await withReportDeadline(
-          (signal) =>
-            client.reportAnalysisInsight(
-              ctx.taskId as string,
-              ctx.taskRunId as string,
-              { no_findings_reason: args.no_findings_reason },
-              signal,
-            ),
-          "no-findings report",
-        );
+        try {
+          await withReportDeadline(
+            (signal) =>
+              client.reportAnalysisInsight(
+                ctx.taskId as string,
+                ctx.taskRunId as string,
+                { no_findings_reason: args.no_findings_reason },
+                signal,
+              ),
+            "no-findings report",
+          );
+        } catch (error) {
+          return reportRejectionResult(error, "no-findings report");
+        }
         return {
           content: [
             {
@@ -399,25 +415,29 @@ export const reportInsightTool = defineLocalTool({
         confidence_basis: args.confidence_basis,
         suggested_fix: args.suggested_fix,
       };
-      const { insight_index } = await withReportDeadline(
-        (signal) =>
-          client.reportAnalysisInsight(
-            ctx.taskId as string,
-            ctx.taskRunId as string,
-            insight,
-            signal,
-          ),
-        "insight report",
-      );
+      try {
+        const { insight_index } = await withReportDeadline(
+          (signal) =>
+            client.reportAnalysisInsight(
+              ctx.taskId as string,
+              ctx.taskRunId as string,
+              insight,
+              signal,
+            ),
+          "insight report",
+        );
 
-      const remaining = MAX_INSIGHTS_PER_RUN - insight_index - 1;
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Recorded finding ${insight_index + 1} (${args.category}). ${remaining} more allowed; only report findings that clear the evidence bar.`,
-          },
-        ],
-      };
+        const remaining = MAX_INSIGHTS_PER_RUN - insight_index - 1;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Recorded finding ${insight_index + 1} (${args.category}). ${remaining} more allowed; only report findings that clear the evidence bar.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return reportRejectionResult(error, "finding");
+      }
     }),
 });

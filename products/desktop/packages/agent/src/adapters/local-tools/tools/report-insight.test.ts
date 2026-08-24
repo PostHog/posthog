@@ -232,6 +232,20 @@ describe("reportInsightTool", () => {
     );
   });
 
+  it("returns a coaching error when the server rejects the report", async () => {
+    reportAnalysisInsight.mockRejectedValueOnce(
+      new Error(
+        'Failed request: [400] {"evidence":[{"quote":["Ensure this value has at least 20 characters."]}]}',
+      ),
+    );
+    const result = await reportInsightTool.handler(ctx(cwd), validFinding());
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/was rejected by the server/);
+    expect(result.content[0].text).toContain(
+      "Ensure this value has at least 20 characters",
+    );
+  });
+
   it("accumulates findings filed as parallel tool calls", async () => {
     const state: Record<string, unknown> = {};
     reportAnalysisInsight.mockImplementation(appendingUpdateMock(state));
