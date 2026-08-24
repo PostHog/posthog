@@ -88,6 +88,9 @@ class TestFastReturnEligibility:
     def test_schema_state_that_blocks_eligibility(self, _name: str, config_overrides: dict):
         assert _run(_schema(**config_overrides)) is False
 
+    def test_naive_full_run_stamp_is_not_eligible(self):
+        assert _run(_schema(last_full_run_at=dt.datetime.now().isoformat())) is False
+
     def test_incomplete_initial_sync_is_not_eligible(self):
         schema = _schema()
         schema.initial_sync_complete = False

@@ -249,6 +249,8 @@ def _fast_return_eligible(
         stamped = dt.datetime.fromisoformat(last_full_run_at)
     except (TypeError, ValueError):
         return False
+    if stamped.tzinfo is None:
+        return False
     return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
 
 
