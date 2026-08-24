@@ -4,14 +4,23 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from products.alerts.backend.destination_configs import (
+    AlertDestinationConfig,
+    EventKindSpec,
+    build_alert_destination_config,
+)
 from products.alerts.backend.destinations import (
     AlertDelivery,
     alert_internal_event_delivered,
+    create_alert_destination_hog_functions,
+    delete_shared_alert_destinations,
+    get_or_create_shared_alert,
     list_active_alert_destinations,
     serialize_deliveries,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
+from products.alerts.backend.models.shared_alert import AlertDestination, AlertProduct, AlertSharedIdentity
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 ALLOWED_EVENT_IDS = ("$logs_alert_firing", "$logs_alert_resolved")
@@ -319,3 +328,129 @@ class TestSerializeDeliveries(APIBaseTest):
                 "at": "2026-08-11T01:00:00+00:00",
             }
         ]
+
+
+class TestSharedAlertDualWrite(APIBaseTest):
+    """The dual-write path that stamps explicit ownership onto HogFunctions.
+
+    Phase 3 of the RFC: writers still fill the legacy `alert_id`/event filters,
+    but they also copy the relationship onto the new `alert_destination` /
+    `alert_event_kind` columns so routing can migrate behind the scenes.
+    """
+
+    def _build_config(self, *, event_kind: str) -> AlertDestinationConfig:
+        spec = EventKindSpec(
+            event_id=f"$logs_alert_{event_kind}",
+            display_kind=event_kind,
+            header=f"Alert is {event_kind}",
+            details=(),
+            primary_action_url="",
+            primary_action_label="View",
+            webhook_body={},
+            product_label="Test",
+        )
+        return build_alert_destination_config(
+            team=self.team,
+            spec=spec,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data={"type": "webhook", "webhook_url": "https://example.com/hook"},
+            slack_context_elements=(),
+            alert_event_kind=event_kind,
+        )
+
+    def test_creates_alert_destination_and_stamps_ownership(self) -> None:
+        shared_alert = AlertSharedIdentity.objects.create(
+            product=AlertProduct.LOGS,
+            organization_id=self.team.organization_id,
+            execution_team_id=self.team.id,
+        )
+
+        configs = [self._build_config(event_kind="firing"), self._build_config(event_kind="resolved")]
+        hog_functions = create_alert_destination_hog_functions(
+            configs,
+            request=MagicMock(user=self.user),
+            shared_alert=shared_alert,
+            destination_name="Webhook example.com",
+        )
+
+        destination = AlertDestination.objects.get(shared_alert=shared_alert)
+        assert destination.type == "webhook"
+        assert destination.name == "Webhook example.com"
+        assert len(hog_functions) == 2
+        for hog_function, config in zip(hog_functions, configs):
+            assert hog_function.alert_destination_id == destination.id
+            assert hog_function.alert_event_kind == config.alert_event_kind
+            # Filter-based routing keeps working until runtime switches over.
+            assert hog_function.filters == {
+                "events": [{"id": "$logs_alert_firing", "type": "events"}],
+                "properties": [{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "event"}],
+            }
+
+    def test_creates_hog_functions_without_shared_alert_write_path(self) -> None:
+        hog_functions = create_alert_destination_hog_functions(
+            [self._build_config(event_kind="firing")],
+            request=MagicMock(user=self.user),
+        )
+
+        assert len(hog_functions) == 1
+        assert hog_functions[0].alert_destination_id is None
+        assert hog_functions[0].alert_event_kind is None
+        assert not AlertDestination.objects.exists()
+
+    def test_rejects_duplicate_event_kinds_in_one_logical_destination(self) -> None:
+        shared_alert = AlertSharedIdentity.objects.create(
+            product=AlertProduct.LOGS,
+            organization_id=self.team.organization_id,
+            execution_team_id=self.team.id,
+        )
+
+        configs = [self._build_config(event_kind="firing"), self._build_config(event_kind="firing")]
+        with self.assertRaisesRegex(ValidationError, "alert_event_kind values must be unique"):
+            create_alert_destination_hog_functions(
+                configs,
+                request=MagicMock(user=self.user),
+                shared_alert=shared_alert,
+                destination_name="Webhook example.com",
+            )
+
+    def test_get_or_create_shared_alert_updates_execution_team(self) -> None:
+        shared_alert = AlertSharedIdentity.objects.create(
+            product=AlertProduct.BILLING,
+            organization_id=self.team.organization_id,
+            execution_team_id=None,
+        )
+
+        ret = get_or_create_shared_alert(
+            alert_id=shared_alert.id,
+            product=AlertProduct.BILLING,
+            organization_id=self.team.organization_id,
+            execution_team_id=self.team.id,
+        )
+
+        assert ret.id == shared_alert.id
+        ret.refresh_from_db()
+        assert ret.execution_team_id == self.team.id
+
+    def test_delete_shared_alert_destinations_soft_deletes_executors_and_clears_rows(self) -> None:
+        shared_alert = AlertSharedIdentity.objects.create(
+            product=AlertProduct.LOGS,
+            organization_id=self.team.organization_id,
+            execution_team_id=self.team.id,
+        )
+        configs = [self._build_config(event_kind="firing"), self._build_config(event_kind="resolved")]
+        hog_functions = create_alert_destination_hog_functions(
+            configs,
+            request=MagicMock(user=self.user),
+            shared_alert=shared_alert,
+            destination_name="Webhook example.com",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            delete_shared_alert_destinations(shared_alert=shared_alert)
+
+        for hog_function in hog_functions:
+            hog_function.refresh_from_db()
+            assert hog_function.deleted is True
+            assert hog_function.enabled is False
+        assert not AlertDestination.objects.filter(id=shared_alert.id).exists()

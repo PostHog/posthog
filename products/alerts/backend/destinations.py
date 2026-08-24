@@ -23,6 +23,7 @@ from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
+from products.alerts.backend.models.shared_alert import AlertDestination, AlertSharedIdentity
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -61,6 +62,76 @@ class ActiveAlertDestination:
     destination_type: str | None
 
 
+def get_or_create_shared_alert(
+    *,
+    alert_id: UUID,
+    product: str,
+    organization_id: UUID,
+    execution_team_id: int | None,
+) -> AlertSharedIdentity:
+    """Return the shared identity row for one product alert, creating it on
+    first use with the product alert's UUID as the primary key.
+
+    Callers pass the product row's UUID so the API URLs, internal events, and
+    history that already reference the alert keep pointing at the same
+    identifier after the migration backfills and links remain stable.
+    """
+    shared_alert, created = AlertSharedIdentity.objects.get_or_create(
+        id=alert_id,
+        defaults={
+            "product": product,
+            "organization_id": organization_id,
+            "execution_team_id": execution_team_id,
+        },
+    )
+    if not created:
+        # The product row may have moved teams since the backfill; keep the
+        # execution team in sync so routing and authorization don't drift.
+        update_fields: list[str] = []
+        if shared_alert.execution_team_id != execution_team_id:
+            shared_alert.execution_team_id = execution_team_id
+            update_fields.append("execution_team_id")
+        if shared_alert.organization_id != organization_id:
+            shared_alert.organization_id = organization_id
+            update_fields.append("organization_id")
+        if update_fields:
+            shared_alert.save(update_fields=update_fields)
+    return shared_alert
+
+
+def delete_shared_alert_destinations(*, shared_alert: AlertSharedIdentity) -> int:
+    """Delete a shared alert's destinations, their owned executors, and the
+    alert-destination rows themselves, with CDP worker cache reload.
+
+    HogFunctions are soft-deleted (`deleted=True`) because history and revision
+    APIs still reference the rows. The DB-level `CASCADE` on `shared_alert` /
+    `alert_destination` provides the hard orphan backstop if physical deletion
+    is ever introduced.
+    """
+    executors_by_team: dict[int, list[UUID]] = {}
+    destinations = list(shared_alert.destinations.all())
+    destination_ids = [destination.id for destination in destinations]
+    if not destination_ids:
+        return 0
+
+    with transaction.atomic():
+        owned_rows = HogFunction.objects.select_for_update().filter(
+            alert_destination_id__in=destination_ids, deleted=False
+        )
+        for executor in owned_rows:
+            executor.deleted = True
+            executor.enabled = False
+            executor.save(update_fields=["deleted", "enabled", "updated_at"])
+            executors_by_team.setdefault(executor.team_id, []).append(executor.id)
+
+        deleted_count = AlertDestination.objects.filter(id__in=destination_ids).delete()[0]
+
+        for team_id, hog_function_ids in executors_by_team.items():
+            _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)
+
+        return deleted_count
+
+
 _TEMPLATE_ID_TO_DESTINATION_TYPE = {
     template_id: destination_type.value for destination_type, template_id in DESTINATION_TEMPLATE_IDS.items()
 }
@@ -79,10 +150,69 @@ def _active_alert_destinations_qs(
     )
 
 
-def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
+def create_alert_destination_hog_functions(
+    configs: list[AlertDestinationConfig],
+    *,
+    request: Any,
+    shared_alert: AlertSharedIdentity | None = None,
+    destination_name: str | None = None,
+) -> list[HogFunction]:
+    """Create one HogFunction per config — one logical destination across the
+    alert's event kinds — and, when `shared_alert` is given, record explicit
+    ownership.
+
+    With `shared_alert`, a single `AlertDestination` row points at this logical
+    group, each saved HogFunction gets `alert_destination` and `alert_event_kind`
+    set, and the relationship is enforced in the DB (with the `.unique` /
+    `.check` constraints on `posthog_hogfunction`). The payload's `filters` still
+    carries the `alert_id`/event pair during dual-write so the runtime keeps
+    matching before the managed-alert switch-over.
+
+    `destination_name` labels the shared row (the user's snippet of Slack
+    channel / webhook host); when omitted the group uses the first config's
+    HogFunction name, which includes the product label and the alert name.
+    """
     created: list[HogFunction] = []
     hog_function_ids_by_team: dict[int, list[UUID]] = {}
+
+    # Today callers submit one logical destination per call: every config carries
+    # the same destination type and team. Guard against splitting one logical
+    # destination across rows (or bloating one AlertDestination with several
+    # destinations) if that ever changes.
+    if shared_alert is not None:
+        destinations_types = {config.payload.get("template_id") for config in configs}
+        destinations_teams = {config.team.id for config in configs}
+        if len(destinations_types) > 1 or len(destinations_teams) > 1:
+            raise ValidationError(
+                {
+                    "configs": [
+                        "create_alert_destination_hog_functions accepts one logical destination "
+                        "(single template_id, single team) per call when shared_alert is set."
+                    ]
+                }
+            )
+        kinds = [config.alert_event_kind for config in configs]
+        if len(kinds) != len(set(kinds)):
+            raise ValidationError(
+                {"configs": ["alert_event_kind values must be unique within one logical destination."]}
+            )
+
     with transaction.atomic():
+        destination: AlertDestination | None = None
+        if shared_alert is not None:
+            destination_type_value = None
+            if configs and configs[0].payload.get("template_id"):
+                destination_type_value = _TEMPLATE_ID_TO_DESTINATION_TYPE.get(configs[0].payload.get("template_id"))
+            if destination_type_value is None:
+                raise ValidationError(
+                    {"template_id": ["Unknown alert destination template; cannot determine destination type."]}
+                )
+            destination = AlertDestination.objects.create(
+                shared_alert=shared_alert,
+                type=destination_type_value,
+                name=destination_name or (configs[0].payload.get("name") if configs else "") or "",
+            )
+
         for config in configs:
             team = config.team
             serializer = HogFunctionSerializer(
@@ -96,11 +226,53 @@ def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig]
             )
             serializer.is_valid(raise_exception=True)
             hog_function = serializer.save(team=team)
+            if destination is not None:
+                # Bypass the serializer to stamp explicit ownership; the
+                # serializer's validation must not need to know about the
+                # internal executor columns.
+                HogFunction.objects.filter(id=hog_function.id).update(
+                    alert_destination=destination,
+                    alert_event_kind=config.alert_event_kind,
+                )
+                hog_function.refresh_from_db(fields=["alert_destination", "alert_event_kind"])
             created.append(hog_function)
             hog_function_ids_by_team.setdefault(team.id, []).append(hog_function.id)
         for team_id, hog_function_ids in hog_function_ids_by_team.items():
             _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)
     return created
+
+
+def soft_delete_alert_destinations_by_ids(
+    *,
+    team_id: int,
+    alert_destination_ids: Collection[UUID],
+) -> int:
+    """Soft-delete every HogFunction owned by the given AlertDestination rows.
+
+    Caller confirms the destination belongs to a valid alert before deleting
+    (the destination row itself lives behind the owning alert's authorization
+    and is usually deleted in the same transaction). Ownership is the typed
+    `alert_destination` FK, not the JSON filter — this is the eventual
+    replacement for `soft_delete_alert_destinations` once the dual-write window
+    closes.
+    """
+    if not alert_destination_ids:
+        return 0
+    with transaction.atomic():
+        owned_ids = set(
+            HogFunction.objects.select_for_update()
+            .filter(
+                team_id=team_id,
+                deleted=False,
+                alert_destination_id__in=alert_destination_ids,
+            )
+            .values_list("id", flat=True)
+        )
+        deleted_count = HogFunction.objects.filter(team_id=team_id, id__in=owned_ids).update(
+            deleted=True, enabled=False
+        )
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
+        return deleted_count
 
 
 def soft_delete_alert_destinations(

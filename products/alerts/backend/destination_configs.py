@@ -55,6 +55,11 @@ _HOG_FUNCTION_NAME_MAX_LEN = 400
 class AlertDestinationConfig:
     team: Any
     payload: dict[str, Any]
+    # Which event kind ("firing", "resolved", ...) this executor delivers. Set by
+    # the product and stamped onto the HogFunction as `alert_event_kind` once the
+    # executor has explicit destination ownership; the payload's `filters` keeps
+    # matching events meanwhile.
+    alert_event_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -182,6 +187,7 @@ def build_alert_destination_config(
     alert_name: str,
     data: AlertDestinationData,
     slack_context_elements: tuple[str, ...],
+    alert_event_kind: str | None = None,
 ) -> AlertDestinationConfig:
     destination_type = data["type"]
     product_name = spec.product_label.capitalize()
@@ -226,4 +232,5 @@ def build_alert_destination_config(
             "template_id": DESTINATION_TEMPLATE_IDS[destination_type],
             "inputs": inputs,
         },
+        alert_event_kind=alert_event_kind,
     )
