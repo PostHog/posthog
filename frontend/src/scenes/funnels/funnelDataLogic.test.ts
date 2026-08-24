@@ -352,6 +352,7 @@ describe('funnelDataLogic', () => {
 
             it.each([
                 [StepOrderValue.ORDERED, 'Visited pricing', 'Started checkout'],
+                [StepOrderValue.STRICT, 'Visited pricing', 'Started checkout'],
                 [StepOrderValue.UNORDERED, null, null],
             ])('takes custom names from the saved query for a %s funnel', async (funnelOrderType, ...expected) => {
                 const query: FunnelsQuery = {

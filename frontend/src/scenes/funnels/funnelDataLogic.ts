@@ -200,11 +200,7 @@ function applyQueryStepCustomNames(
     steps: FunnelStepWithNestedBreakdown[],
     querySource: FunnelsQuery | null
 ): FunnelStepWithNestedBreakdown[] {
-    if (
-        !querySource?.series?.length ||
-        (querySource.funnelsFilter?.funnelOrderType &&
-            querySource.funnelsFilter.funnelOrderType !== StepOrderValue.ORDERED)
-    ) {
+    if (!querySource?.series?.length || querySource.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED) {
         return steps
     }
 
