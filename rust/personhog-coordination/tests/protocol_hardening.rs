@@ -5936,6 +5936,10 @@ async fn an_over_server_budget_chunk_degrades_to_per_unit_transactions() {
         .await
         .expect("an over-budget chunk must fall back, not fail");
 
+    assert_eq!(
+        application.over_budget_chunks, 1,
+        "the server must have refused the single chunk, or this test pins nothing"
+    );
     assert_eq!(application.applied.len(), total as usize);
     assert!(application.conflicted.is_empty());
     assert_eq!(store.list_handoffs().await.unwrap().len(), total as usize);

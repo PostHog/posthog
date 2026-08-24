@@ -110,6 +110,9 @@ pub struct PlanApplication {
     /// Partitions whose guards failed — a record changed between the
     /// planner's read and the write; the next plan re-reads them.
     pub conflicted: Vec<u32>,
+    /// Chunks the server refused as too large and that applied per
+    /// unit instead: the configured budget exceeds the server's.
+    pub over_budget_chunks: usize,
 }
 
 /// One partition's slice of a plan: the guards that make its
@@ -143,15 +146,17 @@ enum UnitOp {
     DeletePrefix(String),
 }
 
-/// Whether etcd refused a transaction for exceeding its `--max-txn-ops`
-/// (`ErrGRPCTooManyOps`). Matched on the message — the gRPC code is a
-/// generic InvalidArgument.
+/// Whether etcd refused a transaction for its size — past
+/// `--max-txn-ops` (`ErrGRPCTooManyOps`) or `--max-request-bytes`
+/// (`ErrGRPCRequestTooLarge`). Matched on the message: the gRPC code
+/// is a generic InvalidArgument.
 fn is_txn_too_large(e: &Error) -> bool {
     matches!(
         e,
         Error::Store(assignment_coordination::error::Error::Etcd(
             etcd_client::Error::GRpcStatus(status)
         )) if status.message().contains("too many operations")
+            || status.message().contains("request is too large")
     )
 }
 
@@ -674,8 +679,9 @@ impl PersonhogStore {
     // ── Transactional operations ────────────────────────────────
 
     /// Atomically write assignments and create handoff states.
-    /// Returns whether every disposition applied. Guarded so a plan only
-    /// lands if the world it was computed from is still the world:
+    /// Returns whether every disposition applied. Each partition's unit
+    /// is guarded so it only lands if the world it was computed from is
+    /// still the world (an assignment-only unit carries no guard):
     ///
     /// * every handoff key must be absent — concurrent planners (the pod
     ///   watch racing the handoff watch's re-trigger, or a failing-over
@@ -857,6 +863,7 @@ impl PersonhogStore {
                 // path — under any workable server limit — instead of
                 // handing back a rejection the planner retries forever.
                 Err(e) if chunk.len() > 1 && is_txn_too_large(&e) => {
+                    application.over_budget_chunks += 1;
                     metrics::counter!("personhog_coordination_plan_chunk_over_server_budget_total")
                         .increment(1);
                     tracing::warn!(

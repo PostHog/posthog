@@ -1062,7 +1062,7 @@ impl Coordinator {
                 Ok(false) => {
                     tracing::debug!(
                         quorum_id = %id,
-                        "freeze quorum re-put since the sweep's read; spared"
+                        "freeze quorum changed since the sweep's read (re-put or already collected); skipped"
                     );
                 }
                 Err(e) => {
