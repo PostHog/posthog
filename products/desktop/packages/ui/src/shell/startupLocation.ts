@@ -1,7 +1,6 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { isGeneralChannel } from "@posthog/core/canvas/channelName";
 import type { ProvisionedTaskChannels } from "@posthog/shared/domain-types";
-import { rewriteLegacyHref } from "@posthog/ui/router/legacyPaths";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 type StartupLocationClient = Pick<
@@ -47,7 +46,7 @@ async function consumePrimedProvision(
   primedProvision = null;
   // Keyed by identity because a logout or account switch between priming and
   // consuming would otherwise hand the next account the previous project's
-  // channels. Everything else in this module is already keyed the same way.
+  // channels.
   if (primed && primed.identity === identity) {
     try {
       return await primed.result;
@@ -82,21 +81,33 @@ export async function resolveStartupLocation(
   client: StartupLocationClient,
   spacesEnabled: boolean,
 ): Promise<StartupLocation> {
-  const saved = await stateStorage.getItem(storageKey(identity));
-  if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
+  // Provisioning is what says whether this is a first run, so it runs before anything else looks
+  // at where the user was last. A saved location is written on every navigation and is shared by
+  // every account on the project, so it answers neither question reliably.
+  // Provisioning is what says whether this is a first run, so it runs before anything looks at
+  // where the user was last. It must not decide whether they can open the app at all, though.
+  const provisioned = await consumePrimedProvision(identity, client).catch(
+    () => null,
+  );
 
+  // The old key predates the created flags, so its presence is the only proof this install was
+  // in use before the default spaces existed. That outranks the flags: provisioning a long-time
+  // user's spaces for the first time reports a first run, and they are not new.
   const legacy = await stateStorage.getItem(legacyStorageKey(identity));
   if (legacy) {
-    // Provisioning does not get to decide whether someone who was already using
-    // the app can open it. Keeping the old key retries on the next launch.
-    try {
-      await client.provisionDefaultTaskChannels();
-      void stateStorage.removeItem(legacyStorageKey(identity));
-    } catch {}
+    if (provisioned) void stateStorage.removeItem(legacyStorageKey(identity));
     return { href: rewriteLegacyHref(legacy), firstRun: null };
   }
 
-  const provisioned = await consumePrimedProvision(identity, client);
+  const isFirstRun =
+    provisioned?.personal_created || provisioned?.general_created;
+
+  if (!isFirstRun) {
+    const saved = await stateStorage.getItem(storageKey(identity));
+    if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
+  }
+  if (!provisioned) throw new Error("#general was not provisioned");
+
   const general = provisioned.channels.find((channel) =>
     isGeneralChannel(channel),
   );
@@ -109,12 +120,6 @@ export async function resolveStartupLocation(
   // land on /code once, which costs them a click rather than the session.
   if (!spacesEnabled) return { href: "/code", firstRun: null };
 
-  // A reinstall or a new machine loses only the saved location, so the created
-  // flags decide this rather than the absence of one.
-  const isFirstRun =
-    provisioned.personal_created || provisioned.general_created;
-  // personal_created is true exactly once per person per team, which is what keeps a
-  // relaunch from opening a second session.
   const sessionTaskId = provisioned.personal_created
     ? await startedSessionTaskId(client)
     : null;
