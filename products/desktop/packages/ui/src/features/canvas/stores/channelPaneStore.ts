@@ -76,7 +76,11 @@ export function applyTabViewState(view: {
   listOpen?: boolean;
   spaceId?: string | null;
 }): void {
-  if (view.spaceId) {
+  // Three-state, like listOpen below: a stored null is a positive "this tab had
+  // no space" and must clear the scoped channel, so an unscoped tab does not
+  // inherit the space the previous tab left. Only an absent (undefined) record
+  // is skipped.
+  if (view.spaceId !== undefined) {
     useCurrentChannelStore.getState().setCurrentChannel(view.spaceId);
   }
   if (view.listOpen === undefined) return;
