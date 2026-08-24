@@ -1,7 +1,9 @@
 import { IconTrending } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { Sparkline } from '@posthog/quill-charts'
 
-import { Sparkline } from 'lib/components/Sparkline'
+import { useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import {
     formatPercentage,
@@ -71,6 +73,7 @@ const DeltaIndicator = ({ pct }: { pct: number | null }): JSX.Element | null => 
 }
 
 export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Element => {
+    const theme = useChartTheme()
     const trend = getTrendFromPercentageChange(metric.change_from_previous_pct)
     const tooltip = getMetricTooltip(metric, trend)
 
@@ -83,16 +86,13 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                         {formatValue(metric)}
                     </div>
                     {metric.display === 'sparkline' && metric.timeseries && (
-                        <div className="h-10 min-h-0">
+                        <div className="h-10 min-h-0 flex flex-col">
                             <Sparkline
                                 data={metric.timeseries}
-                                labels={metric.timeseries_labels}
                                 type="bar"
-                                maximumIndicator={false}
-                                color="muted"
-                                className="w-full h-full"
-                                withXScale={(x) => ({ ...x, display: false })}
-                                withYScale={(y) => ({ ...y, display: false })}
+                                color={getColorVar('muted')}
+                                theme={theme}
+                                fill
                             />
                         </div>
                     )}
