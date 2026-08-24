@@ -249,6 +249,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             type="secondary"
                             loading={refreshingSchemas}
                             onClick={() => refreshSchemas()}
+                            tooltip="Finds new tables or worksheets in the source. New columns in a table you already sync are picked up on the next sync — use Sync now for that."
                             disabledReason={
                                 sourceLoading ? 'Source is loading' : syncingNow ? 'Sync in progress' : undefined
                             }

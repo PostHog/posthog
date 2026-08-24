@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonInput,
@@ -64,6 +65,21 @@ function getAddedColumns(prev: string[] | null, next: string[] | null, available
     const prevSet = new Set(prev ?? allColumns)
     const nextSet = new Set(next ?? allColumns)
     return allColumns.filter((c) => nextSet.has(c) && !prevSet.has(c))
+}
+
+// Columns the source returns but a pinned selection drops. `null` (sync all) excludes nothing.
+// Newly-added upstream columns land here, so this is what tells a user why a column they added
+// upstream never reached the table.
+export function excludedColumnNames(
+    enabledColumns: string[] | null,
+    available: { name: string }[],
+    alwaysRetained: Set<string>
+): string[] {
+    if (!enabledColumns) {
+        return []
+    }
+    const enabled = new Set(enabledColumns)
+    return available.map((c) => c.name).filter((name) => !enabled.has(name) && !alwaysRetained.has(name))
 }
 
 // null normalizes to "all columns" so an explicit full list and null compare equal.
@@ -694,6 +710,8 @@ function ColumnsAndRowFiltersSection({
         ? `Syncing all ${available.length || 'discovered'} columns`
         : `Syncing ${syncedCount} of ${available.length} columns`
 
+    const excludedColumns = excludedColumnNames(draftColumns, available, alwaysRetained)
+
     const filterCount = draftRowFilters?.length ?? 0
     const rowFiltersSummary =
         filterCount === 0 ? 'Syncing all rows' : `${filterCount} ${filterCount === 1 ? 'filter' : 'filters'} active`
@@ -787,6 +805,28 @@ function ColumnsAndRowFiltersSection({
                     ) : (
                         <>
                             <span className="text-sm text-secondary">{columnsSummary}</span>
+                            {excludedColumns.length > 0 && (
+                                <LemonBanner
+                                    type="info"
+                                    action={{
+                                        children: 'Select all columns',
+                                        onClick: () => setDraftColumns(null),
+                                        disabledReason: editorDisabledReason,
+                                    }}
+                                >
+                                    A saved column selection is filtering this table.{' '}
+                                    {excludedColumns.length === 1
+                                        ? '1 column is'
+                                        : `${excludedColumns.length} columns are`}{' '}
+                                    not synced:{' '}
+                                    {excludedColumns
+                                        .slice(0, 10)
+                                        .map((name) => `"${name}"`)
+                                        .join(', ')}
+                                    {excludedColumns.length > 10 ? ', …' : ''}. Check them below to sync them, then
+                                    Save.
+                                </LemonBanner>
+                            )}
                             <fieldset disabled={!!editorDisabledReason}>
                                 <ColumnSelectionPicker hideActions schema={schema} onChange={setDraftColumns} />
                             </fieldset>
