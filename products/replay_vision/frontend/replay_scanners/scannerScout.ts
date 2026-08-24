@@ -19,18 +19,36 @@ export function isScannerScoutConfig(config: SignalScoutConfigApi, scannerId: st
 // Every morning at 9:00 in the project timezone: the default cadence for every template.
 export const SCANNER_SCOUT_CRON = '0 9 * * *'
 
+const SKILL_NAME_MAX_LENGTH = 64
+const SKILL_NAME_PREFIX = 'signals-scout-'
+// Room for the `-2`..`-99` a collision appends.
+const COLLISION_SUFFIX_LENGTH = 3
+
+function slugify(value: string): string {
+    return value
+        .toLowerCase()
+        .replace(/[\s_]+/g, '-')
+        .replace(/[^a-z0-9-]+/g, '')
+        .replace(/-{2,}/g, '-')
+        .replace(/^-|-$/g, '')
+}
+
 /** Turns the name a person typed into a valid, unique `signals-scout-*` skill name, suffixing
- * while taken. */
-export function scoutNameToSkillName(label: string, takenNames: string[]): string {
-    const slug =
-        label
-            .toLowerCase()
-            .replace(/[\s_]+/g, '-')
-            .replace(/[^a-z0-9-]+/g, '')
-            .replace(/-{2,}/g, '-')
-            .replace(/^-|-$/g, '') || 'digest'
-    // Leave room for a collision suffix under the 64-char cap.
-    const base = `signals-scout-${slug}`.slice(0, 61).replace(/-$/, '')
+ * while taken.
+ *
+ * The scanner's name goes in the slug because skill names are unique per team, not per scanner.
+ * Without it the second scanner's "Daily digest" becomes `signals-scout-daily-digest-2`, which
+ * reads as a second digest on that scanner rather than the first, and the numbering climbs with
+ * every scanner a team sets up. */
+export function scoutNameToSkillName(label: string, scannerName: string, takenNames: string[]): string {
+    const labelSlug = slugify(label) || 'digest'
+    // The label is what tells two scouts on one scanner apart, so it keeps its full length and the
+    // scanner name gives way when the two together would overrun the cap.
+    const room = SKILL_NAME_MAX_LENGTH - SKILL_NAME_PREFIX.length - COLLISION_SUFFIX_LENGTH - labelSlug.length - 1
+    const scannerSlug = slugify(scannerName).slice(0, Math.max(0, room)).replace(/-$/, '')
+    const base = `${SKILL_NAME_PREFIX}${[scannerSlug, labelSlug].filter(Boolean).join('-')}`
+        .slice(0, SKILL_NAME_MAX_LENGTH - COLLISION_SUFFIX_LENGTH)
+        .replace(/-$/, '')
     const taken = new Set(takenNames)
     if (!taken.has(base)) {
         return base
@@ -111,7 +129,7 @@ ${focus.skip}
 
 Every successful run leaves exactly one report for the date, and it is the digest: never one report per finding, and never a run that files nothing.
 
-Title it \`<your scout name> (<scanner name>): YYYY-MM-DD\`, dating it with the run's date in the project timezone. Your scout name is your own \`skill_name\` with the \`signals-scout-\` prefix dropped and dashes turned into spaces. Leading with it is what keeps two scouts on one scanner from writing the same title, which matters because of the next line.
+Title it \`<your scout name>: YYYY-MM-DD\`, dating it with the run's date in the project timezone. Your scout name is your own \`skill_name\` with the \`signals-scout-\` prefix dropped, dashes turned into spaces, and the first letter capitalized: \`signals-scout-checkout-trend-watch\` titles as \`Checkout trend watch: 2026-01-31\`. It already carries the scanner, so nothing else has to, and it is what keeps two scouts from writing the same title, which matters because of the next line.
 Before writing, \`inbox-reports-list\` and compare titles exactly: if today's title already exists, \`scout-edit-report\` it rather than authoring a second one. Otherwise \`scout-emit-report\`. Never two reports for the same date, and never a second emit later in the same run — each one delivers again.
 
 Write the report so it stands alone for a reader with no prior context:
@@ -119,10 +137,11 @@ Write the report so it stands alone for a reader with no prior context:
 - Open with the takeaway in one line, then at most three bullets ordered by impact.
 - Each bullet: what changed, with only the numbers needed to judge it; why it matters; the evidence-backed cause or best next investigation; and the specific next action.
 - Ground every claim in observations you actually read, as real markdown links to the recording: \`[what it shows](/project/<project_id>/replay/<session_id>?t=<seconds>)\`, so the link opens on the moment being claimed. A bare \`[obs 3]\` is not a link and leaves the reader nowhere to go. Two or three per bullet is plenty; link the clearest cases, not every one.
+- Link what another scout already reported rather than restating it: \`[already documented](/project/<project_id>/inbox/<report_id>)\`, taking the id from \`inbox-reports-list\`. Several scouts watch this scanner and read the same window, so without the link one finding gets filed three times.
 - Close with what you checked, and name anything you could not cover and why.
 
 When nothing clears the bar, still file the report, with the verdict \`Nothing notable\` and a short coverage line ("42 observations across 30 sessions, distributions steady"). ${focus.priority}
-These are watcher findings: \`actionability=requires_human_input\`, \`repository=NO_REPO\`. After writing, keep a \`report:\` scratchpad pointer so the next run finds today's report instead of duplicating it.
+These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, keep a \`report:\` scratchpad pointer so the next run finds today's report instead of duplicating it.
 
 ## Charts, when the shape is the point
 

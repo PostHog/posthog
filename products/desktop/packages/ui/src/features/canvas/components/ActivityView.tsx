@@ -210,7 +210,7 @@ export function ActivityRow({
 // what you haven't read.
 //
 // The spaces layout has no page: the feed is the column beside the rail
-// (ChannelsSidebar) and /website/activity's pane is whatever you picked from it.
+// (ChannelsSidebar) and /activity's pane is whatever you picked from it.
 export function ActivityView() {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });

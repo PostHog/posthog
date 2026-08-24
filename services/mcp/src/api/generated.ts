@@ -15096,8 +15096,6 @@ export namespace Schemas {
       readonly context: string;
       /** @nullable */
       readonly generation_task_id: string | null;
-      /** @nullable */
-      readonly discussion_task_id: string | null;
       /** Whether the canvas is pinned to its channel. */
       readonly pinned: boolean;
       /** @nullable */
@@ -16752,6 +16750,16 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a channel's page identity in the wiki.
+     */
+    export interface ChannelWikiPage {
+      /** Repo-relative path of the wiki page whose frontmatter names the channel. */
+      path: string;
+      /** Whether a page exists at this path. False when the path is a proposal for a channel whose page has not been created yet. */
+      exists?: boolean;
+    }
+
+    /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
      */
     export interface ChannelWrite {
@@ -17743,18 +17751,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `managed` - Managed
-     * * `collaborative` - Collaborative
-     */
-    export type CollaborationModeEnum = typeof CollaborationModeEnum[keyof typeof CollaborationModeEnum];
-
-
-    export const CollaborationModeEnum = {
-      Managed: 'managed',
-      Collaborative: 'collaborative',
-    } as const;
-
-    /**
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
@@ -17881,6 +17877,25 @@ export namespace Schemas {
       Conversation: 'conversation',
       Review: 'review',
     } as const;
+
+    /**
+     * Request body for landing agent commits posted back as a git bundle.
+     */
+    export interface CommitBundle {
+      /** A `git bundle` carrying the ref to land, created in the agent's clone (for example `git bundle create out.bundle origin/main..main`). */
+      bundle: string;
+      /**
+         * Optional run summary stored in the landed commit body.
+         * @maxLength 10000
+         */
+      summary?: string;
+      /**
+         * Land a dated dreaming branch (`dream/<YYYY-MM-DD>`) as one merge commit instead of rebasing onto `main`. Omit for ordinary commits on `main`.
+         * @maxLength 64
+         * @nullable
+         */
+      branch?: string | null;
+    }
 
     /**
      * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
@@ -18285,6 +18300,14 @@ export namespace Schemas {
       Rocket: 'rocket',
       Eyes: 'eyes',
     } as const;
+
+    /**
+     * Response shape for the wiki's current state.
+     */
+    export interface ContextLayerStatus {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+    }
 
     export type ConversationMessagesItem = { [key: string]: unknown };
 
@@ -23321,6 +23344,8 @@ export namespace Schemas {
      * * `Capterra` - Capterra
      * * `GooglePostmasterTools` - GooglePostmasterTools
      * * `Growi` - Growi
+     * * `Clarify` - Clarify
+     * * `DatoCMS` - DatoCMS
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24633,6 +24658,8 @@ export namespace Schemas {
       Capterra: 'Capterra',
       GooglePostmasterTools: 'GooglePostmasterTools',
       Growi: 'Growi',
+      Clarify: 'Clarify',
+      DatoCMS: 'DatoCMS',
     } as const;
 
     /**
@@ -25958,7 +25985,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -26436,6 +26465,11 @@ export namespace Schemas {
       row?: unknown;
       /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
       index?: number;
+    }
+
+    export interface DesktopBetaTermsAcceptanceDTO {
+      /** Whether the organization has accepted the PostHog Desktop beta terms. */
+      readonly is_desktop_beta_terms_accepted: boolean;
     }
 
     /**
@@ -27978,7 +28012,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -30149,6 +30185,16 @@ export namespace Schemas {
       name: string;
     }
 
+    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
+
+
+    export const ErrorTrackingIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     export interface ErrorTrackingTopFrame {
       /** Frame function name. */
       function?: string;
@@ -30192,6 +30238,8 @@ export namespace Schemas {
       description?: string | null;
       /** Issue status. */
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * First seen timestamp.
          * @nullable
@@ -30391,6 +30439,8 @@ export namespace Schemas {
       description?: string | null;
       /** Issue status. */
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * First seen timestamp.
          * @nullable
@@ -30461,16 +30511,6 @@ export namespace Schemas {
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
       includeSparkline?: boolean;
     }
-
-    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
-
-
-    export const ErrorTrackingIssueSeverity = {
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Critical: 'critical',
-    } as const;
 
     /**
      * Read-only serializer for issue contract types returned by the facade.
@@ -31812,10 +31852,10 @@ export namespace Schemas {
      * * `completed` - completed
      * * `metrics_unavailable` - metrics_unavailable
      */
-    export type EvaluationReportRunContentGenerationStatusEnum = typeof EvaluationReportRunContentGenerationStatusEnum[keyof typeof EvaluationReportRunContentGenerationStatusEnum];
+    export type GenerationStatusEnum = typeof GenerationStatusEnum[keyof typeof GenerationStatusEnum];
 
 
-    export const EvaluationReportRunContentGenerationStatusEnum = {
+    export const GenerationStatusEnum = {
       Completed: 'completed',
       MetricsUnavailable: 'metrics_unavailable',
     } as const;
@@ -31837,7 +31877,7 @@ export namespace Schemas {
        *
        * * `completed` - completed
        * * `metrics_unavailable` - metrics_unavailable */
-      generation_status?: EvaluationReportRunContentGenerationStatusEnum;
+      generation_status?: GenerationStatusEnum;
       /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
       metrics?: EvaluationReportMetrics | null;
     }
@@ -35979,7 +36019,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37325,7 +37367,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -39347,6 +39391,16 @@ export namespace Schemas {
          * @nullable
          */
       installation_id?: string | null;
+      /**
+         * GitHub organization or user login the installation was approved under, once known.
+         * @nullable
+         */
+      account_login?: string | null;
+      /**
+         * GitHub account type (`Organization` or `User`) the installation was approved under, once known.
+         * @nullable
+         */
+      account_type?: string | null;
       /** When the install approval was requested. */
       requested_at: string;
       /**
@@ -39359,6 +39413,11 @@ export namespace Schemas {
     export interface GitHubInstallRequestListResponse {
       /** The user's GitHub App install-approval requests, newest first. */
       results: GitHubInstallRequestItem[];
+      /**
+         * Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to approve the install. Null when the GitHub App is not configured on this instance.
+         * @nullable
+         */
+      install_url?: string | null;
     }
 
     export interface GitHubLinkExistingRequest {
@@ -39415,15 +39474,34 @@ export namespace Schemas {
       can_push?: boolean;
     }
 
+    /**
+     * * `connected` - connected
+     * * `unavailable` - unavailable
+     */
+    export type InstallationStatusEnum = typeof InstallationStatusEnum[keyof typeof InstallationStatusEnum];
+
+
+    export const InstallationStatusEnum = {
+      Connected: 'connected',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface GitHubReposRefreshResponse {
       /** The refreshed repository cache. */
       repositories: GitHubRepo[];
+      /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+       *
+       * * `connected` - connected
+       * * `unavailable` - unavailable */
+      installation_status: InstallationStatusEnum;
     }
 
     export interface GitHubReposResponse {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+      /** Total number of repositories matching the search query, across all pages. */
+      total: number;
     }
 
     export interface GitHubSource {
@@ -39739,6 +39817,16 @@ export namespace Schemas {
          * @nullable
          */
       math_property?: string | null;
+    }
+
+    /**
+     * 409 body when a guarded write was based on a stale head.
+     */
+    export interface HeadConflict {
+      /** What moved and what to do next. */
+      detail: string;
+      /** The wiki's current head sha; re-read pages at this head and retry. */
+      current_head: string;
     }
 
     export type HealthCheckSignalExtraPayload = { [key: string]: unknown };
@@ -40293,7 +40381,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -40352,7 +40440,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|slack-message, filters?}. slack-message runs once per message posted in a connected Slack channel, and takes only filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply). Runs are person-less, so person-dependent steps are rejected. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -44415,6 +44503,13 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status: InstallationStatusEnum | null;
     }
 
     export interface RecommendedAction {
@@ -45644,6 +45739,16 @@ export namespace Schemas {
       title: string | null;
       /** Current report status (e.g. `potential`, `ready`, `resolved`). */
       status: string;
+    }
+
+    /**
+     * 400 body when a write violates the wiki's structure rules.
+     */
+    export interface LintError {
+      /** What was rejected. */
+      detail: string;
+      /** One entry per structure violation found by the linter. */
+      errors: string[];
     }
 
     /**
@@ -50093,6 +50198,14 @@ export namespace Schemas {
     }
 
     /**
+     * The first-run session that was started for the requester.
+     */
+    export interface OnboardingSession {
+      /** The agent session opened in the team's #general space. */
+      task_id: string;
+    }
+
+    /**
      * * `later` - Later
      * * `other` - Other
      */
@@ -53879,33 +53992,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `pending` - Pending
-     * * `generating` - Generating
-     * * `ready` - Ready
-     * * `failed` - Failed
-     */
-    export type SignalReportCanvasGenerationStatusEnum = typeof SignalReportCanvasGenerationStatusEnum[keyof typeof SignalReportCanvasGenerationStatusEnum];
-
-
-    export const SignalReportCanvasGenerationStatusEnum = {
-      Pending: 'pending',
-      Generating: 'generating',
-      Ready: 'ready',
-      Failed: 'failed',
-    } as const;
-
-    export interface SignalReportCanvas {
-      readonly canvas_id: string;
-      readonly discussion_task_id: string;
-      /** @nullable */
-      readonly generation_task_id: string | null;
-      readonly generation_status: SignalReportCanvasGenerationStatusEnum;
-      readonly collaboration_mode: CollaborationModeEnum;
-      readonly failure_reason: string;
-      readonly updated_at: string;
-    }
-
-    /**
      * * `pr_incorrect` - PR incorrect
      * * `pr_not_useful` - PR not useful
      * * `duplicate` - Duplicate
@@ -53980,8 +54066,6 @@ export namespace Schemas {
       readonly artefact_count: number;
       /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
       readonly charts: readonly ReportChart[];
-      /** The persistent canvas and shared discussion created for this report, when available. */
-      readonly canvas_session: SignalReportCanvas | null;
       /**
          * P0–P4 from the latest priority judgment artefact (when present).
          * @nullable
@@ -56165,6 +56249,13 @@ export namespace Schemas {
       github_login?: string | null;
       /** True when this installation id matches a team-level GitHub integration on the active project. */
       uses_shared_installation: boolean;
+      /** Whether any other PostHog project or personal connection references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization. */
+      installation_shared: boolean;
+      /** `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
+       *
+       * * `connected` - connected
+       * * `unavailable` - unavailable */
+      installation_status: InstallationStatusEnum;
       /** When this integration row was created. */
       created_at: string;
     }
@@ -60499,6 +60590,13 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+      /**
+         * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+         * @nullable
+         */
+      readonly installation_shared?: boolean | null;
+      /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+      readonly installation_status?: InstallationStatusEnum | null;
     }
 
     export interface PatchedIntervieweeContext {
@@ -75779,7 +75877,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -77133,7 +77233,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -78477,7 +78579,9 @@ export namespace Schemas {
        * * `Kalshi` - Kalshi
        * * `Capterra` - Capterra
        * * `GooglePostmasterTools` - GooglePostmasterTools
-       * * `Growi` - Growi */
+       * * `Growi` - Growi
+       * * `Clarify` - Clarify
+       * * `DatoCMS` - DatoCMS */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -79853,16 +79957,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `desktop_canvas` - desktop_canvas
-     */
-    export type TargetScopeEnum = typeof TargetScopeEnum[keyof typeof TargetScopeEnum];
-
-
-    export const TargetScopeEnum = {
-      DesktopCanvas: 'desktop_canvas',
-    } as const;
-
-    /**
      * Response shape for one task in the requester's activity feed (one row per task).
      */
     export interface TaskActivityDTO {
@@ -79896,15 +79990,6 @@ export namespace Schemas {
       latest_comment_scope?: string | null;
       /** @nullable */
       latest_comment_item_id?: string | null;
-      /** The non-task surface this activity opens, when the task backs another shared artifact.
-       *
-       * * `desktop_canvas` - desktop_canvas */
-      target_scope?: TargetScopeEnum | null;
-      /**
-         * Identifier of the activity target. Present together with target_scope.
-         * @nullable
-         */
-      target_id?: string | null;
       /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
       is_unread: boolean;
     }
@@ -83183,6 +83268,77 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a wiki bundle export.
+     */
+    export interface WikiExport {
+      /** Short-lived download URL for the wiki's current bundle. */
+      url: string;
+      /** Commit sha of the bundle behind the URL. */
+      head_sha: string;
+    }
+
+    export interface WikiHealthFinding {
+      /** Stable category used to group this finding. */
+      category: string;
+      /** Wiki page path associated with this finding. */
+      path: string;
+      /** Human-readable explanation of the finding. */
+      message: string;
+    }
+
+    export interface WikiHealthReport {
+      /** Commit sha inspected by the report. */
+      head_sha: string;
+      /** Health findings for the current wiki head. */
+      findings: WikiHealthFinding[];
+    }
+
+    /**
+     * Response shape for one wiki page.
+     */
+    export interface WikiPage {
+      /** Repo-relative path of the page, for example `areas/analytics.md`. */
+      path: string;
+      /** The page's Markdown content. */
+      content: string;
+      /** Commit sha the content was read at; pass back as `base_head` on writes. */
+      head_sha: string;
+      /** When this page was last changed in the wiki history. */
+      updated_at: string;
+    }
+
+    /**
+     * Request body for creating or replacing one wiki page.
+     */
+    export interface WikiPageWrite {
+      /**
+         * Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.
+         * @maxLength 512
+         */
+      path: string;
+      /**
+         * The complete Markdown content for the page.
+         * @maxLength 1000000
+         */
+      content: string;
+      /**
+         * Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.
+         * @nullable
+         */
+      base_head?: string | null;
+    }
+
+    /**
+     * Response shape for the wiki's page listing.
+     */
+    export interface WikiTree {
+      /** Commit sha of the wiki's current head. */
+      head_sha: string;
+      /** Repo-relative path of every Markdown page at the current head. */
+      paths: string[];
+    }
+
+    /**
      * The team's active onboarding wizard cloud run, used to rehydrate
      * the setup-progress FAB when the run was started server-side (drop flow).
      */
@@ -85822,6 +85978,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ContextLayerPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -87311,6 +87474,13 @@ export namespace Schemas {
       Verified: 'verified',
       Community: 'community',
     } as const;
+
+    export type ContextLayerAgentPagesRetrieveParams = {
+    /**
+     * Repo-relative Markdown path of the page to read.
+     */
+    path: string;
+    };
 
     export type ConversationsListParams = {
     /**
@@ -89828,6 +89998,10 @@ export namespace Schemas {
     };
 
     export type FeatureFlagsMyFlagsRetrieveParams = {
+    /**
+     * Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[];
     /**
      * Groups for feature flag evaluation (JSON object string)
      */
