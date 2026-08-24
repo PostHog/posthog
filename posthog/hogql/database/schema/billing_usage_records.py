@@ -24,7 +24,9 @@ class BillingUsageRecordsTable(Table):
             name="organization_id", nullable=False, description="Organization that owns the project."
         ),
         "record_id": StringDatabaseField(
-            name="record_id", nullable=False, description="Idempotency key for this usage record."
+            name="record_id",
+            nullable=False,
+            description="Idempotency key, unique per (team_id, producer_id, usage_key).",
         ),
         "producer_id": StringDatabaseField(
             name="producer_id", nullable=False, description="Service that emitted the usage record."
@@ -37,21 +39,13 @@ class BillingUsageRecordsTable(Table):
         ),
         "unit": StringDatabaseField(name="unit", nullable=False, description="Unit used by quantity."),
         "quantity": IntegerDatabaseField(name="quantity", nullable=False, description="Measured usage amount."),
-        "version": IntegerDatabaseField(name="version", nullable=False, description="Record version for corrections."),
         "event_timestamp": DateTimeDatabaseField(
-            name="event_timestamp", nullable=False, description="When the measured usage occurred."
+            name="event_timestamp",
+            nullable=False,
+            description="When the measured usage occurred. Producers stamp it at flush time, so a retry moves it.",
         ),
         "inserted_at": DateTimeDatabaseField(
             name="inserted_at", nullable=False, description="When the usage record was persisted."
-        ),
-        "source_ref": StringDatabaseField(
-            name="source_ref", nullable=False, description="Reference to the source item, when available."
-        ),
-        "user_id": StringDatabaseField(
-            name="user_id", nullable=False, description="Producer-supplied user reference, when available."
-        ),
-        "variant": StringDatabaseField(
-            name="variant", nullable=False, description="Producer-supplied usage variant, when available."
         ),
         "dimensions": MapStringDatabaseField(
             name="dimensions", nullable=False, description="Additional producer-defined dimensions."
