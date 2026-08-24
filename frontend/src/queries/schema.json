@@ -26142,7 +26142,9 @@
                 "Kalshi",
                 "Capterra",
                 "GooglePostmasterTools",
-                "Growi"
+                "Growi",
+                "Clarify",
+                "DatoCMS"
             ],
             "type": "string"
         },

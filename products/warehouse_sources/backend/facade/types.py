@@ -1370,6 +1370,8 @@ class ExternalDataSourceType(models.TextChoices):
     CAPTERRA = "Capterra", "Capterra"
     GOOGLEPOSTMASTERTOOLS = "GooglePostmasterTools", "GooglePostmasterTools"
     GROWI = "Growi", "Growi"
+    CLARIFY = "Clarify", "Clarify"
+    DATOCMS = "DatoCMS", "DatoCMS"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
