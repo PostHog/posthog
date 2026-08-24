@@ -384,8 +384,8 @@ describe('clustersLogic', () => {
             })
         })
 
-        describe('scatterPlotDatasets', () => {
-            it('creates datasets for regular clusters', async () => {
+        describe('scatterPlotSeries', () => {
+            it('creates item and centroid series for regular clusters', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -398,17 +398,16 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                // 2 trace datasets + 2 centroid datasets
-                expect(datasets.length).toBe(4)
+                const series = logic.values.scatterPlotSeries
+                // 2 item series + 2 centroid series
+                expect(series.length).toBe(4)
 
-                // Verify trace datasets have correct structure
-                const traceDatasets = datasets.filter((d) => !d.label.includes('(centroid)'))
-                expect(traceDatasets.length).toBe(2)
-                expect(traceDatasets[0].pointStyle).toBe('circle')
+                const itemSeries = series.filter((d) => !d.label.includes('(centroid)'))
+                expect(itemSeries.length).toBe(2)
+                expect(itemSeries[0].shape).toBe('circle')
             })
 
-            it('uses crossRot style for outlier cluster', async () => {
+            it('uses cross shape for outlier cluster', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -421,11 +420,11 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                const outlierDataset = datasets.find((d) => d.label === 'Outliers')
+                const series = logic.values.scatterPlotSeries
+                const outlierSeries = series.find((d) => d.label === 'Outliers')
 
-                expect(outlierDataset).toBeTruthy()
-                expect(outlierDataset?.pointStyle).toBe('crossRot')
+                expect(outlierSeries).toBeTruthy()
+                expect(outlierSeries?.shape).toBe('cross')
             })
 
             it('does not create centroid marker for outlier cluster', async () => {
@@ -441,15 +440,15 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                const centroidDatasets = datasets.filter((d) => d.label.includes('(centroid)'))
+                const series = logic.values.scatterPlotSeries
+                const centroidSeries = series.filter((d) => d.label.includes('(centroid)'))
 
                 // Only one centroid for regular cluster, none for outliers
-                expect(centroidDatasets.length).toBe(1)
-                expect(centroidDatasets[0].label).toBe('Cluster A (centroid)')
+                expect(centroidSeries.length).toBe(1)
+                expect(centroidSeries[0].label).toBe('Cluster A (centroid)')
             })
 
-            it('includes trace metadata in data points', async () => {
+            it('carries trace metadata into item points', async () => {
                 const mockRun: ClusteringRun = {
                     runId: 'test-run',
                     windowStart: '2025-01-01T00:00:00Z',
@@ -462,14 +461,13 @@ describe('clustersLogic', () => {
 
                 logic.actions.loadClusteringRunSuccess(mockRun)
 
-                const datasets = logic.values.scatterPlotDatasets
-                const traceDataset = datasets.find((d) => d.label === 'Cluster A')
+                const series = logic.values.scatterPlotSeries
+                const itemSeries = series.find((d) => d.label === 'Cluster A')
 
-                expect(traceDataset?.data[0]).toMatchObject({
+                expect(itemSeries?.points[0]).toMatchObject({
                     x: 0.0,
                     y: 0.0,
-                    traceId: 'trace-1',
-                    timestamp: '2025-01-05T10:00:00Z',
+                    meta: { traceId: 'trace-1', timestamp: '2025-01-05T10:00:00Z' },
                 })
             })
         })
