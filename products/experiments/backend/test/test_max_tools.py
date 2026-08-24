@@ -14,6 +14,7 @@ from products.experiments.backend.max_tools import CreateExperimentTool, Experim
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types import AssistantState
 
 
@@ -655,16 +656,27 @@ class TestExperimentSummaryTool(APIBaseTest):
     async def test_fetch_and_format_handles_nonexistent_experiment(self):
         tool = self._create_tool({})
 
-        with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
-            mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(
-                side_effect=ValueError("Experiment 99999 not found or access denied")
-            )
+        result, artifact = await tool._arun_impl(experiment_id=99999)
 
-            result, artifact = await tool._arun_impl(experiment_id=99999)
-
-        assert "not found or access denied" in result
+        assert "not found" in result
         assert artifact["error"] == "not_found"
+
+    async def test_denies_object_level_restricted_experiment(self):
+        experiment = await self._create_experiment(flag_key="restricted-test")
+
+        # Agent-initiated path: denied before any metric queries run
+        tool = self._create_tool({})
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl(experiment_id=experiment.id)
+
+        # Frontend-context path
+        tool = self._create_tool(self._build_context(experiment_id=experiment.id))
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl()
 
     async def test_context_experiment_id_takes_priority_over_argument(self):
         experiment = await self._create_experiment(

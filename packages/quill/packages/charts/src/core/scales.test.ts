@@ -732,6 +732,16 @@ describe('hog-charts scales', () => {
             expect(result.get('s3')!.bottom).toEqual([30])
         })
 
+        it('stacks a series whose key collides with Object.prototype (e.g. __proto__)', () => {
+            const s1 = makeSeries({ key: '__proto__', data: [10, 20] })
+            const s2 = makeSeries({ key: 's2', data: [5, 15] })
+            const result = computeStackData([s1, s2], ['a', 'b'])
+
+            expect(result.get('__proto__')!.top).toEqual([10, 20])
+            expect(result.get('s2')!.top).toEqual([15, 35])
+            expect(result.get('s2')!.bottom).toEqual([10, 20])
+        })
+
         it('excludes visibility.excluded series from the stack', () => {
             const visible = makeSeries({ key: 'v', data: [10, 20] })
             const hidden = makeSeries({ key: 'h', data: [100, 200], visibility: { excluded: true } })

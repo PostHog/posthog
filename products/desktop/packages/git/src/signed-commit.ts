@@ -188,8 +188,8 @@ export function operationInProgressError(op: GitOperationInProgress): string {
   );
 }
 
-async function resolveRepoNameWithOwner(ctx: SignedCommitCtx): Promise<string> {
-  const url = await gitText(["remote", "get-url", "origin"], ctx.cwd);
+export async function resolveRepoNameWithOwner(cwd: string): Promise<string> {
+  const url = await gitText(["remote", "get-url", "origin"], cwd);
   const parsed = parseGithubUrl(url);
   if (!parsed) {
     throw new Error(`Could not parse owner/repo from origin remote: ${url}`);
@@ -836,7 +836,7 @@ export async function createSignedCommit(
 
   // Repo (from origin remote) and branch (from HEAD) are independent reads.
   const [repo, branch] = await Promise.all([
-    resolveRepoNameWithOwner(ctx),
+    resolveRepoNameWithOwner(ctx.cwd),
     resolveBranchName(ctx, input),
   ]);
 
@@ -941,7 +941,7 @@ export async function createSignedRewrite(
   input: SignedRewriteInput,
 ): Promise<SignedCommitResult> {
   const [repo, branch] = await Promise.all([
-    resolveRepoNameWithOwner(ctx),
+    resolveRepoNameWithOwner(ctx.cwd),
     resolveBranchName(ctx, { message: "", branch: input.branch }),
   ]);
 
@@ -1121,7 +1121,7 @@ export async function createSignedMerge(
   }
 
   const [repo, branch] = await Promise.all([
-    resolveRepoNameWithOwner(ctx),
+    resolveRepoNameWithOwner(ctx.cwd),
     resolveBranchName(ctx, { message: "", branch: input.branch }),
   ]);
 
