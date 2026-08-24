@@ -264,6 +264,7 @@ export interface CommandMenuActionProperties {
 
 export type SidebarNavItem =
   | "home"
+  | "spaces"
   | "new_task"
   | "search"
   | "inbox"
@@ -481,6 +482,7 @@ export type OnboardingStepId =
   | "welcome"
   | "project-select"
   | "invite-code"
+  | "consent"
   | "connect-github"
   | "install-cli"
   | "import-config"
@@ -578,6 +580,9 @@ export interface OnboardingAbandonedProperties {
 
 export interface AiConsentGateShownProperties {
   is_org_admin: boolean;
+  outstanding_ai_consent: boolean;
+  outstanding_beta_terms: boolean;
+  surface: "onboarding_step" | "standalone_gate";
 }
 
 // Setup / onboarding events
@@ -938,7 +943,7 @@ export interface SignalSourceConnectedProperties {
   via_setup_wizard: boolean;
 }
 
-// Agents page events (the `/code/agents` configuration surface)
+// Agents page events (the `/agents` configuration surface)
 export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {
@@ -1089,6 +1094,11 @@ export interface CanvasPromptSentProperties {
   /** "ask_agent_to_fix" for the freeform self-repair path; absent otherwise. */
   intent?: "ask_agent_to_fix";
   prompt_length_chars: number;
+}
+
+export interface CommandCenterCanvasViewedProperties {
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
 }
 
 export interface CanvasRenderedProperties {
@@ -1406,6 +1416,7 @@ export const ANALYTICS_EVENTS = {
   COMMAND_MENU_OPENED: "Command menu opened",
   COMMAND_MENU_ACTION: "Command menu action",
   COMMAND_CENTER_VIEWED: "Command center viewed",
+  COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
@@ -1458,6 +1469,8 @@ export const ANALYTICS_EVENTS = {
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
+  DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
+  DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
   // Setup / onboarding events
   SETUP_DISCOVERY_STARTED: "Setup discovery started",
@@ -1527,6 +1540,7 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+  TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
@@ -1594,6 +1608,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_MENU_OPENED]: never;
   [ANALYTICS_EVENTS.COMMAND_MENU_ACTION]: CommandMenuActionProperties;
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
+  [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
@@ -1645,6 +1660,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 
   // Setup / onboarding events
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_STARTED]: SetupDiscoveryStartedProperties;
@@ -1714,6 +1731,11 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+  [ANALYTICS_EVENTS.TASK_ANALYSIS_REQUESTED]: {
+    task_id: string;
+    run_id: string;
+    created: boolean;
+  };
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;

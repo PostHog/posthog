@@ -64,6 +64,7 @@ from .activities.get_task_processing_context import (
     TaskProcessingContext,
     get_task_processing_context,
 )
+from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -404,6 +405,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # reason a run ended stays machine-readable without abusing error_message.
         self._completion_timeout_marker: Optional[str] = None
         self._heartbeat_received: bool = False
+        self._client_activity_received: bool = False
         self._agent_active: Optional[bool] = None
         self._end_of_turn_received: Optional[bool] = None
         self._last_agent_heartbeat_at: Optional[datetime] = None
@@ -485,6 +487,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 self._task_completed
                 or self._sandbox_gone
                 or self._heartbeat_received
+                or self._client_activity_received
                 or self._has_dispatchable_followup()
                 or len(self._pending_permission_responses) > 0
             )
@@ -1145,6 +1148,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 extra={"run_id": self.context.run_id},
                             )
                             self._heartbeat_received = False
+                            self._client_activity_received = False
+                            continue
+
+                        if self._client_activity_received and not self._task_completed:
+                            workflow.logger.info(
+                                "Client activity received, resetting inactivity timer",
+                                extra={"run_id": self.context.run_id},
+                            )
+                            self._client_activity_received = False
                             continue
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
@@ -1439,6 +1451,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             or self._pending_followups
             or self._pending_permission_responses
             or self._heartbeat_received
+            or self._client_activity_received
             or self._current_slack_relay_workflow_id is not None
         ):
             return False
@@ -1763,6 +1776,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
+
+        # Gated on recorded activity output, not workflow.patched: the env var only
+        # exists in histories written after the context layer shipped, so replays of
+        # pre-rollout histories skip this command deterministically.
+        if prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"):
+            await workflow.execute_activity(
+                materialize_context_layer_in_sandbox,
+                MaterializeContextLayerInput(context=self.context, sandbox_id=created.sandbox_id),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
         if overlap and not repo_ready_released:
             await self._mark_repo_ready(created.sandbox_id)
@@ -2553,6 +2577,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
+
+    @temporalio.workflow.signal
+    async def client_activity(self) -> None:
+        self._client_activity_received = True
+        self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
     async def agent_state_changed(self, agent_active: bool) -> None:

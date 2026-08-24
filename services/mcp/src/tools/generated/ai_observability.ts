@@ -98,6 +98,7 @@ import {
     TaggersTestHogCreateBody,
 } from '@/generated/ai_observability/api'
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import {
     withPostHogUrl,
@@ -830,7 +831,10 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
     },
 })
 
-const LlmaEvaluationDeleteSchema = EvaluationsDestroyParams.omit({ project_id: true })
+const LlmaEvaluationDeleteSchema = z.preprocess(
+    normalizeParamAliases({ id: ['evaluationId', 'evaluation_id'] }),
+    EvaluationsDestroyParams.omit({ project_id: true })
+)
 
 const llmaEvaluationDelete = (): ToolBase<typeof LlmaEvaluationDeleteSchema, Schemas.Evaluation> => ({
     name: 'llma-evaluation-delete',
@@ -946,7 +950,10 @@ const llmaEvaluationDirectoryUpdate = (): ToolBase<
     },
 })
 
-const LlmaEvaluationGetSchema = EvaluationsRetrieveParams.omit({ project_id: true })
+const LlmaEvaluationGetSchema = z.preprocess(
+    normalizeParamAliases({ id: ['evaluationId', 'evaluation_id'] }),
+    EvaluationsRetrieveParams.omit({ project_id: true })
+)
 
 const llmaEvaluationGet = (): ToolBase<typeof LlmaEvaluationGetSchema, Schemas.Evaluation> => ({
     name: 'llma-evaluation-get',
@@ -1182,7 +1189,10 @@ const llmaEvaluationReportUpdate = (): ToolBase<
     },
 })
 
-const LlmaEvaluationRunSchema = EvaluationRunsCreateBody
+const LlmaEvaluationRunSchema = z.preprocess(
+    normalizeParamAliases({ evaluation_id: ['evaluationId', 'id'] }),
+    EvaluationRunsCreateBody
+)
 
 const llmaEvaluationRun = (): ToolBase<typeof LlmaEvaluationRunSchema, unknown> => ({
     name: 'llma-evaluation-run',
@@ -1249,8 +1259,9 @@ const llmaEvaluationTestHog = (): ToolBase<typeof LlmaEvaluationTestHogSchema, S
     },
 })
 
-const LlmaEvaluationUpdateSchema = EvaluationsPartialUpdateParams.omit({ project_id: true }).extend(
-    EvaluationsPartialUpdateBody.shape
+const LlmaEvaluationUpdateSchema = z.preprocess(
+    normalizeParamAliases({ id: ['evaluationId', 'evaluation_id'] }),
+    EvaluationsPartialUpdateParams.omit({ project_id: true }).extend(EvaluationsPartialUpdateBody.shape)
 )
 
 const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Schemas.Evaluation> => ({
@@ -1380,8 +1391,9 @@ const llmaPromptDuplicate = (): ToolBase<typeof LlmaPromptDuplicateSchema, Schem
     },
 })
 
-const LlmaPromptGetSchema = LlmPromptsNameRetrieveParams.omit({ project_id: true }).extend(
-    LlmPromptsNameRetrieveQueryParams.shape
+const LlmaPromptGetSchema = z.preprocess(
+    normalizeParamAliases({ prompt_name: ['name', 'promptName', 'prompt_id', 'promptId', 'id'] }),
+    LlmPromptsNameRetrieveParams.omit({ project_id: true }).extend(LlmPromptsNameRetrieveQueryParams.shape)
 )
 
 const llmaPromptGet = (): ToolBase<typeof LlmaPromptGetSchema, Schemas.LLMPromptPublic> => ({

@@ -169,6 +169,34 @@ describe("canUseTool MCP approval enforcement", () => {
     expect(context.client.requestPermission).not.toHaveBeenCalled();
   });
 
+  it("auto-allows the show_actions tool without prompting", async () => {
+    const context = createContext("mcp__posthog-code-tools__show_actions", {
+      toolInput: {
+        actions: [{ kind: "compose", label: "Add PostHog", prompt: "/x" }],
+      },
+    });
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("allow");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("blocks show_actions when its approval state is do_not_use", async () => {
+    setMcpToolApprovalStates({
+      "mcp__posthog-code-tools__show_actions": "do_not_use",
+    });
+
+    const context = createContext("mcp__posthog-code-tools__show_actions", {
+      toolInput: {
+        actions: [{ kind: "compose", label: "Add PostHog", prompt: "/x" }],
+      },
+    });
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
   it("blocks speak when its approval state is do_not_use", async () => {
     setMcpToolApprovalStates({
       "mcp__posthog-code-tools__speak": "do_not_use",

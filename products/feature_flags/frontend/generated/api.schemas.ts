@@ -1953,6 +1953,10 @@ export type FeatureFlagsEvaluationReasonsRetrieveParams = {
 
 export type FeatureFlagsMyFlagsRetrieveParams = {
     /**
+     * Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).
+     */
+    flag_keys?: string[]
+    /**
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string

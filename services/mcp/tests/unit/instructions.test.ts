@@ -381,4 +381,75 @@ describe('buildActiveEnvironmentContextPrompt', () => {
             'You are currently in project "Unknown" (id: unknown, token: unknown) within organization "Acme" (id: org_1).'
         )
     })
+
+    it('buckets flag-backed products strictly, so only an explicit true counts as enabled', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, {
+            ...project,
+            session_recording_opt_in: true,
+            autocapture_exceptions_opt_in: false,
+            surveys_opt_in: null,
+            heatmaps_opt_in: undefined,
+        } as CachedProject)
+        expect(result).toContain('Products enabled in this project: session replay.')
+        expect(result).toContain('Products not enabled: exception autocapture (error tracking), surveys, heatmaps.')
+    })
+
+    it('lists only onboarding-completed product intents, with underscores humanized', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, {
+            ...project,
+            product_intents: [
+                { product_type: 'feature_flags', onboarding_completed_at: '2026-01-01T00:00:00Z' },
+                { product_type: 'experiments', onboarding_completed_at: null },
+            ],
+        } as CachedProject)
+        expect(result).toContain('Products set up (onboarding completed): feature flags.')
+        expect(result).not.toContain('experiments')
+    })
+
+    it('caps the onboarded products line and summarizes the tail as a count', () => {
+        const intents = Array.from({ length: 13 }, (_, i) => ({
+            product_type: `product_${String(i).padStart(2, '0')}`,
+            onboarding_completed_at: '2026-01-01T00:00:00Z',
+        }))
+        const result = buildActiveEnvironmentContextPrompt(user, org, {
+            ...project,
+            product_intents: intents,
+        } as CachedProject)
+        expect(result).toContain('(+1 more).')
+        expect(result).not.toContain('product 12')
+    })
+
+    it.each<[string, string[] | undefined, string | undefined]>([
+        ['unknown', undefined, undefined],
+        ['an empty list', [], 'Integrations connected: none.'],
+        ['a duplicated unsorted list', ['slack', 'github', 'github'], 'Integrations connected: github, slack.'],
+    ])('renders the integrations line for %s', (_name, kinds, expectedLine) => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project, undefined, {
+            integrationKinds: kinds,
+        })
+        if (expectedLine) {
+            expect(result).toContain(expectedLine)
+        } else {
+            // Unknown (missing scope or failed fetch) must not read as "none connected".
+            expect(result).not.toContain('Integrations connected')
+        }
+    })
+
+    it('omits all product and integration lines when includeProductContext is false', () => {
+        // The claude.ai exec command reference sits within tens of characters of the
+        // registry's inputSchema cap; the compact variant must add nothing to it.
+        const result = buildActiveEnvironmentContextPrompt(
+            user,
+            org,
+            {
+                ...project,
+                session_recording_opt_in: true,
+                product_intents: [{ product_type: 'feature_flags', onboarding_completed_at: '2026-01-01T00:00:00Z' }],
+            } as CachedProject,
+            undefined,
+            { integrationKinds: ['github'], includeProductContext: false }
+        )
+        expect(result).not.toContain('Products')
+        expect(result).not.toContain('Integrations connected')
+    })
 })
