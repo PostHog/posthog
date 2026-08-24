@@ -774,6 +774,13 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+# Operators that narrow the trigger to channels the value names. Presence operators match
+# every message (channel is always set, and the UI convention stores the operator string as
+# the value, so a value check alone can't catch them), and negations exclude channels rather
+# than pick any. The property compiler treats a missing operator as exact.
+_CHANNEL_RESTRICTING_OPERATORS = frozenset({"exact", "icontains", "regex"})
+
+
 def _has_slack_channel_filter(filters: dict) -> bool:
     """Whether the filters restrict the trigger to at least one Slack channel.
 
@@ -787,6 +794,8 @@ def _has_slack_channel_filter(filters: dict) -> bool:
         return False
     for prop in properties:
         if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        if (prop.get("operator") or "exact") not in _CHANNEL_RESTRICTING_OPERATORS:
             continue
         value = prop.get("value")
         if isinstance(value, str) and value.strip():

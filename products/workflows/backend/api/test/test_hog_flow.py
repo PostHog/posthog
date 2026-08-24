@@ -2383,6 +2383,10 @@ class TestHogFlowAPI(APIBaseTest):
             ("no_properties", []),
             ("no_channel_entry", [{"key": "bot_id", "value": "is_not_set", "operator": "is_not_set", "type": "event"}]),
             ("blank_channel_value", [{"key": "channel", "value": [""], "operator": "exact", "type": "event"}]),
+            # Presence operators store the operator string as the value, so the value looks
+            # non-empty while the compiled filter matches every channel.
+            ("is_set_channel", [{"key": "channel", "value": "is_set", "operator": "is_set", "type": "event"}]),
+            ("negated_channel", [{"key": "channel", "value": ["C0ALERTS"], "operator": "is_not", "type": "event"}]),
         ]
     )
     def test_hog_flow_slack_trigger_requires_a_channel_filter_to_activate(self, _name, properties):
