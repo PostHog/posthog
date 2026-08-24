@@ -25,6 +25,11 @@ export interface WarehouseSchemaOption {
     managed: boolean
 }
 
+export interface PublishedTableSchemaGroup {
+    schemaName: string
+    tables: PublishedTableApi[]
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
     if (typeof error === 'object' && error !== null && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
@@ -57,6 +62,7 @@ export interface publishedTablesLogicValues {
     publishTableTouched: boolean
     publishTableTouches: Record<string, boolean>
     publishTableValidationErrors: DeepPartialMap<PublishTableFormValues, ValidationErrorType>
+    publishedTableGroups: PublishedTableSchemaGroup[]
     publishedTables: PublishedTableApi[] | null
     publishedTablesError: string | null
     publishedTablesLoading: boolean
@@ -190,6 +196,7 @@ export interface publishedTablesLogicMeta {
             publishedTables: PublishedTableApi[] | null,
             searchTerm: string
         ) => PublishedTableApi[]
+        publishedTableGroups: (filteredPublishedTables: PublishedTableApi[]) => PublishedTableSchemaGroup[]
         hasActivePublications: (publishedTables: PublishedTableApi[] | null) => boolean
         warehouseSchemas: (warehouseTables: ModeledTableApi[] | null) => WarehouseSchemaOption[]
         selectedSchemaTables: (
@@ -372,6 +379,21 @@ export const publishedTablesLogic = kea<publishedTablesLogicType>([
                     [publication.name, publication.source_schema_name, publication.source_table_name].some((value) =>
                         value.toLowerCase().includes(normalizedSearchTerm)
                     )
+                )
+            },
+        ],
+        publishedTableGroups: [
+            (s) => [s.filteredPublishedTables],
+            (filteredPublishedTables: PublishedTableApi[]): PublishedTableSchemaGroup[] => {
+                const tablesBySchema = new Map<string, PublishedTableApi[]>()
+                for (const table of filteredPublishedTables) {
+                    tablesBySchema.set(table.source_schema_name, [
+                        ...(tablesBySchema.get(table.source_schema_name) ?? []),
+                        table,
+                    ])
+                }
+                return Array.from(tablesBySchema, ([schemaName, tables]) => ({ schemaName, tables })).sort(
+                    (first, second) => first.schemaName.localeCompare(second.schemaName)
                 )
             },
         ],

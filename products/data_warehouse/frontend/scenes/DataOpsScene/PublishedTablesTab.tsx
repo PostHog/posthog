@@ -1,12 +1,23 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCollapse,
+    LemonInput,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -42,10 +53,10 @@ export function PublicationStatus({ publication }: { publication: PublishedTable
 export function PublishedTablesTab(): JSX.Element {
     const {
         activeMutationId,
-        filteredPublishedTables,
         publishedTables,
         publishedTablesError,
         publishedTablesLoading,
+        publishedTableGroups,
         republishedTableLoading,
         searchTerm,
         unpublishedTableIdLoading,
@@ -53,6 +64,114 @@ export function PublishedTablesTab(): JSX.Element {
     const { loadPublishedTables, openPublishModal, republishTable, setSearchTerm, unpublishTable } =
         useActions(publishedTablesLogic)
     const mutationLoading = republishedTableLoading || unpublishedTableIdLoading
+    const columns: LemonTableColumns<PublishedTableApi> = [
+        {
+            title: 'Table in PostHog',
+            key: 'name',
+            render: (_, publication) =>
+                publication.status === 'completed' ? (
+                    <Link
+                        to={urls.sqlEditor({
+                            query: `SELECT * FROM ${publication.name} LIMIT 100`,
+                        })}
+                    >
+                        <strong>{publication.name}</strong>
+                    </Link>
+                ) : (
+                    <strong>{publication.name}</strong>
+                ),
+        },
+        {
+            title: 'Source table',
+            key: 'source',
+            render: (_, publication) => <code>{publication.source_table_name}</code>,
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: (_, publication) => <PublicationStatus publication={publication} />,
+        },
+        {
+            title: 'Rows',
+            key: 'row_count',
+            align: 'right',
+            render: (_, publication) => (publication.row_count === null ? '—' : publication.row_count.toLocaleString()),
+        },
+        {
+            title: 'Last published',
+            key: 'last_published_at',
+            render: (_, publication) =>
+                publication.last_published_at ? <TZLabel time={publication.last_published_at} /> : 'Never',
+        },
+        {
+            key: 'actions',
+            width: 0,
+            render: (_, publication) => {
+                const publicationActive = ACTIVE_STATUSES.has(publication.status)
+                const thisPublicationLoading = activeMutationId === publication.id && mutationLoading
+
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        onClick={() => republishTable(publication.id)}
+                                        loading={thisPublicationLoading && republishedTableLoading}
+                                        data-attr={`republish-table-${publication.id}`}
+                                        disabledReason={
+                                            publicationActive
+                                                ? 'This table is already being published'
+                                                : mutationLoading
+                                                  ? 'Another table update is in progress'
+                                                  : undefined
+                                        }
+                                    >
+                                        {publication.status === 'failed' ? 'Try publishing again' : 'Publish again'}
+                                    </LemonButton>
+                                </AccessControlAction>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        status="danger"
+                                        loading={thisPublicationLoading && unpublishedTableIdLoading}
+                                        data-attr={`unpublish-table-${publication.id}`}
+                                        disabledReason={
+                                            publicationActive
+                                                ? 'Wait for publishing to finish before unpublishing'
+                                                : mutationLoading
+                                                  ? 'Another table update is in progress'
+                                                  : undefined
+                                        }
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: `Unpublish ${publication.name}?`,
+                                                description:
+                                                    'This removes the table and its published snapshot from PostHog. The source table is not changed.',
+                                                primaryButton: {
+                                                    status: 'danger',
+                                                    children: 'Unpublish table',
+                                                    onClick: () => unpublishTable(publication.id),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
+                                    >
+                                        Unpublish
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
+    ]
 
     return (
         <div className="py-4">
@@ -107,144 +226,52 @@ export function PublishedTablesTab(): JSX.Element {
                         >
                             {publishedTablesError}
                         </LemonBanner>
-                    ) : (
+                    ) : publishedTablesLoading || publishedTables === null ? (
                         <LemonTable
-                            dataSource={filteredPublishedTables}
-                            loading={publishedTablesLoading || publishedTables === null}
+                            dataSource={[]}
+                            loading
+                            nouns={['published table', 'published tables']}
+                            columns={columns}
+                        />
+                    ) : publishedTableGroups.length === 0 ? (
+                        <LemonTable
+                            dataSource={[]}
                             nouns={['published table', 'published tables']}
                             emptyState={
                                 searchTerm
                                     ? 'No published tables match your search.'
                                     : 'No tables have been published yet. Publish a warehouse table to get started.'
                             }
-                            columns={[
-                                {
-                                    title: 'Table in PostHog',
-                                    key: 'name',
-                                    render: (_, publication: PublishedTableApi) =>
-                                        publication.status === 'completed' ? (
-                                            <Link
-                                                to={urls.sqlEditor({
-                                                    query: `SELECT * FROM ${publication.name} LIMIT 100`,
-                                                })}
-                                            >
-                                                <strong>{publication.name}</strong>
-                                            </Link>
-                                        ) : (
-                                            <strong>{publication.name}</strong>
-                                        ),
-                                },
-                                {
-                                    title: 'Source table',
-                                    key: 'source',
-                                    render: (_, publication: PublishedTableApi) => (
-                                        <code>
-                                            {publication.source_schema_name}.{publication.source_table_name}
-                                        </code>
-                                    ),
-                                },
-                                {
-                                    title: 'Status',
-                                    key: 'status',
-                                    render: (_, publication: PublishedTableApi) => (
-                                        <PublicationStatus publication={publication} />
-                                    ),
-                                },
-                                {
-                                    title: 'Rows',
-                                    key: 'row_count',
-                                    align: 'right',
-                                    render: (_, publication: PublishedTableApi) =>
-                                        publication.row_count === null ? '—' : publication.row_count.toLocaleString(),
-                                },
-                                {
-                                    title: 'Last published',
-                                    key: 'last_published_at',
-                                    render: (_, publication: PublishedTableApi) =>
-                                        publication.last_published_at ? (
-                                            <TZLabel time={publication.last_published_at} />
-                                        ) : (
-                                            'Never'
-                                        ),
-                                },
-                                {
-                                    key: 'actions',
-                                    width: 0,
-                                    render: (_, publication: PublishedTableApi) => {
-                                        const publicationActive = ACTIVE_STATUSES.has(publication.status)
-                                        const thisPublicationLoading =
-                                            activeMutationId === publication.id && mutationLoading
-
-                                        return (
-                                            <More
-                                                overlay={
-                                                    <>
-                                                        <AccessControlAction
-                                                            resourceType={AccessControlResourceType.WarehouseObjects}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                        >
-                                                            <LemonButton
-                                                                onClick={() => republishTable(publication.id)}
-                                                                loading={
-                                                                    thisPublicationLoading && republishedTableLoading
-                                                                }
-                                                                data-attr={`republish-table-${publication.id}`}
-                                                                disabledReason={
-                                                                    publicationActive
-                                                                        ? 'This table is already being published'
-                                                                        : mutationLoading
-                                                                          ? 'Another table update is in progress'
-                                                                          : undefined
-                                                                }
-                                                            >
-                                                                {publication.status === 'failed'
-                                                                    ? 'Try publishing again'
-                                                                    : 'Publish again'}
-                                                            </LemonButton>
-                                                        </AccessControlAction>
-                                                        <AccessControlAction
-                                                            resourceType={AccessControlResourceType.WarehouseObjects}
-                                                            minAccessLevel={AccessControlLevel.Editor}
-                                                        >
-                                                            <LemonButton
-                                                                status="danger"
-                                                                loading={
-                                                                    thisPublicationLoading && unpublishedTableIdLoading
-                                                                }
-                                                                data-attr={`unpublish-table-${publication.id}`}
-                                                                disabledReason={
-                                                                    publicationActive
-                                                                        ? 'Wait for publishing to finish before unpublishing'
-                                                                        : mutationLoading
-                                                                          ? 'Another table update is in progress'
-                                                                          : undefined
-                                                                }
-                                                                onClick={() =>
-                                                                    LemonDialog.open({
-                                                                        title: `Unpublish ${publication.name}?`,
-                                                                        description:
-                                                                            'This removes the table and its published snapshot from PostHog. The source table is not changed.',
-                                                                        primaryButton: {
-                                                                            status: 'danger',
-                                                                            children: 'Unpublish table',
-                                                                            onClick: () =>
-                                                                                unpublishTable(publication.id),
-                                                                        },
-                                                                        secondaryButton: { children: 'Cancel' },
-                                                                    })
-                                                                }
-                                                            >
-                                                                Unpublish
-                                                            </LemonButton>
-                                                        </AccessControlAction>
-                                                    </>
-                                                }
-                                            />
-                                        )
-                                    },
-                                },
-                            ]}
+                            columns={columns}
                         />
+                    ) : (
+                        <div className="border rounded bg-bg-light">
+                            <LemonCollapse
+                                multiple
+                                embedded
+                                defaultActiveKeys={publishedTableGroups.map((group) => group.schemaName)}
+                                panels={publishedTableGroups.map(({ schemaName, tables }) => ({
+                                    key: schemaName,
+                                    header: (
+                                        <div className="flex items-center justify-between gap-3 w-full">
+                                            <span className="font-semibold truncate">{schemaName}</span>
+                                            <span className="text-xs text-muted-alt whitespace-nowrap">
+                                                {pluralize(tables.length, 'table', 'tables')}
+                                            </span>
+                                        </div>
+                                    ),
+                                    content: (
+                                        <LemonTable
+                                            dataSource={tables}
+                                            rowKey="id"
+                                            pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                                            nouns={['published table', 'published tables']}
+                                            columns={columns}
+                                        />
+                                    ),
+                                }))}
+                            />
+                        </div>
                     )}
                 </div>
             </SceneSection>

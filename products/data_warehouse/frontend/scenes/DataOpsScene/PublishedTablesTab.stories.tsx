@@ -10,7 +10,7 @@ const publications: PublishedTableApi[] = [
     {
         id: 'b60542fd-1786-4564-987a-07b851e29731',
         name: 'modeled_customers',
-        source_schema_name: 'posthog_data_modeling_team_2',
+        source_schema_name: 'analytics',
         source_table_name: 'customers',
         status: 'completed',
         last_published_at: '2026-08-24T16:30:00Z',
@@ -20,7 +20,7 @@ const publications: PublishedTableApi[] = [
     {
         id: 'fd52befe-0049-42bb-8bc3-1e75ac39df25',
         name: 'monthly_revenue',
-        source_schema_name: 'posthog_data_modeling_team_2',
+        source_schema_name: 'finance',
         source_table_name: 'monthly_revenue',
         status: 'publishing',
         last_published_at: '2026-08-23T09:15:00Z',
@@ -30,7 +30,7 @@ const publications: PublishedTableApi[] = [
     {
         id: '465a10d0-22df-4ee7-ae1f-78b2c4911c95',
         name: 'account_health',
-        source_schema_name: 'posthog_data_modeling_team_2',
+        source_schema_name: 'analytics',
         source_table_name: 'account_health',
         status: 'failed',
         last_published_at: null,
