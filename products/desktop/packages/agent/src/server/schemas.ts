@@ -99,6 +99,13 @@ export const refreshSessionParamsSchema = z.object({
   mcpServers: mcpServersSchema,
 });
 
+export const sideQuestionParamsSchema = z.object({
+  question: z.string().min(1, "question is required"),
+  // The adapter resolves the ACP session itself; accepted for symmetry with
+  // the other session-scoped commands.
+  sessionId: z.string().optional(),
+});
+
 /**
  * Names of desktop-only local MCP servers designated for relaying into this
  * run (docs/CLOUD-MCP-RELAY.md). Names only — the sandbox never learns the
@@ -143,6 +150,8 @@ export const commandParamsSchemas = {
   mcp_response: mcpResponseParamsSchema,
   "posthog/mcp_response": mcpResponseParamsSchema,
   "_posthog/mcp_response": mcpResponseParamsSchema,
+  side_question: sideQuestionParamsSchema,
+  "posthog/side_question": sideQuestionParamsSchema,
 } as const;
 
 export type CommandMethod = keyof typeof commandParamsSchemas;

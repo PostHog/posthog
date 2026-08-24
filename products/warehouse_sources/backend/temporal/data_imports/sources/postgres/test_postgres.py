@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSL_REQUIRED_AFTER_DATE,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
     PostgreSQLColumn,
@@ -99,6 +100,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
+    _is_statement_timeout_error,
     _is_unsupported_function_error,
     _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
@@ -750,6 +752,21 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Missing pooler tenant/user error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Supavisor's Erlang resolver can't find a DNS record for its upstream backend — the
+            # stable signal that the underlying project is paused or deleted. Distinct from the
+            # sibling ":etimedout"/":econnrefused" tuples, which are transient and stay retryable.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  Failed to connect to database: {:error, :nxdomain}',
+            'connection failed: connection to server at "203.0.113.20", port 6543 failed: FATAL:  Failed to connect to database: {:error, :nxdomain}',
+        ],
+    )
+    def test_supavisor_nxdomain_pooler_dns_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Supavisor nxdomain pooler DNS failure should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1832,6 +1849,16 @@ class TestIsConnectionDroppedError:
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
             # server-side rejection. Transient; the reconnect must catch it.
             psycopg.OperationalError("connection is bad: no error details available"),
+            # Neon's compute-side walsender loses connectivity to a safekeeper (the storage-tier
+            # peer holding the WAL) and surfaces it as a generic XX000 InternalError_, not the
+            # libpq/Supavisor signatures above. Transient — a safekeeper failover or network blip —
+            # so the reconnect must catch it. Hostname/port are volatile and excluded from the match.
+            psycopg.errors.InternalError_(
+                "[walsender] Failed to read WAL (req_lsn=0/1000000, len=8192): failed to connect to "
+                "safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: connection "
+                'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
+                "failed: server closed the connection unexpectedly"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -5927,6 +5954,24 @@ class TestRangeAsStringLoader:
         assert loader.load(b"[,10)") == "[,10)"
 
 
+class TestNetworkAsStringLoader:
+    @pytest.fixture
+    def loader(self):
+        return NetworkAsStringLoader(oid=869)
+
+    def test_loads_inet_address(self, loader):
+        assert loader.load(b"192.168.1.1") == "192.168.1.1"
+
+    def test_loads_cidr_network(self, loader):
+        assert loader.load(b"192.168.1.0/24") == "192.168.1.0/24"
+
+    def test_loads_ipv6(self, loader):
+        assert loader.load(b"::1") == "::1"
+
+    def test_none_returns_none(self, loader):
+        assert loader.load(None) is None
+
+
 class TestSSLRequiredAfterDate:
     def test_date_value(self):
         assert SSL_REQUIRED_AFTER_DATE == datetime(2026, 2, 18, tzinfo=UTC)
@@ -7498,6 +7543,25 @@ class TestIsUnsupportedStatementTimeoutError:
         assert _is_unsupported_statement_timeout_error(error) is expected
 
 
+class TestIsStatementTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), True),
+            # A recovery conflict is also QueryCanceled but a different message entirely.
+            (psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"), False),
+            # The engine-rejects-the-SET case is a different exception type, not a cancellation.
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                False,
+            ),
+            (psycopg.OperationalError("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_statement_timeout(self, error, expected):
+        assert _is_statement_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -7525,6 +7589,19 @@ class TestRlsActiveFromConnErrorHandling:
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_statement_timeout_error_is_not_captured(self):
+        # This lookup runs under the same 30s SET LOCAL statement_timeout guard as the sibling
+        # PK/xmin/index best-effort probes, which already degrade quietly when it fires (see
+        # _xmin_capable_tables_from_conn). Hitting it here is the guard working as intended, not a
+        # bug — must not flood error tracking.
+        conn = self._conn_raising(psycopg.errors.QueryCanceled("canceling statement due to statement timeout"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:

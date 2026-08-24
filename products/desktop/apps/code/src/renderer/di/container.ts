@@ -26,6 +26,7 @@ import {
   EXTERNAL_APPS_WORKSPACE_CLIENT,
   type ExternalAppsWorkspaceClient,
 } from "@posthog/core/external-apps/identifiers";
+import { FILE_READ_CLIENT } from "@posthog/core/files/identifiers";
 import { GitInteractionService } from "@posthog/core/git-interaction/gitInteractionService";
 import {
   GIT_INTERACTION_EFFECTS,
@@ -60,7 +61,6 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { sessionsModule } from "@posthog/core/sessions/sessions.module";
 import {
-  TITLE_GENERATOR_FILE_READ_CLIENT,
   TITLE_GENERATOR_GITHUB_PR_TITLE_CLIENT,
   TITLE_GENERATOR_LOGGER,
 } from "@posthog/core/sessions/titleGeneratorIdentifiers";
@@ -505,7 +505,7 @@ container.bind(LLM_GATEWAY_SERVICE).toConstantValue({
       model: options.model,
     }),
 } as unknown as LlmGatewayService);
-container.bind(TITLE_GENERATOR_FILE_READ_CLIENT).toConstantValue({
+container.bind(FILE_READ_CLIENT).toConstantValue({
   readAbsoluteFile: (filePath: string) =>
     trpcClient.fs.readAbsoluteFile.query({ filePath }),
 });

@@ -9,7 +9,7 @@ import { useNavigate } from "@tanstack/react-router";
 /**
  * Header breadcrumb for a loop that belongs to a space:
  * "{space} / Loops / {loop}", with the space and Loops segments both linking
- * back. Loops live outside the space routes (/code/loops/…), so without this a
+ * back. Loops live outside the space routes (/loops/…), so without this a
  * space-attached loop is a dead end.
  *
  * Render this only when the spaces layout is on and the loop has a context
@@ -41,7 +41,7 @@ export function LoopSpaceBreadcrumb({
         label: channelPageLabel("loops"),
         onClick: () =>
           void navigate({
-            to: "/website/$channelId/loops",
+            to: "/spaces/$channelId/loops",
             params: { channelId: folderId },
           }),
       }}

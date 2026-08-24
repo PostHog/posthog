@@ -447,6 +447,77 @@ describe("buildSessionOptions", () => {
     );
   });
 
+  describe("per-session context wiki env", () => {
+    const KEYS = [
+      "POSTHOG_CONTEXT_LAYER_PATH",
+      "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
+      "POSTHOG_PERSONAL_API_KEY",
+    ] as const;
+    const original: Partial<Record<string, string | undefined>> = {};
+
+    beforeEach(() => {
+      for (const key of KEYS) {
+        original[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of KEYS) {
+        const value = original[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    });
+
+    // Adapters snapshot process.env at spawn time, so two sessions prepared
+    // close together must each see their own mount — and a session without a
+    // publish token (impersonation) must not inherit another session's.
+    it("gives concurrent sessions their own mounts, ignoring conflicting process.env", () => {
+      process.env.POSTHOG_CONTEXT_LAYER_PATH = "/stale/wiki";
+      process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH = "/stale/commits";
+      process.env.POSTHOG_PERSONAL_API_KEY = "other-sessions-token";
+
+      const first = buildSessionOptions({
+        ...makeParams(),
+        contextWiki: {
+          path: "/wiki/a",
+          commitsPath: "/api/organizations/a/context_layer/commits/",
+          personalApiKey: "token-a",
+        },
+      }).env;
+      const second = buildSessionOptions({
+        ...makeParams(),
+        contextWiki: {
+          path: "/wiki/b",
+          commitsPath: "/api/organizations/b/context_layer/commits/",
+        },
+      }).env;
+
+      expect(first?.POSTHOG_CONTEXT_LAYER_PATH).toBe("/wiki/a");
+      expect(first?.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBe(
+        "/api/organizations/a/context_layer/commits/",
+      );
+      expect(first?.POSTHOG_PERSONAL_API_KEY).toBe("token-a");
+      expect(second?.POSTHOG_CONTEXT_LAYER_PATH).toBe("/wiki/b");
+      expect(second?.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    });
+
+    // Cloud sandboxes still provision these vars per-sandbox in real env.
+    it("inherits process.env when no per-session mount is given", () => {
+      process.env.POSTHOG_CONTEXT_LAYER_PATH = "/sandbox/wiki";
+      process.env.POSTHOG_PERSONAL_API_KEY = "sandbox-token";
+
+      const env = buildSessionOptions(makeParams()).env;
+
+      expect(env?.POSTHOG_CONTEXT_LAYER_PATH).toBe("/sandbox/wiki");
+      expect(env?.POSTHOG_PERSONAL_API_KEY).toBe("sandbox-token");
+    });
+  });
+
   describe("gateway turn tracing env", () => {
     const KEYS = [
       "CLAUDE_CODE_ENABLE_TELEMETRY",
@@ -604,6 +675,60 @@ describe("buildSystemPrompt", () => {
     );
     expect(promptText(prompt)).toMatch(/^Custom append\./);
   });
+
+  it.each([
+    {
+      name: "present via env",
+      exists: true,
+      viaOption: false,
+      expectsBlock: true,
+    },
+    {
+      name: "absent via env",
+      exists: false,
+      viaOption: false,
+      expectsBlock: false,
+    },
+    {
+      name: "present via per-session option",
+      exists: true,
+      viaOption: true,
+      expectsBlock: true,
+    },
+  ])(
+    "gates the context wiki block on the mount directory ($name)",
+    ({ exists, viaOption, expectsBlock }) => {
+      const prev = process.env.POSTHOG_CONTEXT_LAYER_PATH;
+      const mountPath = exists
+        ? fs.mkdtempSync(path.join(os.tmpdir(), "context-wiki-"))
+        : path.join(os.tmpdir(), "context-wiki-absent-nonexistent");
+      if (!viaOption) {
+        process.env.POSTHOG_CONTEXT_LAYER_PATH = mountPath;
+      }
+      try {
+        const text = promptText(
+          buildSystemPrompt(
+            undefined,
+            viaOption ? { contextWikiPath: mountPath } : undefined,
+          ),
+        );
+        if (expectsBlock) {
+          expect(text).toContain(`mounted at ${mountPath}`);
+        } else {
+          expect(text).not.toContain("Context Wiki");
+        }
+      } finally {
+        if (exists) {
+          fs.rmSync(mountPath, { recursive: true, force: true });
+        }
+        if (prev === undefined) {
+          delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
+        } else {
+          process.env.POSTHOG_CONTEXT_LAYER_PATH = prev;
+        }
+      }
+    },
+  );
 });
 
 describe("toSdkEffort", () => {
