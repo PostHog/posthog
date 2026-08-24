@@ -107,6 +107,7 @@ The pass-budget alert is inactive in dry-run mode. Delay-topic lag has no alert 
 - The shared ML bucket grants the data-preparation workload read access to the deterministic URL-image prefix.
 - The image-scrub topic partition count remains fixed while deterministic URL-image objects exist. The source-offset write fence refuses a ref that moves between partitions.
 - Retry topics use the `ai_research_session_replay_` naming convention.
+- Replacement infrastructure provisions the required topics before consumers start. Deprecated protected topics use the Kafka module's separate state-move and deletion workflow.
 - Current public documentation already describes the collector-side image limits. No separate documentation repository change is required.
 
 ## Delta from the original requirements
