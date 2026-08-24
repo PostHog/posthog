@@ -4,7 +4,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import {
     columnsFromResponse,
-    deriveChartAxes,
+    deriveDefaultAxes,
     getAutoVisualizationType,
 } from '~/queries/nodes/DataVisualization/columnUtils'
 import {
@@ -63,6 +63,22 @@ function resolveDisplayType(displayType: ChartDisplayType, autoVisualizationType
     return displayType === ChartDisplayType.Auto ? autoVisualizationType : displayType
 }
 
+// The editor moves the first numeric column onto the x axis when every column is numeric, but only
+// for a line or an area chart. The card follows that, so the same pick saves the same axes on both.
+const PROMOTES_FIRST_NUMERIC_TO_X = [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph]
+
+function axesFor(columns: Column[], drawnAs: ChartDisplayType): { xAxis: string | null; yAxis: string[] } {
+    const defaults = deriveDefaultAxes(columns)
+    const allNumeric = columns.length > 1 && columns.every((column) => column.type.isNumerical)
+
+    if (defaults.xAxis || !allNumeric || !PROMOTES_FIRST_NUMERIC_TO_X.includes(drawnAs)) {
+        return defaults
+    }
+
+    const [first, ...rest] = columns
+    return { xAxis: first.name, yAxis: rest.map((column) => column.name) }
+}
+
 // A chart reads its columns out of chartSettings, and loading the saved query resets the axes to
 // whatever it carries. So a query saved as a table has to gain axes here, or the chart draws empty.
 export function withAxes(
@@ -70,11 +86,12 @@ export function withAxes(
     columns: Column[],
     autoVisualizationType: ChartDisplayType
 ): DataVisualizationNode {
-    if (!query.display || CARD_SUPPORT[resolveDisplayType(query.display, autoVisualizationType)] !== 'axes') {
+    const drawnAs = query.display ? resolveDisplayType(query.display, autoVisualizationType) : undefined
+    if (!drawnAs || CARD_SUPPORT[drawnAs] !== 'axes') {
         return query
     }
 
-    const { xAxis, yAxis } = deriveChartAxes(columns)
+    const { xAxis, yAxis } = axesFor(columns, drawnAs)
     // Fill only the side the query is missing, so axes the user chose stay untouched.
     const nextXAxis = query.chartSettings?.xAxis ?? (xAxis ? { column: xAxis } : undefined)
     const nextYAxis = query.chartSettings?.yAxis?.length
@@ -113,7 +130,7 @@ export function cardVisualizationDisabledReason(
         return undefined
     }
 
-    return deriveChartAxes(columns).yAxis.length === 0 ? NO_NUMERIC_COLUMN_REASON : NO_X_AXIS_COLUMN_REASON
+    return deriveDefaultAxes(columns).yAxis.length === 0 ? NO_NUMERIC_COLUMN_REASON : NO_X_AXIS_COLUMN_REASON
 }
 
 // A dashboard card renders its query read-only, which drops the setQuery that dataVisualizationLogic

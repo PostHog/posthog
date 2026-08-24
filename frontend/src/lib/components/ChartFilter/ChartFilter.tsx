@@ -20,26 +20,7 @@ function ChartFilterOptionLabel(props: { label: string; description?: string }):
     )
 }
 
-interface ChartFilterProps {
-    /** Set on surfaces that stack their controls in a column, such as a dashboard card's menu. */
-    fullWidth?: boolean
-    className?: string
-    /** Dashboard filters make an insight refuse edits, because what is on screen is not what is
-     * saved. A surface that saves nothing derived from the filtered result can opt out. */
-    allowEditingWithOverrides?: boolean
-    /** Extra reason a surface cannot offer a type, checked before this list's own reasons. */
-    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
-    /** Defaults to the editor's value. Override it so a surface can be told apart in analytics. */
-    dataAttr?: string
-}
-
-export function ChartFilter({
-    fullWidth,
-    className,
-    allowEditingWithOverrides,
-    disabledReasonFor,
-    dataAttr = 'chart-filter',
-}: ChartFilterProps = {}): JSX.Element {
+export function ChartFilter(): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -239,20 +220,9 @@ export function ChartFilter({
         },
     ]
 
-    const withSurfaceReason = options.map((group) => ({
-        ...group,
-        options: group.options.map((option) =>
-            'value' in option
-                ? { ...option, disabledReason: disabledReasonFor?.(option.value) ?? option.disabledReason }
-                : option
-        ),
-    }))
-
     return (
         <LemonSelect
             key="2"
-            fullWidth={fullWidth}
-            className={className}
             value={display || ChartDisplayType.ActionsLineGraph}
             onChange={(value) => {
                 updateInsightFilter({ display: value })
@@ -260,10 +230,10 @@ export function ChartFilter({
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
-            data-attr={dataAttr}
-            options={withSurfaceReason}
+            data-attr="chart-filter"
+            options={options}
             size="small"
-            disabledReason={allowEditingWithOverrides ? undefined : editingDisabledReason}
+            disabledReason={editingDisabledReason}
         />
     )
 }
