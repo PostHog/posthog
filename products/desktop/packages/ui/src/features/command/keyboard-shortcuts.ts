@@ -335,8 +335,11 @@ export const CATEGORY_LABELS: Record<ShortcutCategory, string> = {
 
 export function getShortcutsByCategory({
   channelsLayout = false,
+  inboxEnabled = true,
 }: {
   channelsLayout?: boolean;
+  /** Off when channel reports replace the inbox and nothing handles its key. */
+  inboxEnabled?: boolean;
 } = {}): Record<ShortcutCategory, KeyboardShortcut[]> {
   const grouped: Record<ShortcutCategory, KeyboardShortcut[]> = {
     general: [],
@@ -349,6 +352,7 @@ export function getShortcutsByCategory({
     : "no-channels-layout";
   for (const shortcut of KEYBOARD_SHORTCUTS) {
     if (shortcut.availability && shortcut.availability !== wanted) continue;
+    if (!inboxEnabled && shortcut.id === "inbox") continue;
     grouped[shortcut.category].push(shortcut);
   }
   return grouped;
