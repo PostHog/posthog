@@ -47,6 +47,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
         columns.push({
             title: 'Actions',
             key: 'actions',
+            width: 0,
             render: (_, member) => {
                 const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.id)
 
