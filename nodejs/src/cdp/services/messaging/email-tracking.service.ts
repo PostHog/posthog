@@ -410,8 +410,11 @@ export class EmailTrackingService {
         }
 
         try {
+            // Postmark posts application/json, which the router's global express.json() has
+            // already parsed into an object; a non-JSON content type falls through to the
+            // route's text parser and arrives as a string.
             const { status, body, metrics, logEntries, optOutRecipients } = this.postmarkWebhookHandler.handleWebhook({
-                body: parseJSON(req.body),
+                body: typeof req.body === 'string' ? parseJSON(req.body) : req.body,
             })
 
             for (const metric of metrics || []) {
