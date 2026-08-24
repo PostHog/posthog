@@ -59,6 +59,7 @@ vi.mock("@posthog/quill", () => ({
   EmptyHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyMedia: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  MenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Label: ({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) => (
     <label htmlFor={htmlFor}>{children}</label>
   ),
@@ -110,6 +111,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
     mutate: mocks.markRead,
     isPending: false,
   }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useLocalDayStart", () => ({
+  useLocalDayStart: () => new Date(2026, 7, 25).getTime(),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
   useTaskActivity: () => ({
@@ -231,5 +235,35 @@ describe("ActivityFeedList", () => {
     fireEvent.click(screen.getByRole("switch"));
 
     expect(screen.getAllByText("Activity row")).toHaveLength(1);
+  });
+
+  it("groups the panel rows by local calendar day", () => {
+    mocks.hasNextPage = false;
+    mocks.items = [
+      {
+        id: "today",
+        taskId: "task-1",
+        activityAt: new Date(2026, 7, 25, 10).toISOString(),
+        activityKind: "completed",
+        isUnread: false,
+      } as TaskActivityItem,
+      {
+        id: "yesterday",
+        taskId: "task-2",
+        activityAt: new Date(2026, 7, 24, 10).toISOString(),
+        activityKind: "completed",
+        isUnread: false,
+      } as TaskActivityItem,
+    ];
+
+    render(<ActivityFeedList />);
+
+    const rows = screen.getAllByText("Activity row");
+    expect(screen.getByText("Today").compareDocumentPosition(rows[0])).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getByText("Yesterday").compareDocumentPosition(rows[1])).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 });

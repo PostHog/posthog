@@ -12,6 +12,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  MenuLabel,
   Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -21,15 +22,17 @@ import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/Ac
 import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
+  groupActivityItemsByDay,
   markLoadedReadLabel,
 } from "./activityFeed";
 
@@ -68,6 +71,11 @@ export function ActivityFeedList({
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const unreadItems = getUnreadActivityItems(items);
   const shownItems = unreadsOnly ? unreadItems : items;
+  const dayStart = useLocalDayStart();
+  const shownItemGroups = useMemo(
+    () => groupActivityItemsByDay(shownItems, new Date(dayStart)),
+    [shownItems, dayStart],
+  );
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   useEffect(() => {
@@ -128,7 +136,10 @@ export function ActivityFeedList({
           </DropdownMenu>
         </div>
       </div>
-      <div ref={setScrollRoot} className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div
+        ref={setScrollRoot}
+        className="scroll-mask-8 min-h-0 flex-1 overflow-y-auto p-1.5"
+      >
         {isLoading && shownItems.length === 0 ? (
           <div className="flex justify-center py-10">
             <Spinner />
@@ -151,23 +162,28 @@ export function ActivityFeedList({
           </Empty>
         ) : (
           <div className="flex flex-col gap-px">
-            {shownItems.map((item) => (
-              <ActivityRow
-                key={item.id}
-                item={item}
-                channelId={item.channelId}
-                onOpen={markRead}
-                onMarkRead={markRead}
-                currentUser={currentUser}
-                blockedTaskIds={blockedTaskIds}
-                surface="activity_panel"
-                onActivate={(activated) => {
-                  onActivate(activated);
-                  onOpened?.();
-                }}
-                isSelected={item.id === selectedId}
-                compact
-              />
+            {shownItemGroups.map((group) => (
+              <Fragment key={group.key}>
+                <MenuLabel>{group.label}</MenuLabel>
+                {group.items.map((item) => (
+                  <ActivityRow
+                    key={item.id}
+                    item={item}
+                    channelId={item.channelId}
+                    onOpen={markRead}
+                    onMarkRead={markRead}
+                    currentUser={currentUser}
+                    blockedTaskIds={blockedTaskIds}
+                    surface="activity_panel"
+                    onActivate={(activated) => {
+                      onActivate(activated);
+                      onOpened?.();
+                    }}
+                    isSelected={item.id === selectedId}
+                    compact
+                  />
+                ))}
+              </Fragment>
             ))}
           </div>
         )}
