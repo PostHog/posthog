@@ -11,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     FeatureFlagType,
+    RecurrenceInterval,
     ScheduledChangeModels,
     ScheduledChangeOperationType,
     ScheduledChangeRequestState,
@@ -225,6 +226,29 @@ describe('FeatureFlagSchedule', () => {
             expect(await screen.findByText(expectedTag)).toBeInTheDocument()
             expect(screen.queryByText('Active & upcoming')).not.toBeInTheDocument()
         })
+
+        it.each([
+            { state: ScheduledChangeRequestState.Rejected, expectedTag: 'Rejected' },
+            { state: ScheduledChangeRequestState.Expired, expectedTag: 'Approval expired' },
+        ])(
+            'keeps a recurring schedule with a $state approval active but tags it $expectedTag',
+            async ({ state, expectedTag }) => {
+                useMocks({
+                    get: schedulesMock([
+                        makeScheduledChange({
+                            is_recurring: true,
+                            recurrence_interval: RecurrenceInterval.Daily,
+                            change_request: { id: 'cr-recurring', state },
+                        }),
+                    ]),
+                })
+                renderWithSchedules()
+
+                expect(await screen.findByText(expectedTag)).toBeInTheDocument()
+                expect(screen.getByText('Active & upcoming')).toBeInTheDocument()
+                expect(screen.queryByText(/^History \(/)).not.toBeInTheDocument()
+            }
+        )
 
         it('shows the failure reason as visible text on an errored schedule', async () => {
             const failureReason = 'Feature flag not found (will retry automatically, 2 attempts remaining)'

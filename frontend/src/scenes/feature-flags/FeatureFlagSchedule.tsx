@@ -171,20 +171,19 @@ function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChan
     const tz = currentTeam?.timezone || 'UTC'
 
     function getStatus(): { type: LemonTagType; text: string; tooltip?: string } {
+        const rejected = change_request?.state === ScheduledChangeRequestState.Rejected
+        const denied = rejected || change_request?.state === ScheduledChangeRequestState.Expired
+        const deniedText = rejected ? 'Rejected' : 'Approval expired'
+        const deniedCause = rejected ? 'The approval request was rejected' : 'The approval request expired'
+
         if (failure_reason) {
             return { type: 'danger', text: 'Error' }
         } else if (isScheduleDeniedApproval(scheduledChange)) {
-            return change_request?.state === ScheduledChangeRequestState.Rejected
-                ? {
-                      type: 'danger',
-                      text: 'Rejected',
-                      tooltip: 'The approval request was rejected, so this change will not be applied.',
-                  }
-                : {
-                      type: 'danger',
-                      text: 'Approval expired',
-                      tooltip: 'The approval request expired, so this change will not be applied.',
-                  }
+            return {
+                type: 'danger',
+                text: deniedText,
+                tooltip: `${deniedCause}, so this change will not be applied.`,
+            }
         } else if (executed_at) {
             const executedAt = dayjs(executed_at)
             const tzShort = shortTimeZone(tz, executedAt.toDate()) ?? tz
@@ -204,6 +203,15 @@ function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChan
                 type: 'warning',
                 text: 'Needs approval',
                 tooltip: 'This change will be skipped if it is not approved before the scheduled time.',
+            }
+        } else if (denied) {
+            // A denied request on a recurring schedule is not terminal: the sweep skips the next
+            // occurrence and requests a fresh approval for the one after, so the row stays active
+            // but the tag must not read as a plain "Recurring" that will run.
+            return {
+                type: 'danger',
+                text: deniedText,
+                tooltip: `${deniedCause}, so the next occurrence will be skipped. A new approval request will be created for the following occurrence.`,
             }
         } else if (is_recurring) {
             return { type: 'highlight', text: 'Recurring' }
