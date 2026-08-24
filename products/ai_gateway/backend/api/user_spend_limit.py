@@ -24,7 +24,8 @@ from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -39,6 +40,7 @@ from posthog.llm.gateway_internal_client import (
 )
 from posthog.models import User
 from posthog.models.user_gateway_node import gateway_user_node
+from posthog.permissions import get_authenticator_scoped_organization_ids, get_authenticator_scoped_team_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -97,6 +99,22 @@ class SpendLimitErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="What went wrong, in a form that can be shown to a person.")
 
 
+class UserSpendLimitScopePermission(BasePermission):
+    def has_permission(self, request: Request, view: TeamAndOrgViewSetMixin) -> bool:
+        team = view.team
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and team.id not in scoped_team_ids:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
+
+        scoped_organization_ids = get_authenticator_scoped_organization_ids(request.successful_authenticator)
+        if scoped_organization_ids and str(team.organization_id) not in scoped_organization_ids:
+            raise PermissionDenied(
+                f"API key does not have access to the requested organization: ID {team.organization_id}."
+            )
+
+        return True
+
+
 class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """The requesting user's own spend limit for model traffic through the gateway."""
 
@@ -109,7 +127,7 @@ class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["create", "clear"]
     serializer_class = UserSpendLimitSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, UserSpendLimitScopePermission]
     schema = SingletonSchema()
 
     @extend_schema(

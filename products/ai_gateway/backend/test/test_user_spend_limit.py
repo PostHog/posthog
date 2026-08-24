@@ -1,11 +1,20 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from rest_framework import status
 from structlog.testing import capture_logs
 
+from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, UserBudget
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user_gateway_node import gateway_user_node
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 CLIENT = "products.ai_gateway.backend.api.user_spend_limit"
 
@@ -68,6 +77,58 @@ class TestUserSpendLimit(APIBaseTest):
     def test_write_surfaces_a_gateway_failure(self, _set_user_budget):
         response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+
+    def test_rejects_a_personal_api_key_scoped_to_another_project(self):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped key",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["*"],
+            scoped_teams=[self.team.id + 1],
+            scoped_organizations=[],
+        )
+
+        response = self.client.get(self._url(), headers={"authorization": f"Bearer {token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rejects_an_oauth_token_scoped_to_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        application = OAuthApplication.objects.create(
+            name="Test OAuth app",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_test_oauth_token",
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(other_organization.id)],
+        )
+
+        response = self.client.get(self._url(), headers={"authorization": f"Bearer {access_token.token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rejects_an_id_jag_token_scoped_to_another_organization(self):
+        other_organization = Organization.objects.create(name="Other organization")
+
+        def authenticate(authenticator: IDJagAccessTokenAuthentication, _request: object) -> tuple[object, None]:
+            authenticator.scopes = ["*"]
+            authenticator.organization_id = str(other_organization.id)
+            return self.user, None
+
+        with patch.object(IDJagAccessTokenAuthentication, "authenticate", autospec=True, side_effect=authenticate):
+            response = self.client.get(self._url(), headers={"authorization": "Bearer id-jag-test-token"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_gateway_failures_are_logged_with_operation_and_team(self):
         cases = (
