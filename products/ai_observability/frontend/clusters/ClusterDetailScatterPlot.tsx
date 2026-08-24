@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { ScatterChart } from '@posthog/quill-charts'
 import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from '@posthog/quill-charts'
@@ -16,6 +16,10 @@ export function ClusterDetailScatterPlot(): JSX.Element {
     const { cluster, traceSummaries, scatterPlotSeries, clusteringLevel } = useValues(clusterDetailLogic)
     const theme = useChartTheme()
     const [zoom, setZoom] = useState<ScatterAreaSelection | null>(null)
+
+    // Drop a pinned zoom when the data changes — a stale domain from the previous UMAP space would
+    // drop the new points and render the plot blank until reset.
+    useEffect(() => setZoom(null), [scatterPlotSeries])
 
     const config = useMemo<ScatterChartConfig<ClusterScatterMeta>>(
         () => ({
