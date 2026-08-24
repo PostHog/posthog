@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic import (
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_WINDOW_MS,
@@ -158,23 +159,37 @@ class TestExecuteGraphql:
         body = {"data": {"actor": {"account": {"id": ACCOUNT_ID}}}}
         assert self._execute(self._response(body=body)) == body["data"]
 
-    @parameterized.expand(
-        [
-            ("permanent_graphql", {"errors": [{"message": "authentication required"}]}, 200),
-            ("retryable_graphql", {"errors": [{"message": "An error occurred resolving this field"}]}, 200),
-            ("retryable_status", None, 503),
-        ]
-    )
-    def test_escaping_errors_map_to_a_friendly_message(self, _name: str, body: dict | None, status: int) -> None:
-        # Whatever message the client raises, a persistent failure must resolve to a friendly
-        # customer message. Producing the exception from the real client (not a hardcoded
-        # string) guards the coupling between the raised prefix and the source's keys. If the
-        # prefix drifts, the customer sees raw NerdGraph text again, the reported symptom.
-        with pytest.raises((NewRelicGraphQLError, NewRelicRetryableError)) as exc_info:
-            self._execute(self._response(status_code=status, body=body))
+    def test_permanent_graphql_error_maps_to_a_friendly_disable_message(self) -> None:
+        # A permanent resolver failure (bad auth/permission/query) must resolve to a non-empty
+        # friendly message in the disable dict. Producing the exception from the real client
+        # (not a hardcoded string) guards the coupling between the raised prefix and the
+        # source's key: if the prefix drifts, the customer sees raw NerdGraph text again.
+        with pytest.raises(NewRelicGraphQLError) as exc_info:
+            self._execute(self._response(body={"errors": [{"message": "authentication required"}]}))
 
         friendly = NewRelicSource().get_non_retryable_errors()
+        assert error_message_matches(str(exc_info.value), friendly.keys())
         assert any(key in str(exc_info.value) and value is not None for key, value in friendly.items())
+
+    @parameterized.expand(
+        [
+            ("resolver_error", {"errors": [{"message": "An error occurred resolving this field"}]}, 200),
+            ("server_error", None, 503),
+        ]
+    )
+    def test_transient_errors_classify_retryable_not_disabling(
+        self, _name: str, body: dict | None, status: int
+    ) -> None:
+        # A transient failure that exhausts the client's retries must match a retryable key, so
+        # the schema stays enabled and the next scheduled sync recovers. It must NOT match a
+        # disable key: landing a self-recovering blip in the disable dict pauses future syncs.
+        with pytest.raises(NewRelicRetryableError) as exc_info:
+            self._execute(self._response(status_code=status, body=body))
+
+        source = NewRelicSource()
+        message = str(exc_info.value)
+        assert error_message_matches(message, source.get_retryable_errors())
+        assert not error_message_matches(message, source.get_non_retryable_errors().keys())
 
 
 class TestFetchEventWindow:
