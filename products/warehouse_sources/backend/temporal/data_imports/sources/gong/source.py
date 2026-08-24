@@ -110,6 +110,7 @@ To also sync the `transcripts` table (what was said on each call), additionally 
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
                 default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
+                should_sync_default=endpoint_config.should_sync_default,
                 description="Only syncs the last 365 days on initial sync"
                 if endpoint_config.uses_date_window
                 else None,

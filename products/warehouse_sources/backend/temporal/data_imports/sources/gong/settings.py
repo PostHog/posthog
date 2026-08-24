@@ -48,6 +48,10 @@ class GongEndpointConfig:
     # Rows-per-chunk override for endpoints whose rows are whole documents. None keeps the
     # pipeline's default.
     chunk_size: Optional[int] = None
+    # Whether one-shot source setup and new-schema auto-sync enable this endpoint without the
+    # administrator picking it. False for endpoints carrying content sensitive enough that syncing
+    # it into the warehouse should be a deliberate choice.
+    should_sync_default: bool = True
 
 
 GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
@@ -98,9 +102,10 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
     ),
     # Gong's Call Spotlight summaries, from the same `/v2/calls/extensive` endpoint under the same
     # scope as `calls_extensive` but with the `content` block of the selector requested instead of
-    # participants and CRM links. Kept as its own table because a call's AI-generated summary is
-    # far more sensitive than the metadata in the other call tables, so it should stay opt-in
-    # rather than appear in a table a user already enabled for something else.
+    # participants and CRM links. Kept as its own default-off table because a call's AI-generated
+    # summary is far more sensitive than the metadata in the other call tables: syncing it puts
+    # what was said on every call in reach of anyone who can query the warehouse, so it takes a
+    # deliberate pick rather than arriving with the rest of the source.
     "calls_content": GongEndpointConfig(
         name="calls_content",
         path="/v2/calls/extensive",
@@ -111,6 +116,7 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         uses_date_window=True,
         uses_extensive=True,
         capture_http_samples=False,
+        should_sync_default=False,
         extensive_content_selector={
             # No CRM context or participants — `calls_extensive` already covers those, and asking
             # for them again would double the payload for data this table does not expose.
