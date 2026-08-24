@@ -29,6 +29,7 @@ const ICON_BY_CATEGORY: Record<ItemCategory, string> = {
     [ItemCategory.EXCEPTION_STEPS]: '📋',
     [ItemCategory.CUSTOM_EVENTS]: '📊',
     [ItemCategory.PAGE_VIEWS]: '👁',
+    [ItemCategory.SCREEN_VIEWS]: '📱',
     [ItemCategory.CONSOLE_LOGS]: '🖥',
 }
 
@@ -55,6 +56,8 @@ function getRealisticTypeLabel(category: ItemCategory): string {
             return 'custom event'
         case ItemCategory.PAGE_VIEWS:
             return 'page view'
+        case ItemCategory.SCREEN_VIEWS:
+            return 'screen view'
         case ItemCategory.CONSOLE_LOGS:
             return 'console'
     }
@@ -86,6 +89,7 @@ function getRealisticMessage(category: ItemCategory, i: number): string {
             '/settings/project/error-tracking',
             '/billing',
         ],
+        [ItemCategory.SCREEN_VIEWS]: ['HomeScreen', 'IssueDetailScreen', 'SettingsScreen', 'BillingScreen'],
         [ItemCategory.CONSOLE_LOGS]: [
             'info App initialized',
             'warn Slow network detected',
@@ -186,6 +190,7 @@ function buildCollector(options: {
         categories = [
             { category: ItemCategory.ERROR_TRACKING, countBefore: 30, countAfter: 30 },
             { category: ItemCategory.PAGE_VIEWS, countBefore: 15, countAfter: 15 },
+            { category: ItemCategory.SCREEN_VIEWS, countBefore: 15, countAfter: 15 },
             { category: ItemCategory.CUSTOM_EVENTS, countBefore: 20, countAfter: 20 },
             { category: ItemCategory.CONSOLE_LOGS, countBefore: 50, countAfter: 50 },
         ],

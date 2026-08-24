@@ -6,6 +6,7 @@ export enum ItemCategory {
     EXCEPTION_STEPS = 'exception steps',
     CUSTOM_EVENTS = 'custom events',
     PAGE_VIEWS = 'pageviews',
+    SCREEN_VIEWS = 'screens',
     CONSOLE_LOGS = 'console logs',
 }
 
