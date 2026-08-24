@@ -242,7 +242,7 @@ class SubjectAccessControl(UserAccessControl):
         return access_control.organization_member_id is None and access_control.role_id is None
 
     @cached_property
-    def _user_role_ids(self):
+    def _user_role_ids(self) -> list[str]:
         # Role rules are inert without the entitlement, for a member's roles and for a role subject alike
         if not self.rbac_supported:
             return []
