@@ -91,7 +91,7 @@ def _request(
         )
     except httpx.HTTPError as exc:
         raise AIGatewayInternalError(f"{what} failed: {exc}") from exc
-    if response.status_code >= 400 and response.status_code not in tolerated_statuses:
+    if not response.is_success and response.status_code not in tolerated_statuses:
         raise AIGatewayInternalError(_error_detail(response))
     return response
 

@@ -217,6 +217,18 @@ class TestUserBudgets:
             assert clear_user_budget(42, "u1") is None
 
     @patch("posthog.llm.gateway_internal_client.settings")
+    def test_clear_rejects_a_redirect_response(self, mock_settings):
+        _configured(mock_settings)
+        redirect = httpx.Response(
+            302,
+            headers={"location": "http://gw/other"},
+            request=httpx.Request("DELETE", "http://gw/internal/teams/42/budgets"),
+        )
+        with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=redirect):
+            with pytest.raises(AIGatewayInternalError):
+                clear_user_budget(42, "u1")
+
+    @patch("posthog.llm.gateway_internal_client.settings")
     def test_clear_raises_on_other_errors(self, mock_settings):
         _configured(mock_settings)
         with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(500, {"error": "boom"})):
