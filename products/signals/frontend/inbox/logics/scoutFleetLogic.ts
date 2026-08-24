@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -54,7 +55,6 @@ import {
     FleetSummary,
     isSettledRun,
     prettifyScoutSkillName,
-    reconcileById,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -399,7 +399,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
+                    if (!teamId) {
+                        return null
+                    }
+                    const configs = await signalsScoutConfigList(String(teamId))
+                    // The 60s poll refetches all configs every cycle. Reconcile against the previous
+                    // list so an unchanged fleet keeps the same references — otherwise the whole
+                    // roster re-renders on every poll even when nothing changed.
+                    return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
                 },
             },
         ],
