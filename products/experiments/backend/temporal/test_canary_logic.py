@@ -154,6 +154,16 @@ class TestEvaluateCanaryRuns:
                 {"control": (37.0, 499000), "test": (13571.0, 499000)},
                 OUTCOME_PASS,
             ),
+            (
+                # Exposure counts are never floored: 90 users is under MIN_CORRECTNESS_SUM_DELTA, but a
+                # beyond-tolerance exposure-set divergence on a small experiment must still page.
+                "small_experiment_exposure_drift_beyond_tolerance_diverges",
+                "funnel",
+                {"control": (500.0, 3000), "test": (500.0, 3000)},
+                {"control": (500.0, 3000), "test": (500.0, 3000)},
+                {"control": (500.0, 3090), "test": (500.0, 3000)},
+                OUTCOME_DIVERGENCE,
+            ),
         ]
     )
     def test_outcomes(self, _name, metric_type, a, b, c, expected):
