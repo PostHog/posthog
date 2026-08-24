@@ -3,7 +3,7 @@ import { ChartDisplayType } from '~/types'
 
 import { Column, ColumnScalar } from './types'
 
-export const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
+const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnScalar => {
     if (!type) {
         return 'UNKNOWN'
     }
@@ -39,7 +39,7 @@ export const toFriendlyClickhouseTypeName = (type: string | undefined): ColumnSc
     return type as ColumnScalar
 }
 
-export const isNumericalType = (type: ColumnScalar): boolean => {
+const isNumericalType = (type: ColumnScalar): boolean => {
     if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }

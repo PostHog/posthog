@@ -159,4 +159,50 @@ describe('SqlVisualizationPicker support rules', () => {
             cardVisualizationDisabledReason(ChartDisplayType.BoldNumber, baseQuery, columns, autoVisualizationType)
         ).toBeUndefined()
     })
+
+    // The editor takes the promoted column off the y series. Without that the same column sits on
+    // both axes and the chart plots it against itself. The guard above starts from a query with no
+    // chartSettings, so it never reached this.
+    it('does not leave the promoted x column on the y axis', () => {
+        const response = responses['all numeric, which the editor plots by promoting the first column to the x axis']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response)
+        const alreadyPlotted = {
+            ...baseQuery,
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { yAxis: [{ column: 'users' }, { column: 'events' }] },
+        } as DataVisualizationNode
+
+        const saved = withAxes(alreadyPlotted, columns, autoVisualizationType)
+
+        expect(saved.chartSettings?.xAxis?.column).toEqual('users')
+        expect(saved.chartSettings?.yAxis).toEqual([{ column: 'events' }])
+    })
+
+    // The editor labels the slices of a newly picked pie. Without it the card's pie falls back to
+    // the legacy value-on-slice rendering, so the same pick draws differently on the two surfaces.
+    it('labels the slices of a newly picked pie, as the editor does', () => {
+        const response = responses['date and numeric']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response)
+
+        const saved = withAxes({ ...baseQuery, display: ChartDisplayType.ActionsPie }, columns, autoVisualizationType)
+
+        expect(saved.chartSettings?.pie?.sliceContent).toEqual('labels')
+    })
+
+    it('leaves the slice style of a pie the insight already has', () => {
+        const response = responses['date and numeric']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response)
+        const existingPie = {
+            ...baseQuery,
+            display: ChartDisplayType.ActionsPie,
+            chartSettings: { pie: { sliceContent: 'value' } },
+        } as unknown as DataVisualizationNode
+
+        const saved = withAxes(existingPie, columns, autoVisualizationType)
+
+        expect(saved.chartSettings?.pie?.sliceContent).toEqual('value')
+    })
 })

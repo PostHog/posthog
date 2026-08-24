@@ -1,10 +1,8 @@
-import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { Node } from '~/queries/schema/schema-general'
+import { HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 
 import { SqlVisualizationPicker } from './SqlVisualizationPicker'
@@ -22,15 +20,20 @@ export function shouldShowSqlVisualizationPicker(query: Node | null, canPersist:
 export function useDashboardVisualizationOptions({
     query,
     insightData,
+    variablesOverride,
     persistDisplayOptions,
 }: {
     query: Node | null
     insightData: Record<string, any>
+    variablesOverride?: Record<string, HogQLVariable> | null
     persistDisplayOptions?: (node: Node) => void
 }): LemonMenuItems {
-    const { editingDisabledReason } = useValues(insightLogic)
-
     const show = shouldShowSqlVisualizationPicker(query, !!persistDisplayOptions)
+
+    // Dashboard date and property filters reach a HogQL query only through a {filters} placeholder,
+    // which substitutes into a WHERE clause, so they change rows and never the columns the axes name.
+    // A variable can appear in the SELECT list, so an overridden one can.
+    const hasVariableOverride = !!variablesOverride && Object.keys(variablesOverride).length > 0
 
     // Keyed on the response arrays rather than insightData itself: that object is rebuilt on every
     // refresh tick, and a new label identity would remount the picker and close its open dropdown.
@@ -53,9 +56,11 @@ export function useDashboardVisualizationOptions({
                                 columns={columns}
                                 types={types}
                                 rowCount={rowCount}
-                                // The axes it saves come from the filtered result, so an override
-                                // would write one viewer's view onto the shared insight.
-                                disabledReason={editingDisabledReason}
+                                disabledReason={
+                                    hasVariableOverride
+                                        ? 'Open the insight to change its chart type while a variable is overridden'
+                                        : undefined
+                                }
                                 persistDisplayOptions={persistDisplayOptions}
                             />
                         ),
@@ -63,5 +68,5 @@ export function useDashboardVisualizationOptions({
                 ],
             },
         ]
-    }, [show, query, columns, types, rowCount, editingDisabledReason, persistDisplayOptions])
+    }, [show, query, columns, types, rowCount, hasVariableOverride, persistDisplayOptions])
 }

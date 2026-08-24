@@ -242,7 +242,12 @@ export function InsightMeta({
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
     const { items: displayOptionItems } = useInsightDisplayOptions()
-    const visualizationItems = useDashboardVisualizationOptions({ query, insightData, persistDisplayOptions })
+    const visualizationItems = useDashboardVisualizationOptions({
+        query,
+        insightData,
+        variablesOverride,
+        persistDisplayOptions,
+    })
     const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor

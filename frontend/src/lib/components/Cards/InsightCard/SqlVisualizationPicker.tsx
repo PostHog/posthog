@@ -94,15 +94,26 @@ export function withAxes(
     const { xAxis, yAxis } = axesFor(columns, drawnAs)
     // Fill only the side the query is missing, so axes the user chose stay untouched.
     const nextXAxis = query.chartSettings?.xAxis ?? (xAxis ? { column: xAxis } : undefined)
-    const nextYAxis = query.chartSettings?.yAxis?.length
+    const keptYAxis = query.chartSettings?.yAxis?.length
         ? query.chartSettings.yAxis
         : yAxis.map((column) => ({ column }))
+    // The editor takes the promoted column back off the y series, so a column never plots against
+    // itself. Do the same here rather than keeping whatever the query carried.
+    const nextYAxis = keptYAxis.filter((series) => series.column !== nextXAxis?.column)
 
     if (!nextXAxis || nextYAxis.length === 0) {
         return query
     }
 
-    return { ...query, chartSettings: { ...query.chartSettings, xAxis: nextXAxis, yAxis: nextYAxis } }
+    const chartSettings = { ...query.chartSettings, xAxis: nextXAxis, yAxis: nextYAxis }
+
+    // A newly picked pie labels its slices in the editor. Without this it falls back to the legacy
+    // value-on-slice rendering, so the same pick would draw differently on the two surfaces.
+    if (drawnAs === ChartDisplayType.ActionsPie && chartSettings.pie?.sliceContent === undefined) {
+        chartSettings.pie = { ...chartSettings.pie, sliceContent: 'labels' }
+    }
+
+    return { ...query, chartSettings }
 }
 
 // The one rule for what a card can switch a SQL insight to. It answers by running the save it would
