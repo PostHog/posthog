@@ -24,6 +24,8 @@ from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
 
+from ee.models.rbac.access_control import AccessControl
+
 logger = structlog.get_logger(__name__)
 
 
@@ -33,6 +35,7 @@ def enable_context_layer(
     created_by_id: int | None = None,
 ) -> ContextLayerConfig:
     """Idempotent: re-enabling scaffolds nothing and re-imports only missing pages."""
+    _record_restricted_projects(organization_id)
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
     # The import lands its own commit, so the row read before it is already a
@@ -41,6 +44,36 @@ def enable_context_layer(
     config.refresh_from_db()
     transaction.on_commit(lambda: _trigger_bootstrap_dream(str(organization_id)), robust=True)
     return config
+
+
+def _record_restricted_projects(organization_id: uuid.UUID | str) -> None:
+    """Note when a wiki is enabled for an organization that restricts a project.
+
+    The wiki is organization-wide, so this is the moment that project's
+    synthesized context becomes readable to members it excludes. That trade-off
+    is deliberate until per-page provenance ships (see PROVENANCE.md), but it
+    should be answerable afterwards rather than guessed at, so the organizations
+    carrying it are recorded where they are accepted.
+    """
+    restricted = set(
+        Team.objects.filter(organization_id=organization_id, access_control=True).values_list("id", flat=True)
+    )
+    restricted.update(
+        int(resource_id)
+        for resource_id in AccessControl.objects.filter(
+            team__organization_id=organization_id,
+            resource="project",
+            resource_id__isnull=False,
+            access_level="none",
+        ).values_list("resource_id", flat=True)
+        if resource_id and resource_id.isdigit()
+    )
+    if restricted:
+        logger.warning(
+            "context_layer.enabled_with_restricted_projects",
+            organization_id=str(organization_id),
+            restricted_project_ids=sorted(restricted),
+        )
 
 
 def _trigger_bootstrap_dream(organization_id: str) -> None:
