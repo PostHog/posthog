@@ -38826,6 +38826,89 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `unstable` - unstable
+     * * `settled` - settled
+     * * `clean` - clean
+     */
+    export type FlakinessStateEnum = typeof FlakinessStateEnum[keyof typeof FlakinessStateEnum];
+
+
+    export const FlakinessStateEnum = {
+      Unstable: 'unstable',
+      Settled: 'settled',
+      Clean: 'clean',
+    } as const;
+
+    export interface FlakinessEntry {
+      /** Distinct alternate hashes the classifier can still match for this snapshot's current baseline. Reads as how many different images this snapshot is currently allowed to produce. Resets when the baseline moves, because tolerations recorded against an old baseline hash can never match again. */
+      variant_count: number;
+      /**
+         * When the newest of those variants was first recorded. Null only on a quarantined entry with no variants.
+         * @nullable
+         */
+      last_variant_at?: string | null;
+      /**
+         * Mean fraction of pixels that differed across those variants. Separates sub-pixel noise from a small but real rendering change.
+         * @nullable
+         */
+      avg_diff_percentage?: number | null;
+      /**
+         * Days since this snapshot's baseline last moved on the default branch. Null when it has never moved. Context for `variant_count`: the same count against a four-day-old baseline is far worse than against a six-month-old one.
+         * @nullable
+         */
+      baseline_age_days?: number | null;
+      /** Variants recorded per day over the last 30 days, oldest first. Always that length, so a fixed time axis can be rendered. */
+      daily_variant_counts: number[];
+      /**
+         * Index into `daily_variant_counts` where the baseline moved. Null when it moved before the window opened, which is the common case.
+         * @nullable
+         */
+      baseline_moved_day_index?: number | null;
+      /** `unstable` when a new variant appeared inside the recency window, `settled` when variants exist against this baseline but none recently, `clean` when none exist. A `clean` entry is always a quarantined one, because an unquarantined snapshot with no variants is not listed at all.
+       *
+       * * `unstable` - unstable
+       * * `settled` - settled
+       * * `clean` - clean */
+      flakiness_state: FlakinessStateEnum;
+      /** True when an active quarantine has run out, is about to, or covers a snapshot that no longer produces variants. All three mean a human has to extend it or lift it. */
+      needs_decision: boolean;
+      /** Active quarantine details when `is_quarantined` is true. Null otherwise. */
+      quarantine?: BaselineQuarantineSummary | null;
+      identifier: string;
+      run_type: string;
+      /** @nullable */
+      browser: string | null;
+      /** @nullable */
+      thumbnail_hash: string | null;
+      /** @nullable */
+      width: number | null;
+      /** @nullable */
+      height: number | null;
+      is_quarantined: boolean;
+    }
+
+    export type FlakinessTotalsByRunType = {[key: string]: number};
+
+    export interface FlakinessTotals {
+      /** Identifiers with an entry in `entries`. */
+      listed: number;
+      /** Identifiers with a current baseline, listed or not. The denominator that says how much of the repo renders consistently. */
+      tracked: number;
+      by_run_type: FlakinessTotalsByRunType;
+      unstable: number;
+      settled: number;
+      quarantined: number;
+      needs_decision: number;
+    }
+
+    export interface FlakinessOverview {
+      entries: FlakinessEntry[];
+      totals: FlakinessTotals;
+      truncated: boolean;
+      generated_at: string;
+    }
+
+    /**
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED

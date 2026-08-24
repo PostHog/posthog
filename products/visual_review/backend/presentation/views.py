@@ -51,6 +51,7 @@ from .serializers import (
     CreateRunResultSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
+    FlakinessOverviewSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
@@ -116,6 +117,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list_quarantined",
         "thumbnail",
         "baselines",
+        "flakiness",
     ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
@@ -301,6 +303,30 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         result = api.get_baselines_overview(repo_id)
         return Response(BaselineOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: FlakinessOverviewSerializer},
+        description=(
+            "Snapshots in a repo whose rendering cannot be trusted: those carrying at least one "
+            "live tolerated variant against their current baseline, and those under an active "
+            "quarantine. Everything else is omitted, so this is far smaller than the baselines "
+            "universe; `totals.tracked` gives the full denominator. Variant counts are scoped to "
+            "the current baseline hash, because a toleration recorded against an earlier baseline "
+            "can never match again. Capped at "
+            f"{contracts.FLAKINESS_MAX_ENTRIES} entries, which sets `truncated`. Filtering, "
+            "faceting and search are done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="flakiness")
+    def flakiness(self, request: Request, pk: str, **kwargs) -> Response:
+        repo_id = _parse_uuid(pk)
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_flakiness_overview(repo_id)
+        return Response(FlakinessOverviewSerializer(instance=result).data)
 
 
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

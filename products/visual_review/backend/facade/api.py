@@ -16,6 +16,7 @@ Do NOT:
 """
 
 from dataclasses import replace
+from datetime import datetime
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
@@ -30,6 +31,7 @@ from ..logic import (
     baseline_overview,
     baselines,
     errors,
+    flakiness,
     gating,
     history,
     quarantine,
@@ -40,7 +42,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import RunPurpose
+from .enums import FlakinessState, RunPurpose
 
 User = get_user_model()
 
@@ -325,6 +327,91 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         truncated=raw.truncated,
         generated_at=raw.generated_at,
     )
+
+
+def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
+    """Snapshot identities carrying rendering instability or an open quarantine.
+
+    Backs the flakiness page. See `flakiness.get_flakiness_overview` for the
+    scoping rule and query shape.
+    """
+    raw = flakiness.get_flakiness_overview(repo_id)
+
+    quarantine_user_ids = {
+        row.quarantine.created_by_id for row in raw.rows if row.quarantine and row.quarantine.created_by_id
+    }
+    quarantine_user_infos = _fetch_user_basic_infos(quarantine_user_ids)
+
+    entries: list[contracts.FlakinessEntry] = []
+    for row in raw.rows:
+        key = (row.run_type, row.identifier)
+        snapshot = raw.snapshots_by_key.get(key)
+        artifact = snapshot.current_artifact if snapshot is not None else None
+        thumbnail = artifact.thumbnail if artifact is not None else None
+        metadata = (snapshot.metadata or {}) if snapshot is not None else {}
+        entries.append(
+            contracts.FlakinessEntry(
+                identifier=row.identifier,
+                run_type=row.run_type,
+                browser=metadata.get("browser") if isinstance(metadata, dict) else None,
+                thumbnail_hash=thumbnail.content_hash if thumbnail is not None else None,
+                width=artifact.width if artifact is not None else None,
+                height=artifact.height if artifact is not None else None,
+                variant_count=row.variant_count,
+                last_variant_at=row.last_variant_at,
+                avg_diff_percentage=row.avg_diff_percentage,
+                baseline_age_days=_days_since(row.baseline_moved_at, raw.generated_at),
+                daily_variant_counts=row.daily_counts,
+                baseline_moved_day_index=_baseline_moved_day_index(row.baseline_moved_at, raw.generated_at),
+                flakiness_state=_flakiness_state(row.is_unstable, row.variant_count),
+                is_quarantined=row.quarantine is not None,
+                needs_decision=row.needs_decision,
+                quarantine=(
+                    _to_baseline_quarantine_summary(row.quarantine, quarantine_user_infos)
+                    if row.quarantine is not None
+                    else None
+                ),
+            )
+        )
+
+    totals = contracts.FlakinessTotals(
+        listed=len(entries),
+        tracked=raw.tracked_total,
+        unstable=raw.totals_unstable,
+        settled=raw.totals_settled,
+        quarantined=raw.totals_quarantined,
+        needs_decision=raw.totals_needs_decision,
+        by_run_type=raw.by_run_type,
+    )
+
+    return contracts.FlakinessOverview(
+        entries=entries,
+        totals=totals,
+        truncated=raw.truncated,
+        generated_at=raw.generated_at,
+    )
+
+
+def _flakiness_state(is_unstable: bool, variant_count: int) -> str:
+    if is_unstable:
+        return FlakinessState.UNSTABLE
+    return FlakinessState.SETTLED if variant_count > 0 else FlakinessState.CLEAN
+
+
+def _days_since(moment: datetime | None, now: datetime) -> int | None:
+    return None if moment is None else max((now - moment).days, 0)
+
+
+def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int | None:
+    """Position of the baseline move inside the activity strip.
+
+    None when the baseline moved before the strip window opened, which is the
+    common case, so the frontend draws no divider.
+    """
+    days_ago = _days_since(moved_at, now)
+    if days_ago is None or days_ago >= contracts.FLAKINESS_STRIP_DAYS:
+        return None
+    return contracts.FLAKINESS_STRIP_DAYS - 1 - days_ago
 
 
 # --- Run API ---

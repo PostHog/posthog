@@ -18,6 +18,7 @@ import type {
     CreateRunResultApi,
     FinalizeResultApi,
     FinalizeRunRequestInputApi,
+    FlakinessOverviewApi,
     MarkToleratedInputApi,
     PaginatedQuarantinedIdentifierEntryListApi,
     PaginatedRepoListApi,
@@ -145,6 +146,24 @@ export const visualReviewReposBaselinesRetrieve = async (
     options?: RequestInit
 ): Promise<BaselineOverviewApi> => {
     return apiMutator<BaselineOverviewApi>(getVisualReviewReposBaselinesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisualReviewReposFlakinessRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/flakiness/`
+}
+
+/**
+ * Snapshots in a repo whose rendering cannot be trusted: those carrying at least one live tolerated variant against their current baseline, and those under an active quarantine. Everything else is omitted, so this is far smaller than the baselines universe; `totals.tracked` gives the full denominator. Variant counts are scoped to the current baseline hash, because a toleration recorded against an earlier baseline can never match again. Capped at 2000 entries, which sets `truncated`. Filtering, faceting and search are done client-side; this endpoint takes no filter query params.
+ */
+export const visualReviewReposFlakinessRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<FlakinessOverviewApi> => {
+    return apiMutator<FlakinessOverviewApi>(getVisualReviewReposFlakinessRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
