@@ -91,13 +91,34 @@ describe("startup location", () => {
     });
   });
 
-  it("does not open a second session when the spaces already existed", async () => {
+  it("opens the session when only #general is new", async () => {
+    // Creating a task ensures the personal space, so someone who reached the composer before
+    // provisioning ran owns a personal space it did not create. Only #general proves a first run.
     vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
     const client = {
       provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
         channels: [personal, general],
         personal_created: false,
         general_created: true,
+      }),
+      startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
+    };
+
+    await expect(
+      resolveStartupLocation(identity, client, true),
+    ).resolves.toEqual({
+      href: "/website/general-id/tasks/session-id",
+      firstRun: { generalChannelId: "general-id" },
+    });
+  });
+
+  it("does not open a second session when both spaces already existed", async () => {
+    vi.spyOn(stateStorage, "getItem").mockResolvedValue(null);
+    const client = {
+      provisionDefaultTaskChannels: vi.fn().mockResolvedValue({
+        channels: [personal, general],
+        personal_created: false,
+        general_created: false,
       }),
       startOnboardingSession: vi.fn().mockResolvedValue("session-id"),
     };

@@ -1,5 +1,9 @@
 import { isGeneralChannel } from "@posthog/core/canvas/channelName";
-import { type FirstRunClient, firstRun } from "@posthog/ui/shell/firstRun";
+import {
+  type FirstRunClient,
+  firstRun,
+  isFirstRun,
+} from "@posthog/ui/shell/firstRun";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 
 const storageKey = (identity: string): string =>
@@ -52,10 +56,9 @@ export async function resolveStartupLocation(
     return { href: rewriteLegacyHref(legacy), firstRun: null };
   }
 
-  const isFirstRun =
-    provisioned?.personal_created || provisioned?.general_created;
+  const firstRunHere = isFirstRun(provisioned);
 
-  if (!isFirstRun) {
+  if (!firstRunHere) {
     const saved = await stateStorage.getItem(storageKey(identity));
     if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
   }
@@ -78,7 +81,7 @@ export async function resolveStartupLocation(
     href: sessionTaskId
       ? `/spaces/${general.id}/tasks/${sessionTaskId}`
       : `/spaces/${general.id}`,
-    firstRun: isFirstRun ? { generalChannelId: general.id } : null,
+    firstRun: firstRunHere ? { generalChannelId: general.id } : null,
   };
 }
 

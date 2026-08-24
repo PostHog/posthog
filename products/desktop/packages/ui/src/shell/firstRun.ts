@@ -13,6 +13,17 @@ export interface FirstRun {
   sessionTaskId: Promise<string | null>;
 }
 
+/**
+ * Only #general is proof: creating a task without one ensures the personal space, so a user who
+ * reached the composer before provisioning ran has a personal space that provisioning did not
+ * create and reports `personal_created: false`.
+ */
+export function isFirstRun(
+  provisioned: ProvisionedTaskChannels | null,
+): boolean {
+  return Boolean(provisioned?.general_created || provisioned?.personal_created);
+}
+
 let started: (FirstRun & { identity: string }) | null = null;
 
 function begin(identity: string, client: FirstRunClient): FirstRun {
@@ -27,7 +38,7 @@ function begin(identity: string, client: FirstRunClient): FirstRun {
     // Its own promise, not awaited into `provisioned`, so a hung scrape cannot hold up
     // the callers that only need the channels.
     sessionTaskId: provisioned.then((channels) =>
-      channels?.personal_created
+      isFirstRun(channels)
         ? client.startOnboardingSession().catch(() => null)
         : null,
     ),
