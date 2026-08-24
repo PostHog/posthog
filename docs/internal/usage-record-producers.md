@@ -5,19 +5,22 @@ The rule that shapes all of them: **count after the last step that can drop the 
 
 ## Reading the tables
 
-`ReplacingMergeTree(inserted_at)` sorts by `(team_id, producer_id, usage_key, record_id)`.
-Two records sharing those four collapse to one — they do not add, and the later send wins.
+`ReplacingMergeTree(inserted_at)` sorts by `(team_id, toDate(timestamp), producer_id, usage_key, record_id)`.
+Two records sharing those five collapse to one — they do not add, and the later send wins.
 So a producer's `record_id` has to be a stable identity for the billed thing: the same work replayed must produce the same ID, and different work must never share one.
 
 What it protects against is our own duplication, not a sender's.
 If someone sends the same thing twice we ingest it twice and bill it twice, which is correct.
 The identity exists so our retries and reprocessing of one ingested thing collapse to one row.
 
-`event_timestamp` is deliberately not in the sort key.
-Producers stamp it when they flush, so a retry or a replay carries a later one; in the key, every resend would have billed again.
-It is still the partition key, so a replay that crosses a month boundary leaves both rows.
+`timestamp` is in the sort key as a date, because every billing read filters a time range and a date in the key prunes where a skip index only skips granules.
+Every producer stamps it from its own clock when it flushes, never from anything a customer sends — a customer-controlled value would decide whether their own records deduplicate.
+The cost is that deduplication is scoped to a UTC day, so a reprocess that crosses midnight leaves two rows.
 
-Read with `FINAL`, or with `argMax(quantity, inserted_at)` grouped by the sort key.
+`inserted_at` is the engine's version column but is deliberately absent from the HogQL schema.
+`timestamp` is monotonic per resend, so `argMax(quantity, timestamp)` reads what a merge would keep, and one time column cannot be confused for the other.
+
+Read with `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `FINAL` outright, so this is the only correct shape there.
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 

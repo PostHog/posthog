@@ -54,6 +54,16 @@ export interface EventUsageRecordContext {
 /**
  * One record per event. Its identity travels inside the event, so a replay reproduces it
  * whatever the consumer's batching, which an offset-derived identity cannot.
+ *
+ * TODO: decide how usage records should treat events dated in the past. This step bills every
+ * billable event at the moment it is processed, including a historical migration. The nightly
+ * report does not: `get_teams_with_billable_event_count_in_period` filters the events table on
+ * the event's own `timestamp`, so an event backdated outside the current period lands in a
+ * period that has already been billed and is charged for nowhere. The two systems therefore
+ * disagree on exactly the imports customers run deliberately, and the choice — bill regardless
+ * of event age, or mirror the report and skip old events — is a pricing decision rather than an
+ * implementation one. `historicalMigration` is available upstream in the pipeline if we pick
+ * the second.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
