@@ -58,6 +58,9 @@ jobs:
             - name: Test-timings reporter tests (Python)
               run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
+            - name: Durations optimizer tests (Python)
+              run: python -m pytest .github/scripts/test_optimize_test_durations.py -v -c /dev/null -p no:cacheprovider --noconftest
+
             # hashFiles guard so an unrebased PR predating this script doesn't fail here.
             - name: Workflow-run trace reporter tests (Python)
               if: ${{ hashFiles('.github/scripts/test_report_workflow_run_traces.py') != '' }}

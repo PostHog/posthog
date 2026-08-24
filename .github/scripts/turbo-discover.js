@@ -48,6 +48,23 @@ const PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS = 60
 // longer has a counterpart: sizing at a fixed efficiency needs no headroom,
 // because there is no wall target left to overshoot.
 const PRODUCT_SAFETY_FACTOR = 1.3
+// Fitted per-job overhead for product test jobs (docker stack, deps, turbo
+// dispatch): mean(job wall - JUnit SUITE time) is 247-413s across the 12 bucket
+// jobs of run 32717208712 (median 282s), 263s aggregated over the 17
+// warehouse-sources shards, and 226-271s for solo/sharded products. Flat across
+// job shapes, so one constant is honest. Suite time includes each product's
+// session cost, so this constant excludes it by construction — the split rule
+// adds a product's own measured session back on top, and nothing double counts.
+const PRODUCT_JOB_OVERHEAD_SECONDS = 270
+// Per-product {work, session} seconds synthesized from product JUnit by
+// ci-backend-update-test-timing.yml. JUnit testcase times in product jobs are
+// setup-inclusive (no junit_duration_report=call there), so `work` tracks the
+// runner time that shrinks with more shards; the union's call-only entries
+// under-report it on fixture-heavy suites (warehouse-sources: 16 min recorded vs
+// 38 min real). `session` is the per-invocation cost every shard pays in full
+// (collection, session fixtures — 128s/shard on warehouse-sources, ~15s on small
+// products), so it adds to the job overhead in the split rule, not to the work.
+const PRODUCT_TOTALS_FILE = '.test_durations.products'
 // Temporal tests of products NOT listed below run in Django CI's Temporal segment,
 // so they must not also count toward that product's own size.
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
@@ -417,7 +434,9 @@ function loadTachModuleGraph() {
 // matrix (Math.ceil(NaN) silently propagates through sort/compare, making a
 // product vanish from packing without an error). Returns null when the file is
 // absent or is not a JSON object.
-function loadDurationsFile(file) {
+const isFiniteNumber = (v) => typeof v === 'number' && Number.isFinite(v)
+
+function loadDurationsFile(file, isValidEntry = isFiniteNumber) {
     let parsed
     try {
         parsed = JSON.parse(fs.readFileSync(file, 'utf-8'))
@@ -430,13 +449,13 @@ function loadDurationsFile(file) {
     }
     let dropped = 0
     for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v !== 'number' || !Number.isFinite(v)) {
+        if (!isValidEntry(v)) {
             delete parsed[k]
             dropped++
         }
     }
     if (dropped > 0) {
-        console.error(`Warning: dropped ${dropped} non-numeric entries from ${file}`)
+        console.error(`Warning: dropped ${dropped} invalid entries from ${file}`)
     }
     return parsed
 }
@@ -453,6 +472,20 @@ function loadTestDurations() {
 // actually recorded. Used here only as an allowlist: DJANGO_SEGMENTS stays the
 // definition of what a segment runs, and JUnit removes what did not run.
 const SEGMENT_PLAN_FILES = { Core: '.test_durations.core', Temporal: '.test_durations.temporal' }
+
+// Per-product {work, session} totals synthesized from product JUnit artifacts by
+// ci-backend-update-test-timing.yml (see PRODUCT_TOTALS_FILE). Absent file or a
+// corrupt entry degrades to the union-sum path, like the other duration inputs.
+function loadProductTotals() {
+    const totals = loadDurationsFile(
+        PRODUCT_TOTALS_FILE,
+        (v) => Boolean(v) && typeof v === 'object' && isFiniteNumber(v.work) && v.work >= 0 && isFiniteNumber(v.session) && v.session >= 0
+    )
+    if (totals) {
+        console.error(`Loaded ${PRODUCT_TOTALS_FILE}: junit totals for ${Object.keys(totals).length} products`)
+    }
+    return totals
+}
 
 function loadRanNodeIds() {
     const ran = {}
@@ -577,21 +610,46 @@ function getProductDuration(product, durations) {
     return total
 }
 
-function productEffectiveCost(product, durations) {
-    let base = getProductDuration(product, durations)
+// One definition of whether a product's JUnit totals still describe its job, and
+// of the numbers sizing uses either way. The split decision (buildMatrix) and the
+// bucket cost (packProducts) both go through this, so they cannot disagree.
+//
+// Calibrated means the JUnit totals still describe what this job runs. When the
+// union's call sums exceed the setup-inclusive JUnit total, the branch moved
+// suites into the job after the timing run — call sums never overcount — so
+// sizing uses the union until the next timing refresh catches up. Uncalibrated
+// products also keep the staleness guard: with poor .test_durations coverage,
+// work is guessed from file counts to avoid under-sharding. A JUnit total IS the
+// measured work, and the guess can overshoot it several-fold, so calibrated
+// products skip the guard. `staleUnionWork` is non-null exactly when the guess
+// replaced the union sum, so the caller can log it once.
+function resolveProductSizing(product, durations, productTotals = null) {
+    const unionWork = getProductDuration(product, durations)
+    const cal = productTotals ? productTotals[product] : undefined
+    if (cal && unionWork <= cal.work + cal.session) {
+        return { calibrated: true, work: cal.work, session: cal.session, staleUnionWork: null, staleness: null }
+    }
     const staleness = checkProductStaleness(product, durations)
     if (staleness.stale && staleness.fileCount > 0) {
-        base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
+        const fallbackWork = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE
+        if (fallbackWork > unionWork) {
+            return { calibrated: false, work: fallbackWork, session: 0, staleUnionWork: unionWork, staleness }
+        }
     }
-    return base * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+    return { calibrated: false, work: unionWork, session: 0, staleUnionWork: null, staleness: null }
+}
+
+function productEffectiveCost(product, durations, productTotals = null) {
+    const { work, session } = resolveProductSizing(product, durations, productTotals)
+    return (work + session) * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 }
 
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
 // effective cost descending so the largest products land first and small ones
 // fill the gaps. Each bucket caps at PRODUCT_TARGET_WALL_SECONDS total.
-function packProducts(products, durations) {
+function packProducts(products, durations, productTotals = null) {
     const items = products
-        .map((product) => ({ product, cost: productEffectiveCost(product, durations) }))
+        .map((product) => ({ product, cost: productEffectiveCost(product, durations, productTotals) }))
         .sort((a, b) => b.cost - a.cost)
 
     const buckets = []
@@ -688,9 +746,13 @@ const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 //
 // minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
 // (test-selection) run may legitimately fit one shard.
-function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
+// roundFn: Django keeps ceil (at 14+ shards it costs at most one extra shard).
+// Products pass Math.round: at 1-3 shards ceil overshoots hard -- a product barely
+// past one overhead of work would jump to 2 shards at ~35% efficiency, when 1 shard
+// sits at ~50% already. round keeps every count at the efficiency the rule names.
+function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS, roundFn = Math.ceil) {
     if (overheadSeconds <= 0) {return DJANGO_MAX_SHARDS}
-    const shards = Math.ceil(totalWorkSeconds / overheadSeconds)
+    const shards = roundFn(totalWorkSeconds / overheadSeconds)
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
@@ -711,42 +773,46 @@ function buildDjangoShards(durations, ranNodeIds = {}) {
     return result
 }
 
-function buildMatrix(products, durations) {
+function buildMatrix(products, durations, productTotals = null) {
     const matrix = []
     const packable = []
 
-    // Split a product across multiple shards only when its raw duration plus
-    // one per-product overhead exceeds the target wall clock. Don't apply the
-    // safety factor here — that inflation is for packing-capacity decisions
-    // (avoid stuffing a bucket beyond budget under variance), not for the
-    // "must we split?" check. Using the inflated cost for splitting causes
-    // borderline products to fragment into uneven sub-shards (pytest-split
-    // can't balance well when many tests have flat-default 0.01s values),
-    // paying duplicate Docker setup for little parallel work gained.
+    // Split a product across multiple shards only when the same efficiency rule
+    // Django uses says so: shards = round(work / job overhead), i.e. split once a
+    // second job's overhead buys at least about its own cost in parallel work.
+    // Don't apply the safety factor here — that inflation is for packing-capacity
+    // decisions (avoid stuffing a bucket beyond budget under variance), not for
+    // the "must we split?" check.
     for (const product of products) {
-        const staleness = checkProductStaleness(product, durations)
-        let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-
-        // Staleness guard: if .test_durations has poor coverage for this product,
-        // use a file-count-based fallback to avoid under-sharding.
-        if (staleness.stale && staleness.fileCount > 0) {
-            const fallbackRaw = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-            if (fallbackRaw > raw) {
-                console.error(
-                    `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
-                    `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(fallbackRaw / 60).toFixed(1)} min (was ${(raw / 60).toFixed(1)} min)`
-                )
-                console.error(
-                    `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
-                    `test files covered in .test_durations. Duration estimates are unreliable — using fallback sharding.`
-                )
-                raw = fallbackRaw
-            }
+        const { calibrated, work, session, staleUnionWork, staleness } = resolveProductSizing(product, durations, productTotals)
+        if (staleUnionWork !== null) {
+            console.error(
+                `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
+                `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(work / 60).toFixed(1)} min (was ${(staleUnionWork / 60).toFixed(1)} min)`
+            )
+            console.error(
+                `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
+                `test files covered in .test_durations. Duration estimates are unreliable — using fallback sharding.`
+            )
         }
 
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
+        let shards
+        if (calibrated) {
+            // Every shard of a split re-pays the product's session cost (collection,
+            // session fixtures) in full, so it sits with the job overhead in the rule.
+            shards = calculateShards(work, PRODUCT_JOB_OVERHEAD_SECONDS + session, 1, Math.round)
+        } else {
+            // Uncalibrated products keep the legacy wall-target rule: their union work
+            // is a call-only undercount and the staleness guess an overcount, so
+            // feeding either into the efficiency rule invents shard counts (the
+            // staleness guess for warehouse-sources is 4x its measured work). The
+            // legacy divisor is the conservative floor until the timing run publishes
+            // junit totals.
+            const raw = work + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+            shards = raw > PRODUCT_TARGET_WALL_SECONDS ? Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS) : 1
+        }
+        if (shards > 1) {
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work (${calibrated ? 'junit' : 'union'}) → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             // optimal_chunks (PostHog pytest-split fork) makes the same contiguous,
             // order-preserving cuts as duration_based_chunks but balances them
@@ -761,7 +827,7 @@ function buildMatrix(products, durations) {
                 })
             }
         } else if (DEDICATED_BUCKET_PRODUCTS.has(product)) {
-            console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → dedicated bucket (never packed)`)
+            console.error(`  ${product}: ${(work / 60).toFixed(1)} min work → dedicated bucket (never packed)`)
             matrix.push({
                 group: product,
                 filters: `--filter=@posthog/products-${product}`,
@@ -772,7 +838,7 @@ function buildMatrix(products, durations) {
         }
     }
 
-    for (const bucket of packProducts(packable, durations)) {
+    for (const bucket of packProducts(packable, durations, productTotals)) {
         console.error(
             `  bucket (${(bucket.cost / 60).toFixed(1)} min effective): ${bucket.products.join(', ')}`
         )
@@ -792,6 +858,10 @@ module.exports = {
     calculateShards,
     pruneDeadDurations,
     getSegmentDuration,
+    getProductDuration,
+    resolveProductSizing,
+    buildMatrix,
+    PRODUCT_JOB_OVERHEAD_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
@@ -963,12 +1033,13 @@ console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLega
 
 const durations = pruneDeadDurations(loadTestDurations())
 const ranNodeIds = loadRanNodeIds()
+const productTotals = loadProductTotals()
 
 console.error('\nDjango shard calculation:')
 const djangoShards = buildDjangoShards(durations, ranNodeIds)
 
 const result = {
-    matrix: buildMatrix(products, durations),
+    matrix: buildMatrix(products, durations, productTotals),
     run_legacy: runLegacy,
     run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,

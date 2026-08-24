@@ -31,7 +31,7 @@ import logging
 import argparse
 import statistics
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -513,6 +513,64 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
+def run_product_totals(junit_dir: Path, output_file: Path) -> None:
+    """Emit per-product {work, session} seconds from product JUnit artifacts.
+
+    Product jobs write junit-product-<module>.xml without junit_duration_report=call,
+    so testcase times include fixture setup and teardown. Summed per product they
+    track the runner work that shrinks with more shards, which the call-based union
+    under-reports on fixture-heavy suites. `session` is the per-invocation cost every
+    shard pays in full (collection, session fixtures), measured as the mean gap
+    between suite time and testcase sum. turbo-discover.js reads the output
+    (.test_durations.products) to size product shards; splitting keeps using the
+    union. Keys are the npm-style product names turbo-discover works with.
+    """
+    work: dict[str, float] = defaultdict(float)
+    session_sum: dict[str, float] = defaultdict(float)
+    invocations: dict[str, int] = defaultdict(int)
+    for xml_path in sorted(junit_dir.rglob("junit-product-*.xml")):
+        product = xml_path.stem[len("junit-product-") :].replace("_", "-")
+        try:
+            tree = ET.parse(xml_path)
+        except ParseError as e:
+            logger.warning("  Could not parse product JUnit %s: %s", xml_path, e)
+            continue
+        root = tree.getroot()
+        suite_total = sum(float(suite.get("time") or 0.0) for suite in root.iter("testsuite"))
+        # Sum raw testcase times rather than reuse JUnitShard._parse_call_times:
+        # that helper collapses repeated pytest ids (parametrize) to their max,
+        # which under-counts a total.
+        shard_work = 0.0
+        for tc in root.iter("testcase"):
+            try:
+                shard_work += float(tc.get("time") or 0.0)
+            except ValueError:
+                continue
+        work[product] += shard_work
+        # The suite time exceeds the testcase sum by the per-invocation session cost
+        # (collection, session fixtures, migrations). Every shard of a split product
+        # pays it in full — warehouse-sources shards show 128±4s while their testcase
+        # work varies 5x — so it sizes like overhead, not like work.
+        session_sum[product] += max(0.0, suite_total - shard_work)
+        invocations[product] += 1
+    if not work:
+        # Same guard as the other modes: an empty totals file would silently size
+        # every product from nothing instead of falling back to the union sums.
+        logger.error("No product JUnit files under %s — refusing to write an empty totals file", junit_dir)
+        sys.exit(1)
+    totals = {
+        product: {
+            "work": round(seconds, 1),
+            "session": round(session_sum[product] / invocations[product], 1),
+        }
+        for product, seconds in work.items()
+    }
+    with open(output_file, "w") as f:
+        json.dump(totals, f, indent=4, sort_keys=True)
+        f.write("\n")
+    logger.info("Saved junit work totals for %d products to %s", len(totals), output_file)
+
+
 def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
@@ -640,12 +698,24 @@ def main():
         help="Aggregation for --average-files (default: mean).",
     )
     parser.add_argument(
+        "--product-totals",
+        type=Path,
+        default=None,
+        help="Totals mode: sum per-product work seconds from junit-product-*.xml files under "
+        "the given directory and write {product: seconds} JSON to output_file. Product JUnit "
+        "times are setup-inclusive, so the totals track real runner work. Ignores artifacts_dir.",
+    )
+    parser.add_argument(
         "--replace-prefix",
         default=None,
         help="In merge mode, remove matching entries from the first input before merging fresh segment data.",
     )
 
     args = parser.parse_args()
+
+    if args.product_totals:
+        run_product_totals(args.product_totals, args.output_file)
+        return
 
     if args.merge_files:
         run_merge_files(args.merge_files, args.output_file, args.replace_prefix)
@@ -656,7 +726,7 @@ def main():
         return
 
     if args.artifacts_dir is None:
-        parser.error("artifacts_dir is required unless --merge-files or --average-files is given")
+        parser.error("artifacts_dir is required unless --merge-files, --average-files, or --product-totals is given")
 
     # Load per-shard timing data
     logger.info("Loading timing artifacts from %s...", args.artifacts_dir)

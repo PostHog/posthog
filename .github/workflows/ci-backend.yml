@@ -519,6 +519,7 @@ jobs:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
+                      .test_durations.products
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
@@ -538,6 +539,7 @@ jobs:
                       .test_durations
                       .test_durations.core
                       .test_durations.temporal
+                      .test_durations.products
                   include-hidden-files: true
                   overwrite: true
                   # The per-segment files are cache-only and may legitimately be absent.

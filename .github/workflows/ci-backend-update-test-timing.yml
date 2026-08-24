@@ -280,6 +280,14 @@ jobs:
                       echo "::warning::Temporal per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
                   fi
 
+                  # Per-product {work, session} totals from the product JUnit
+                  # (setup-inclusive), consumed by turbo-discover.js to size product
+                  # shards with the same efficiency rule Django uses. Non-fatal: without
+                  # the file, sizing falls back to union sums + the staleness fallback.
+                  uv run .github/scripts/optimize_test_durations.py .test_durations.products \
+                      --product-totals junit_artifacts \
+                      || echo "::warning::Product totals failed — product sizing falls back to union sums"
+
                   # Also drop timing/JUnit download dirs (incl. the per-run runs/ tree) —
                   # ghcommit-action defaults file_pattern to "." and chokes on leftover download
                   # dirs ("read junit_artifacts/: is a directory"). The commit steps below also
@@ -338,6 +346,7 @@ jobs:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
+                      .test_durations.products
                   key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}-${{ github.run_id }}
 
             - name: Check for changes

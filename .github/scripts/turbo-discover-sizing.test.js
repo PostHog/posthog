@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, PRODUCT_JOB_OVERHEAD_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -67,4 +67,72 @@ test('calculateShards keeps the floor and ceiling', () => {
 
 test('calculateShards caps out rather than dividing by a zero overhead', () => {
     assert.equal(calculateShards(6000, 0, 1), 50)
+})
+
+// Product sizing: JUnit-calibrated {work, session} totals against the union's
+// call sums. The session cost is paid per shard, so it sizes like overhead.
+
+test('calculateShards rounds to nearest for products, so a small product stays whole', () => {
+    // Work barely past one overhead: a second shard would halve efficiency.
+    assert.equal(calculateShards(300, 270, 1, Math.round), 1)
+})
+
+const O = PRODUCT_JOB_OVERHEAD_SECONDS
+
+test('resolveProductSizing prefers the setup-inclusive junit totals over the union call sum', () => {
+    const union = { 'products/big_one/backend/test_a.py::test_a': 60 }
+    const totals = { 'big-one': { work: 500, session: 20 } }
+
+    const sizing = resolveProductSizing('big-one', union, totals)
+
+    assert.equal(sizing.calibrated, true)
+    assert.equal(sizing.work, 500)
+    assert.equal(sizing.session, 20)
+})
+
+test('resolveProductSizing keeps the union sum when the branch moved suites into the job', () => {
+    // Union records more call time than the junit total: the timing run predates
+    // the change, so the junit numbers no longer describe the job.
+    const union = { 'products/big_one/backend/test_a.py::test_a': 900 }
+    const totals = { 'big-one': { work: 500, session: 20 } }
+
+    const sizing = resolveProductSizing('big-one', union, totals)
+
+    assert.equal(sizing.calibrated, false)
+    assert.equal(sizing.work, 900)
+})
+
+test('buildMatrix splits a calibrated product by work over overhead plus session', () => {
+    const totals = { 'big-one': { work: O * 4, session: O } }
+
+    const matrix = buildMatrix(['big-one'], {}, totals)
+
+    // round(4*O / (O + O)) = 2 shards, not round(4*O / O) = 4: every shard
+    // re-pays the session cost, so it must count against splitting.
+    assert.equal(matrix.length, 2)
+    assert.match(matrix[0].group, /^big-one \(1\/2\)$/)
+})
+
+test('buildMatrix leaves a calibrated small product packed', () => {
+    const totals = { 'small-one': { work: 100, session: 10 } }
+
+    const matrix = buildMatrix(['small-one'], {}, totals)
+
+    assert.equal(matrix.length, 1)
+    assert.equal(matrix[0].group, 'small-one')
+    assert.equal(matrix[0].pytest_args, '')
+})
+
+test('buildMatrix falls back to the legacy wall-target rule when the union is ahead of junit', () => {
+    const union = {}
+    for (let i = 0; i < 60; i++) {
+        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 60
+    }
+    const totals = { 'big-one': { work: 100, session: 10 } }
+
+    const matrix = buildMatrix(['big-one'], union, totals)
+
+    // 3600s of recorded call time beats the 110s junit total. Call sums undercount,
+    // so the conservative legacy divisor applies: ceil((3600 + 60) / 600).
+    assert.equal(matrix.length, 7)
 })

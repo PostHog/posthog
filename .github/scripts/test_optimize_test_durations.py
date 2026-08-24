@@ -19,6 +19,7 @@ from optimize_test_durations import (
     outlier_merge_durations,
     run_average_files,
     run_merge_files,
+    run_product_totals,
     shard_sets_match,
 )
 
@@ -317,3 +318,39 @@ def test_shard_sets_match_requires_every_junit_artifact() -> None:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_product_totals_sums_work_and_averages_session(tmp_path: Path) -> None:
+    # Two shards of one split product, one solo product. Suite time exceeds the
+    # testcase sum by the per-invocation session cost.
+    shard1 = tmp_path / "product-junit-results-0"
+    shard2 = tmp_path / "product-junit-results-1"
+    shard1.mkdir()
+    shard2.mkdir()
+    (shard1 / "junit-product-big_one.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest" time="130.0">'
+        b'<testcase classname="products.big_one.backend.test_a.TestA" name="test_a" time="100.0"/></testsuite>'
+    )
+    (shard2 / "junit-product-big_one.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest" time="240.0">'
+        b'<testcase classname="products.big_one.backend.test_b.TestB" name="test_b" time="200.0"/></testsuite>'
+    )
+    (shard2 / "junit-product-small_one.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest" time="15.0">'
+        b'<testcase classname="products.small_one.backend.test_c.TestC" name="test_c" time="10.0"/></testsuite>'
+    )
+    output = tmp_path / "totals.json"
+
+    run_product_totals(tmp_path, output)
+
+    totals = json.loads(output.read_text())
+    # Keys are npm-style names; work sums across shards, session averages per invocation.
+    assert totals == {
+        "big-one": {"work": 300.0, "session": 35.0},
+        "small-one": {"work": 10.0, "session": 5.0},
+    }
+
+
+def test_product_totals_refuses_an_empty_output(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        run_product_totals(tmp_path, tmp_path / "totals.json")
