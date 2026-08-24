@@ -109,7 +109,7 @@ export function EnvironmentEditForm({
           variant="link-muted"
           size="sm"
           loading={deleting}
-          disabled={deleting}
+          disabled={deleting || saving}
           data-attr="environment-edit-archive"
           onClick={onArchive}
         >
@@ -127,7 +127,7 @@ export function EnvironmentEditForm({
             variant="primary"
             size="sm"
             loading={saving}
-            disabled={saving || error !== null}
+            disabled={saving || deleting || error !== null}
             data-attr="environment-edit-save"
             onClick={onSave}
           >
