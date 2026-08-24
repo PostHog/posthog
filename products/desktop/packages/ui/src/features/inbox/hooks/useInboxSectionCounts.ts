@@ -46,6 +46,7 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     (s) => s.sourceProductFilter,
   );
   const priorityFilter = useInboxSignalsFilterStore((s) => s.priorityFilter);
+  const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
 
@@ -60,6 +61,13 @@ export function useInboxSectionCounts(): InboxSectionCounts {
         ? sourceProductFilter.join(",")
         : undefined,
     priority: buildPriorityFilterParam(priorityFilter),
+    // The decision-PR caption query overrides this with `true` via spread.
+    has_implementation_pr:
+      prFilter === "with_pr"
+        ? true
+        : prFilter === "without_pr"
+          ? false
+          : undefined,
     suggested_reviewers: reviewerUuid
       ? buildSuggestedReviewerFilterParam([reviewerUuid])
       : undefined,
