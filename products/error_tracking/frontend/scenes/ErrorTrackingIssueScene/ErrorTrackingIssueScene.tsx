@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -30,10 +31,12 @@ import { getEventMarkerColor } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
+import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     issueFiltersLogic,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import { IssueSeveritySelect } from '../../components/IssueSeveritySelect'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
@@ -52,25 +55,35 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
+    const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
         useValues(errorTrackingIssueSceneLogic)
-    const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
+    const { updateAssignee, updateSeverity, updateStatus, updateName, setMobileDetailOpen } =
+        useActions(errorTrackingIssueSceneLogic)
+    const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
 
     useAttachedContext(
-        issueId ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
+        issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
     )
 
     useEffect(() => {
+        if (!issueIdValid) {
+            return
+        }
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
         posthog.capture('error_tracking_issue_viewed', {
             issue_id: issueId,
             ...(utmSource ? { utm_source: utmSource } : {}),
         })
-    }, [issueId])
+    }, [issueId, issueIdValid])
+
+    if (!issueIdValid) {
+        return <NotFound object="issue" />
+    }
 
     return (
         <StyleVariables>
@@ -134,6 +147,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                         isMobile ? undefined : (
                                             <div className="flex items-center gap-1">
                                                 <StatusIndicator status={issue.status} withTooltip />
+                                                {hasSeverityRules ? (
+                                                    <IssueSeveritySelect
+                                                        severity={issue.severity}
+                                                        onChange={updateSeverity}
+                                                        loading={severityUpdateInFlightIds.includes(issue.id)}
+                                                    />
+                                                ) : null}
                                                 <IssueAssigneeSelect
                                                     assignee={issue.assignee}
                                                     onChange={updateAssignee}
@@ -161,6 +181,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 {isMobile && (
                                     <div className="flex items-center gap-1.5 px-2 py-1.5 border-b flex-wrap">
                                         <StatusIndicator status={issue.status} withTooltip />
+                                        {hasSeverityRules ? (
+                                            <IssueSeveritySelect
+                                                severity={issue.severity}
+                                                onChange={updateSeverity}
+                                                loading={severityUpdateInFlightIds.includes(issue.id)}
+                                            />
+                                        ) : null}
                                         <IssueAssigneeSelect
                                             assignee={issue.assignee}
                                             onChange={updateAssignee}

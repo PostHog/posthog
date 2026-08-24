@@ -394,7 +394,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: CanvasSerializer},
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Update canvas metadata (name, author context, pin, generation-task pointer)."""
+        """Update canvas metadata, including the space it belongs to."""
         canvas = self.get_object()
         payload = CanvasUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -422,6 +422,29 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 record("description", canvas.description, data["description"])
             canvas.description = data["description"]
             update_fields.append("description")
+        if "channel_id" in data:
+            channel_id = data["channel_id"]
+            user = self._request_user()
+            if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
+                return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+            if self._is_sandbox_authenticated(request):
+                sandbox_task_id = self._sandbox_task_id(request)
+                task_channel_id = (
+                    tasks_facade.task_channel_id(sandbox_task_id, self.team_id) if sandbox_task_id else None
+                )
+                if task_channel_id != channel_id:
+                    return Response(
+                        {"detail": "This sandbox can file canvases only in its task's space."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            if channel_id != canvas.channel_id:
+                record("channel", str(canvas.channel_id), str(channel_id))
+                if canvas.pinned_at is not None:
+                    record("pinned", True, False)
+                    canvas.pinned_at = None
+                    update_fields.append("pinned_at")
+            canvas.channel_id = channel_id
+            update_fields.append("channel_id")
         if "pinned" in data:
             was_pinned = canvas.pinned_at is not None
             if data["pinned"] != was_pinned:
