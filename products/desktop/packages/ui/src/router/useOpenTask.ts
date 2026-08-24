@@ -1,6 +1,7 @@
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
   NAVIGATION_TASK_BINDER,
@@ -32,7 +33,7 @@ import * as nav from "./navigationBridge";
  */
 export async function openTask(
   task: Task,
-  opts?: { channelId?: string },
+  opts?: { channelId?: string; tabId?: string | null },
 ): Promise<void> {
   // Seed the detail cache so the route loader resolves from cache and never
   // fetches — critical for optimistic/local/cloud-pending tasks that the API
@@ -41,19 +42,43 @@ export async function openTask(
     taskDetailQuery(task.id).queryKey,
     task,
   );
-  if (opts?.channelId) {
-    nav.navigateToChannelTask(opts.channelId, task.id);
-  } else {
-    nav.navigateToTaskDetail(task.id);
+  const href = opts?.channelId
+    ? `/spaces/${opts.channelId}/tasks/${task.id}`
+    : `/tasks/${task.id}`;
+  const navigationResult = navigateBrowserTab(
+    opts?.tabId ?? null,
+    {
+      href,
+      title: task.title,
+      taskId: task.id,
+      channelId: opts?.channelId ?? null,
+    },
+    () => {
+      if (opts?.channelId) {
+        nav.navigateToChannelTask(opts.channelId, task.id);
+      } else {
+        nav.navigateToTaskDetail(task.id);
+      }
+    },
+  );
+  if (navigationResult === "active") {
+    setActiveTaskContext(task);
+    track(ANALYTICS_EVENTS.TASK_VIEWED, { task_id: task.id });
   }
-  setActiveTaskContext(task);
-  track(ANALYTICS_EVENTS.TASK_VIEWED, { task_id: task.id });
 
   const result = await resolveServiceOptional<NavigationTaskBinder>(
     NAVIGATION_TASK_BINDER,
   )?.ensureWorkspaceForTask(task);
-  if (result?.staleFolderId) {
-    nav.navigateToFolderSettings(result.staleFolderId);
+  const staleFolderId = result?.staleFolderId;
+  if (staleFolderId) {
+    navigateBrowserTab(
+      opts?.tabId ?? null,
+      {
+        href: `/folders/${staleFolderId}`,
+        title: "Folder settings",
+      },
+      () => nav.navigateToFolderSettings(staleFolderId),
+    );
   }
 }
 

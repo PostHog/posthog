@@ -56,12 +56,14 @@ pub fn upload(args: &Args) -> Result<()> {
         release_mode,
     } = args;
 
+    let resolved_release = release.resolve_info_plist()?;
     let ReleaseArgs {
         name,
         version,
         build,
+        info_plist: _,
         skip_release_on_fail,
-    } = release;
+    } = &resolved_release;
 
     // Event mode leaves nothing on the symbol set for the server to fall back to, so an
     // exception resolves its release only from the app metadata on the event itself. Coordinates

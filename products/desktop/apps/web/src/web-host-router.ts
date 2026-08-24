@@ -17,6 +17,7 @@ import {
   type CloudRegion,
   getCloudUrlFromRegion,
   tabsSnapshotSchema,
+  tabViewStateSchema,
 } from "@posthog/shared";
 import { getAuthenticatedClient } from "@posthog/ui/features/auth/authClientImperative";
 import { z } from "zod";
@@ -423,7 +424,10 @@ const logsStubRouter = router({
 // a REAL implementation, not a stub — the "+" (new tab), close, reorder, and
 // in-tab navigation all persist and fan out to the renderer mirror via
 // onSnapshotChange, exactly as on desktop (with a single window).
-const tabTargetFields = {
+/** Where a tab is, plus the route-derived label/icon cache. */
+const tabLocationFields = {
+  href: z.string().nullable().default(null),
+  viewState: tabViewStateSchema.nullable().default(null),
   dashboardId: z.string().nullable().default(null),
   taskId: z.string().nullable().default(null),
   channelId: z.string().nullable().default(null),
@@ -437,22 +441,27 @@ const browserTabsRouter = router({
   getPrimaryWindowId: publicProcedure
     .output(z.string())
     .query(() => webBrowserTabsStore.getPrimaryWindowId()),
-  openOrFocus: publicProcedure
+  reset: publicProcedure
+    .output(tabsSnapshotSchema)
+    .mutation(() => webBrowserTabsStore.reset()),
+  openTab: publicProcedure
     .input(
       z.object({
         windowId: z.string(),
-        ...tabTargetFields,
+        ...tabLocationFields,
         tabId: z.string().optional(),
       }),
     )
     .output(tabsSnapshotSchema)
-    .mutation(({ input }) => webBrowserTabsStore.openOrFocus(input)),
-  newBlankTab: publicProcedure
-    .input(z.object({ windowId: z.string(), tabId: z.string().optional() }))
-    .output(tabsSnapshotSchema)
-    .mutation(({ input }) => webBrowserTabsStore.newBlankTab(input)),
+    .mutation(({ input }) => webBrowserTabsStore.openTab(input)),
   setTabTarget: publicProcedure
-    .input(z.object({ tabId: z.string(), ...tabTargetFields }))
+    .input(
+      z.object({
+        tabId: z.string(),
+        ...tabLocationFields,
+        activate: z.boolean().optional(),
+      }),
+    )
     .output(tabsSnapshotSchema)
     .mutation(({ input }) => webBrowserTabsStore.setTabTarget(input)),
   close: publicProcedure
