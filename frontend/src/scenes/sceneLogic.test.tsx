@@ -87,6 +87,15 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
     })
 
+    it('redirects a bare /project to the homepage, keeping the hash side-panel state', async () => {
+        router.actions.push('/project', {}, { panel: 'max:inspect' })
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+        // The hash carries global side-panel state, so it has to survive the two-hop redirect
+        // (/project → / → homepage) instead of being dropped like a string redirect would drop it.
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
         router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
         await expectLogic(logic).delay(1)
