@@ -12,7 +12,6 @@ import {
 } from "./steps";
 
 const allSteps = {
-  hasCodeAccess: false,
   hasImportableConfig: true,
   hasGithubIntegration: undefined,
   projectCount: 2,
@@ -20,22 +19,6 @@ const allSteps = {
 };
 
 describe("computeActiveSteps", () => {
-  it("drops invite-code when the user already has code access", () => {
-    expect(
-      computeActiveSteps({ ...allSteps, hasCodeAccess: true }),
-    ).not.toContain("invite-code");
-  });
-
-  it("keeps invite-code when access is unknown or false", () => {
-    expect(computeActiveSteps(allSteps)).toEqual(ONBOARDING_STEPS);
-    expect(computeActiveSteps({ ...allSteps, hasCodeAccess: null })).toEqual(
-      ONBOARDING_STEPS,
-    );
-    expect(
-      computeActiveSteps({ ...allSteps, hasCodeAccess: undefined }),
-    ).toEqual(ONBOARDING_STEPS);
-  });
-
   it("drops import-config when there is no importable config", () => {
     expect(
       computeActiveSteps({ ...allSteps, hasImportableConfig: false }),
@@ -69,7 +52,7 @@ describe("computeActiveSteps", () => {
 
   it("includes consent from the sampled requirement", () => {
     expect(ONBOARDING_STEPS.indexOf("consent")).toBe(
-      ONBOARDING_STEPS.indexOf("invite-code") + 1,
+      ONBOARDING_STEPS.indexOf("project-select") + 1,
     );
     expect(
       computeActiveSteps({ ...allSteps, consentRequired: undefined }),
@@ -82,7 +65,6 @@ describe("computeActiveSteps", () => {
 
 describe("nearestActiveStep", () => {
   const withoutConditionals = computeActiveSteps({
-    hasCodeAccess: true,
     hasImportableConfig: false,
     hasGithubIntegration: undefined,
     projectCount: 2,
@@ -99,7 +81,6 @@ describe("nearestActiveStep", () => {
     // import-config vanished under the user: continue forward to select-repo,
     // not back to welcome (the regression that reset onboarding mid-flow).
     { removed: "import-config", expected: "select-repo" },
-    { removed: "invite-code", expected: "consent" },
   ])(
     "moves forward to $expected when $removed drops out",
     ({ removed, expected }) => {
@@ -121,7 +102,6 @@ describe("nearestActiveStep", () => {
 
 describe("step navigation", () => {
   const steps = computeActiveSteps({
-    hasCodeAccess: true,
     hasImportableConfig: true,
     hasGithubIntegration: undefined,
     projectCount: 2,

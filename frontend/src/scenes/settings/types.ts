@@ -124,7 +124,6 @@ export type SettingId =
     | 'customer-analytics-accounts'
     | 'customer-analytics-calendar-sync'
     | 'customer-analytics-dashboard-events'
-    | 'customer-analytics-email-sync'
     | 'customer-analytics-event-stream'
     | 'customer-analytics-group-properties'
     | 'customer-analytics-person-properties'
