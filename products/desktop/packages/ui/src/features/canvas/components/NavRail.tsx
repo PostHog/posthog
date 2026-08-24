@@ -10,10 +10,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { LOOPS_FLAG } from "@posthog/shared";
+import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
 import {
+  pickRailDestination,
   type RailCounts,
   type RailDestination,
   visibleRailDestinations,
@@ -21,6 +22,7 @@ import {
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
@@ -170,7 +172,9 @@ function ActivityNavItem({
  * that sidebar leaves the destinations reachable.
  */
 export function NavRail() {
+  const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const contextEnabled = useContextLayerFlag();
 
   const { counts: inboxCounts } = useInboxAllReports({
     ignoreFilters: true,
@@ -191,20 +195,20 @@ export function NavRail() {
   const destinations = visibleRailDestinations({
     overrides: navItemOverrides,
     order: navItemOrder,
+    home: homeEnabled,
     loops: loopsEnabled,
+    context: contextEnabled,
   });
   const settingsVisible = isNavItemVisible(navItemOverrides, "configure");
 
-  const pick =
-    ({ analyticsId, onPick }: RailDestination) =>
-    () => {
-      track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-        item: analyticsId,
-        in_more: false,
-        layout: "channels",
-      });
-      onPick();
-    };
+  const pick = (destination: RailDestination) => () => {
+    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+      item: destination.analyticsId,
+      in_more: false,
+      layout: "channels",
+    });
+    pickRailDestination(destination, railPane);
+  };
 
   return (
     // One provider for the whole rail: the tooltip skip window is provider

@@ -86,6 +86,7 @@ import type {
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -5596,6 +5597,10 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
+    installation_shared?: IntegrationConfigApi['installation_shared']
+    /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
+    installation_status?: IntegrationConfigApi['installation_status']
 }
 
 export interface EmailIntegrationDomainGroupedType {

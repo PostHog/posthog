@@ -327,6 +327,17 @@ export interface BrainrotActivatedProperties {
   filled_cells: number;
 }
 
+export interface BrainrotPlayerErrorProperties {
+  /** YouTube player error code (e.g. 153), or null when the widget went silent. */
+  error_code: number | null;
+  /**
+   * "player_error" when the embed reported an onError message;
+   * "no_widget_messages" when the widget sent nothing after loading, which
+   * usually means the player failed before the postMessage API came up.
+   */
+  reason: "player_error" | "no_widget_messages";
+}
+
 // Settings events
 export interface SettingChangedProperties {
   setting_name: string;
@@ -482,6 +493,7 @@ export type OnboardingStepId =
   | "welcome"
   | "project-select"
   | "invite-code"
+  | "consent"
   | "connect-github"
   | "install-cli"
   | "import-config"
@@ -579,6 +591,9 @@ export interface OnboardingAbandonedProperties {
 
 export interface AiConsentGateShownProperties {
   is_org_admin: boolean;
+  outstanding_ai_consent: boolean;
+  outstanding_beta_terms: boolean;
+  surface: "onboarding_step" | "standalone_gate";
 }
 
 // Setup / onboarding events
@@ -939,7 +954,7 @@ export interface SignalSourceConnectedProperties {
   via_setup_wizard: boolean;
 }
 
-// Agents page events (the `/code/agents` configuration surface)
+// Agents page events (the `/agents` configuration surface)
 export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {
@@ -1090,6 +1105,11 @@ export interface CanvasPromptSentProperties {
   /** "ask_agent_to_fix" for the freeform self-repair path; absent otherwise. */
   intent?: "ask_agent_to_fix";
   prompt_length_chars: number;
+}
+
+export interface CommandCenterCanvasViewedProperties {
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
 }
 
 export interface CanvasRenderedProperties {
@@ -1407,7 +1427,9 @@ export const ANALYTICS_EVENTS = {
   COMMAND_MENU_OPENED: "Command menu opened",
   COMMAND_MENU_ACTION: "Command menu action",
   COMMAND_CENTER_VIEWED: "Command center viewed",
+  COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
+  BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
@@ -1459,6 +1481,8 @@ export const ANALYTICS_EVENTS = {
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
+  DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
+  DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
   // Setup / onboarding events
   SETUP_DISCOVERY_STARTED: "Setup discovery started",
@@ -1596,7 +1620,9 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_MENU_OPENED]: never;
   [ANALYTICS_EVENTS.COMMAND_MENU_ACTION]: CommandMenuActionProperties;
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
+  [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
+  [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
@@ -1647,6 +1673,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 
   // Setup / onboarding events
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_STARTED]: SetupDiscoveryStartedProperties;

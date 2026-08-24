@@ -160,12 +160,14 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.SLACK,
                 user_id=user.id,
                 repository="posthog/posthog",
+                runtime=Task.Runtime.PI,
                 initial_permission_mode="bypassPermissions",
             )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["initial_permission_mode"], "bypassPermissions")
+        self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

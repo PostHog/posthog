@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import json
 import uuid as uuid_mod
+import logging
 from contextlib import contextmanager
 from typing import Any
 
@@ -804,6 +805,35 @@ class TestPersonsDedupTargetGuard:
         assert len(target) == 1, "every run must say which database it targets"
         assert target[0]["dbname"]
         assert "password" not in str(target[0]), "the log line must not carry credentials"
+
+
+class TestPersonsDedupLogVisibility:
+    def test_info_records_survive_the_posthog_logger_clamp(self):
+        # posthoganalytics calls logging.getLogger("posthog").setLevel(WARNING) at client init,
+        # which happens during django.setup(). Without an explicit level on this module's logger
+        # every INFO record is dropped, and three production runs of this command left no record
+        # of what they did. structlog's capture_logs() replaces the processor chain, so it cannot
+        # see this -- the assertion has to go through a real stdlib handler.
+        parent = logging.getLogger("posthog")
+        module_logger = logging.getLogger(persons_dedup_command.__name__)
+        captured: list[logging.LogRecord] = []
+
+        class _Collector(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                captured.append(record)
+
+        handler = _Collector()
+        original_level = parent.level
+        parent.setLevel(logging.WARNING)
+        module_logger.addHandler(handler)
+        try:
+            persons_dedup_command.logger.info("persons_dedup.log_visibility_probe", team_id=1)
+        finally:
+            module_logger.removeHandler(handler)
+            parent.setLevel(original_level)
+
+        assert captured, "INFO records are dropped, so a production run would leave no log"
+        assert captured[0].levelno == logging.INFO
 
 
 class TestPersonsDedupPrivilegePreflight:

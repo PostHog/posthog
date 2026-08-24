@@ -17,12 +17,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.exceptions import (
-    OAuthTokenError,
-    RequiredMcpUnavailableError,
-    SandboxExecutionError,
-    SandboxMissingRepositoryError,
-)
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
 from products.tasks.backend.models import Task, TaskRun
@@ -229,32 +224,6 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     return not task.internal
 
 
-def _ensure_required_posthog_mcp_available(
-    ctx: TaskProcessingContext, sandbox: SandboxBase, mcp_configs: list[McpServerConfig]
-) -> None:
-    if ctx.interaction_origin != "signal_report_canvas":
-        return
-
-    posthog_config = next((config for config in mcp_configs if config.name == "posthog"), None)
-    if posthog_config is None:
-        raise RequiredMcpUnavailableError(
-            "Report canvas generation requires PostHog MCP, but no server is configured. Set SANDBOX_MCP_URL.",
-            {"task_id": ctx.task_id, "run_id": ctx.run_id},
-        )
-
-    result = sandbox.execute(
-        "curl --silent --show-error --output /dev/null --connect-timeout 5 --max-time 10 "
-        f"{shlex.quote(posthog_config.url)}",
-        timeout_seconds=15,
-    )
-    if result.exit_code != 0:
-        detail = (result.stderr or result.stdout).strip()[-500:]
-        raise RequiredMcpUnavailableError(
-            "Report canvas generation could not reach PostHog MCP. Start the MCP server and retry.",
-            {"task_id": ctx.task_id, "run_id": ctx.run_id, "detail": detail},
-        )
-
-
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     try:
         task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
@@ -393,7 +362,6 @@ def _invoke_start_agent_server(
     wait_for_health: bool,
 ) -> None:
     try:
-        _ensure_required_posthog_mcp_available(ctx, sandbox, params.mcp_configs)
         sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
@@ -436,12 +404,6 @@ def _invoke_start_agent_server(
             TaskRun.update_state_atomic(ctx.run_id, updates={"rtk_effective": ctx.rtk_enabled})
         except Exception:
             logger.warning("persist_rtk_effective_failed", run_id=ctx.run_id, exc_info=True)
-    except RequiredMcpUnavailableError:
-        # Fatal and self-explanatory (non_retryable, capture=False): let it through with its
-        # classification intact instead of rewrapping it as a retryable SandboxExecutionError, which
-        # would burn all three attempts and lose the tailored guidance. Mirrors the OAuthTokenError
-        # passthrough in _prepare_launch.
-        raise
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)

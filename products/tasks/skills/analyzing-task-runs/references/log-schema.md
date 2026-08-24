@@ -2,12 +2,13 @@
 
 A run log is JSONL: one JSON object per line, every line has a top-level `type`.
 There are two families, depending on which runtime produced the run.
-Every recipe below was verified against real logs; copy them as-is and adapt the filters.
+The recipes below are backed by runtime tests or verified against real logs; copy them as-is and
+adapt the filters.
 
 Two rules apply to every query:
 
-- Always output with `jq -c` and cap with `head` / string slicing (`[0:300]`) — a single tool
-  output can be hundreds of KB.
+- Cap row listings with `head` and slice large strings (`[0:300]`). Aggregate censuses may scan the
+  log because they emit only a small, fixed result.
 - `input_line_number` in a jq program gives each match its line number; use it as the anchor
   for context queries.
 
@@ -37,7 +38,7 @@ Agent events are wrapped as `{"type": "pi_event", "timestamp": ..., "event": {..
 | `assistant_thought_chunk` | `event.content.text` — streaming; thousands of tiny chunks per run, coalesce or skip                                |
 | `tool_call_started`       | `event.toolCall`: `id`, `title` (tool name, e.g. `bash`), `kind` (`execute`/`edit`/…), `rawInput` (the actual args) |
 | `tool_call_updated`       | `event.toolCall`: `id`, `status` (`completed`/`failed`), `rawOutput[]` (`{type:"text", text}`), `content`           |
-| `turn_completed`          | turn boundary                                                                                                       |
+| `turn_completed`          | turn boundary; `event.totalTokens` is the completed turn's token total when present                                 |
 
 The tool `title` is terse (`bash`, `write`); the real command is in `rawInput`.
 
@@ -58,7 +59,7 @@ jq -c 'select(.event.type=="tool_call_started") | {line: input_line_number, kind
 Failed calls with their output (the primary evidence source):
 
 ```sh
-jq -c 'select(.event.type=="tool_call_updated" and .event.toolCall.status=="failed") | {line: input_line_number, output: ([.event.toolCall.rawOutput // [] | .[] | .text // ""] | join(" "))[0:300]}' <log>
+jq -c 'select(.event.type=="tool_call_updated" and .event.toolCall.status=="failed") | {line: input_line_number, output: ([.event.toolCall.rawOutput // [] | .[] | .text // ""] | join(" "))[0:300]}' <log> | head -80
 ```
 
 Status census:
@@ -88,8 +89,8 @@ The interesting method is `session/update`, discriminated by `.notification.para
 | `usage_update`                          | context fill: `used` / `size`                                                            |
 | `available_commands_update`             | skills list — huge, skip it                                                              |
 
-Other useful methods: `_posthog/usage_update` (`params.cost` in USD and `params.used` token
-counts, cumulative — `tail -1` is the run's total), `_posthog/turn_complete`.
+Other useful methods: `_posthog/usage_update` (live context/cost updates) and `_posthog/turn_complete`
+(some adapters include a finalized `params.usage`).
 
 ### ACP recipes
 
@@ -108,7 +109,7 @@ jq -c 'select(.notification.params.update.sessionUpdate=="tool_call_update") | .
 Failed calls with output:
 
 ```sh
-jq -c 'select(.notification.params.update.sessionUpdate=="tool_call_update" and .notification.params.update.status=="failed") | .notification.params.update | {line: input_line_number, title, output: (.rawOutput | tostring)[0:300]}' <log>
+jq -c 'select(.notification.params.update.sessionUpdate=="tool_call_update" and .notification.params.update.status=="failed") | .notification.params.update | {line: input_line_number, title, output: (.rawOutput | tostring)[0:300]}' <log> | head -80
 ```
 
 Agent narration (what the agent said it was doing, and why):
@@ -117,10 +118,10 @@ Agent narration (what the agent said it was doing, and why):
 jq -c 'select(.notification.params.update.sessionUpdate=="agent_message") | {line: input_line_number, text: .notification.params.update.content.text[0:250]}' <log>
 ```
 
-What the run cost:
+Latest completed-turn usage record (use the span recipe below to measure waste):
 
 ```sh
-jq -c 'select(.notification.method=="_posthog/usage_update") | .notification.params | {cost, used}' <log> | tail -1
+jq -c 'select(.notification.method=="_posthog/turn_complete") | .notification.params | {stopReason, usage}' <log> | tail -1
 ```
 
 ## Both formats: context around a finding
@@ -141,14 +142,42 @@ Wall-clock seconds between two lines (every line has a top-level `timestamp`):
 sed -n '<start>p;<end>p' <log> | jq -rs '[.[] | .timestamp | gsub("\\.[0-9]+";"") | sub("\\+00:00$";"Z") | fromdateiso8601] | last - first'
 ```
 
-Token delta across the span (works on both usage shapes; prints a message when the log
-lacks usage updates inside the span — then omit `tokens` from the finding):
+Tokens consumed by completed turns wholly inside the span. Pi stores the total on `turn_completed`;
+some ACP adapters store it on `_posthog/turn_complete`. Do not use live `_posthog/usage_update`
+records: they can be repeated snapshots for one turn. The recipe attributes each turn's whole total
+by its completion line, so a span that starts or ends mid-turn borrows a full model request from
+adjacent work or drops one. Anchor boundaries on turn edges; when the span does not hold complete
+turns, or a completion has no usage, omit `tokens`:
 
 ```sh
-sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.method=="_posthog/usage_update") | (.notification.params.usage // .notification.params.used) | select(type=="object") | (.totalTokens // (.inputTokens + .outputTokens + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0)))] | if length > 1 then (last - first) else "insufficient usage updates in span" end'
+sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "turn_completed" then .event.totalTokens elif .notification.method == "_posthog/turn_complete" then (.notification.params.usage | token_total) else empty end | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient completed-turn token records in span" end'
 ```
 
-Wasted tool calls are the count of tool-timeline rows between the two lines.
+### Token-measurement examples
+
+Pi records `totalTokens` with each completed turn. These two complete turns fall inside a measured
+span, so the reported token waste is `1200 + 900 = 2100`:
+
+```jsonl
+{"type":"pi_event","event":{"type":"turn_completed","totalTokens":1200}}
+{"type":"pi_event","event":{"type":"turn_completed","totalTokens":900}}
+```
+
+ACP records finalized usage in `_posthog/turn_complete`. Codex provides `usage.totalTokens`; Claude
+provides component counts. These two complete turns fall inside a measured span, so the reported
+token waste is `800 + (300 + 100 + 150 + 50) = 1400`:
+
+```jsonl
+{"type":"notification","notification":{"method":"_posthog/turn_complete","params":{"usage":{"totalTokens":800}}}}
+{"type":"notification","notification":{"method":"_posthog/turn_complete","params":{"usage":{"inputTokens":300,"outputTokens":100,"cachedReadTokens":150,"cachedWriteTokens":50}}}}
+```
+
+Count distinct tool-call IDs inside the span. ACP emits multiple updates for one call, so counting
+timeline rows can over-report waste:
+
+```sh
+sed -n '<start>,<end>p' <log> | jq -r 'if .type == "pi_event" and .event.type == "tool_call_started" then .event.toolCall.id elif .notification.params.update.sessionUpdate == "tool_call_update" then .notification.params.update.toolCallId else empty end' | sort -u | wc -l
+```
 
 ## Evidence quotes
 
