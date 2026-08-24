@@ -58,7 +58,10 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
 )
-from products.error_tracking.backend.hogql_queries.issue_state_overlay import load_recent_issue_states
+from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
+    MAX_RECENT_ISSUE_STATES,
+    load_recent_issue_states,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -687,6 +690,19 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             [state.issue_id for state in recent_states], [ErrorTrackingIssue.objects.get(id=self.issue_id_one).id]
         )
         self.assertNotIn(other_issue.id, [state.issue_id for state in recent_states])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_issue_state_skips_overlay_when_bound_exceeded(self):
+        ErrorTrackingIssue.objects.bulk_create(
+            ErrorTrackingIssue(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now())
+            for _ in range(MAX_RECENT_ISSUE_STATES)
+        )
+        self.assertEqual(len(load_recent_issue_states(self.team.pk)), MAX_RECENT_ISSUE_STATES)
+
+        ErrorTrackingIssue.objects.create(
+            team=self.team, status=ErrorTrackingIssue.Status.RESOLVED, state_updated_at=now()
+        )
+        self.assertEqual(load_recent_issue_states(self.team.pk), [])
 
     @freeze_time("2022-01-10T12:11:00")
     def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):

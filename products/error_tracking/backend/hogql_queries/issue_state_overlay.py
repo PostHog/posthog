@@ -12,6 +12,12 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 
 RECENT_ISSUE_STATE_WINDOW = datetime.timedelta(seconds=60)
 
+# The bulk mutation endpoint does not cap how many issues one request changes, and every changed
+# issue is loaded and sent as an external-table row on each forced refresh for the whole window.
+# Bound that payload. When a mutation touches more issues than this, skip the overlay and fall back
+# to ClickHouse state rather than materialize and ship an unbounded row list.
+MAX_RECENT_ISSUE_STATES = 100
+
 RECENT_ISSUE_STATE_ROW_COUNT = Histogram(
     "error_tracking_recent_issue_state_row_count",
     "Number of recent Postgres issue-state rows sent with an error tracking query",
@@ -72,7 +78,7 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
             "state_updated_at",
             "assignment__user_id",
             "assignment__role_id",
-        )
+        )[: MAX_RECENT_ISSUE_STATES + 1]
     )
 
     recent_states: list[RecentIssueState] = []
@@ -103,4 +109,6 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
         )
 
     RECENT_ISSUE_STATE_ROW_COUNT.observe(len(recent_states))
+    if len(recent_states) > MAX_RECENT_ISSUE_STATES:
+        return []
     return recent_states
