@@ -912,6 +912,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
+
+        // A dashboard card hands each insight the payload it cached, tagged with the query that
+        // produced it. After the user edits the insight, that query no longer matches and the
+        // payload is stale. The logic key still says "on-dashboard", so detect the stale cache
+        // from the query it carries, not from the key, and always reload past it.
+        const staleDashboardCache =
+            !!props.cachedResults &&
+            props.key.includes('dashboard') &&
+            !cachedResultsMatchQuery(props.cachedResults, props.query)
+
         if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
             // We need to force a refresh in this case
@@ -921,24 +931,23 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         } else if (
             hasQueryChanged &&
             props.autoLoad &&
-            // Reuse a dashboard card's cached payload only while it still matches the current
-            // query. After the user edits the insight, the cache is stale. Gate on the query the
-            // payload carries, not on the logic key. The key keeps saying "on-dashboard" after
-            // the edit, which used to suppress the reload and re-apply stale results.
-            !(
-                props.cachedResults &&
-                props.key.includes('dashboard') &&
-                cachedResultsMatchQuery(props.cachedResults, props.query)
-            ) &&
-            (!props.cachedResults ||
-                (isInsightQueryNode(props.query) &&
-                    typeof props.cachedResults === 'object' &&
-                    !('result' in props.cachedResults) &&
-                    !('results' in props.cachedResults)))
+            // A stale dashboard cache always reloads, whatever shape its payload takes. A real
+            // insight model always carries `result`, which the reuse check below would otherwise
+            // treat as data to keep. Otherwise keep the original behavior: reuse a fresh dashboard
+            // cache, and reuse any payload that already carries results.
+            (staleDashboardCache ||
+                (!(props.cachedResults && props.key.includes('dashboard')) &&
+                    (!props.cachedResults ||
+                        (isInsightQueryNode(props.query) &&
+                            typeof props.cachedResults === 'object' &&
+                            !('result' in props.cachedResults) &&
+                            !('results' in props.cachedResults)))))
         ) {
-            // For normal loads, use appropriate refresh type
+            // For normal loads, use appropriate refresh type. A stale dashboard cache must force the
+            // reload: for a non-force refresh the loader below falls back to the cached payload it
+            // carries (it holds a `result`), which is the stale data we are trying to replace.
             let refreshType: RefreshType
-            if (queryVarsHaveChanged) {
+            if (queryVarsHaveChanged || staleDashboardCache) {
                 refreshType =
                     isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
             } else {

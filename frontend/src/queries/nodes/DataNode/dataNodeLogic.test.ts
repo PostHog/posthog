@@ -551,8 +551,12 @@ describe('dataNodeLogic', () => {
     it('reloads a dashboard insight when the edited query no longer matches its cached results', async () => {
         const pageviewSeries = { kind: NodeKind.EventsNode, event: '$pageview' }
         const cachedQuery = setLatestVersionsOnQuery({ kind: NodeKind.TrendsQuery, series: [pageviewSeries] })
-        // A dashboard card hands the insight its stored payload, tagged with the query that produced it.
-        const cachedResults = { query: { kind: NodeKind.InsightVizNode, source: cachedQuery } } as any
+        // A dashboard card hands the insight its full stored model: the query it was computed for
+        // plus a `result`, which every real insight model carries.
+        const cachedResults = {
+            query: { kind: NodeKind.InsightVizNode, source: cachedQuery },
+            result: [{ label: '$pageview', data: [1, 2, 3] }],
+        } as any
 
         logic = dataNodeLogic({ key: 'insight-1/on-dashboard-5', query: cachedQuery, cachedResults })
         logic.mount()
