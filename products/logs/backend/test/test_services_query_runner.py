@@ -1,5 +1,6 @@
 import os
 import json
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.clickhouse.client import sync_execute
 
@@ -180,9 +182,9 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    def _services(
+    def _post_services(
         self, date_from: str, date_to: str, service_name_search: str | None = None, **query_extra: Any
-    ) -> dict:
+    ) -> Response:
         query: dict[str, Any] = {
             "dateRange": {"date_from": date_from, "date_to": date_to},
             "severityLevels": [],
@@ -192,10 +194,15 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         if service_name_search is not None:
             query["serviceNameSearch"] = service_name_search
         query.update(query_extra)
-        response = self.client.post(
+        return self.client.post(
             f"/api/projects/{self.team.id}/logs/services",
             data={"query": query},
         )
+
+    def _services(
+        self, date_from: str, date_to: str, service_name_search: str | None = None, **query_extra: Any
+    ) -> dict:
+        response = self._post_services(date_from, date_to, service_name_search, **query_extra)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()
 
@@ -342,7 +349,14 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
             ("log_count_asc", "log_count", "ASC", lambda s: s["log_count"], False),
         ]
     )
-    def test_order_by_applies_server_side(self, _name, order_by, order_direction, sort_key, reverse):
+    def test_order_by_applies_server_side(
+        self,
+        _name: str,
+        order_by: str,
+        order_direction: str,
+        sort_key: Callable[[dict], Any],
+        reverse: bool,
+    ) -> None:
         result = self._services(
             "2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", orderBy=order_by, orderDirection=order_direction
         )
@@ -351,29 +365,30 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(keys), 12)
         self.assertEqual(keys, sorted(keys, reverse=reverse))
 
+    def test_offset_past_the_reachability_cap_returns_an_empty_page(self):
+        result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", limit=10, offset=10000)
+
+        self.assertEqual(result["services"], [])
+        self.assertEqual(result["sparkline"], [])
+        self.assertFalse(result["hasMore"])
+        self.assertEqual(result["total_services"], 0)
+        self.assertNotIn("summary", result)
+
     @parameterized.expand(
         [
             ("limit_zero", {"limit": 0}),
             ("limit_over_max", {"limit": 1001}),
             ("limit_not_an_integer", {"limit": "abc"}),
+            # Truncating to 1 would silently serve a different page than the caller asked for.
+            ("limit_fractional", {"limit": 1.5}),
             ("negative_offset", {"offset": -1}),
             ("unknown_order_by", {"orderBy": "volume"}),
             ("unknown_order_direction", {"orderDirection": "up"}),
         ]
     )
     def test_invalid_pagination_params_are_rejected(self, _name: str, extra: dict):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/logs/services",
-            data={
-                "query": {
-                    "dateRange": {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-16T23:59:59Z"},
-                    "severityLevels": [],
-                    "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
-                    "serviceNames": [],
-                    **extra,
-                }
-            },
-        )
+        response = self._post_services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", **extra)
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 

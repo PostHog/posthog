@@ -598,6 +598,9 @@ class _LogsServicesBodySerializer(serializers.Serializer):
     )
 
 
+_SERVICES_PAGE_FIELDS = ("limit", "offset", "orderBy", "orderDirection")
+
+
 class _LogsServicesRequestSerializer(serializers.Serializer):
     query = _LogsServicesBodySerializer(help_text="The services aggregation query to execute.")
 
@@ -758,7 +761,8 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
         help_text=(
             "True distinct service count for the window and filters, unaffected by pagination "
             "or the 10000-service cap. Greater than the length of `services` when more pages exist. "
-            "Zero when the requested offset is at or past the reachability cap, where no page can be computed."
+            "Zero whenever the page comes back empty, including an offset past the last service "
+            "or past the reachability cap, because the count rides on the page's rows."
         ),
     )
     hasMore = serializers.BooleanField(
@@ -1222,24 +1226,23 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @staticmethod
     def _services_page_params(query_data: dict) -> ServicesPageParams:
-        """Bounds and choices must stay in sync with the body serializer's declared fields;
-        the view parses the body by hand."""
-        try:
-            limit = int(query_data.get("limit", SERVICES_DEFAULT_PAGE_LIMIT))
-            offset = int(query_data.get("offset", 0))
-        except (TypeError, ValueError):
-            raise ParseError("limit and offset must be integers")
-        if not 1 <= limit <= SERVICES_MAX_PAGE_LIMIT:
-            raise ParseError(f"limit must be between 1 and {SERVICES_MAX_PAGE_LIMIT}")
-        if offset < 0:
-            raise ParseError("offset must not be negative")
-        order_by = query_data.get("orderBy") or "log_count"
-        if order_by not in SERVICES_ORDER_EXPRS:
-            raise ParseError(f"orderBy must be one of: {', '.join(SERVICES_ORDER_EXPRS)}")
-        order_direction = query_data.get("orderDirection") or "DESC"
-        if order_direction not in SERVICES_ORDER_DIRECTIONS:
-            raise ParseError("orderDirection must be one of: ASC, DESC")
-        return ServicesPageParams(limit=limit, offset=offset, order_by=order_by, order_direction=order_direction)
+        """Validate the page keys through the body serializer, so the bounds and choices the
+        published schema advertises are the ones enforced. Only those keys go in: the rest of
+        the body is read by hand, and more leniently than the serializer declares (`filterGroup`
+        also accepts MCP's flat list shape)."""
+        # An explicit null means "no preference", the same as omitting the key. None of the
+        # four fields declares allow_null, so passing it through would 400 a caller that
+        # serializes its unset page state as null.
+        page = _LogsServicesBodySerializer(
+            data={key: query_data[key] for key in _SERVICES_PAGE_FIELDS if query_data.get(key) is not None}
+        )
+        page.is_valid(raise_exception=True)
+        return ServicesPageParams(
+            limit=page.validated_data["limit"],
+            offset=page.validated_data["offset"],
+            order_by=page.validated_data["orderBy"],
+            order_direction=page.validated_data["orderDirection"],
+        )
 
     def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
         """The shared date-range + filters subset of LogsQuery used by aggregation actions."""

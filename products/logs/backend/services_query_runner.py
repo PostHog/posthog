@@ -180,8 +180,14 @@ SERVICES_MAX_PAGE_LIMIT = 1000
 # most recent buckets if scoped to all SERVICES_LIMIT names at once.
 SPARKLINE_SERVICES_LIMIT = 25
 
-# Every grouped row has log_count >= 1, so the error_rate division is safe.
-SERVICES_ORDER_EXPRS = {
+ServicesOrderBy = Literal["log_count", "service_name", "error_rate"]
+ServicesOrderDirection = Literal["ASC", "DESC"]
+
+# Kept as HogQL source and re-parsed per request, not as shared AST nodes:
+# resolution mutates the nodes it walks, so one shared node would leak state
+# between requests. Every grouped row has log_count >= 1, so the error_rate
+# division is safe.
+SERVICES_ORDER_EXPRS: dict[ServicesOrderBy, str] = {
     "log_count": "log_count",
     "service_name": "service_name",
     "error_rate": "error_count / log_count",
@@ -189,21 +195,15 @@ SERVICES_ORDER_EXPRS = {
 # Uppercase to match the orderDirection convention shared by error tracking,
 # tracing, and dashboard widgets; the generated OrderDirectionEnum is one
 # schema-wide component, so a differing case here would fork it.
-SERVICES_ORDER_DIRECTIONS = ("ASC", "DESC")
+SERVICES_ORDER_DIRECTIONS: tuple[ServicesOrderDirection, ...] = ("ASC", "DESC")
 
 
 @frozen
 class ServicesPageParams:
     limit: int = SERVICES_DEFAULT_PAGE_LIMIT
     offset: int = 0
-    order_by: str = "log_count"
-    order_direction: str = "DESC"
-
-    def __post_init__(self) -> None:
-        if self.order_by not in SERVICES_ORDER_EXPRS:
-            raise ValueError(f"Unsupported orderBy: {self.order_by}")
-        if self.order_direction not in SERVICES_ORDER_DIRECTIONS:
-            raise ValueError(f"Unsupported orderDirection: {self.order_direction}")
+    order_by: ServicesOrderBy = "log_count"
+    order_direction: ServicesOrderDirection = "DESC"
 
 
 class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -229,10 +229,17 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     @property
     def _effective_limit(self) -> int:
+        # Clamped at zero so to_query() stays well-formed past the ceiling, where
+        # _calculate returns before building a query at all.
         return max(0, min(self.page.limit, SERVICES_LIMIT - self.page.offset))
 
+    @property
+    def _is_default_first_page(self) -> bool:
+        """The only page whose leading rows are the top services by volume."""
+        return self.page.offset == 0 and self.page.order_by == "log_count" and self.page.order_direction == "DESC"
+
     def _calculate(self) -> LogsQueryResponse:
-        if self._effective_limit == 0:
+        if self.page.offset >= SERVICES_LIMIT:
             return LogsQueryResponse(results={"services": [], "sparkline": [], "total_services": 0, "hasMore": False})
         aggregates_response = execute_hogql_query(
             query_type="LogsQuery",
@@ -270,9 +277,10 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             )
             sparkline_rows = sparkline_response.results
 
-        # True distinct-service count, unaffected by pagination — the UI uses
-        # it to disclose truncation. The window functions run before
-        # LIMIT/OFFSET apply, so every row carries the same totals.
+        # True distinct-service count, which the UI uses to disclose truncation.
+        # The window functions run before LIMIT/OFFSET apply, so every row of the
+        # page carries the same window totals. An empty page carries none, so both
+        # totals fall back to zero.
         total_services = int(aggregates_response.results[0][6]) if aggregates_response.results else 0
         total_log_count = int(aggregates_response.results[0][7]) if aggregates_response.results else 0
 
@@ -314,6 +322,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     "log_count": log_count,
                     "error_count": error_count,
                     "error_rate": round(error_rate, 4),
+                    "volume_share_pct": round(100.0 * log_count / total_log_count, 2) if total_log_count else 0.0,
                     "severity_breakdown": {
                         "debug": int(sev_debug),
                         "info": int(sev_info),
@@ -323,21 +332,6 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                     "active_rules": active_rules,
                 }
             )
-
-        for s in services:
-            lc = int(s["log_count"])
-            s["volume_share_pct"] = round(100.0 * lc / total_log_count, 2) if total_log_count else 0.0
-
-        # The header summary describes the top services by volume, so it is
-        # only computable when this page actually starts with them.
-        summary = None
-        if self.page.offset == 0 and self.page.order_by == "log_count" and self.page.order_direction == "DESC":
-            top_n = min(5, len(services))
-            top_share = round(sum(float(s["volume_share_pct"]) for s in services[:top_n]), 2) if services else 0.0
-            summary = {
-                "top_services_count": top_n,
-                "top_services_volume_share_pct": top_share,
-            }
 
         sparkline = []
         for row in sparkline_rows:
@@ -357,8 +351,14 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             # paginating there even when more services exist.
             "hasMore": self.page.offset + len(services) < min(total_services, SERVICES_LIMIT),
         }
-        if summary is not None:
-            results["summary"] = summary
+        # The header summary describes the top services by volume, so it is only
+        # computable when this page actually starts with them.
+        if self._is_default_first_page:
+            top_n = min(5, len(services))
+            results["summary"] = {
+                "top_services_count": top_n,
+                "top_services_volume_share_pct": round(sum(float(s["volume_share_pct"]) for s in services[:top_n]), 2),
+            }
         return LogsQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
@@ -414,8 +414,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         return query
 
     def _order_by_exprs(self) -> list[ast.OrderExpr]:
-        direction: Literal["ASC", "DESC"] = "DESC" if self.page.order_direction == "DESC" else "ASC"
-        exprs = [ast.OrderExpr(expr=parse_expr(SERVICES_ORDER_EXPRS[self.page.order_by]), order=direction)]
+        exprs = [
+            ast.OrderExpr(expr=parse_expr(SERVICES_ORDER_EXPRS[self.page.order_by]), order=self.page.order_direction)
+        ]
         if self.page.order_by != "service_name":
             # Stable tiebreak: OFFSET pagination over equal sort keys would
             # otherwise duplicate or skip rows across pages.

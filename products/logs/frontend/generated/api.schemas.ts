@@ -2138,7 +2138,7 @@ export interface _LogsServicesResponseApi {
     services: _LogsServiceAggregateApi[]
     /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the first 25 services of the first page (offset 0); re-request with `serviceNames` to get sparklines for specific services. */
     sparkline: _LogsServicesSparklineBucketApi[]
-    /** True distinct service count for the window and filters, unaffected by pagination or the 10000-service cap. Greater than the length of `services` when more pages exist. Zero when the requested offset is at or past the reachability cap, where no page can be computed. */
+    /** True distinct service count for the window and filters, unaffected by pagination or the 10000-service cap. Greater than the length of `services` when more pages exist. Zero whenever the page comes back empty, including an offset past the last service or past the reachability cap, because the count rides on the page's rows. */
     total_services: number
     /** True when more service rows exist beyond this page. Fetch the next page with offset = offset + limit. */
     hasMore: boolean
