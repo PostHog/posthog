@@ -298,7 +298,7 @@ class TestApitallyFanout:
                 "app-2": [{"id": "consumer-2"}, {"id": "consumer-3"}],
             },
         )
-        client_config = {**_client_config("key"), "session": session}
+        client_config = cast(Any, {**_client_config("key"), "session": session})
 
         resource = build_dependent_resource(
             endpoint_configs=APITALLY_ENDPOINTS,
