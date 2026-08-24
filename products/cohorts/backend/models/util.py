@@ -81,6 +81,7 @@ class CohortErrorCode(StrEnum):
     TIMEOUT = "timeout"
     MEMORY_LIMIT = "memory_limit"
     QUERY_SIZE = "query_size"
+    INSUFFICIENT_STORAGE = "insufficient_storage"
     VALIDATION_ERROR = "validation_error"
     INVALID_REGEX = "invalid_regex"
     INCOMPATIBLE_TYPES = "incompatible_types"
@@ -99,6 +100,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
     CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
+    CohortErrorCode.INSUFFICIENT_STORAGE: "Cohort calculation stopped because the database is out of storage. Your matching criteria are fine. Try again later, and contact support if it keeps happening.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
     CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
@@ -121,6 +123,7 @@ _CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
     "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
     "timeout_exceeded": CohortErrorCode.TIMEOUT,
     "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
+    "not_enough_space": CohortErrorCode.INSUFFICIENT_STORAGE,
 }
 
 
@@ -161,10 +164,18 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
     leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
     still lands and the original error is what propagates; if the retry fails too, swallow it (a
     recovery write must never mask the failure it is recording).
+
+    Retry only when the connection is actually gone. A write can also fail with the connection
+    intact, for example when Postgres runs out of disk. There a reconnect changes nothing: the
+    retry fails the same way and reports a second error on top of the one already being recorded.
+    That case goes straight to logging.
     """
     try:
         save_fn()
     except (InterfaceError, OperationalError):
+        if connections[DEFAULT_DB_ALIAS].is_usable():
+            logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
+            return
         connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
         try:
             save_fn()
