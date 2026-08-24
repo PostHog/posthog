@@ -179,14 +179,19 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
         # UNIQUE(scanner_id, session_id) dedups retries.
         await asyncio.gather(
-            *(self._start_child(inputs, c) for c in (*find_result.candidates, *find_result.deep_candidates))
+            *(
+                self._start_child(inputs, c)
+                for c in (*find_result.candidates, *find_result.deep_candidates, *find_result.priming_candidates)
+            )
         )
 
         if find_result.keyset_end is not None:
             # The fetched batch's last row, which sits ahead of the dispatched candidates whenever
             # exclusion dropped some, so dropping rows cannot stall the walk.
             swept_at = find_result.keyset_end
-            last_seen_session_id = find_result.keyset_session_id if find_result.saturated else ""
+            # Always carried: the keyset compares the whole tuple, so keeping the tiebreaker cannot
+            # skip anything, while dropping it hides any session tied at that exact end_time.
+            last_seen_session_id = find_result.keyset_session_id
         elif find_result.candidates:
             # Activity results recorded before this deploy carry no keyset.
             last = find_result.candidates[-1]

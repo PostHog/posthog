@@ -1,78 +1,102 @@
-"""Tests for the Postgres to ClickHouse ETL pipeline."""
+"""Tests for the table-driven Postgres to ClickHouse ETL pipeline."""
 
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-from dagster import build_op_context
+from dagster import build_asset_context, build_op_context
+from parameterized import parameterized
 
 from posthog.dags.postgres_to_clickhouse_etl import (
-    ETLState,
+    TABLE_CONFIGS,
+    IncrementalState,
+    PostgresToClickHouseETLConfig,
+    _sync_table,
     create_clickhouse_tables,
-    fetch_organizations,
-    fetch_teams,
-    insert_organizations_to_clickhouse,
-    insert_teams_to_clickhouse,
+    feature_flags_in_clickhouse,
+    fetch_rows_in_batches,
+    insert_rows_to_clickhouse,
     organizations_in_clickhouse,
     postgres_to_clickhouse_etl_job,
     postgres_to_clickhouse_hourly_schedule,
-    sync_organizations,
-    sync_teams,
     teams_in_clickhouse,
-    transform_organization_row,
-    transform_team_row,
+    transform_row,
     verify_sync,
 )
 
 
-class TestTransformations:
-    """Test data transformation functions."""
+def _config(**overrides) -> PostgresToClickHouseETLConfig:
+    base: dict = {
+        "full_refresh": False,
+        "batch_size": 10000,
+        "backward_lookback_seconds": 86400,
+    }
+    base.update(overrides)
+    return PostgresToClickHouseETLConfig(**base)
 
+
+def _flag_row(**overrides):
+    row = {
+        "id": 7,
+        "team_id": 42,
+        "key": "new-checkout",
+        "name": "New checkout flow",
+        "filters": {"groups": []},
+        "deleted": False,
+        "active": True,
+        "archived": False,
+        "version": 3,
+        "ensure_experience_continuity": False,
+        "has_enriched_analytics": True,
+        "is_remote_configuration": False,
+        "has_encrypted_payloads": False,
+        "evaluation_runtime": "server",
+        "bucketing_identifier": "distinct_id",
+        "created_by_id": 11,
+        "usage_dashboard_id": None,
+        "created_at": datetime(2025, 3, 1, 12, 0, 0),
+        "updated_at": None,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestTransformations:
     def test_transform_organization_row(self):
-        """Test organization row transformation."""
         import uuid
 
         test_uuid = uuid.uuid4()
-
         row = {
             "id": test_uuid,
             "name": "Test Org",
-            "slug": "test-org",
             "logo_media_id": uuid.uuid4(),
             "is_member_join_email_enabled": True,
             "is_hipaa": False,
-            "available_product_features": [{"key": "feature1", "name": "Feature 1"}],
-            "usage": {"events": {"usage": 1000}},
-            "personalization": {"role": "engineer"},
+            "available_product_features": '[{"key": "feature1"}]',  # ::text on the PG side
+            "usage": '{"events": 1000}',
+            "personalization": '{"role": "engineer"}',
             "domain_whitelist": ["example.com"],
         }
 
-        transformed = transform_organization_row(row)
+        transformed = transform_row("posthog_organization", row)
 
-        # Check UUID conversions
         assert transformed["id"] == str(test_uuid)
         assert isinstance(transformed["logo_media_id"], str)
-
-        # Check boolean conversions
         assert transformed["is_member_join_email_enabled"] == 1
         assert transformed["is_hipaa"] == 0
-
-        # Check JSON field conversions
-        assert transformed["available_product_features"] == json.dumps([{"key": "feature1", "name": "Feature 1"}])
-        assert transformed["usage"] == json.dumps({"events": {"usage": 1000}})
-        assert transformed["personalization"] == json.dumps({"role": "engineer"})
+        # ::text columns pass through untouched — no parse-then-redump.
+        assert transformed["available_product_features"] == row["available_product_features"]
+        assert transformed["usage"] == row["usage"]
+        assert transformed["domain_whitelist"] == ["example.com"]
 
     def test_transform_team_row(self):
-        """Test team row transformation."""
         import uuid
 
         team_uuid = uuid.uuid4()
         org_uuid = uuid.uuid4()
-
         row = {
             "id": 1,
             "uuid": team_uuid,
@@ -80,460 +104,511 @@ class TestTransformations:
             "name": "Test Team",
             "anonymize_ips": True,
             "session_recording_opt_in": False,
-            "test_account_filters": [{"key": "email", "value": "test@example.com"}],
-            "drop_events_older_than": timedelta(days=30),
+            "test_account_filters": '[{"key": "email", "value": "test@example.com"}]',
             "app_urls": ["https://app.example.com"],
             "person_display_name_properties": None,
             "session_recording_sample_rate": Decimal("0.50"),
+            "drop_events_older_than": timedelta(days=30),
         }
 
-        transformed = transform_team_row(row)
+        transformed = transform_row("posthog_team", row)
 
-        # Check UUID conversions
         assert transformed["uuid"] == str(team_uuid)
         assert transformed["organization_id"] == str(org_uuid)
-
-        # Check boolean conversions
         assert transformed["anonymize_ips"] == 1
         assert transformed["session_recording_opt_in"] == 0
-
-        # Check JSON field conversion
-        assert transformed["test_account_filters"] == json.dumps([{"key": "email", "value": "test@example.com"}])
-
-        # Check timedelta conversion
-        assert transformed["drop_events_older_than"] == 30 * 24 * 60 * 60  # 30 days in seconds
-
-        # Check array field handling
+        assert transformed["test_account_filters"] == row["test_account_filters"]
         assert transformed["app_urls"] == ["https://app.example.com"]
         assert transformed["person_display_name_properties"] == []
-
-        # Check decimal remains unchanged
         assert transformed["session_recording_sample_rate"] == Decimal("0.50")
+        assert transformed["drop_events_older_than"] == 30 * 24 * 60 * 60
+
+    def test_transform_feature_flag_row_null_updated_at_coalesces_to_created_at(self):
+        # updated_at is NULL until a flag's first edit; the mirror must not store NULL because the
+        # watermark read depends on it.
+        created = datetime(2025, 3, 1, 12, 0, 0)
+        row = _flag_row(created_at=created, updated_at=None)
+
+        transformed = transform_row("posthog_featureflag", row)
+
+        assert transformed["updated_at"] == created
+
+    def test_transform_feature_flag_row_serializes_filters(self):
+        original_filters = {
+            "groups": [{"properties": [{"key": "email", "value": "@posthog.com", "type": "person"}]}],
+            "multivariate": {"variants": [{"key": "control"}, {"key": "test"}]},
+        }
+        row = _flag_row(filters=original_filters)
+
+        transformed = transform_row("posthog_featureflag", row)
+
+        # transform mutates the row in place (filters becomes a JSON string), so parse it back and compare to the original dict.
+        assert json.loads(transformed["filters"]) == original_filters
+        assert transformed["deleted"] == 0
+        assert transformed["active"] == 1
+
+    def test_transform_feature_flag_row_unparseable_filters_falls_back_to_empty_dict(self):
+        transformed = transform_row("posthog_featureflag", _flag_row(filters="not json"))
+
+        assert transformed["filters"] == "{}"
+
+    def test_transform_feature_flag_row_redacts_payload_ciphertext(self):
+        # Rotation commands update filters.payloads without touching updated_at, so the incremental
+        # mirror never sees a rotation. Substituting ciphertext with the redaction sentinel keeps the
+        # variant-key shape intact without mirroring ciphertext after a key is retired.
+        from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+
+        row = _flag_row(
+            filters={
+                "groups": [],
+                "payloads": {"control": "gAAAAABkp8G8_example_ciphertext", "test": "gAAAAABkp8G8_another"},
+            },
+            has_encrypted_payloads=True,
+        )
+
+        transformed = transform_row("posthog_featureflag", row)
+
+        mirrored = json.loads(transformed["filters"])
+        assert mirrored["payloads"] == {
+            "control": REDACTED_PAYLOAD_VALUE,
+            "test": REDACTED_PAYLOAD_VALUE,
+        }
+
+    def test_transform_feature_flag_row_leaves_empty_payload_dict_alone(self):
+        transformed = transform_row("posthog_featureflag", _flag_row(filters={"groups": [], "payloads": {}}))
+
+        mirrored = json.loads(transformed["filters"])
+        assert mirrored["payloads"] == {}
+
+    def test_transform_row_unknown_table_raises(self):
+        with pytest.raises(KeyError):
+            transform_row("posthog_nonexistent", {})
 
 
-class TestDatabaseOperations:
-    """Test database operation functions."""
+class TestTableDdl:
+    def test_organization_ddl(self):
+        sql = TABLE_CONFIGS["posthog_organization"].ddl()
+        assert "models.posthog_organization" in sql
+        assert "ReplicatedReplacingMergeTree" in sql
 
-    @patch("posthog.dags.postgres_to_clickhouse_etl.psycopg2.connect")
-    def test_fetch_organizations(self, mock_connect):
-        """Test fetching organizations from Postgres."""
-        # Mock both named cursor and regular cursor
-        mock_named_cursor = MagicMock()
-        mock_named_cursor.fetchmany.side_effect = [[{"id": 1, "name": "Org 1", "updated_at": datetime.now()}], []]
+    def test_team_ddl(self):
+        sql = TABLE_CONFIGS["posthog_team"].ddl()
+        assert "models.posthog_team" in sql
+        assert "ReplicatedReplacingMergeTree" in sql
 
-        mock_regular_cursor = MagicMock()
-        mock_regular_cursor.fetchmany.side_effect = [[{"id": 1, "name": "Org 1", "updated_at": datetime.now()}], []]
+    def test_feature_flag_ddl_shape(self):
+        sql = TABLE_CONFIGS["posthog_featureflag"].ddl()
+        assert "models.posthog_featureflag" in sql
+        assert "ReplicatedReplacingMergeTree" in sql
+        assert "key String" in sql
+        assert "filters String" in sql
+        # Identity alone, so ReplacingMergeTree collapses a flag's versions instead of keeping one
+        # row per edit. id rather than key because tombstones rename key; see the TableConfig note.
+        assert "ORDER BY (team_id, id)" in sql
+        # updated_at as the version column, so the newest Postgres state wins even when a backfill
+        # re-inserts an older window after the hourly sync.
+        assert "'{shard}-{replica}', updated_at)" in sql
 
+
+class TestFetchRowsInBatches:
+    def _conn_yielding(self, batches):
+        mock_cursor = MagicMock()
+        mock_cursor.fetchmany.side_effect = [*batches, []]
         mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        return mock_conn, mock_cursor
 
-        # Return named cursor when name is provided, regular cursor otherwise
-        def cursor_side_effect(name=None):
-            if name:
-                return mock_named_cursor
-            return mock_regular_cursor
+    def test_no_incremental_filter_for_full_refresh(self):
+        conn, cursor = self._conn_yielding([[{"id": 1}]])
+        list(fetch_rows_in_batches(conn, "posthog_organization", None, batch_size=100))
 
-        mock_conn.cursor.side_effect = cursor_side_effect
-        mock_connect.return_value = mock_conn
+        sql = cursor.execute.call_args[0][0]
+        assert "FROM posthog_organization" in sql
+        assert "WHERE" not in sql
 
-        # Test without last_sync
-        orgs = fetch_organizations(mock_conn)
-        assert len(orgs) == 1
-        assert orgs[0]["name"] == "Org 1"
+    def test_incremental_filter_uses_watermark_column(self):
+        conn, cursor = self._conn_yielding([[{"id": 1}]])
+        list(fetch_rows_in_batches(conn, "posthog_organization", datetime(2024, 1, 1), batch_size=100))
 
-        # Verify query was called correctly on named cursor
-        mock_named_cursor.execute.assert_called_once()
-        call_args = mock_named_cursor.execute.call_args[0]
-        assert "SELECT" in call_args[0]
-        assert "FROM posthog_organization" in call_args[0]
-        assert "WHERE updated_at >" not in call_args[0]
+        sql, params = cursor.execute.call_args[0]
+        assert "WHERE updated_at > %s" in sql
+        assert params == [datetime(2024, 1, 1)]
 
-    @patch("posthog.dags.postgres_to_clickhouse_etl.psycopg2.connect")
-    def test_fetch_organizations_incremental(self, mock_connect):
-        """Test fetching organizations incrementally."""
-        mock_named_cursor = MagicMock()
-        mock_named_cursor.fetchmany.side_effect = [[{"id": 2, "name": "Org 2", "updated_at": datetime.now()}], []]
+    def test_feature_flag_incremental_catches_updated_and_created_rows(self):
+        # A flag's first edit sets updated_at; creation sets created_at and leaves updated_at NULL.
+        # The COALESCE watermark must pick up either one moving into the window.
+        conn, cursor = self._conn_yielding([[{"id": 1}]])
+        list(fetch_rows_in_batches(conn, "posthog_featureflag", datetime(2024, 1, 1), batch_size=100))
 
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_named_cursor
-        mock_connect.return_value = mock_conn
+        sql, params = cursor.execute.call_args[0]
+        assert "WHERE COALESCE(updated_at, created_at) > %s" in sql
+        assert "ORDER BY COALESCE(updated_at, created_at) ASC" in sql
+        assert params == [datetime(2024, 1, 1)]
 
-        last_sync = datetime.now() - timedelta(days=1)
-        _ = fetch_organizations(mock_conn, last_sync=last_sync)
+    def test_jsonb_columns_selected_as_text_to_skip_parse(self):
+        """Org/team JSON columns go over the wire as text so psycopg2 doesn't parse them only to re-serialize."""
+        conn, cursor = self._conn_yielding([[{"id": 1}]])
+        list(fetch_rows_in_batches(conn, "posthog_team", None, batch_size=100))
 
-        # Verify incremental query on named cursor
-        mock_named_cursor.execute.assert_called_once()
-        call_args = mock_named_cursor.execute.call_args[0]
-        assert "WHERE updated_at > %s" in call_args[0]
-        assert call_args[1] == [last_sync]
+        sql = cursor.execute.call_args[0][0]
+        assert "test_account_filters::text AS test_account_filters" in sql
 
-    @patch("posthog.dags.postgres_to_clickhouse_etl.psycopg2.connect")
-    def test_fetch_teams(self, mock_connect):
-        """Test fetching teams from Postgres."""
-        mock_named_cursor = MagicMock()
-        mock_named_cursor.fetchmany.side_effect = [
-            [{"id": 1, "name": "Team 1", "organization_id": 1, "updated_at": datetime.now()}],
-            [],
-        ]
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value = mock_named_cursor
-        mock_connect.return_value = mock_conn
+    def test_flag_filters_not_cast_to_text(self):
+        conn, cursor = self._conn_yielding([[{"id": 1}]])
+        list(fetch_rows_in_batches(conn, "posthog_featureflag", None, batch_size=100))
 
-        teams = fetch_teams(mock_conn)
-        assert len(teams) == 1
-        assert teams[0]["name"] == "Team 1"
+        sql = cursor.execute.call_args[0][0]
+        assert "filters::text" not in sql
+        assert " filters" in sql
 
+    def test_named_server_side_cursor_used(self):
+        conn, _ = self._conn_yielding([[{"id": 1}]])
+        list(fetch_rows_in_batches(conn, "posthog_organization", None, batch_size=100))
+        assert conn.cursor.call_args[1].get("name") is not None
+
+
+def _org_row(**overrides):
+    """A full org row, as the SELECT always returns every configured column."""
+    row = dict.fromkeys(TABLE_CONFIGS["posthog_organization"].select_columns)
+    row.update(
+        {
+            "id": 1,
+            "name": "Org",
+            "is_member_join_email_enabled": True,
+            "available_product_features": "[]",
+            "created_at": datetime(2024, 1, 1),
+            "updated_at": datetime(2024, 1, 2),
+        }
+    )
+    row.update(overrides)
+    return row
+
+
+class TestInsertRowsToClickHouse:
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_empty_rows_returns_zero(self, mock_sync_execute):
+        assert insert_rows_to_clickhouse("posthog_organization", [], batch_size=10) == 0
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_insert_targets_models_db_with_parameterized_values(self, mock_sync_execute):
+        n = insert_rows_to_clickhouse("posthog_organization", [_org_row()], batch_size=10)
+
+        assert n == 1
+        call = mock_sync_execute.call_args[0]
+        assert "INSERT INTO models.posthog_organization" in call[0]
+        assert "VALUES" in call[0]
+        # Data is passed as a separate argument, not inlined into SQL text — lets the driver's
+        # columnar writer handle arrays / datetimes / strings with embedded quotes.
+        assert call[1] is not None
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_insert_raises_on_missing_configured_column(self, mock_sync_execute):
+        # A row missing a configured column is a bug upstream (transform drift, config typo);
+        # the insert must raise naming the column, not silently write NULL into a required field.
+        row = _org_row()
+        del row["id"]
+
+        with pytest.raises(KeyError, match="id"):
+            insert_rows_to_clickhouse("posthog_organization", [row], batch_size=10)
+        mock_sync_execute.assert_not_called()
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_insert_batches_by_batch_size(self, mock_sync_execute):
+        rows = [_org_row(id=i, name=f"Org {i}") for i in range(25)]
+
+        n = insert_rows_to_clickhouse("posthog_organization", rows, batch_size=10)
+
+        assert n == 25
+        assert mock_sync_execute.call_count == 3
+
+
+class TestCreateClickHouseTables:
     @patch("posthog.dags.postgres_to_clickhouse_etl.get_cluster")
-    def test_create_clickhouse_tables(self, mock_get_cluster):
-        """Test ClickHouse table creation."""
-        # Mock the cluster and its methods
+    def test_creates_database_plus_three_tables(self, mock_get_cluster):
         mock_cluster = MagicMock()
-        mock_futures_map = MagicMock()
-        mock_futures_map.result.return_value = {}
-        mock_cluster.map_all_hosts.return_value = mock_futures_map
+        mock_futures = MagicMock()
+        mock_futures.result.return_value = {}
+        mock_cluster.map_all_hosts.return_value = mock_futures
         mock_get_cluster.return_value = mock_cluster
 
         create_clickhouse_tables()
 
-        # Should have called map_all_hosts for:
-        # 1. CREATE DATABASE IF NOT EXISTS models
-        # 2. CREATE TABLE posthog_organization
-        # 3. CREATE TABLE posthog_team
-        assert mock_cluster.map_all_hosts.call_count == 3
-
-        # Extract the Query objects from the calls
-        calls = [call[0][0].query for call in mock_cluster.map_all_hosts.call_args_list]
-
-        # Check database creation
-        assert any("CREATE DATABASE IF NOT EXISTS models" in call for call in calls)
-
-        # Check table creation with ReplicatedReplacingMergeTree
-        assert any(
-            "CREATE TABLE IF NOT EXISTS models.posthog_organization" in call and "ReplicatedReplacingMergeTree" in call
-            for call in calls
-        )
-        assert any(
-            "CREATE TABLE IF NOT EXISTS models.posthog_team" in call and "ReplicatedReplacingMergeTree" in call
-            for call in calls
-        )
-
-    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
-    def test_insert_organizations_to_clickhouse(self, mock_sync_execute):
-        """Test inserting organizations into ClickHouse."""
-        organizations = [
-            {
-                "id": 1,
-                "uuid": "uuid1",
-                "name": "Org 1",
-                "slug": "org-1",
-                "is_member_join_email_enabled": True,
-                "available_product_features": [{"key": "feature1"}],
-                "usage": {"events": 1000},
-                "personalization": {},
-                "domain_whitelist": [],
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-            },
-            {
-                "id": 2,
-                "uuid": "uuid2",
-                "name": "Org 2",
-                "slug": "org-2",
-                "is_member_join_email_enabled": False,
-                "available_product_features": None,
-                "usage": None,
-                "personalization": {},
-                "domain_whitelist": [],
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-            },
-        ]
-
-        rows_inserted = insert_organizations_to_clickhouse(organizations, batch_size=10)
-
-        assert rows_inserted == 2
-        assert mock_sync_execute.call_count == 1
-
-        # Verify INSERT statement
-        call_args = mock_sync_execute.call_args[0]
-        assert "INSERT INTO models.posthog_organization" in call_args[0]
-
-    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
-    def test_insert_teams_to_clickhouse(self, mock_sync_execute):
-        """Test inserting teams into ClickHouse."""
-        teams = [
-            {
-                "id": 1,
-                "uuid": "team-uuid1",
-                "organization_id": 1,
-                "name": "Team 1",
-                "anonymize_ips": True,
-                "test_account_filters": [{"key": "test"}],
-                "app_urls": ["https://example.com"],
-                "drop_events_older_than": timedelta(days=7),
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-            }
-        ]
-
-        rows_inserted = insert_teams_to_clickhouse(teams, batch_size=10)
-
-        assert rows_inserted == 1
-        assert mock_sync_execute.call_count == 1
+        assert mock_cluster.map_all_hosts.call_count == 4  # 1 DB + 3 tables
+        sqls = [call[0][0].query for call in mock_cluster.map_all_hosts.call_args_list]
+        assert any("CREATE DATABASE IF NOT EXISTS models" in sql for sql in sqls)
+        for table in ("posthog_organization", "posthog_team", "posthog_featureflag"):
+            assert any(f"models.{table}" in sql and "ReplicatedReplacingMergeTree" in sql for sql in sqls)
 
 
-class TestOps:
-    """Test Dagster ops."""
-
+class TestSyncTable:
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_organizations_op(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
-        """Test the sync_organizations op."""
-        # Mock ClickHouse last sync query
-        mock_sync_execute.return_value = [[datetime(2024, 1, 1)]]
-
-        # Mock Postgres connection and data
-        mock_pg_conn = MagicMock()
-        mock_get_pg_conn.return_value = mock_pg_conn
-
+    def test_incremental_advances_watermark_to_latest_seen_row(
+        self, mock_create_tables, mock_get_pg, mock_sync_execute
+    ):
+        mock_sync_execute.side_effect = [
+            [[None]],  # first-run watermark read on an empty mirror
+            None,  # INSERT
+        ]
+        mock_get_pg.return_value = MagicMock()
         with (
-            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_organizations_in_batches") as mock_fetch,
-            patch("posthog.dags.postgres_to_clickhouse_etl.insert_organizations_to_clickhouse") as mock_insert,
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse") as mock_insert,
         ):
-            # Mock the generator to yield one batch
-            mock_fetch.return_value = iter([[{"id": 1, "name": "Org 1", "updated_at": datetime(2024, 1, 2)}]])
-            mock_insert.return_value = 1
-
-            # Create context and run op
-            context = build_op_context(
-                config={
-                    "full_refresh": False,
-                    "batch_size": 10000,
-                    "max_execution_time": 3600,
-                }
+            mock_fetch.return_value = iter(
+                [[{"id": 1, "updated_at": datetime(2024, 1, 2)}, {"id": 2, "updated_at": datetime(2024, 1, 3)}]]
             )
+            mock_insert.return_value = 2
+            context = build_op_context()
 
-            result = sync_organizations(context)
+            state = _sync_table(context, _config(backward_lookback_seconds=0), "posthog_organization")
 
-            assert isinstance(result, ETLState)
-            assert result.rows_synced == 1
-            assert result.last_sync_timestamp == datetime(2024, 1, 2)
-            assert len(result.errors) == 0
-
-            # Verify calls
-            mock_create_tables.assert_called_once()
-            mock_fetch.assert_called_once()
+            assert isinstance(state, IncrementalState)
+            assert state.rows_synced == 2
+            assert state.last_sync_timestamp == datetime(2024, 1, 3)
             mock_insert.assert_called_once()
 
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
     @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
     @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_teams_op(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
-        """Test the sync_teams op."""
-        # Mock ClickHouse last sync query
-        mock_sync_execute.return_value = [[None]]
-
-        # Mock Postgres connection
-        mock_pg_conn = MagicMock()
-        mock_get_pg_conn.return_value = mock_pg_conn
-
+    def test_incremental_watermark_wraps_back_by_lookback_window(
+        self, mock_create_tables, mock_get_pg, mock_sync_execute
+    ):
+        """The PG query is invoked with (mirror high-watermark − backward_lookback_seconds), not the raw watermark."""
+        mock_sync_execute.return_value = [[datetime(2024, 3, 10, 12, 0, 0)]]
+        mock_get_pg.return_value = MagicMock()
         with (
-            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_teams_in_batches") as mock_fetch,
-            patch("posthog.dags.postgres_to_clickhouse_etl.insert_teams_to_clickhouse") as mock_insert,
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse"),
         ):
-            # Mock the generator to yield one batch
+            mock_fetch.return_value = iter([])
+            context = build_op_context()
+
+            _sync_table(context, _config(backward_lookback_seconds=3600), "posthog_organization")
+
+            mock_fetch.assert_called_once()
+            # fetch_rows_in_batches(conn, table_name, last_sync, batch_size) — third positional arg.
+            last_sync_arg = mock_fetch.call_args[0][2]
+            assert last_sync_arg == datetime(2024, 3, 10, 11, 0, 0)
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_flags_use_per_table_lookback_not_job_config(self, mock_create_tables, mock_get_pg, mock_sync_execute):
+        """posthog_featureflag's watermark wraps by its TableConfig lookback even when the job-level lookback is 0."""
+        mock_sync_execute.return_value = [[datetime(2024, 3, 10, 12, 0, 0)]]
+        mock_get_pg.return_value = MagicMock()
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse"),
+        ):
+            mock_fetch.return_value = iter([])
+            context = build_op_context()
+
+            _sync_table(context, _config(backward_lookback_seconds=0), "posthog_featureflag")
+
+            last_sync_arg = mock_fetch.call_args[0][2]
+            assert last_sync_arg == datetime(2024, 3, 10, 12, 0, 0) - timedelta(
+                seconds=TABLE_CONFIGS["posthog_featureflag"].lookback_seconds
+            )
+
+    def test_flags_lookback_defaults_to_one_hour(self):
+        """Flags re-emit one hourly cycle; orgs and teams keep the 24h outage window."""
+        assert TABLE_CONFIGS["posthog_featureflag"].lookback_seconds == 3600
+        assert TABLE_CONFIGS["posthog_organization"].lookback_seconds == 86400
+        assert TABLE_CONFIGS["posthog_team"].lookback_seconds == 86400
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_full_refresh_truncates_table(self, mock_create_tables, mock_get_pg, mock_sync_execute):
+        mock_sync_execute.return_value = None
+        mock_get_pg.return_value = MagicMock()
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse"),
+        ):
+            mock_fetch.return_value = iter([])
+            context = build_op_context()
+
+            state = _sync_table(context, _config(full_refresh=True), "posthog_team")
+
+            assert state.rows_synced == 0
+            mock_sync_execute.assert_any_call("TRUNCATE TABLE models.posthog_team")
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_empty_postgres_result_leaves_watermark_state_empty(
+        self, mock_create_tables, mock_get_pg, mock_sync_execute
+    ):
+        """Watermark state comes only from this run's PG rows; the stored mirror watermark is a hint, not state."""
+        mock_sync_execute.return_value = [[datetime(2024, 1, 1)]]
+        mock_get_pg.return_value = MagicMock()
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse"),
+        ):
+            mock_fetch.return_value = iter([])
+            context = build_op_context()
+
+            state = _sync_table(context, _config(), "posthog_team")
+
+            assert state.last_sync_timestamp is None
+            assert state.rows_synced == 0
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    def test_errors_close_postgres_connection(self, mock_sync_execute, mock_create_tables, mock_get_pg):
+        mock_sync_execute.return_value = [[None]]
+        mock_pg = MagicMock()
+        mock_get_pg.return_value = mock_pg
+
+        with patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch:
+            mock_fetch.side_effect = Exception("connection lost")
+            context = build_op_context()
+
+            with pytest.raises(Exception, match="connection lost"):
+                _sync_table(context, _config(), "posthog_organization")
+
+            mock_pg.close.assert_called_once()
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_feature_flag_watermark_skips_null_updated_at_in_mixed_batch(
+        self, mock_create_tables, mock_get_pg, mock_sync_execute
+    ):
+        """A batch mixing edited and never-edited flags must not crash max() and must advance to the edited flag."""
+        mock_sync_execute.side_effect = [
+            [[None]],
+            None,
+        ]
+        mock_get_pg.return_value = MagicMock()
+        edited_at = datetime(2025, 4, 15, 10, 0, 0)
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse") as mock_insert,
+        ):
             mock_fetch.return_value = iter(
-                [[{"id": 1, "name": "Team 1", "organization_id": 1, "updated_at": datetime(2024, 1, 2)}]]
+                [
+                    [
+                        {"id": 7, "team_id": 42, "created_at": datetime(2025, 3, 1), "updated_at": None},
+                        {"id": 8, "team_id": 42, "created_at": datetime(2025, 3, 2), "updated_at": edited_at},
+                    ]
+                ]
+            )
+            mock_insert.return_value = 2
+            context = build_op_context()
+
+            state = _sync_table(context, _config(backward_lookback_seconds=0), "posthog_featureflag")
+
+            assert state.rows_synced == 2
+            assert state.last_sync_timestamp == edited_at
+
+    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
+    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
+    def test_feature_flag_watermark_stays_empty_for_all_null_batch(
+        self, mock_create_tables, mock_get_pg, mock_sync_execute
+    ):
+        """A batch of only never-edited flags still syncs rows but reports no watermark for the run."""
+        mock_sync_execute.side_effect = [
+            [[None]],
+            None,
+        ]
+        mock_get_pg.return_value = MagicMock()
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_rows_in_batches") as mock_fetch,
+            patch("posthog.dags.postgres_to_clickhouse_etl.insert_rows_to_clickhouse") as mock_insert,
+        ):
+            mock_fetch.return_value = iter(
+                [[{"id": 7, "team_id": 42, "created_at": datetime(2025, 3, 1), "updated_at": None}]]
             )
             mock_insert.return_value = 1
+            context = build_op_context()
 
-            # Create context and run op
-            context = build_op_context(
-                config={
-                    "full_refresh": False,
-                    "batch_size": 10000,
-                    "max_execution_time": 3600,
-                }
-            )
+            state = _sync_table(context, _config(backward_lookback_seconds=0), "posthog_featureflag")
 
-            result = sync_teams(context)
+            assert state.rows_synced == 1
+            assert state.last_sync_timestamp is None
 
-            assert isinstance(result, ETLState)
-            assert result.rows_synced == 1
-            assert result.last_sync_timestamp == datetime(2024, 1, 2)
-            assert len(result.errors) == 0
 
+class TestVerifySync:
     @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
-    def test_verify_sync_op(self, mock_sync_execute):
-        """Test the verify_sync op."""
-        # Mock ClickHouse counts
-        mock_sync_execute.side_effect = [
-            [[100]],  # organization count
-            [[150]],  # team count
-        ]
+    def test_reports_all_three_tables(self, mock_sync_execute):
+        mock_sync_execute.side_effect = [[[100]], [[150]], [[42]]]
 
-        # Create states
-        org_state = ETLState(rows_synced=10, last_sync_timestamp=datetime.now())
-        team_state = ETLState(rows_synced=15, last_sync_timestamp=datetime.now())
+        org = IncrementalState(rows_synced=10, last_sync_timestamp=datetime(2024, 1, 1))
+        team = IncrementalState(rows_synced=15, last_sync_timestamp=datetime(2024, 1, 1))
+        flag = IncrementalState(rows_synced=42, last_sync_timestamp=datetime(2024, 1, 1))
 
-        context = build_op_context()
-        result = verify_sync(context, org_state, team_state)
+        result = verify_sync(build_op_context(), org, team, flag)
 
-        assert result["success"] is True
         assert result["organizations"]["clickhouse_count"] == 100
         assert result["teams"]["clickhouse_count"] == 150
-        assert result["organizations"]["rows_synced"] == 10
-        assert result["teams"]["rows_synced"] == 15
-
-    @patch("posthog.dags.postgres_to_clickhouse_etl.get_cluster")
-    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
-    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
-    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_organizations_full_refresh(
-        self, mock_create_tables, mock_get_pg_conn, mock_sync_execute, mock_get_cluster
-    ):
-        """Test sync_organizations with full refresh."""
-
-        mock_pg_conn = MagicMock()
-        mock_get_pg_conn.return_value = mock_pg_conn
-
-        with (
-            patch("posthog.dags.postgres_to_clickhouse_etl.fetch_organizations_in_batches") as mock_fetch,
-            patch("posthog.dags.postgres_to_clickhouse_etl.insert_organizations_to_clickhouse") as mock_insert,
-        ):
-            # Mock the generator to yield no batches
-            mock_fetch.return_value = iter([])
-            mock_insert.return_value = 0
-
-            context = build_op_context(
-                config={
-                    "full_refresh": True,
-                    "batch_size": 10000,
-                    "max_execution_time": 3600,
-                }
-            )
-
-            result = sync_organizations(context)
-
-            # Verify truncate was called for full refresh
-            mock_sync_execute.assert_any_call("TRUNCATE TABLE models.posthog_organization")
-
-            assert result.rows_synced == 0
-            assert len(result.errors) == 0
+        assert result["feature_flags"]["clickhouse_count"] == 42
 
 
-class TestErrorHandling:
-    """Test error handling in the ETL pipeline."""
+class TestDagsterWiring:
+    def test_hourly_job_defers_to_three_sync_ops_and_verifies(self):
+        assert postgres_to_clickhouse_etl_job is not None
+        node_names = {node.name for node in postgres_to_clickhouse_etl_job.graph.nodes}
+        assert {"sync_organizations", "sync_teams", "sync_feature_flags", "verify_sync"} <= node_names
 
-    @patch("posthog.dags.postgres_to_clickhouse_etl.sync_execute")
-    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
-    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_sync_organizations_handles_errors(self, mock_create_tables, mock_get_pg_conn, mock_sync_execute):
-        """Test that sync_organizations handles errors properly."""
-
-        # Mock the max(updated_at) query to return None
-        mock_sync_execute.return_value = [[None]]
-
-        mock_pg_conn = MagicMock()
-        mock_get_pg_conn.return_value = mock_pg_conn
-
-        with patch("posthog.dags.postgres_to_clickhouse_etl.fetch_organizations_in_batches") as mock_fetch:
-            mock_fetch.side_effect = Exception("Database connection failed")
-
-            context = build_op_context(
-                config={
-                    "full_refresh": False,
-                    "batch_size": 10000,
-                    "max_execution_time": 3600,
-                }
-            )
-
-            with pytest.raises(Exception, match="Database connection failed"):
-                sync_organizations(context)
-
-            # Verify connection was closed even on error
-            mock_pg_conn.close.assert_called_once()
-
-
-class TestPartitioning:
-    """Test partitioning and scheduling."""
-
-    def test_hourly_partition_definition(self):
-        """Test that the job has hourly partitions."""
-        assert postgres_to_clickhouse_etl_job.partitions_def is not None
-        partitions = postgres_to_clickhouse_etl_job.partitions_def.get_partition_keys()
-
-        # Check that partitions are hourly
-        # Get first two partition keys and verify they're 1 hour apart
-        first_partition = partitions[0]
-        second_partition = partitions[1]
-
-        # Parse the partition keys (format: "2024-01-01-00:00")
-        first_dt = datetime.strptime(first_partition, "%Y-%m-%d-%H:%M")
-        second_dt = datetime.strptime(second_partition, "%Y-%m-%d-%H:%M")
-
-        assert (second_dt - first_dt).total_seconds() == 3600  # 1 hour in seconds
-
-    def test_hourly_schedule(self):
-        """Test the hourly schedule configuration."""
+    def test_hourly_schedule_wires_to_etl_job(self):
+        assert postgres_to_clickhouse_hourly_schedule.job_name == postgres_to_clickhouse_etl_job.name
         assert postgres_to_clickhouse_hourly_schedule.cron_schedule == "0 * * * *"
         assert postgres_to_clickhouse_hourly_schedule.execution_timezone == "UTC"
-        assert postgres_to_clickhouse_hourly_schedule.job_name == postgres_to_clickhouse_etl_job.name
 
-    @freeze_time("2024-01-15 14:00:00")
-    def test_schedule_execution_time(self):
-        """Test that schedule runs at the correct time."""
-        from datetime import datetime
+    @parameterized.expand(
+        [
+            ("organizations", organizations_in_clickhouse),
+            ("teams", teams_in_clickhouse),
+            ("feature_flags", feature_flags_in_clickhouse),
+        ]
+    )
+    def test_backfill_assets_are_hourly_partitioned(self, _name, backfill_asset):
+        assert backfill_asset.partitions_def is not None
+        assert backfill_asset.backfill_policy is not None
+        assert backfill_asset.backfill_policy.max_partitions_per_run == 24
 
-        # The cron schedule is "0 * * * *" which means at minute 0 of every hour
-        assert postgres_to_clickhouse_hourly_schedule.cron_schedule == "0 * * * *"
+    @parameterized.expand(
+        [
+            (
+                "organizations",
+                organizations_in_clickhouse,
+                "WHERE updated_at >= %s AND updated_at < %s",
+            ),
+            # Never-edited flags have NULL updated_at in Postgres; a plain-column window would skip them.
+            (
+                "feature_flags",
+                feature_flags_in_clickhouse,
+                "WHERE COALESCE(updated_at, created_at) >= %s AND COALESCE(updated_at, created_at) < %s",
+            ),
+        ]
+    )
+    def test_asset_window_query_filters_on_watermark_bounds(self, _name, backfill_asset, expected_where):
+        mock_pg = MagicMock()
+        cur = MagicMock()
+        cur.fetchall.return_value = []
+        mock_pg.cursor.return_value = cur
 
-        # Verify the schedule would run at the top of the hour
-        # In real usage, this would trigger at 14:00:00
-        frozen_time = datetime(2024, 1, 15, 14, 0, 0)
-        assert frozen_time.minute == 0
-        assert frozen_time.second == 0
+        with (
+            patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection", return_value=mock_pg),
+            patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables"),
+        ):
+            ctx = build_asset_context(partition_key="2024-01-15-14:00")
+            backfill_asset(ctx)
 
-    def test_backfill_policy(self):
-        """Test backfill policy for assets."""
-        # Check organizations asset
-        assert organizations_in_clickhouse.partitions_def is not None
-        assert organizations_in_clickhouse.backfill_policy is not None
-        assert organizations_in_clickhouse.backfill_policy.max_partitions_per_run == 24
+        sql, params = cur.execute.call_args[0]
+        assert expected_where in sql
+        assert params[0].replace(tzinfo=None).isoformat() == "2024-01-15T14:00:00"
+        assert params[1].replace(tzinfo=None).isoformat() == "2024-01-15T15:00:00"
 
-        # Check teams asset
-        assert teams_in_clickhouse.partitions_def is not None
-        assert teams_in_clickhouse.backfill_policy is not None
-        assert teams_in_clickhouse.backfill_policy.max_partitions_per_run == 24
-
-    @patch("posthog.dags.postgres_to_clickhouse_etl.get_postgres_connection")
-    @patch("posthog.dags.postgres_to_clickhouse_etl.create_clickhouse_tables")
-    def test_asset_hourly_window(self, mock_create_tables, mock_get_pg_conn):
-        """Test that assets process correct hourly time windows."""
-        from dagster import build_asset_context
-
-        mock_pg_conn = MagicMock()
-        mock_cursor = MagicMock()
-        mock_cursor.fetchall.return_value = []
-        mock_pg_conn.cursor.return_value = mock_cursor
-        mock_get_pg_conn.return_value = mock_pg_conn
-
-        # Test with a specific partition key
-        partition_key = "2024-01-15-14:00"
-        context = build_asset_context(partition_key=partition_key)
-
-        # Run the asset
-        organizations_in_clickhouse(context)
-
-        # Verify the query was for the correct time window
-        mock_cursor.execute.assert_called_once()
-        call_args = mock_cursor.execute.call_args[0]
-        query = call_args[0]
-        params = call_args[1]
-
-        assert "WHERE updated_at >= %s AND updated_at < %s" in query
-
-        # Check the time window parameters
-        start_time, end_time = params
-        assert start_time == datetime(2024, 1, 15, 14, 0)
-        assert end_time == datetime(2024, 1, 15, 15, 0)  # One hour later
+    def test_backward_lookback_default_is_one_day(self):
+        """Job-level lookback stays at 86400 as the fallback for orgs and teams; flags override on TableConfig."""
+        assert _config().backward_lookback_seconds == 86400

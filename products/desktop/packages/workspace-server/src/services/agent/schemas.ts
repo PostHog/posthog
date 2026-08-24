@@ -178,6 +178,10 @@ export const sessionResponseSchema = z.object({
   // running turn; "interrupt-resend" (legacy) or absent means the host must
   // cancel + resend instead. Drives the host's steer-vs-resend decision.
   steering: z.string().optional(),
+  // The adapter's negotiated side-question capability from initialize
+  // (`_meta.posthog.sideQuestion`): true means the adapter can answer a
+  // one-shot "/btw" question forked off the live transcript.
+  sideQuestion: z.boolean().optional(),
 });
 
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
@@ -207,6 +211,20 @@ export const promptOutput = z.object({
 });
 
 export type PromptOutput = z.infer<typeof promptOutput>;
+
+// Side question ("/btw") input/output
+export const sideQuestionInput = z.object({
+  sessionId: z.string(),
+  question: z.string().min(1),
+});
+
+export type SideQuestionInput = z.infer<typeof sideQuestionInput>;
+
+export const sideQuestionOutput = z.object({
+  answer: z.string(),
+});
+
+export type SideQuestionOutput = z.infer<typeof sideQuestionOutput>;
 
 // Cancel session input
 export const cancelSessionInput = z.object({

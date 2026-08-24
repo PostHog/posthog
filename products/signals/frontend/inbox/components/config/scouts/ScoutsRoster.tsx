@@ -3,23 +3,40 @@ import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+
 import { captureScoutFleetViewed } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutAlphaBanner } from './ScoutAlphaBanner'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutsEmptyState } from './ScoutsEmptyState'
-import { ScoutsRosterGroups } from './ScoutsRosterGroups'
 import { ScoutsRosterHeader } from './ScoutsRosterHeader'
+import { ScoutsRosterTable } from './ScoutsRosterTable'
 
 /**
- * The scout roster: one grouped table over the whole troop, ordered so the scouts that need a
- * decision sit above the ones that don't. Replaces the card list that used to live in the Scout
- * troop modal — the fleet outgrew a 760px portal, and a modal can't host the scout pages it links to.
+ * Under this width the roster drops to its compact columns. Sits just above the ~763px the
+ * six-column table needs before it starts scrolling sideways, so the switch happens where the wide
+ * layout actually stops working rather than at a phone-sized guess. Measured on the roster itself
+ * rather than the window, so the tab reads the same inside a narrow embed as it does on a phone.
+ */
+const ROSTER_COMPACT_MAX_PX = 768
+
+/**
+ * The scout roster: one alphabetical table over the whole troop, with lifecycle as a sortable
+ * Status column. Replaces the card list that used to live in the Scout troop modal — the fleet
+ * outgrew a 760px portal, and a modal can't host the scout pages it links to.
  */
 export function ScoutsRoster(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, enabledCount, customScoutCount } = useValues(scoutFleetLogic)
     const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    // One measurement for the whole roster, so the header chrome and the table agree on which
+    // layout they're in — two observers could disagree for a frame mid-resize.
+    const { ref: widthRef, size } = useResizeBreakpoints(
+        { 0: 'compact', [ROSTER_COMPACT_MAX_PX]: 'wide' },
+        { initialSize: 'wide' }
+    )
+    const compact = size === 'compact'
 
     useEffect(() => {
         startRunsPolling()
@@ -73,10 +90,10 @@ export function ScoutsRoster(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col">
+        <div ref={widthRef} className="flex flex-col">
             <ScoutAlphaBanner />
-            <ScoutsRosterHeader />
-            <ScoutsRosterGroups />
+            <ScoutsRosterHeader compact={compact} />
+            <ScoutsRosterTable compact={compact} />
             <div className="flex flex-col gap-1 px-6 py-4">
                 <span className="text-xs text-muted">
                     The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. Each scout's run strip shows its{' '}
