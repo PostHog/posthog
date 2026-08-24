@@ -16,6 +16,14 @@ const MAX_WORD_BACKTRACK = 40
  */
 const SEVERED_LINK = /(?:https?:\/\/|\bwww\.)\S*$|[\w.+-]+@[\w-]+(?:\.[\w-]+)+$/i
 
+/**
+ * A reference definition the cut ran through. A `[docs][d]` earlier in the note still resolves
+ * against it, so the label renders as a live link to a shortened destination. Only a cut that keeps
+ * the grapheme head can sever one: backing up to whitespace stops before the destination, which
+ * leaves `[d]:` and no definition at all.
+ */
+const SEVERED_DEFINITION = /(?:^|\n)[ \t]{0,3}\[[^\]\n]+\]:[^\n]*$/
+
 let segmenter: Intl.Segmenter | null | undefined
 
 /**
@@ -78,5 +86,5 @@ export function scoutNotePreview(content: string): string {
     if (kept && backtrack <= MAX_WORD_BACKTRACK) {
         return `${kept}…`
     }
-    return `${opening.join('').replace(SEVERED_LINK, '').trimEnd()}…`
+    return `${opening.join('').replace(SEVERED_LINK, '').replace(SEVERED_DEFINITION, '').trimEnd()}…`
 }

@@ -37,10 +37,17 @@ describe('scoutNotePreview', () => {
         expect(scoutNotePreview(link)).toBe('…')
     })
 
+    it('drops a reference definition the cut ran through', () => {
+        // The label resolves against the definition wherever it sits, so a severed destination is
+        // still a live link — to a path the note never pointed at.
+        const preview = scoutNotePreview(`[docs][d]\n\n[d]: /runbooks/${'segment-'.repeat(60)}`)
+
+        expect(preview).toBe('[docs][d]…')
+    })
+
     it.each([
-        // Each of these used to shrink the preview for nothing: the first backed up 275 characters
-        // to the one space, the second read `build@…` as an address, the third read `s3://…` as a
-        // link, and the fourth measured the last word in code units so a nearby space looked far.
+        // Shortening a preview is only worth it to avoid a broken character or a wrong link. None
+        // of these is either, so each one fills the sidebar rather than stopping early.
         ['the last whitespace sits far behind the cut', `Note: ${'あ'.repeat(400)}`, `Note: ${'あ'.repeat(274)}…`],
         [
             'an @ runs past the cut with no domain after it',
