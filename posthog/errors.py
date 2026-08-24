@@ -11,6 +11,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseConnectionError,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -106,6 +107,11 @@ def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3Fil
 
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, (ConnectionResetError, EOFError)):
+        # The driver raises these raw socket errors when ClickHouse drops the connection mid-query
+        # (a killed heavy scan, a restarting replica). They are transient, so route both to a known
+        # class the CH_TRANSIENT_ERRORS retry paths recognize.
+        return ClickHouseConnectionError()
     if not isinstance(err, ServerException):
         return err
 
@@ -1039,4 +1045,5 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseConnectionError,
 )

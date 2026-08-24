@@ -85,6 +85,17 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
+class ClickHouseConnectionError(APIException):
+    """ClickHouse dropped the connection mid-query (killed heavy scan, restarting replica).
+
+    The driver raises a raw ConnectionResetError or EOFError, which has no stable fingerprint. This
+    class gives both a known, transient identity, so it belongs to `CH_TRANSIENT_ERRORS`.
+    """
+
+    status_code = 503
+    default_detail = "Lost the connection to the query engine. Please try again."
+
+
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."

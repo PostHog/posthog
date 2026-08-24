@@ -2,12 +2,14 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseConnectionError
 
 
 class TestWrapClickhouseQueryError:
@@ -83,3 +85,17 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            # The driver raises these raw socket errors when ClickHouse drops the connection mid-query.
+            # They must wrap to a known transient class so retry paths and error grouping recognize them.
+            (ConnectionResetError("connection reset"),),
+            (EOFError("unexpected eof"),),
+        ]
+    )
+    def test_socket_errors_wrap_as_transient_connection_error(self, err: Exception) -> None:
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, ClickHouseConnectionError)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)

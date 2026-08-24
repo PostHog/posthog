@@ -202,6 +202,8 @@ With 300,000 total teams:
 
 `execute_clickhouse_health_team_query()` is a safe wrapper for running ClickHouse queries in health checks. It enforces a `%(team_ids)s` placeholder, applies conservative default settings, and handles parameter merging.
 
+It runs every scan on `Workload.OFFLINE`, so this disruption-tolerant background work stays off the pool that serves interactive app queries. It also splits `team_ids` into chunks of `chunk_size` and runs one statement per chunk, so a single query never scans every team in the batch at once. Rows from all chunks are concatenated in order.
+
 ```python
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -211,6 +213,7 @@ rows = execute_clickhouse_health_team_query(
     lookback_days=7,       # optional, available as %(lookback_days)s
     params={"event": "$pageview"},  # additional query params
     settings={"max_execution_time": 60},  # override ClickHouse settings
+    chunk_size=50,         # teams per statement
 )
 ```
 
@@ -221,8 +224,9 @@ rows = execute_clickhouse_health_team_query(
 | `lookback_days` | `int \| None`               | `None`  | If set, available as `%(lookback_days)s` in SQL. Must be > 0         |
 | `params`        | `Mapping[str, Any] \| None` | `None`  | Extra query params. Cannot override `team_ids` or `lookback_days`    |
 | `settings`      | `Mapping[str, Any] \| None` | `None`  | ClickHouse settings overrides                                        |
+| `chunk_size`    | `int`                       | `50`    | Teams per statement. Must be > 0                                     |
 
-Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
+Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`. Queries run on `Workload.OFFLINE`.
 
 ## ClickHouse kill switch
 
