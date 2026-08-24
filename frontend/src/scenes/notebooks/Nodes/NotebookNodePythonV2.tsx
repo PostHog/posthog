@@ -10,7 +10,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
-import { NotebookCellOutputFrame } from './components/NotebookCellOutputFrame'
+import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
@@ -98,8 +98,9 @@ const Component = ({
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
     const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
-    // A cell with nothing to show keeps the plain hint — an empty framed card reads as a broken run.
-    const hasOutput = hasStreamOutput || !!runError || !!dataframeResult
+    // Only results get the strip. A run that failed shows a traceback, which "Results" mislabels,
+    // and a cell that never ran keeps the plain hint.
+    const hasOutput = hasStreamOutput || !!dataframeResult
 
     // Grow a still-too-short node to fit the output each run lands, so it's readable without a
     // manual resize. Sized to what came back — a printed value stays compact, a table or figure
@@ -134,7 +135,7 @@ const Component = ({
     return (
         <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
@@ -152,60 +153,55 @@ const Component = ({
                     </div>
                 ) : null}
                 {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
-                {hasOutput ? (
-                    <NotebookCellOutputFrame>
-                        <div className="flex flex-col gap-2">
-                            {hasStreamOutput ? (
-                                <div className="shrink-0 space-y-2 px-2 pt-2">
-                                    {result?.stdout ? (
-                                        <pre className="text-xs font-mono whitespace-pre-wrap select-text m-0">
-                                            {result.stdout}
-                                        </pre>
-                                    ) : null}
-                                    {result?.stderr ? (
-                                        <pre className="text-xs font-mono whitespace-pre-wrap text-danger select-text m-0">
-                                            {result.stderr}
-                                        </pre>
-                                    ) : null}
-                                    {result?.media?.map((item, index) => (
-                                        <img
-                                            key={index}
-                                            src={`data:${item.mime_type};base64,${item.data}`}
-                                            alt="Python output"
-                                            className="max-w-full rounded border border-border bg-white"
-                                        />
-                                    ))}
-                                </div>
-                            ) : null}
-                            {runError ? (
-                                <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
-                            ) : dataframeResult ? (
-                                <NotebookDataframeTable
-                                    result={dataframeResult}
-                                    loading={isRunning || pageLoading}
-                                    page={page}
-                                    pageSize={pageSize}
-                                    hasMore={hasMorePages}
-                                    // Wide text columns (long strings, JSON blobs) shouldn't make every
-                                    // row tall; clamp to one line here and let the user open a cell.
-                                    truncateCells
-                                    paginationDisabledReason={
-                                        pageLoading
-                                            ? 'Fetching page…'
-                                            : isRunning
-                                              ? 'Cell is running'
-                                              : (operationBlockReason ?? undefined)
-                                    }
-                                    onNextPage={() => setPage(page + 1)}
-                                    onPreviousPage={() => setPage(page - 1)}
-                                    onPageSizeChange={setPageSize}
-                                />
-                            ) : null}
-                        </div>
-                    </NotebookCellOutputFrame>
-                ) : (
+                {hasOutput ? <NotebookCellOutputHeader>Results</NotebookCellOutputHeader> : null}
+                {hasStreamOutput ? (
+                    <div className="shrink-0 space-y-2 px-2 py-2" onClick={(event) => event.stopPropagation()}>
+                        {result?.stdout ? (
+                            <pre className="text-xs font-mono whitespace-pre-wrap select-text m-0">{result.stdout}</pre>
+                        ) : null}
+                        {result?.stderr ? (
+                            <pre className="text-xs font-mono whitespace-pre-wrap text-danger select-text m-0">
+                                {result.stderr}
+                            </pre>
+                        ) : null}
+                        {result?.media?.map((item, index) => (
+                            <img
+                                key={index}
+                                src={`data:${item.mime_type};base64,${item.data}`}
+                                alt="Python output"
+                                className="max-w-full rounded border border-border bg-white"
+                            />
+                        ))}
+                    </div>
+                ) : null}
+                {runError ? (
+                    <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
+                ) : dataframeResult ? (
+                    <div className="min-h-0 flex-1 overflow-y-auto">
+                        <NotebookDataframeTable
+                            result={dataframeResult}
+                            loading={isRunning || pageLoading}
+                            page={page}
+                            pageSize={pageSize}
+                            hasMore={hasMorePages}
+                            // Wide text columns (long strings, JSON blobs) shouldn't make every
+                            // row tall; clamp to one line here and let the user open a cell.
+                            truncateCells
+                            paginationDisabledReason={
+                                pageLoading
+                                    ? 'Fetching page…'
+                                    : isRunning
+                                      ? 'Cell is running'
+                                      : (operationBlockReason ?? undefined)
+                            }
+                            onNextPage={() => setPage(page + 1)}
+                            onPreviousPage={() => setPage(page - 1)}
+                            onPageSizeChange={setPageSize}
+                        />
+                    </div>
+                ) : hasStreamOutput ? null : (
                     <div className="text-xs text-muted font-mono p-2">Run the cell to see execution results.</div>
                 )}
             </div>
