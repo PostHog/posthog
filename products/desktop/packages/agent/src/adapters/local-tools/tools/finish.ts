@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { defineLocalTool, type LocalToolResult } from "../registry";
+import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
+import {
+  defineLocalTool,
+  type LocalToolCtx,
+  type LocalToolResult,
+} from "../registry";
 
 export const FINISH_TOOL_NAME = "finish";
 
@@ -39,6 +44,24 @@ export const FINISH_TOOL_DESCRIPTION =
  * down. Gated to cloud runs that actually own a sandbox — local sessions have
  * no `requestFinish` and no sandbox to reclaim, so the tool stays hidden there.
  */
+// Adapters that run local tools in a separate process (codex) cannot pass the
+// in-process `requestFinish` callback through the serialized tool context, so
+// the tool falls back to the same PostHog API PATCH that callback performs.
+function buildSandboxRequestFinish(
+  ctx: LocalToolCtx,
+): LocalToolCtx["requestFinish"] {
+  const { taskId, taskRunId } = ctx;
+  if (!taskId || !taskRunId) return undefined;
+  const client = createSandboxPosthogClient();
+  if (!client) return undefined;
+  return async (status, message) => {
+    await client.updateTaskRun(taskId, taskRunId, {
+      status,
+      ...(status === "failed" && message ? { error_message: message } : {}),
+    });
+  };
+}
+
 export const finishTool = defineLocalTool({
   name: FINISH_TOOL_NAME,
   description: FINISH_TOOL_DESCRIPTION,
@@ -47,9 +70,10 @@ export const finishTool = defineLocalTool({
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
-    ctx.requestFinish !== undefined,
+    (ctx.requestFinish !== undefined || (!!ctx.taskId && !!ctx.taskRunId)),
   handler: async (ctx, args): Promise<LocalToolResult> => {
-    if (!ctx.requestFinish) {
+    const requestFinish = ctx.requestFinish ?? buildSandboxRequestFinish(ctx);
+    if (!requestFinish) {
       return {
         content: [
           { type: "text", text: "finish is not available in this session." },
@@ -57,7 +81,7 @@ export const finishTool = defineLocalTool({
         isError: true,
       };
     }
-    await ctx.requestFinish(args.status, args.reason);
+    await requestFinish(args.status, args.reason);
     return {
       content: [
         {
