@@ -1,6 +1,6 @@
 # PRD: Browser tabs in the spaces layout
 
-Status: partially shipped. The core tab model is built; the broader tier-2 store migration remains deferred.
+Status: mostly shipped. Settings-in-content and the broader tier-2 store migration remain deferred.
 Surface: the whole app under `channelsLayout` (spaces / project-bluebird), not just `/spaces/*`
 Supersedes the decisions in [browser-tabs.md](./browser-tabs.md), which describes the strip as it shipped
 into the pre-rail layout. That document stays as the record of what was built; this one records what changes.
@@ -201,8 +201,11 @@ rewritten and double its test surface.
   focus by the guard in `__root.tsx`, which only sees the active tab. Either filter bluebird-only hrefs
   at restore, or skip the snapshot entirely while the flag is off.
 
-## Implementation status
+## Remaining
 
-`packages/ui/src/features/browser-tabs/AGENTS.md` documents the shipped core behavior. The settings
-shell and the general tier-2 store migration above are intentionally deferred rather than implied to
-exist in the current implementation.
+`packages/ui/src/features/browser-tabs/AGENTS.md` documents the shipped core behavior and is the live
+reference. Two broader items remain intentionally deferred:
+
+- Settings still uses the full-window `isSettingsRoute` shell. Moving it into the content pane needs
+  separate layout work and visual QA.
+- The tier-2 view-state stores are not yet scoped through a `createTabScopedStore` primitive.
