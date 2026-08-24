@@ -1290,6 +1290,11 @@ class TestProperty(BaseTest):
             self._property_to_expr({**base, "value": [0, 1]}),
             self._parse_expr(f"{prefix}.prop in ('0', '1')"),
         )
+        # in a mixed list only the numeric values are stringified
+        self.assertEqual(
+            self._property_to_expr({**base, "value": [0, "a"]}),
+            self._parse_expr(f"{prefix}.prop in ('0', 'a')"),
+        )
         # an integer-valued float drops its trailing '.0' (0.0 -> '0')
         self.assertEqual(
             self._property_to_expr({**base, "value": 0.0}),
@@ -1308,6 +1313,10 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "count", "value": 5, "operator": "exact"}),
             self._parse_expr("properties.count = 5"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
+            self._parse_expr("properties.count in (5, 6)"),
         )
 
     def test_property_to_expr_event_metadata_invalid_scope(self):
