@@ -59,6 +59,13 @@ export function useRedeemInviteCodeMutation() {
   });
 }
 
+export function useRetryDesktopAccessMutation() {
+  const hostClient = useHostTRPCClient();
+  return useMutation({
+    mutationFn: () => hostClient.auth.retryDesktopAccess.mutate(),
+  });
+}
+
 export function useLogoutMutation() {
   const hostClient = useHostTRPCClient();
   const fx = useService<IAuthSideEffects>(AUTH_SIDE_EFFECTS);
