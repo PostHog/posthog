@@ -3,8 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { membershipLevelToName } from 'lib/utils/permissioning'
-
-import type { OrganizationNotificationMemberApi } from '~/generated/core/api.schemas'
+import { pluralize } from 'lib/utils/strings'
 
 import type { NotificationConcept, NotificationRuleValue } from '../shared/notificationSettingDescriptors'
 import { MEMBERS_PER_PAGE, listKey, notificationGovernanceLogic, ruleFor } from './notificationGovernanceLogic'
@@ -18,29 +17,15 @@ const OPTIONS: { value: NotificationRuleValue; label: string }[] = [
 export function NotificationMemberList({
     concept,
     scopeId,
-    members,
 }: {
     concept: NotificationConcept
     scopeId: string
-    members: OrganizationNotificationMemberApi[]
 }): JSX.Element {
-    const { pendingRules, savedRules, listViews, savingChanges } = useValues(notificationGovernanceLogic)
+    const { pendingRules, savedRules, savingChanges, memberListFor } = useValues(notificationGovernanceLogic)
     const { setRule, setRuleForMany, setListQuery, setListPage } = useActions(notificationGovernanceLogic)
 
     const list = listKey(concept.setting, scopeId)
-    const view = listViews[list] ?? { query: '', page: 0 }
-    const needle = view.query.trim().toLowerCase()
-    const matching = needle
-        ? members.filter((member) =>
-              `${member.first_name} ${member.last_name} ${member.email}`.toLowerCase().includes(needle)
-          )
-        : members
-
-    const pages = Math.max(1, Math.ceil(matching.length / MEMBERS_PER_PAGE))
-    const page = Math.min(view.page, pages - 1)
-    const start = page * MEMBERS_PER_PAGE
-    const shown = matching.slice(start, start + MEMBERS_PER_PAGE)
-    const editableIds = matching.filter((member) => member.editable).map((member) => member.user_id)
+    const { query, searching, total, matching, shown, editableIds, page, pages, start } = memberListFor(list)
 
     return (
         <div className="deprecated-space-y-2">
@@ -49,15 +34,15 @@ export function NotificationMemberList({
                     type="search"
                     size="small"
                     placeholder="Search members"
-                    value={view.query}
-                    onChange={(query) => setListQuery(list, query)}
+                    value={query}
+                    onChange={(next) => setListQuery(list, next)}
                     className="w-56"
                     data-attr="notification-governance-search"
                 />
                 <span className="text-muted text-xs ml-auto">
-                    {needle
-                        ? `Set the ${matching.length} matching ${matching.length === 1 ? 'member' : 'members'} to`
-                        : `Set all ${members.length} members to`}
+                    {searching
+                        ? `Set ${pluralize(editableIds.length, 'matching member')} to`
+                        : `Set all ${pluralize(editableIds.length, 'member')} to`}
                 </span>
                 {OPTIONS.map((option) => (
                     <LemonButton
@@ -109,10 +94,10 @@ export function NotificationMemberList({
 
             <div className="flex items-center gap-2 text-muted text-xs">
                 <span className="mr-auto">
-                    {matching.length > 0 &&
-                        `Showing ${start + 1} to ${Math.min(start + MEMBERS_PER_PAGE, matching.length)} of ${
-                            matching.length
-                        }${needle ? ` matching, out of ${members.length}` : ''}`}
+                    {matching > 0 &&
+                        `Showing ${start + 1} to ${Math.min(start + MEMBERS_PER_PAGE, matching)} of ${matching}${
+                            searching ? ` matching, out of ${total}` : ''
+                        }`}
                 </span>
                 <LemonButton
                     size="xsmall"

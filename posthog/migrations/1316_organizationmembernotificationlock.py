@@ -5,6 +5,7 @@ from django.conf import settings
 from django.db import migrations, models
 
 import posthog.uuidt
+import posthog.models.organization_notification_lock
 
 
 class Migration(migrations.Migration):
@@ -25,7 +26,12 @@ class Migration(migrations.Migration):
                         serialize=False,
                     ),
                 ),
-                ("setting", models.CharField(max_length=64)),
+                (
+                    "setting",
+                    models.CharField(
+                        choices=posthog.models.organization_notification_lock.lockable_setting_choices, max_length=64
+                    ),
+                ),
                 (
                     "scope_id",
                     models.CharField(blank=True, db_default="", default="", max_length=160),

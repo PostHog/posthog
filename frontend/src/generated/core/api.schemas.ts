@@ -410,11 +410,6 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
- * The member's own stored notification settings, before any locks apply.
- */
-export type OrganizationNotificationMemberApiNotificationSettings = { [key: string]: unknown }
-
-/**
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -476,8 +471,6 @@ export interface OrganizationNotificationMemberApi {
     organization_membership_level: number
     /** False when the member's membership level is above yours, which means you cannot change their settings. */
     editable: boolean
-    /** The member's own stored notification settings, before any locks apply. */
-    notification_settings: OrganizationNotificationMemberApiNotificationSettings
     /** Rules in force for this member. */
     locks: OrganizationNotificationLockApi[]
 }

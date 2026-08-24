@@ -54,9 +54,6 @@ class OrganizationNotificationMemberSerializer(serializers.Serializer):
     editable = serializers.BooleanField(
         help_text="False when the member's membership level is above yours, which means you cannot change their settings."
     )
-    notification_settings = serializers.DictField(
-        help_text="The member's own stored notification settings, before any locks apply."
-    )
     locks = OrganizationNotificationLockSerializer(
         many=True,
         help_text="Rules in force for this member.",
@@ -230,18 +227,14 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
 
     def _represent_members(self) -> _Members:
         actor_level = self._actor_level()
-        locks = list(OrganizationMemberNotificationLock.objects.filter(organization_id=self.organization.id))
-        org_wide = [lock for lock in locks if lock.organization_membership_id is None]
+        locks = OrganizationMemberNotificationLock.objects.filter(organization_id=self.organization.id)
         by_membership: dict[str, list[OrganizationMemberNotificationLock]] = {}
         for lock in locks:
-            if lock.organization_membership_id is not None:
-                by_membership.setdefault(str(lock.organization_membership_id), []).append(lock)
+            by_membership.setdefault(str(lock.organization_membership_id), []).append(lock)
 
         members = []
         for membership in self._memberships():
             own = by_membership.get(str(membership.id), [])
-            overridden = {(lock.setting, lock.scope_id) for lock in own}
-            inherited = [lock for lock in org_wide if (lock.setting, lock.scope_id) not in overridden]
             members.append(
                 {
                     "user_id": membership.user_id,
@@ -251,8 +244,7 @@ class OrganizationNotificationLockViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
                     "email": membership.user.email,
                     "organization_membership_level": membership.level,
                     "editable": membership.level <= actor_level,
-                    "notification_settings": membership.user.notification_settings,
-                    "locks": [_represent_lock(lock) for lock in own + inherited],
+                    "locks": [_represent_lock(lock) for lock in own],
                 }
             )
         return members

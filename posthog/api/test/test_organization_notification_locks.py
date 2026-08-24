@@ -8,12 +8,12 @@ from rest_framework import status
 
 from posthog.api.organization_notification_locks import MAX_CHANGES_PER_REQUEST
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.organization_notification_lock import (
     OrganizationMemberNotificationLock,
     effective_notification_settings,
 )
-from posthog.tasks.email import should_send_pipeline_error_notification
+from posthog.tasks.email import NotificationSetting, get_members_to_notify, should_send_pipeline_error_notification
 
 GOVERNANCE_FLAG = "org-notification-governance"
 
@@ -127,6 +127,23 @@ class TestOrganizationNotificationLocks(APIBaseTest):
         settings = effective_notification_settings(self.member)
         assert settings["project_weekly_digest_disabled"] == {str(self.team.id): True}
         assert str(other.id) not in settings["project_weekly_digest_disabled"]
+
+    @patch("posthoganalytics.feature_enabled", side_effect=_governance_flag)
+    def test_a_rule_does_not_reach_another_organization(self, _mock_flag) -> None:
+        # discussions_mentioned is stored once per user, so without scoping this organization's
+        # rule would silence the member everywhere else they work too.
+        other_org = Organization.objects.create(name="Other org")
+        other_team = Team.objects.create(organization=other_org, name="Other org project")
+        OrganizationMembership.objects.create(user=self.member, organization=other_org)
+
+        self._post(self._change(setting="discussions_mentioned", locked_value=False))
+
+        assert self.member.id not in [
+            m.user_id for m in get_members_to_notify(self.team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
+        ]
+        assert self.member.id in [
+            m.user_id for m in get_members_to_notify(other_team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
+        ]
 
     @patch("posthoganalytics.feature_enabled", side_effect=_governance_flag)
     def test_a_project_rule_decides_pipeline_failure_emails(self, _mock_flag) -> None:

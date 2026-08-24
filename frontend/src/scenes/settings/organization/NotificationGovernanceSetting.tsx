@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
 import { NOTIFICATION_CONCEPTS } from '../shared/notificationSettingDescriptors'
 import { NotificationConceptRow } from './NotificationConceptRow'
 import { notificationGovernanceLogic } from './notificationGovernanceLogic'
@@ -26,9 +28,10 @@ export function NotificationGovernanceSetting(): JSX.Element {
     const confirmSave = (): void => {
         LemonDialog.open({
             title: 'Save these notification settings?',
-            description: `This changes email notifications for ${affectedMemberCount} ${
-                affectedMemberCount === 1 ? 'member' : 'members'
-            }. Everyone affected gets a notification in the app.`,
+            description: `This changes email notifications for ${pluralize(
+                affectedMemberCount,
+                'member'
+            )}. Everyone affected gets a notification in the app.`,
             primaryButton: { children: 'Save', onClick: saveChanges },
             secondaryButton: { children: 'Cancel' },
         })
@@ -48,8 +51,7 @@ export function NotificationGovernanceSetting(): JSX.Element {
             {pendingChangeCount > 0 && (
                 <div className="sticky bottom-0 flex items-center justify-between gap-2 border rounded p-3 bg-surface-primary">
                     <span className="text-sm">
-                        {pendingChangeCount} {pendingChangeCount === 1 ? 'change' : 'changes'} pending for{' '}
-                        {affectedMemberCount} {affectedMemberCount === 1 ? 'member' : 'members'}
+                        {pluralize(pendingChangeCount, 'change')} pending for {pluralize(affectedMemberCount, 'member')}
                     </span>
                     <div className="flex gap-2">
                         <LemonButton

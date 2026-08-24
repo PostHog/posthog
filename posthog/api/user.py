@@ -163,6 +163,9 @@ def _reject_locked_notification_settings(user: User, incoming: Notifications, cu
     the rule is only a suggestion to anyone using the API directly. Only a changed value is
     refused: the page submits the whole map on every save, so an untouched governed setting has
     to pass through.
+
+    Deliberately not scoped to one organization: a value the member stores is the one every
+    organization that has no rule of its own falls back to, so any single rule freezes it.
     """
     locks = notification_locks_for_users([user.id]).get(user.id, {})
     if not locks:
@@ -567,6 +570,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OrganizationNotificationLockSerializer(many=True))
     def get_notification_locks(self, instance: User) -> list[dict]:
+        """Every rule that reaches this person, across all the organizations they belong to."""
         if not self._is_self_request(instance):
             return []
         locks = notification_locks_for_users([instance.id]).get(instance.id, {})

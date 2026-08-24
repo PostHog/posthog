@@ -50697,11 +50697,6 @@ export namespace Schemas {
       changes: OrganizationNotificationLockChange[];
     }
 
-    /**
-     * The member's own stored notification settings, before any locks apply.
-     */
-    export type OrganizationNotificationMemberNotificationSettings = { [key: string]: unknown };
-
     export interface OrganizationNotificationMember {
       /** Numeric ID of the member, used as the key when saving changes. */
       user_id: number;
@@ -50717,8 +50712,6 @@ export namespace Schemas {
       organization_membership_level: number;
       /** False when the member's membership level is above yours, which means you cannot change their settings. */
       editable: boolean;
-      /** The member's own stored notification settings, before any locks apply. */
-      notification_settings: OrganizationNotificationMemberNotificationSettings;
       /** Rules in force for this member. */
       locks: OrganizationNotificationLock[];
     }

@@ -31,6 +31,11 @@ if TYPE_CHECKING:
     from social_django.models import UserSocialAuth
 
 
+# Adding a notification here usually means touching three other places:
+# `posthog/models/organization_notification_lock.py` decides whether an organization may set it
+# for a member, `frontend/src/scenes/settings/shared/notificationSettingDescriptors.ts` labels it
+# for the admin surface, and `frontend/src/scenes/settings/user/UpdateEmailPreferences.tsx` gives
+# the member their own control.
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool

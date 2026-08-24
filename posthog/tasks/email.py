@@ -101,7 +101,9 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
         )
     )
     # Resolved once, or this is a query per member on every fan-out.
-    locks_by_user = notification_locks_for_users([membership.user_id for membership in memberships])
+    locks_by_user = notification_locks_for_users(
+        [membership.user_id for membership in memberships], organization_id=team.organization_id
+    )
     for membership in memberships:
         if not should_send_notification(
             membership.user, notification_setting, locks=locks_by_user.get(membership.user_id, {})
@@ -185,7 +187,9 @@ def get_members_to_notify_for_pipeline_error(
         List of organization memberships to notify
     """
     members_to_notify = get_members_to_notify(team, "plugin_disabled")
-    locks_by_user = notification_locks_for_users([member.user_id for member in members_to_notify])
+    locks_by_user = notification_locks_for_users(
+        [member.user_id for member in members_to_notify], organization_id=team.organization_id
+    )
 
     return [
         member
@@ -305,7 +309,12 @@ def should_send_pipeline_error_notification(
         bool: True if the notification should be sent, False otherwise
     """
     if locks is None:
-        locks = notification_locks_for_users([user.id]).get(user.id, {})
+        organization_id = (
+            Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
+            if team_id is not None
+            else None
+        )
+        locks = notification_locks_for_users([user.id], organization_id=organization_id).get(user.id, {})
 
     # Governed per project, stored per pipeline, so it cannot be merged into the settings below.
     enforced = pipeline_lock_for_team(locks, team_id)
@@ -451,7 +460,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     organization: Organization = Organization.objects.get(id=organization_id)
     # Don't send this email to the new member themselves; respect per-user org notification prefs
     candidates = list(organization.members.exclude(email=invitee.email))
-    locks_by_user = notification_locks_for_users([user.id for user in candidates])
+    locks_by_user = notification_locks_for_users([user.id for user in candidates], organization_id=organization_id)
     members_to_email = [
         user
         for user in candidates
@@ -1662,7 +1671,10 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     emails_sent = 0
 
     # Send a unique email to each member with functions filtered by their threshold
-    digest_locks = notification_locks_for_users([membership.user_id for membership in memberships_to_email])
+    digest_locks = notification_locks_for_users(
+        [membership.user_id for membership in memberships_to_email],
+        organization_id=Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first(),
+    )
     for membership in memberships_to_email:
         user = membership.user
 
