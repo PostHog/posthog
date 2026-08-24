@@ -366,6 +366,10 @@ def org_quota_limited_until(
                 resource,
                 {"quota_limited_until": None, "quota_limiting_suspended_until": None, "limit_decreased_from": None},
             )
+        elif limit_decreased_from is not None:
+            # No limit means no overage is possible, so a decrease marker cannot earn grace here.
+            # Consume it now, otherwise it survives into the next capped period as a stale marker.
+            update_organization_usage_fields(organization, resource, {"limit_decreased_from": None})
         return None
 
     is_over_limit = usage + todays_usage - refund_offset >= limit + OVERAGE_BUFFER[resource]

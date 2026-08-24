@@ -994,6 +994,22 @@ class TestQuotaLimiting(BaseTest):
         }
 
     @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_consumes_stale_marker_when_limit_is_removed(self):
+        # A marker stamped by an earlier decrease can be carried forward to a period where the
+        # limit is removed entirely. No limit means no overage, so the marker cannot earn grace
+        # and must be consumed - otherwise it survives into the next capped period as a stale one.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": None, "limit_decreased_from": 1_000_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+
+        assert result is None
+        assert "limit_decreased_from" not in self.organization.usage["events"]
+
+    @freeze_time("2021-01-25T12:00:00Z")
     def test_org_quota_limited_until_ignores_limit_drop_marker_for_grace_exempt_resources(self):
         # AI credits (and other GRACE_PERIOD_EXEMPT_RESOURCES) never get a grace period,
         # including the plan-transition one - abuse risk outweighs the false-positive here.
