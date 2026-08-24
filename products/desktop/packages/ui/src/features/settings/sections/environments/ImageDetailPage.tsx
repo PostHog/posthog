@@ -30,8 +30,8 @@ import { useId, useState } from "react";
 
 interface ImageDetailPageProps {
   image: SandboxCustomImage;
-  /** Names of the environments starting from this image. */
-  usedBy: readonly string[];
+  /** Names of the environments starting from this image, or null while unknown. */
+  usedBy: readonly string[] | null;
   onDone: () => void;
 }
 
@@ -93,6 +93,15 @@ export function ImageDetailPage({
   };
 
   const requestArchive = () => {
+    if (usedBy === null) {
+      // Usage unknown: fail closed. Deleting here could drop environments
+      // back to the default image without the page ever showing them.
+      toast.error(
+        "Which environments use this image could not be loaded, so it can't be deleted right now",
+        { description: "Reload the environments list and try again." },
+      );
+      return;
+    }
     if (usedBy.length > 0) {
       toast.error(
         `${usedBy.length} environment${usedBy.length === 1 ? "" : "s"} still start from this image`,
@@ -151,9 +160,11 @@ export function ImageDetailPage({
           </Text>
         )}
         <Text className="text-(--gray-10) text-[11.5px]">
-          {usedBy.length === 0
-            ? "No environment starts from it yet"
-            : `Used by ${usedBy.join(", ")}`}
+          {usedBy === null
+            ? "Usage could not be loaded"
+            : usedBy.length === 0
+              ? "No environment starts from it yet"
+              : `Used by ${usedBy.join(", ")}`}
         </Text>
       </div>
 
@@ -203,11 +214,18 @@ export function ImageDetailPage({
       </div>
 
       <div className="flex items-center gap-3 border-(--gray-4) border-t pt-4">
+        {/* Disabled while usage is unknown: the guard below must fail closed
+            so an uncounted environment never silently falls back to the default image. */}
         <Button
           variant="link-muted"
           size="sm"
           loading={deleteMutation.isPending}
-          disabled={deleteMutation.isPending}
+          disabled={deleteMutation.isPending || usedBy === null}
+          title={
+            usedBy === null
+              ? "Which environments use this image could not be loaded"
+              : undefined
+          }
           data-attr="image-detail-archive"
           onClick={requestArchive}
         >

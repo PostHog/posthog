@@ -22,7 +22,8 @@ const STATUS_LABELS: Record<SandboxCustomImageStatus, string> = {
 interface CustomImageListProps {
   images: readonly SandboxCustomImage[];
   /** How many environments start from an image, so archiving is not blind. */
-  usedBy: (imageId: string) => number;
+  /** Environments using the image, or null while that count is unknown. */
+  usedBy: (imageId: string) => number | null;
   onOpen: (image: SandboxCustomImage) => void;
 }
 
@@ -74,9 +75,11 @@ export function CustomImageList({
               </div>
             </div>
             <Text className="w-[124px] shrink-0 text-right text-(--gray-10) text-[11px]">
-              {used === 0
-                ? "No environments"
-                : `${used} environment${used === 1 ? "" : "s"}`}
+              {used === null
+                ? "—"
+                : used === 0
+                  ? "No environments"
+                  : `${used} environment${used === 1 ? "" : "s"}`}
             </Text>
             <Button
               variant="outline"

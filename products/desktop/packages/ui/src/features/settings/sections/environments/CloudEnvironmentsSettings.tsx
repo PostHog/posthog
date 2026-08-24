@@ -21,8 +21,18 @@ import { type ReactNode, useEffect, useState } from "react";
  * image, working on one) is its own page, so this stays a plain list.
  */
 export function CloudEnvironmentsSettings() {
-  const { environments, isLoading } = useSandboxEnvironments();
-  const { images, customImagesEnabled } = useSandboxCustomImages();
+  const {
+    environments,
+    isLoading,
+    isError: environmentsError,
+    refetch: refetchEnvironments,
+  } = useSandboxEnvironments();
+  const {
+    images,
+    customImagesEnabled,
+    isError: imagesError,
+    refetch: refetchImages,
+  } = useSandboxCustomImages();
   const consumeInitialAction = useSettingsPageStore(
     (s) => s.consumeInitialAction,
   );
@@ -46,10 +56,14 @@ export function CloudEnvironmentsSettings() {
     return () => setFormMode(false);
   }, [isPageOpen, setFormMode]);
 
-  const environmentsUsing = (imageId: string) =>
-    environments.filter(
-      (environment) => environment.custom_image_id === imageId,
-    );
+  // null while usage is unknown: the archive guard must fail closed instead
+  // of reading a failed list as zero usages.
+  const environmentsUsing = (imageId: string): readonly string[] | null => {
+    if (environmentsError) return null;
+    return environments
+      .filter((environment) => environment.custom_image_id === imageId)
+      .map((environment) => environment.name);
+  };
 
   if (setupFlow) {
     return (
@@ -78,9 +92,7 @@ export function CloudEnvironmentsSettings() {
     return (
       <ImageDetailPage
         image={openImage}
-        usedBy={environmentsUsing(openImage.id).map(
-          (environment) => environment.name,
-        )}
+        usedBy={environmentsUsing(openImage.id)}
         onDone={() => setOpenImage(null)}
       />
     );
@@ -107,6 +119,11 @@ export function CloudEnvironmentsSettings() {
           <Text className="text-(--gray-10) text-[12px]">
             Loading environments…
           </Text>
+        ) : environmentsError ? (
+          <ErrorNote
+            message="The environments list could not be loaded."
+            onRetry={() => void refetchEnvironments()}
+          />
         ) : environments.length === 0 ? (
           <EmptyNote>
             Nothing here yet. Cloud sessions run with full network access until
@@ -137,7 +154,12 @@ export function CloudEnvironmentsSettings() {
             </Button>
           }
         >
-          {images.length === 0 ? (
+          {imagesError ? (
+            <ErrorNote
+              message="The images list could not be loaded."
+              onRetry={() => void refetchImages()}
+            />
+          ) : images.length === 0 ? (
             <EmptyNote>
               No images yet. Sessions install what they need each run until you
               build one.
@@ -145,7 +167,10 @@ export function CloudEnvironmentsSettings() {
           ) : (
             <CustomImageList
               images={images}
-              usedBy={(imageId) => environmentsUsing(imageId).length}
+              usedBy={(imageId) => {
+                const used = environmentsUsing(imageId);
+                return used === null ? null : used.length;
+              }}
               onOpen={setOpenImage}
             />
           )}
@@ -191,6 +216,26 @@ function EmptyNote({ children }: { children: ReactNode }) {
       <Text className="text-(--gray-11) text-[11.5px] leading-snug">
         {children}
       </Text>
+    </div>
+  );
+}
+
+/** A failed list load, named, with a way back. */
+function ErrorNote({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-(--radius-3) border border-(--red-5) border-dashed px-3 py-3">
+      <Text className="text-(--red-11) text-[11.5px] leading-snug">
+        {message}
+      </Text>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        Try again
+      </Button>
     </div>
   );
 }
