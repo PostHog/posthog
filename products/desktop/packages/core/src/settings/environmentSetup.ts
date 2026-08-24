@@ -303,6 +303,48 @@ export function setupSteps(plan: EnvironmentSetupPlan): SetupStep[] {
 
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/**
+ * Keys the environment API refuses, mirrored from RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+ * in products/tasks/backend/constants.py. The server stays the last word; this copy
+ * lets the row show its error before submit.
+ */
+const RESERVED_ENV_VAR_KEYS: ReadonlySet<string> = new Set([
+  "POSTHOG_PERSONAL_API_KEY",
+  "POSTHOG_WIZARD_API_KEY",
+  "POSTHOG_API_URL",
+  "POSTHOG_PROJECT_ID",
+  "JWT_PUBLIC_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "LLM_GATEWAY_URL",
+  "AI_GATEWAY_URL",
+  "AI_GATEWAY_PRODUCTS",
+  "AI_GATEWAY_TOKEN",
+  "POSTHOG_RESUME_RUN_ID",
+  "POSTHOG_AGENT_OTEL_LOGS_URL",
+  "POSTHOG_AGENT_OTEL_LOGS_TOKEN",
+  "POSTHOG_AGENT_OTEL_TRACES_URL",
+  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+  "DISABLE_TELEMETRY",
+  "DISABLE_ERROR_REPORTING",
+  "POSTHOG_CONTEXT_LAYER_PATH",
+  "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
+]);
+
+/** BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_PREFIXES in the same file; same mirror rule. */
+const BLOCKED_ENV_VAR_PREFIXES = ["LD_", "DYLD_", "GIT_"] as const;
+
+/** BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS in the same file; same mirror rule. */
+const BLOCKED_ENV_VAR_KEYS: ReadonlySet<string> = new Set([
+  "NODE_OPTIONS",
+  "NODE_REPL_EXTERNAL_MODULE",
+  "BASH_ENV",
+  "PROMPT_COMMAND",
+  "PYTHONSTARTUP",
+  "PERL5OPT",
+  "RUBYOPT",
+]);
+
 /** Why one row cannot be sent, or null when it is fine. */
 export function envVarError(
   row: EnvVarRow,
@@ -312,6 +354,15 @@ export function envVarError(
   if (key === "") return row.value.trim() === "" ? null : "Name this variable.";
   if (!ENV_KEY_RE.test(key)) {
     return "Letters, digits and underscores only, and not starting with a digit.";
+  }
+  if (RESERVED_ENV_VAR_KEYS.has(key)) {
+    return `${key} is reserved by PostHog and cannot be set.`;
+  }
+  if (
+    BLOCKED_ENV_VAR_KEYS.has(key) ||
+    BLOCKED_ENV_VAR_PREFIXES.some((prefix) => key.startsWith(prefix))
+  ) {
+    return `${key} can change how sandbox processes execute code, so it is not allowed.`;
   }
   const duplicate = rows.some(
     (other) => other.id !== row.id && other.key.trim() === key,

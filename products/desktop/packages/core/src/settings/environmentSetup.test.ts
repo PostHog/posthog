@@ -191,6 +191,22 @@ describe("environmentSetup", () => {
     expect(envVarError(rows[1], rows)).toContain("Letters, digits");
     expect(envVarError(rows[3], rows)).toBe("Name this variable.");
   });
+
+  it.each(["GITHUB_TOKEN", "GH_TOKEN", "POSTHOG_PERSONAL_API_KEY"])(
+    "rejects the reserved key %s before submit",
+    (key) => {
+      const rows = [{ id: "a", key, value: "x" }];
+      expect(envVarError(rows[0], rows)).toContain("reserved by PostHog");
+    },
+  );
+
+  it.each(["NODE_OPTIONS", "BASH_ENV", "LD_PRELOAD", "DYLD_PRINT_LIBRARIES", "GIT_DIR"])(
+    "rejects the blocked key %s before submit",
+    (key) => {
+      const rows = [{ id: "a", key, value: "x" }];
+      expect(envVarError(rows[0], rows)).toContain("not allowed");
+    },
+  );
 });
 
 describe("validateDomains", () => {
