@@ -12,7 +12,8 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { isSummarizerScanner } from '../replay_scanners/types'
+import { getReplayVisionEditDisabledReason, getReplayVisionRecordingViewDisabledReason } from '../utils/accessControl'
 import { isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { VisionDocsLink } from './DocsLink'
@@ -32,18 +33,28 @@ export function ObservationsDock(): JSX.Element | null {
     return <ObservationsDockContent sessionId={sessionRecordingId} />
 }
 
-/** One-click summary: an inline summarizer scan, so it needs no saved scanner. */
+/** Runs the team's own summarizer when it has exactly one, and a built-in inline scan otherwise. */
 function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { summarizing } = useValues(logic)
+    const { summarizing, defaultSummarizer, scanners } = useValues(logic)
     const { summarize } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
-    // An inline scan mints a scanner, so the endpoint holds it to scanner-editor access. Without this the
-    // button looks available to a viewer and answers 403.
-    const accessDisabledReason = getReplayVisionEditDisabledReason()
+    // An inline scan mints a scanner, so that endpoint holds it to scanner-editor access. Running a
+    // scanner the team already has is `observe`, which asks only for recording read.
+    const accessDisabledReason = defaultSummarizer
+        ? getReplayVisionRecordingViewDisabledReason()
+        : getReplayVisionEditDisabledReason()
+    const hasOtherSummarizers = !defaultSummarizer && scanners.some(isSummarizerScanner)
+    // Nobody could tell which summarizer the button used, so it says so.
+    const label = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
+    const summarizerTooltip = defaultSummarizer
+        ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
+        : hasOtherSummarizers
+          ? 'Writes a summary using a built-in prompt. To use one of your own, pick it from "Scan this recording".'
+          : 'Writes a summary using a built-in prompt. To control the wording, create a summarizer scanner.'
 
     const button = (
         <LemonButton
@@ -54,10 +65,11 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
             disabledReason={accessDisabledReason ?? quotaDisabledReason}
-            tooltip={quotaTooltip ?? 'Write a summary of what happened in this recording'}
+            tooltip={quotaTooltip ?? summarizerTooltip}
             data-attr="vision-summarize-recording"
+            data-ph-capture-attribute-summarizer={defaultSummarizer ? 'configured' : 'built-in'}
         >
-            {dataProcessingAccepted ? 'Summarize this recording' : 'Allow AI analysis and summarize'}
+            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
         </LemonButton>
     )
 

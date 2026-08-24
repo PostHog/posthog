@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsList, visionScannersInlineScanCreate, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
+import { isSummarizerScanner } from '../replay_scanners/types'
 import { ObservationSeekbarMark, isSummaryObservation, observationSeekbarMarks } from '../utils/observation'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import { requestObservationRetry } from './observationRetry'
@@ -24,6 +25,7 @@ export interface observationsDockLogicValues {
     summaryDockAutoExpand: boolean // visionDockPreferenceLogic
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
+    defaultSummarizer: ReplayScannerApi | null
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
     hasObservationsInFlight: boolean
@@ -97,6 +99,7 @@ export interface observationsDockLogicMeta {
         hasObservationsInFlight: (observations: ReplayObservationApi[]) => boolean
         seekbarMarks: (observations: ReplayObservationApi[]) => ObservationSeekbarMark[]
         filteredScanners: (scanners: ReplayScannerApi[], scannerSearch: string) => ReplayScannerApi[]
+        defaultSummarizer: (scanners: ReplayScannerApi[]) => ReplayScannerApi | null
     }
 }
 
@@ -170,6 +173,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 summarize: () => true,
                 summarizeSuccess: () => false,
                 summarizeFailure: () => false,
+                // `summarize` hands off to `observe` when the team has its own summarizer, so the
+                // button's spinner has to settle on that run's outcome too.
+                observeSuccess: () => false,
+                observeFailure: () => false,
             },
         ],
         dockOpen: [
@@ -225,6 +232,16 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         seekbarMarks: [
             (s) => [s.observations],
             (observations: ReplayObservationApi[]): ObservationSeekbarMark[] => observationSeekbarMarks(observations),
+        ],
+        // The summarize button runs this instead of its built-in prompt. Only an unambiguous single
+        // scanner counts: with several, picking one for the user would silently favor one prompt over
+        // another, so the button says it used the built-in one and the sidebar picker stays the way in.
+        defaultSummarizer: [
+            (s) => [s.scanners],
+            (scanners: ReplayScannerApi[]): ReplayScannerApi | null => {
+                const summarizers = scanners.filter(isSummarizerScanner)
+                return summarizers.length === 1 ? summarizers[0] : null
+            },
         ],
         filteredScanners: [
             (s) => [s.scanners, s.scannerSearch],
@@ -335,6 +352,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             summarize: async () => {
+                // A team that configured a summarizer wrote that prompt deliberately, so it beats the
+                // built-in one. `observe` owns the run from here, including its own double-click guard.
+                if (values.defaultSummarizer) {
+                    actions.observe(values.defaultSummarizer.id)
+                    return
+                }
                 // A cache flag for the same reason `observe` uses one: the reducer has already flipped
                 // `summarizing` by the time this runs.
                 if (cache.summarizeInFlight) {
