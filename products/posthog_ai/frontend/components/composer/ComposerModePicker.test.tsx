@@ -25,7 +25,7 @@ describe('ComposerModePicker', () => {
         // Never-ask modes are gated out, as they are in the desktop app by default.
         expect(screen.queryByText('Full auto')).not.toBeInTheDocument()
 
-        // The footer describes the selected mode on open; the other descriptions stay out of the menu.
+        // The description strip describes the selected mode on open; the other descriptions stay out of the menu.
         expect(
             screen.getByText(
                 'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
@@ -35,7 +35,7 @@ describe('ComposerModePicker', () => {
             screen.queryByText('Plans the work first. Nothing runs until you approve the plan.')
         ).not.toBeInTheDocument()
 
-        // Hovering another option swaps the footer to its description. This breaks if ModeItemRow
+        // Hovering another option swaps the strip to its description. This breaks if ModeItemRow
         // stops forwarding Base UI's ref — the item then never registers for hover highlighting.
         const planOption = screen.getByText('Plan').closest('[role="option"]')
         expect(planOption).not.toBeNull()
@@ -64,7 +64,7 @@ describe('ComposerModePicker', () => {
 
         fireEvent.click(screen.getByLabelText('Mode'))
 
-        // The selected mode is filtered out, so the footer falls back to the first offered mode.
+        // The selected mode is filtered out, so the strip falls back to the first offered mode.
         expect(screen.getByText('Plans the work first. Nothing runs until you approve the plan.')).toBeInTheDocument()
         expect(
             screen.queryByText(

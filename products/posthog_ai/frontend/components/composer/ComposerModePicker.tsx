@@ -47,7 +47,7 @@ interface ModeItemRowProps extends HTMLAttributes<HTMLDivElement> {
 /**
  * Row body for a mode option. Rendered through the item's `render` prop so it can watch Base UI's
  * `highlighted` state — both pointer hover and keyboard navigation — and report it up for the
- * description footer. Must forward the ref: Base UI registers the element into its item list through
+ * description strip. Must forward the ref: Base UI registers the element into its item list through
  * it, and an unregistered item is invisible to hover highlighting.
  */
 const ModeItemRow = forwardRef<HTMLDivElement, ModeItemRowProps>(function ModeItemRow(
@@ -78,19 +78,21 @@ export interface ComposerModePickerProps {
  * card, where `modes` narrows the menu to the wire-offered modes.
  *
  * The menu keeps each option to one line (icon + label); the highlighted option's description renders in
- * a footer strip pinned to two lines of height, so the menu never jumps while moving between modes.
+ * a strip above the options. The menu opens upwards from the composer, so its bottom edge is the fixed
+ * one — a description strip above the options absorbs its own height changes and leaves the option rows
+ * still under the pointer.
  */
 export function ComposerModePicker({ selectedMode, onModeChange, modes }: ComposerModePickerProps): JSX.Element {
     // Ordered by `modes`, not by MODE_OPTIONS: each runtime lists its modes in its own order.
     const offered = modes ?? getModesForRuntimeAdapter(RuntimeAdapterEnumApi.Claude)
     const options = offered.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedOption = getModeOption(selectedMode)
-    // The mode whose description the footer shows. Base UI highlights the selected item on open, which
+    // The mode the description strip shows. Base UI highlights the selected item on open, which
     // seeds this; reset on open so a hover from the previous open can't leak into the next one.
     const [highlightedMode, setHighlightedMode] = useState<PermissionMode | null>(null)
-    // Resolve against `options`, not all modes: when `modes` narrows the menu, the footer must never
+    // Resolve against `options`, not all modes: when `modes` narrows the menu, the strip must never
     // describe a mode that isn't offered (e.g. a selected mode the plan-approval card filtered out).
-    const footerOption =
+    const descriptionOption =
         options.find((option) => option.value === highlightedMode) ??
         options.find((option) => option.value === selectedMode) ??
         options[0]
@@ -116,6 +118,11 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                 </SelectValue>
             </SelectTrigger>
             <SelectContent align="start" alignItemWithTrigger={false}>
+                {descriptionOption && (
+                    <div className="-mx-1 -mt-1 mb-1 flex min-h-[3.25rem] w-60 items-center border-b px-3 py-1.5 text-xs text-secondary">
+                        {descriptionOption.description}
+                    </div>
+                )}
                 {options.map((option) => (
                     <SelectItem
                         key={option.value}
@@ -133,11 +140,6 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                         {option.label}
                     </SelectItem>
                 ))}
-                {footerOption && (
-                    <div className="-mx-1 -mb-1 mt-1 flex min-h-[3.25rem] w-60 items-center border-t px-3 py-1.5 text-xs text-secondary">
-                        {footerOption.description}
-                    </div>
-                )}
             </SelectContent>
         </Select>
     )
