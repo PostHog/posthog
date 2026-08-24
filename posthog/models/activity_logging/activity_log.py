@@ -548,13 +548,12 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "scim_provisioned_users",
         "scim_request_logs",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
-        "identity_provider_config",
+        "_identity_provider_config",
     ],
     "IdentityProviderConfig": [
         "organization",
         # Reverse relations, not plain field diffs — and diffing them reads every related row, which
         # for SCIM request logs is the tenant's whole request history.
-        "domains",
         "linked_identity_provider_configs",
         "scim_provisioned_users",
         "scim_request_logs",
