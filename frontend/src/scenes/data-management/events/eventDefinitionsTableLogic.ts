@@ -408,7 +408,13 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     }
 
                     if (url && url in (cache.apiCache ?? {})) {
-                        return cache.apiCache[url]
+                        const cached = cache.apiCache[url]
+                        // Never serve an empty page from cache: definitions stream in continuously,
+                        // so an empty snapshot goes stale immediately and left the data-management
+                        // events tab blank even after events had arrived (see #25913).
+                        if ((cached.results || []).length > 0) {
+                            return cached
+                        }
                     }
 
                     await breakpoint(200)

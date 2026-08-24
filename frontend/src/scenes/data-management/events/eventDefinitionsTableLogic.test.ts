@@ -372,5 +372,26 @@ describe('eventDefinitionsTableLogic', () => {
                 })
             expect(api.get).toHaveBeenCalledTimes(4)
         })
+
+        it('refetches instead of serving a stale cached empty list so newly arriving events show up (#25913)', async () => {
+            const emptyPage = { count: 0, next: null, previous: null, results: [] }
+            const populatedPage = { count: 1, next: null, previous: null, results: [mockEventDefinitions[0]] }
+            ;(api.get as jest.Mock).mockResolvedValueOnce(emptyPage)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadEventDefinitions()
+            }).toDispatchActions(['loadEventDefinitions', 'loadEventDefinitionsSuccess'])
+            expect(logic.values.eventDefinitions.results).toEqual([])
+
+            // Same URL requested again after events have arrived: must hit the API
+            // instead of returning the cached empty page.
+            ;(api.get as jest.Mock).mockResolvedValueOnce(populatedPage)
+            await expectLogic(logic, () => {
+                logic.actions.loadEventDefinitions()
+            }).toDispatchActions(['loadEventDefinitions', 'loadEventDefinitionsSuccess'])
+
+            expect(api.get).toHaveBeenCalledTimes(2)
+            expect(logic.values.eventDefinitions.results).toHaveLength(1)
+        })
     })
 })
