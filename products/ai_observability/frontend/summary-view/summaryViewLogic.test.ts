@@ -175,17 +175,14 @@ describe('summaryViewLogic', () => {
         expect(logic.values.summaryError).toBeNull()
     })
 
-    it('keeps the cancellation reason out of the panel when nothing replaces the request', async () => {
-        summarizationPendingUntilAborted()
-        logic = summaryViewLogic({ trace, tree: [] })
-        logic.mount()
-        logic.actions.generateSummary({ mode: 'minimal' })
-        await flushMicrotasks()
+    it('keeps the cancellation reason out of the panel', async () => {
+        await generateSummary()
 
-        // Cancel through the logic's own disposable key. With no newer invocation the breakpoint
-        // does not fire, so the abort reaches the reducer and would otherwise print the sentinel.
-        ;(logic as any).cache.disposables.dispose('summaryRequest')
-        await flushMicrotasks()
+        // A cancellation that reaches the reducer carries the internal sentinel as its message.
+        // Only the breakpoint keeps a superseded request from getting here, so the guard is what
+        // stops that sentinel reaching the panel for any other cancellation.
+        const cancellation = new DOMException('a newer summary request started', 'AbortError')
+        logic.actions.generateSummaryFailure(cancellation.message, cancellation)
 
         expect(logic.values.summaryError).toBeNull()
     })
