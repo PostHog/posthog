@@ -665,6 +665,8 @@ export interface SignalReport {
   billing_exempt_reason?: string | null;
   /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
   refund_ineligibility_reason?: string | null;
+  /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
+  channel_id?: string | null;
 }
 
 export type SignalReportRefundReason =
@@ -1010,6 +1012,8 @@ export interface SignalReportsQueryParams {
    * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
    */
   has_implementation_pr?: boolean;
+  /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
+  channel_id?: string;
 }
 
 export interface SignalTeamConfig {
