@@ -1421,9 +1421,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 if not isinstance(filters, dict):
                     raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
                 filters["source"] = "internal-events"
-                is_slack_message = any(
-                    isinstance(event, dict) and event.get("id") == "$slack_message_received"
-                    for event in filters.get("events", [])
+                # HogFunctionFiltersSerializer below rejects a non-list events with a 400. Guard the
+                # scan so a malformed value (null, a number) reaches that check instead of raising
+                # TypeError here, which would escape DRF and 500 the request.
+                events = filters.get("events")
+                is_slack_message = isinstance(events, list) and any(
+                    isinstance(event, dict) and event.get("id") == "$slack_message_received" for event in events
                 )
                 if is_slack_message:
                     _normalize_slack_channel_filters(filters)

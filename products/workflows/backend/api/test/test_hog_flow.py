@@ -2515,6 +2515,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "events" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("number", 5),
+            ("boolean", True),
+        ]
+    )
+    def test_hog_flow_internal_event_trigger_rejects_non_list_events(self, _name, events_value):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "internal-event", "filters": {"events": events_value}},
+        }
+        hog_flow = {"name": "Malformed internal event flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "events" in str(response.json())
+
     def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
         # Other exit conditions re-evaluate trigger/conversion filters that may reference person
         # data, so warehouse-triggered flows are coerced to exit_only_at_end regardless of input.
