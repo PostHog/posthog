@@ -2397,7 +2397,6 @@ def _use_person_properties_from_events(database: Database) -> None:
 
 def _use_person_id_from_person_overrides(database: Database) -> None:
     table = database.get_table("events")
-    table.fields["event_person_id"] = UUIDDatabaseField(name="person_id")
     table.fields["override"] = LazyJoin(
         from_field=["distinct_id"],
         join_table=database.get_table("person_distinct_id_overrides"),
@@ -2425,6 +2424,7 @@ def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
         "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
         "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
         "issue_status": parse_expr("fingerprint_issue_state.issue_status", start=None),
+        "issue_severity": parse_expr("fingerprint_issue_state.issue_severity", start=None),
         "issue_assigned_user_id": parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
         "issue_assigned_role_id": parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
         "issue_first_seen": parse_expr("fingerprint_issue_state.first_seen", start=None),
@@ -2453,6 +2453,7 @@ def _add_error_tracking_fields(database: Database) -> None:
     table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])
     table.fields["issue_description"] = ExpressionField(name="issue_description", expr=exprs["issue_description"])
     table.fields["issue_status"] = ExpressionField(name="issue_status", expr=exprs["issue_status"])
+    table.fields["issue_severity"] = ExpressionField(name="issue_severity", expr=exprs["issue_severity"], hidden=True)
     table.fields["issue_assigned_user_id"] = ExpressionField(
         name="issue_assigned_user_id", expr=exprs["issue_assigned_user_id"]
     )

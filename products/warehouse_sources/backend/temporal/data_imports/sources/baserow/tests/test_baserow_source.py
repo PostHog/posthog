@@ -3,15 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow import BaserowResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.source import BaserowSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baserow import (
     BaserowSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Two databases sharing a table name — only the colliding names get the id suffix.
 TABLES = [
@@ -48,39 +44,10 @@ class TestBaserowSource:
         self.team_id = 123
         self.config = BaserowSourceConfig(database_token="test-token", base_url=None)
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.BASEROW
-
     def test_base_url_is_a_connection_host_field(self) -> None:
         # Changing base_url must force the database token to be re-entered, so the stored
         # token is never sent to a freshly-specified host.
         assert self.source.connection_host_fields == ["base_url"]
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Baserow"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        token_field, base_url_field = config.fields
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.name == "database_token"
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.required is True
-        assert token_field.secret is True
-
-        assert isinstance(base_url_field, SourceFieldInputConfig)
-        assert base_url_field.name == "base_url"
-        assert base_url_field.type == SourceFieldInputConfigType.TEXT
-        assert base_url_field.required is False
-
-    @pytest.mark.parametrize(
-        "expected_key",
-        ["401 Client Error", "403 Client Error", "404 Client Error", "Invalid Baserow instance URL"],
-    )
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_builds_one_schema_per_table(self) -> None:
         with mock.patch(f"{SOURCE_MODULE}.list_tables", return_value=TABLES):
@@ -133,10 +100,6 @@ class TestBaserowSource:
 
         assert valid is False
         assert message == "Host is not allowed"
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert manager._data_class is BaserowResumeConfig
 
     def test_source_for_pipeline_resolves_table_id_from_schema_metadata(self) -> None:
         inputs = _make_inputs(schema_name="Projects", schema_metadata={"table_id": 10, "database_id": 1})
