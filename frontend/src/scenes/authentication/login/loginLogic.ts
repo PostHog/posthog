@@ -628,7 +628,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         },
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
@@ -644,6 +644,18 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+
+            // An account with no usable password and nothing else linked can only leave the form via a
+            // password reset. Nothing records that dead end today, so capture it to size how often it
+            // happens. Report once per email, so a blur → focus → blur cycle cannot inflate the count.
+            if (values.hasNoConfiguredLoginMethod) {
+                const reportedEmails = (cache.reportedNoMethodEmails ??= new Set<string>())
+                const { email } = values.login
+                if (!reportedEmails.has(email)) {
+                    reportedEmails.add(email)
+                    posthog.capture('login precheck no sign-in method')
+                }
+            }
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (

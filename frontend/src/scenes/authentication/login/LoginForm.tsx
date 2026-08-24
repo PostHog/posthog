@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -261,6 +262,9 @@ export function LoginForm(): JSX.Element {
                                 <Link
                                     to={[urls.passwordReset(), { email: login.email }]}
                                     data-attr="forgot-password"
+                                    // Records whether users follow the dead-end banner to a reset, so we
+                                    // can tell if the banner recovers them.
+                                    onClick={() => posthog.capture('login recovery reset link clicked')}
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
                                     Forgot password?
