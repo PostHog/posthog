@@ -6108,6 +6108,10 @@ snapshots:
         hash: v1.k794b7964.6fa2b66d27a1675f40be299d4063d6530d9b7899854e2a4f90a7ed9261457532.zZxRebzp1LR0fgFq5G61QARku_wdiC8mrBG5BtU4Ilo
     scenes-app-data-management-revenue-analytics-event-configuration-modal--default--light:
         hash: v1.k794b7964.380602ae2b746844554126dce9f27bca9ec04854e281d8467c8de724f4fd49fc.ySrW_TUWEFnfdhQOLX6USTN5uxF1kODMuE5iXuYWtQU
+    scenes-app-data-pipelines-destinations-incident-replay-banner--default--dark:
+        hash: v1.k794b7964.495541da3e0fca8dd62c26765ee8a75114e74044043c8652d5e3916fa585aa1e.158vgBLaBfmkD8G_AyFft_Ne1FGoz3LdwiodWKkYcdE
+    scenes-app-data-pipelines-destinations-incident-replay-banner--default--light:
+        hash: v1.k794b7964.414074df5c95518c0af7fe51114c14b2b12b7a6af87e82483a6c7bc2fbcd772e.KuUj0rKRehlGIPAEKk_fdOigmjOe4mg6EuCBTwhafo0
     scenes-app-data-pipelines-event-filtering--add-condition-and-test-case--dark:
         hash: v1.k794b7964.054b485fa44909bda3f635ba9d134cea4dfa7e60bbc65206ba752f23b7729c42._2cxQzZ_XmaTvoI9Z7hIKh5kpuDY5rxQG0-1RNRyDgE
     scenes-app-data-pipelines-event-filtering--add-condition-and-test-case--light:
