@@ -4,15 +4,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('signals', '0103_remove_signalreportcanvasgeneration_report_and_more'),
+        ("signals", "0103_remove_signalreportcanvasgeneration_report_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='signalreport',
-            name='suggested_prompts',
+            model_name="signalreport",
+            name="suggested_prompts",
             field=models.JSONField(blank=True, db_default=[], default=list),
         ),
     ]
