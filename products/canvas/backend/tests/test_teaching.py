@@ -1,11 +1,14 @@
 from django.test import SimpleTestCase, TestCase
 
+from rest_framework import status
+
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
 from products.canvas.backend import teaching
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.source import has_errors, validate_source_project
+from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.tasks.backend.models import Channel
 
 
@@ -13,6 +16,22 @@ class TestTeachingTourProject(SimpleTestCase):
     def test_seed_project_passes_source_validation(self):
         diagnostics = validate_source_project(teaching.teaching_tour_project(), kind="freeform")
         assert not has_errors(diagnostics), diagnostics
+
+
+class TestReservedTemplateIds(CanvasAPIBaseTest):
+    def test_a_user_cannot_claim_the_seeded_template_id(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/",
+            {
+                "name": "Impostor tour",
+                "channel_id": str(self.channel.id),
+                "template_id": teaching.TEACHING_CANVAS_TEMPLATE_ID,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("reserved", str(response.json()))
 
 
 class TestSeedTeachingCanvas(TestCase):

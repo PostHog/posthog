@@ -11,6 +11,7 @@ capabilities, plus a queued build), like ``welcome.seed_home_canvas``.
 from typing import Any
 from uuid import UUID
 
+from django.db import connection, transaction
 from django.utils import timezone
 
 from posthog.models.user import User
@@ -21,6 +22,10 @@ from products.canvas.backend.source import synthetic_source_project
 
 TEACHING_CANVAS_TEMPLATE_ID = "desktop-onboarding-teaching"
 TEACHING_CANVAS_NAME = "Start here"
+
+# Template ids the create API refuses, so a user-created canvas can never be
+# mistaken for (or pre-claim and suppress) a PostHog-seeded one.
+RESERVED_TEMPLATE_IDS = frozenset({TEACHING_CANVAS_TEMPLATE_ID})
 
 TEACHING_CANVAS_DESCRIPTION = (
     "A short tour of PostHog Desktop for new users: spaces, the agent, space context, and canvases."
@@ -477,6 +482,21 @@ def _publish_tour(canvas: Canvas, user: User) -> None:
     )
 
 
+def _lock_teaching_seed(team_id: int, channel_id: UUID) -> None:
+    """Serialize seeding per space inside the current transaction.
+
+    Two first sign-ins racing would otherwise both miss the read below and each
+    seed a tour. Same posture as ``CanvasViewSet._lock_home_provisioning``: there
+    is no row to lock before the first seed, so a transaction-scoped advisory
+    lock guards the read-then-create window.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"canvas_teaching:{team_id}:{channel_id}"],
+        )
+
+
 def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User) -> UUID | None:
     """Get or seed the team's teaching-tour canvas in its general space.
 
@@ -486,28 +506,30 @@ def seed_teaching_canvas(*, team_id: int, channel_id: UUID, user: User) -> UUID 
     heals on the next sign-in. Raises on failure; callers treat seeding as
     best-effort.
     """
-    existing = (
-        Canvas.objects.for_team(team_id)
-        .filter(channel_id=channel_id, template_id=TEACHING_CANVAS_TEMPLATE_ID)
-        .order_by("created_at")
-        .first()
-    )
-    if existing is not None:
-        if existing.deleted:
-            return None
-        if existing.current_source_version_id is None:
-            _publish_tour(existing, user)
-        return existing.id
-    canvas = Canvas.objects.create(
-        team_id=team_id,
-        channel_id=channel_id,
-        name=TEACHING_CANVAS_NAME,
-        kind=Canvas.KIND_FREEFORM,
-        template_id=TEACHING_CANVAS_TEMPLATE_ID,
-        description=TEACHING_CANVAS_DESCRIPTION,
-        context=TEACHING_CANVAS_CONTEXT,
-        pinned_at=timezone.now(),
-        created_by=user,
-    )
-    _publish_tour(canvas, user)
-    return canvas.id
+    with transaction.atomic():
+        _lock_teaching_seed(team_id, channel_id)
+        existing = (
+            Canvas.objects.for_team(team_id)
+            .filter(channel_id=channel_id, template_id=TEACHING_CANVAS_TEMPLATE_ID)
+            .order_by("created_at")
+            .first()
+        )
+        if existing is not None:
+            if existing.deleted:
+                return None
+            if existing.current_source_version_id is None:
+                _publish_tour(existing, user)
+            return existing.id
+        canvas = Canvas.objects.create(
+            team_id=team_id,
+            channel_id=channel_id,
+            name=TEACHING_CANVAS_NAME,
+            kind=Canvas.KIND_FREEFORM,
+            template_id=TEACHING_CANVAS_TEMPLATE_ID,
+            description=TEACHING_CANVAS_DESCRIPTION,
+            context=TEACHING_CANVAS_CONTEXT,
+            pinned_at=timezone.now(),
+            created_by=user,
+        )
+        _publish_tour(canvas, user)
+        return canvas.id

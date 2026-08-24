@@ -21,6 +21,7 @@ from products.canvas.backend.facade.api import (
     PLACEMENT_STATUSES,
 )
 from products.canvas.backend.models import Canvas, CanvasState
+from products.canvas.backend.teaching import RESERVED_TEMPLATE_IDS
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
@@ -186,6 +187,11 @@ class CanvasCreateSerializer(serializers.Serializer):
     template_id = serializers.CharField(
         required=False, default="freeform", max_length=64, help_text="Canvas template identifier."
     )
+
+    def validate_template_id(self, value: str) -> str:
+        if value in RESERVED_TEMPLATE_IDS:
+            raise serializers.ValidationError("This template id is reserved for canvases PostHog seeds.")
+        return value
 
 
 class CanvasUpdateSerializer(serializers.Serializer):
