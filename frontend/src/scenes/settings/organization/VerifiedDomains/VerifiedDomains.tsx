@@ -104,6 +104,7 @@ function VerifiedDomainsTable(): JSX.Element {
     const {
         verifiedDomains,
         verifiedDomainsLoading,
+        identityProviderConfigsLoading,
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
@@ -195,9 +196,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 </div>
             ),
             render: function SSOEnforcement(_, { sso_enforcement, id }) {
-                const hasSaml = Boolean(
-                    getIdentityProviderConfigForDomain(identityProviderConfigs, id, 'saml')?.has_saml
-                )
+                const hasSaml = Boolean(getIdentityProviderConfigForDomain(identityProviderConfigs, id)?.has_saml)
                 if (!isSSOEnforcementAvailable) {
                     return (
                         <Link
@@ -223,9 +222,7 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'integrations',
             title: 'Integrations',
             render: function Integrations(_, { id }) {
-                const samlConfig = getIdentityProviderConfigForDomain(identityProviderConfigs, id, 'saml')
-                const scimConfig = getIdentityProviderConfigForDomain(identityProviderConfigs, id, 'scim')
-                const idJagConfig = getIdentityProviderConfigForDomain(identityProviderConfigs, id, 'xaa')
+                const identityProviderConfig = getIdentityProviderConfigForDomain(identityProviderConfigs, id)
                 const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
                 const badges: JSX.Element[] = []
 
@@ -240,7 +237,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (samlConfig?.has_saml) {
+                } else if (identityProviderConfig?.has_saml) {
                     badges.push(
                         <IntegrationBadge
                             key="saml"
@@ -273,7 +270,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (scimConfig?.has_scim) {
+                } else if (identityProviderConfig?.has_scim) {
                     badges.push(
                         <IntegrationBadge
                             key="scim"
@@ -295,7 +292,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     )
                 }
 
-                if (showXAAControls && idJagConfig?.has_id_jag) {
+                if (showXAAControls && identityProviderConfig?.has_id_jag) {
                     badges.push(
                         <IntegrationBadge
                             key="xaa"
@@ -447,7 +444,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <LemonTable
                 dataSource={verifiedDomainsList}
                 columns={verifiedColumns}
-                loading={verifiedDomainsLoading}
+                loading={verifiedDomainsLoading || identityProviderConfigsLoading}
                 rowKey="id"
                 emptyState="You haven't registered any authentication domains yet."
             />
@@ -457,7 +454,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     <LemonTable
                         dataSource={unverifiedDomainsList}
                         columns={unverifiedColumns}
-                        loading={verifiedDomainsLoading}
+                        loading={verifiedDomainsLoading || identityProviderConfigsLoading}
                         rowKey="id"
                     />
                 </>

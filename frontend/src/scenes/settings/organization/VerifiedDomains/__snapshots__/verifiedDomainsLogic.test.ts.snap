@@ -27,8 +27,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   },
   "identityProviderConfigs": [
     {
-      "config_scope": "saml",
-      "domain_scope": "selected",
+      "config_scope": null,
       "id": "config_will_be_deleted",
       "organization_domain_ids": [
         "id_will_be_deleted",

@@ -24,8 +24,7 @@ describe('verifiedDomainsLogic', () => {
                     results: [
                         {
                             id: 'config_will_be_deleted',
-                            config_scope: 'saml',
-                            domain_scope: 'selected',
+                            config_scope: null,
                             organization_domain_ids: ['id_will_be_deleted'],
                         },
                     ],
@@ -115,12 +114,23 @@ describe('verifiedDomainsLogic', () => {
     })
 
     describe('identity provider config resolution', () => {
-        it('selects the config matching the domain and config scope', () => {
+        it('selects the config matching the domain', () => {
             const configs = [
                 {
-                    id: 'saml-config',
-                    config_scope: 'saml' as const,
-                    domain_scope: 'selected' as const,
+                    id: 'other-domain-config',
+                    config_scope: null,
+                    organization_domain_ids: ['other-domain'],
+                    created_at: '2024-01-01',
+                    updated_at: '2024-01-01',
+                    saml_relay_state: 'relay-state',
+                    has_saml: false,
+                    has_scim: true,
+                    scim_bearer_token: null,
+                    has_id_jag: false,
+                },
+                {
+                    id: 'selected-config',
+                    config_scope: null,
                     organization_domain_ids: ['domain-id'],
                     created_at: '2024-01-01',
                     updated_at: '2024-01-01',
@@ -130,24 +140,10 @@ describe('verifiedDomainsLogic', () => {
                     scim_bearer_token: null,
                     has_id_jag: false,
                 },
-                {
-                    id: 'scim-config',
-                    config_scope: 'scim' as const,
-                    domain_scope: 'all' as const,
-                    organization_domain_ids: [],
-                    created_at: '2024-01-01',
-                    updated_at: '2024-01-01',
-                    saml_relay_state: 'relay-state',
-                    has_saml: false,
-                    has_scim: true,
-                    scim_bearer_token: null,
-                    has_id_jag: false,
-                },
             ]
 
-            expect(getIdentityProviderConfigForDomain(configs, 'domain-id', 'saml')?.id).toBe('saml-config')
-            expect(getIdentityProviderConfigForDomain(configs, 'other-domain', 'scim')?.id).toBe('scim-config')
-            expect(getIdentityProviderConfigForDomain(configs, 'domain-id', 'xaa')).toBeUndefined()
+            expect(getIdentityProviderConfigForDomain(configs, 'domain-id')?.id).toBe('selected-config')
+            expect(getIdentityProviderConfigForDomain(configs, 'other-domain')?.id).toBe('other-domain-config')
         })
     })
 

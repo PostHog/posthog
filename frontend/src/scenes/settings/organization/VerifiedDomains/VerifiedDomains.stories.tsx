@@ -97,29 +97,16 @@ const meta: Meta<typeof App> = {
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
                 '/api/organizations/:id/identity_provider_configs': {
-                    count: 3,
+                    count: 1,
                     next: null,
                     previous: null,
                     results: [
                         {
-                            id: 'saml-config',
-                            config_scope: 'saml',
-                            domain_scope: 'selected',
+                            id: 'idp-config',
+                            config_scope: null,
                             organization_domain_ids: ['1'],
                             has_saml: true,
-                        },
-                        {
-                            id: 'scim-config',
-                            config_scope: 'scim',
-                            domain_scope: 'selected',
-                            organization_domain_ids: ['1'],
                             has_scim: true,
-                        },
-                        {
-                            id: 'xaa-config',
-                            config_scope: 'xaa',
-                            domain_scope: 'selected',
-                            organization_domain_ids: ['1'],
                             has_id_jag: true,
                         },
                     ],
