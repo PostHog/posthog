@@ -1633,6 +1633,9 @@ importers:
       '@temporalio/workflow':
         specifier: 1.15.0
         version: 1.15.0
+      '@trybyte/robotstxt-parser':
+        specifier: ^1.2.0
+        version: 1.2.0
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
@@ -1744,6 +1747,9 @@ importers:
       snappy:
         specifier: ^7.2.2
         version: 7.2.2
+      structured-headers:
+        specifier: ^2.0.3
+        version: 2.0.3
       tail:
         specifier: ^2.2.6
         version: 2.2.6
@@ -12444,6 +12450,10 @@ packages:
       svelte:
         optional: true
 
+  '@trybyte/robotstxt-parser@1.2.0':
+    resolution: {integrity: sha512-AywmLqMu0ljMLEPVb4oPxwnyFmm3xxOS6LmwRia5jgqvzrBAoXXR0JWXEXaq/IG3tlFSXuAp+XzAabrijYzyUQ==}
+    engines: {node: '>=20.0.0'}
+
   '@tsconfig/node10@1.0.9':
     resolution: {integrity: sha512-jNsYVVxU8v5g43Erja32laIDHXeoNvFEpX33OK4d6hljo3jDhCBDhx5dhCCTMWUojscpAagGiRkBKxpdl9fxqA==}
 
@@ -21584,6 +21594,10 @@ packages:
 
   strnum@2.1.2:
     resolution: {integrity: sha512-l63NF9y/cLROq/yqKXSLtcMeeyOfnSQlfMSlzFt/K73oIaD8DGaQWd7Z34X9GPiKqP5rbSh84Hl4bOlLcjiSrQ==}
+
+  structured-headers@2.0.3:
+    resolution: {integrity: sha512-4g5yxhlDMClRwCcfKfLeS7Z8yAVdOWGDADwm80Poh1iReU2KVKLGBlqwpHWJ2qovq0+ZIf1atAEO1eua2o9Rgg==}
+    engines: {node: '>=18', npm: '>=6'}
 
   stubs@3.0.0:
     resolution: {integrity: sha512-PdHt7hHUJKxvTCgbKX9C1V/ftOcjJQgz8BZwNfV5c4B6dcGqlpelTbJ999jBGZ2jYiPAwcX5dP6oBwVlBlUbxw==}
@@ -32334,6 +32348,8 @@ snapshots:
       prettier: 3.6.2
     transitivePeerDependencies:
       - supports-color
+
+  '@trybyte/robotstxt-parser@1.2.0': {}
 
   '@tsconfig/node10@1.0.9': {}
 
@@ -44316,6 +44332,8 @@ snapshots:
       '@types/node': 25.8.0
 
   strnum@2.1.2: {}
+
+  structured-headers@2.0.3: {}
 
   stubs@3.0.0: {}
 
