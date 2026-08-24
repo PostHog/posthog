@@ -239,9 +239,9 @@ const BRAINROT_PLAYLIST_IDS = [
   "PLSzOLzwLMqSM",
 ];
 const BRAINROT_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
-// The widget can stay silent when the player fails before its postMessage
-// API comes up (e.g. YouTube's referrer check, player error 153). Silence
-// after load is the only renderer-visible signal of that failure.
+// Player errors like 153 arrive as onError messages, but the widget can stay
+// silent when the embed document itself fails to load or boot. Silence after
+// load is the only renderer-visible signal of that failure.
 const BRAINROT_WIDGET_SILENCE_TIMEOUT_MS = 15_000;
 
 function brainrotEmbedUrl(playlistId: string): string {
