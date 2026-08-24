@@ -9,8 +9,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    PaginatedTracingAlertConfigurationListApi,
+    PaginatedTracingAlertEventListApi,
     PaginatedTracingViewListApi,
+    PatchedTracingAlertConfigurationApi,
     PatchedTracingViewApi,
+    TracingAlertConfigurationApi,
+    TracingAlertsEventsListParams,
+    TracingAlertsListParams,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
@@ -51,6 +57,165 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getTracingAlertsListUrl = (projectId: string, params?: TracingAlertsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/alerts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/alerts/`
+}
+
+export const tracingAlertsList = async (
+    projectId: string,
+    params?: TracingAlertsListParams,
+    options?: RequestInit
+): Promise<PaginatedTracingAlertConfigurationListApi> => {
+    return apiMutator<PaginatedTracingAlertConfigurationListApi>(getTracingAlertsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingAlertsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/alerts/`
+}
+
+export const tracingAlertsCreate = async (
+    projectId: string,
+    tracingAlertConfigurationApi?: NonReadonly<TracingAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<TracingAlertConfigurationApi> => {
+    return apiMutator<TracingAlertConfigurationApi>(getTracingAlertsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracingAlertConfigurationApi),
+    })
+}
+
+export const getTracingAlertsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/alerts/${id}/`
+}
+
+export const tracingAlertsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TracingAlertConfigurationApi> => {
+    return apiMutator<TracingAlertConfigurationApi>(getTracingAlertsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingAlertsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/alerts/${id}/`
+}
+
+export const tracingAlertsUpdate = async (
+    projectId: string,
+    id: string,
+    tracingAlertConfigurationApi?: NonReadonly<TracingAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<TracingAlertConfigurationApi> => {
+    return apiMutator<TracingAlertConfigurationApi>(getTracingAlertsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracingAlertConfigurationApi),
+    })
+}
+
+export const getTracingAlertsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/alerts/${id}/`
+}
+
+export const tracingAlertsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTracingAlertConfigurationApi?: NonReadonly<PatchedTracingAlertConfigurationApi>,
+    options?: RequestInit
+): Promise<TracingAlertConfigurationApi> => {
+    return apiMutator<TracingAlertConfigurationApi>(getTracingAlertsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTracingAlertConfigurationApi),
+    })
+}
+
+export const getTracingAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/alerts/${id}/`
+}
+
+export const tracingAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTracingAlertsEventsListUrl = (
+    projectId: string,
+    id: string,
+    params?: TracingAlertsEventsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/alerts/${id}/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/alerts/${id}/events/`
+}
+
+/**
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out. Optional `?kind=...` narrows to a single kind.
+ */
+export const tracingAlertsEventsList = async (
+    projectId: string,
+    id: string,
+    params?: TracingAlertsEventsListParams,
+    options?: RequestInit
+): Promise<PaginatedTracingAlertEventListApi> => {
+    return apiMutator<PaginatedTracingAlertEventListApi>(getTracingAlertsEventsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingAlertsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/alerts/${id}/reset/`
+}
+
+/**
+ * Reset a broken alert. Clears the consecutive-failure counter and schedules an immediate recheck.
+ */
+export const tracingAlertsResetCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TracingAlertConfigurationApi> => {
+    return apiMutator<TracingAlertConfigurationApi>(getTracingAlertsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
 
 export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/aggregate/`

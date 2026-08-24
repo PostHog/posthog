@@ -9,6 +9,390 @@
  */
 import * as zod from 'zod'
 
+export const tracingAlertsCreateBodyNameMax = 255
+
+export const tracingAlertsCreateBodyEnabledDefault = true
+export const tracingAlertsCreateBodyAlertTypeDefault = `threshold`
+export const tracingAlertsCreateBodyThresholdCountDefault = 100
+export const tracingAlertsCreateBodyThresholdCountMin = 0
+
+export const tracingAlertsCreateBodyThresholdOperatorDefault = `above`
+export const tracingAlertsCreateBodyWindowMinutesDefault = 5
+export const tracingAlertsCreateBodyEvaluationPeriodsDefault = 1
+export const tracingAlertsCreateBodyEvaluationPeriodsMax = 10
+
+export const tracingAlertsCreateBodyDatapointsToAlarmDefault = 1
+export const tracingAlertsCreateBodyDatapointsToAlarmMax = 10
+
+export const tracingAlertsCreateBodyCooldownMinutesDefault = 0
+export const tracingAlertsCreateBodyCooldownMinutesMin = 0
+
+export const TracingAlertsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingAlertsCreateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(tracingAlertsCreateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
+    alert_type: zod
+        .enum(['threshold'])
+        .describe('\* `threshold` - Threshold')
+        .default(tracingAlertsCreateBodyAlertTypeDefault)
+        .describe(
+            "Alert evaluation mode. Only 'threshold' is supported today; reserved for a future statistical-anomaly mode.\n\n\* `threshold` - Threshold"
+        ),
+    filters: zod
+        .object({
+            errorOnly: zod.union([zod.boolean(), zod.null()]).optional(),
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
+        })
+        .optional()
+        .describe(
+            'Filter criteria against trace_spans. Must contain at least one of: serviceNames (list of service name strings), errorOnly (boolean), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
+        ),
+    threshold_count: zod
+        .number()
+        .min(tracingAlertsCreateBodyThresholdCountMin)
+        .default(tracingAlertsCreateBodyThresholdCountDefault)
+        .describe(
+            "Number of matching spans that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching span."
+        ),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .default(tracingAlertsCreateBodyThresholdOperatorDefault)
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod
+        .number()
+        .default(tracingAlertsCreateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which matching spans are counted. Allowed values: 5, 10, 15, 30, 60.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(tracingAlertsCreateBodyEvaluationPeriodsMax)
+        .default(tracingAlertsCreateBodyEvaluationPeriodsDefault)
+        .describe('Total number of check periods in the sliding evaluation window for firing (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(tracingAlertsCreateBodyDatapointsToAlarmMax)
+        .default(tracingAlertsCreateBodyDatapointsToAlarmDefault)
+        .describe('How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(tracingAlertsCreateBodyCooldownMinutesMin)
+        .default(tracingAlertsCreateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+export const tracingAlertsUpdateBodyNameMax = 255
+
+export const tracingAlertsUpdateBodyEnabledDefault = true
+export const tracingAlertsUpdateBodyAlertTypeDefault = `threshold`
+export const tracingAlertsUpdateBodyThresholdCountDefault = 100
+export const tracingAlertsUpdateBodyThresholdCountMin = 0
+
+export const tracingAlertsUpdateBodyThresholdOperatorDefault = `above`
+export const tracingAlertsUpdateBodyWindowMinutesDefault = 5
+export const tracingAlertsUpdateBodyEvaluationPeriodsDefault = 1
+export const tracingAlertsUpdateBodyEvaluationPeriodsMax = 10
+
+export const tracingAlertsUpdateBodyDatapointsToAlarmDefault = 1
+export const tracingAlertsUpdateBodyDatapointsToAlarmMax = 10
+
+export const tracingAlertsUpdateBodyCooldownMinutesDefault = 0
+export const tracingAlertsUpdateBodyCooldownMinutesMin = 0
+
+export const TracingAlertsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingAlertsUpdateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(tracingAlertsUpdateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
+    alert_type: zod
+        .enum(['threshold'])
+        .describe('\* `threshold` - Threshold')
+        .default(tracingAlertsUpdateBodyAlertTypeDefault)
+        .describe(
+            "Alert evaluation mode. Only 'threshold' is supported today; reserved for a future statistical-anomaly mode.\n\n\* `threshold` - Threshold"
+        ),
+    filters: zod
+        .object({
+            errorOnly: zod.union([zod.boolean(), zod.null()]).optional(),
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
+        })
+        .optional()
+        .describe(
+            'Filter criteria against trace_spans. Must contain at least one of: serviceNames (list of service name strings), errorOnly (boolean), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
+        ),
+    threshold_count: zod
+        .number()
+        .min(tracingAlertsUpdateBodyThresholdCountMin)
+        .default(tracingAlertsUpdateBodyThresholdCountDefault)
+        .describe(
+            "Number of matching spans that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching span."
+        ),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .default(tracingAlertsUpdateBodyThresholdOperatorDefault)
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod
+        .number()
+        .default(tracingAlertsUpdateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which matching spans are counted. Allowed values: 5, 10, 15, 30, 60.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(tracingAlertsUpdateBodyEvaluationPeriodsMax)
+        .default(tracingAlertsUpdateBodyEvaluationPeriodsDefault)
+        .describe('Total number of check periods in the sliding evaluation window for firing (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(tracingAlertsUpdateBodyDatapointsToAlarmMax)
+        .default(tracingAlertsUpdateBodyDatapointsToAlarmDefault)
+        .describe('How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(tracingAlertsUpdateBodyCooldownMinutesMin)
+        .default(tracingAlertsUpdateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
+export const tracingAlertsPartialUpdateBodyNameMax = 255
+
+export const tracingAlertsPartialUpdateBodyEnabledDefault = true
+export const tracingAlertsPartialUpdateBodyAlertTypeDefault = `threshold`
+export const tracingAlertsPartialUpdateBodyThresholdCountDefault = 100
+export const tracingAlertsPartialUpdateBodyThresholdCountMin = 0
+
+export const tracingAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
+export const tracingAlertsPartialUpdateBodyWindowMinutesDefault = 5
+export const tracingAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
+export const tracingAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
+
+export const tracingAlertsPartialUpdateBodyDatapointsToAlarmDefault = 1
+export const tracingAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
+
+export const tracingAlertsPartialUpdateBodyCooldownMinutesDefault = 0
+export const tracingAlertsPartialUpdateBodyCooldownMinutesMin = 0
+
+export const TracingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingAlertsPartialUpdateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
+    enabled: zod
+        .boolean()
+        .default(tracingAlertsPartialUpdateBodyEnabledDefault)
+        .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
+    alert_type: zod
+        .enum(['threshold'])
+        .describe('\* `threshold` - Threshold')
+        .default(tracingAlertsPartialUpdateBodyAlertTypeDefault)
+        .describe(
+            "Alert evaluation mode. Only 'threshold' is supported today; reserved for a future statistical-anomaly mode.\n\n\* `threshold` - Threshold"
+        ),
+    filters: zod
+        .object({
+            errorOnly: zod.union([zod.boolean(), zod.null()]).optional(),
+            filterGroup: zod
+                .union([
+                    zod.object({
+                        type: zod.enum(['AND', 'OR']),
+                        values: zod.array(
+                            zod
+                                .record(zod.string(), zod.unknown())
+                                .describe(
+                                    'Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'
+                                )
+                        ),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+            serviceNames: zod.union([zod.array(zod.string()), zod.null()]).optional(),
+        })
+        .optional()
+        .describe(
+            'Filter criteria against trace_spans. Must contain at least one of: serviceNames (list of service name strings), errorOnly (boolean), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
+        ),
+    threshold_count: zod
+        .number()
+        .min(tracingAlertsPartialUpdateBodyThresholdCountMin)
+        .default(tracingAlertsPartialUpdateBodyThresholdCountDefault)
+        .describe(
+            "Number of matching spans that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching span."
+        ),
+    threshold_operator: zod
+        .enum(['above', 'below'])
+        .describe('\* `above` - Above\n\* `below` - Below')
+        .default(tracingAlertsPartialUpdateBodyThresholdOperatorDefault)
+        .describe(
+            'Whether the alert fires when the count is above or below the threshold.\n\n\* `above` - Above\n\* `below` - Below'
+        ),
+    window_minutes: zod
+        .number()
+        .default(tracingAlertsPartialUpdateBodyWindowMinutesDefault)
+        .describe('Time window in minutes over which matching spans are counted. Allowed values: 5, 10, 15, 30, 60.'),
+    evaluation_periods: zod
+        .number()
+        .min(1)
+        .max(tracingAlertsPartialUpdateBodyEvaluationPeriodsMax)
+        .default(tracingAlertsPartialUpdateBodyEvaluationPeriodsDefault)
+        .describe('Total number of check periods in the sliding evaluation window for firing (M in N-of-M).'),
+    datapoints_to_alarm: zod
+        .number()
+        .min(1)
+        .max(tracingAlertsPartialUpdateBodyDatapointsToAlarmMax)
+        .default(tracingAlertsPartialUpdateBodyDatapointsToAlarmDefault)
+        .describe('How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).'),
+    cooldown_minutes: zod
+        .number()
+        .min(tracingAlertsPartialUpdateBodyCooldownMinutesMin)
+        .default(tracingAlertsPartialUpdateBodyCooldownMinutesDefault)
+        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+    schedule_restriction: zod
+        .union([
+            zod.object({
+                blocked_windows: zod
+                    .array(
+                        zod.object({
+                            start: zod
+                                .string()
+                                .describe(
+                                    'Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).'
+                                ),
+                            end: zod
+                                .string()
+                                .describe(
+                                    'End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.'
+                                ),
+                        })
+                    )
+                    .describe(
+                        'Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.'
+        ),
+    snooze_until: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+})
+
 export const tracingSpansAggregateCreateBodyQueryOneCompareFilterOneCompareDefault = false
 export const tracingSpansAggregateCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000

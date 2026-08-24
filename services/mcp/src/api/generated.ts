@@ -9925,6 +9925,30 @@ export namespace Schemas {
       include_reasoning?: boolean;
     }
 
+    /**
+     * * `check` - Check
+     * * `reset` - Reset
+     * * `enable` - Enable
+     * * `disable` - Disable
+     * * `snooze` - Snooze
+     * * `unsnooze` - Unsnooze
+     * * `threshold_change` - Threshold change
+     * * `broken_config` - Broken config
+     */
+    export type AlertEventKindEnum = typeof AlertEventKindEnum[keyof typeof AlertEventKindEnum];
+
+
+    export const AlertEventKindEnum = {
+      Check: 'check',
+      Reset: 'reset',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
+    } as const;
+
     export interface AlertSimulate {
       /** Insight ID to simulate the detector on. */
       insight: number;
@@ -10012,6 +10036,16 @@ export namespace Schemas {
       /** Configured delivery channels that failed to schedule or send. */
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
+
+    /**
+     * * `threshold` - Threshold
+     */
+    export type AlertTypeEnum = typeof AlertTypeEnum[keyof typeof AlertTypeEnum];
+
+
+    export const AlertTypeEnum = {
+      Threshold: 'threshold',
+    } as const;
 
     /**
      * * `trace` - trace
@@ -46438,34 +46472,10 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
-    /**
-     * * `check` - Check
-     * * `reset` - Reset
-     * * `enable` - Enable
-     * * `disable` - Disable
-     * * `snooze` - Snooze
-     * * `unsnooze` - Unsnooze
-     * * `threshold_change` - Threshold change
-     * * `broken_config` - Broken config
-     */
-    export type LogsAlertEventKindEnum = typeof LogsAlertEventKindEnum[keyof typeof LogsAlertEventKindEnum];
-
-
-    export const LogsAlertEventKindEnum = {
-      Check: 'check',
-      Reset: 'reset',
-      Enable: 'enable',
-      Disable: 'disable',
-      Snooze: 'snooze',
-      Unsnooze: 'unsnooze',
-      ThresholdChange: 'threshold_change',
-      BrokenConfig: 'broken_config',
-    } as const;
-
     export interface LogsAlertEvent {
       readonly id: string;
       readonly created_at: string;
-      readonly kind: LogsAlertEventKindEnum;
+      readonly kind: AlertEventKindEnum;
       readonly state_before: string;
       readonly state_after: string;
       readonly threshold_breached: boolean;
@@ -56617,6 +56627,165 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    export interface TracingAlertFilters {
+      errorOnly?: boolean | null;
+      filterGroup?: PropertyGroupFilter | null;
+      serviceNames?: string[] | null;
+    }
+
+    export interface TracingAlertStateInterval {
+      /** Interval start (UTC, inclusive). */
+      start: string;
+      /** Interval end (UTC, exclusive). */
+      end: string;
+      /** Alert state during this interval.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      state: LogsAlertConfigurationStateEnum;
+      /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
+      enabled: boolean;
+    }
+
+    export interface TracingAlertConfiguration {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
+      enabled?: boolean;
+      /** Alert evaluation mode. Only 'threshold' is supported today; reserved for a future statistical-anomaly mode.
+       *
+       * * `threshold` - Threshold */
+      alert_type?: AlertTypeEnum;
+      /** Filter criteria against trace_spans. Must contain at least one of: serviceNames (list of service name strings), errorOnly (boolean), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+      filters?: TracingAlertFilters;
+      /**
+         * Number of matching spans that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching span.
+         * @minimum 0
+         */
+      threshold_count?: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+       *
+       * * `above` - Above
+       * * `below` - Below */
+      threshold_operator?: LogsAlertThresholdOperatorEnum;
+      /** Time window in minutes over which matching spans are counted. Allowed values: 5, 10, 15, 30, 60. */
+      window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
+      readonly check_interval_minutes: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, snoozed, or broken. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * Error message from the most recent errored check, or null if the alert's most recent check was successful.
+         * @nullable
+         */
+      readonly last_error_message: string | null;
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline: readonly TracingAlertStateInterval[];
+      /**
+         * When the alert was first enabled. Null means the alert is still in draft state.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracingAlertConfigurationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracingAlertConfiguration[];
+    }
+
+    export interface TracingAlertEvent {
+      readonly id: string;
+      readonly created_at: string;
+      readonly kind: AlertEventKindEnum;
+      readonly state_before: string;
+      readonly state_after: string;
+      readonly threshold_breached: boolean;
+      /** @nullable */
+      readonly result_count: number | null;
+      /** @nullable */
+      readonly error_message: string | null;
+      /** @nullable */
+      readonly query_duration_ms: number | null;
+    }
+
+    export interface PaginatedTracingAlertEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracingAlertEvent[];
+    }
+
     /**
      * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
      */
@@ -65282,6 +65451,108 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export interface PatchedTracingAlertConfiguration {
+      /** Unique identifier for this alert. */
+      readonly id?: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is actively being evaluated. Disabling resets the state to not_firing. */
+      enabled?: boolean;
+      /** Alert evaluation mode. Only 'threshold' is supported today; reserved for a future statistical-anomaly mode.
+       *
+       * * `threshold` - Threshold */
+      alert_type?: AlertTypeEnum;
+      /** Filter criteria against trace_spans. Must contain at least one of: serviceNames (list of service name strings), errorOnly (boolean), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
+      filters?: TracingAlertFilters;
+      /**
+         * Number of matching spans that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching span.
+         * @minimum 0
+         */
+      threshold_count?: number;
+      /** Whether the alert fires when the count is above or below the threshold.
+       *
+       * * `above` - Above
+       * * `below` - Below */
+      threshold_operator?: LogsAlertThresholdOperatorEnum;
+      /** Time window in minutes over which matching spans are counted. Allowed values: 5, 10, 15, 30, 60. */
+      window_minutes?: number;
+      /** How often the alert is evaluated, in minutes. Server-managed. */
+      readonly check_interval_minutes?: number;
+      /** Current alert state: not_firing, firing, pending_resolve, errored, snoozed, or broken. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state?: LogsAlertConfigurationStateEnum;
+      /**
+         * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at?: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at?: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at?: string | null;
+      /** Number of consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures?: number;
+      /**
+         * Error message from the most recent errored check, or null if the alert's most recent check was successful.
+         * @nullable
+         */
+      readonly last_error_message?: string | null;
+      /** Continuous state intervals over the last 24h, ordered oldest-first. Each interval covers a span during which (state, enabled) was constant. Drives the 'Last 24h' status bar on the alert list. */
+      readonly state_timeline?: readonly TracingAlertStateInterval[];
+      /**
+         * When the alert was first enabled. Null means the alert is still in draft state.
+         * @nullable
+         */
+      readonly first_enabled_at?: string | null;
+      /** When the alert was created. */
+      readonly created_at?: string;
+      readonly created_by?: UserBasic;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -95700,6 +95971,28 @@ export namespace Schemas {
     limit?: number;
     /**
      * Offset into the result set for pagination.
+     */
+    offset?: number;
+    };
+
+    export type TracingAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TracingAlertsEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
      */
     offset?: number;
     };

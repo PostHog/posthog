@@ -601,6 +601,8 @@ SPECTACULAR_SETTINGS = {
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
         "EmailThreadParticipantKindEnum": "products.conversations.backend.models.email_thread.EmailThreadParticipantKind",
+        # Shared by LogsAlertEvent.kind and TracingAlertEvent.kind (same choice set).
+        "AlertEventKindEnum": "products.logs.backend.models.LogsAlertEvent.Kind",
         # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
         "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
         "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",

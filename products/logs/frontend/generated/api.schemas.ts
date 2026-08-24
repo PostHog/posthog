@@ -774,9 +774,9 @@ export interface LogsAlertDeleteDestinationApi {
  * * `threshold_change` - Threshold change
  * * `broken_config` - Broken config
  */
-export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
+export type AlertEventKindEnumApi = (typeof AlertEventKindEnumApi)[keyof typeof AlertEventKindEnumApi]
 
-export const LogsAlertEventKindEnumApi = {
+export const AlertEventKindEnumApi = {
     Check: 'check',
     Reset: 'reset',
     Enable: 'enable',
@@ -790,7 +790,7 @@ export const LogsAlertEventKindEnumApi = {
 export interface LogsAlertEventApi {
     readonly id: string
     readonly created_at: string
-    readonly kind: LogsAlertEventKindEnumApi
+    readonly kind: AlertEventKindEnumApi
     readonly state_before: string
     readonly state_after: string
     readonly threshold_breached: boolean
