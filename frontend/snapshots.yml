@@ -1889,9 +1889,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.0c8a6bf4583b3b19aeec3990ba3d287b5ded7af1b87f5dbf4ff6676259a3bfb2.-Ln1KIyfpyPdHd-LjCVqBbjPPdZsRT08QbkGa-E33_U
     components-search--searching--dark:
-        hash: v1.k794b7964.dcc0b8b00ba6d4a79bcc3faaedf62ed0c318dccc67a801674580da6200d2d1f7.J65LhJNiyRpcKl_zEVxpzyV4yYNSx39d_duFBE8zNCE
+        hash: v1.k794b7964.9050d5487cf3c5131b181b99f999adcb843b9a492dcbdcd615dacbd953cf73ac.ogPQ_jVYsNQoFdi6nsKr9RKcsh6_UvvegFgOPhxrPsc
     components-search--searching--light:
-        hash: v1.k794b7964.edcedc508259aade794822bc31da33770ea5101b1bf62dfb594c3133613596ee.hH84nEr_cd3qGTf5t61APCAFZmUJGUyIOzDQA9SB604
+        hash: v1.k794b7964.8b91c5ebfade30ddd20fe537008f1fce8125ca995dcb593256ae1825be376471.UT3U7Aqn84OcM5YCrtm5V2RcpTtf0Qw_cx4birXhf4g
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.7e8e5dd2e09d246cc3668f362f2391fe67618bd1143aa393832297f5dc30e558.yptEWKc5RAUY613Fwd5cQ0VIinMvpdoI6cuKgagAGxk
     components-sentencelist--full-sentence--light:
@@ -7765,9 +7765,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-max--light:
         hash: v1.k794b7964.07164181401e2754e235fd3c4b4bb7469e1568fb7d0dc0546a69050c4106b515._mo4cd-H1bIxLf_3v_wWV51fDPnglyLk8gd0AOF2orA
     scenes-app-settings-environment--settings-environment-privacy--dark:
-        hash: v1.k794b7964.d7e0744dc2018ac69eacfc1079f9573e17880bf27cc76d88a2cbfe1eb8bc36c9.F7HP9RQaWx4NtnLbJ6q00w44rjXGhEScXnNMvWqR68s
+        hash: v1.k794b7964.ff66445974e6f054c2bd8bc87f000981523053bdc6d5af9959ff35a0a50a258e.FrA9u9v8pLmdMYwWmm9Sc12YO6Q4xUnBaT4GTItHAao
     scenes-app-settings-environment--settings-environment-privacy--light:
-        hash: v1.k794b7964.8a66709400822bfa0ce716ad8ab87c844f6e255d6d147ffc1d0786ae6f0c88a4.YpDwS8AJgUCgRHrbfP00tREEmFzdh7uSlh1jUPiZwgk
+        hash: v1.k794b7964.3f58ea4256802de1f87b203dcdab35ffb0ad5b1da9a942b06af7f14d38b04b5c.FTEFuH5X53ErHCHLL8NeoOcNjuV7u4ptpuYdAy2IBbY
     scenes-app-settings-environment--settings-environment-product-analytics--dark:
         hash: v1.k794b7964.f0bb165601b375795b1440ba408d76fb5a24321c168532c927ec3667a242ae37.WtinNtrrUMh5H-EeXUWPQo-C-4h1ro_YhnnqfXousu4
     scenes-app-settings-environment--settings-environment-product-analytics--light:
