@@ -374,8 +374,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         # Definitions are project-scoped: a property defined under a sibling environment of the
         # same project resolves, matching what the taxonomy REST API returns for this team.
         sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        # project is set explicitly, as the production writers do — a definition row with a NULL
+        # project_id is scoped to its own team only under COALESCE(project_id, team_id).
         PropertyDefinition.objects.create(
-            team=sibling, type=PropertyDefinition.Type.EVENT, name="sibling_prop", property_type=PropertyType.Numeric
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="sibling_prop",
+            property_type=PropertyType.Numeric,
         )
         toolkit = DummyToolkit(self.team, self.user)
 
@@ -386,7 +392,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
     def test_fetch_event_property_types_prefers_own_team_definition(self):
         sibling = Team.objects.create(organization=self.organization, project=self.team.project)
         PropertyDefinition.objects.create(
-            team=sibling, type=PropertyDefinition.Type.EVENT, name="shared_prop", property_type=PropertyType.Numeric
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="shared_prop",
+            property_type=PropertyType.Numeric,
         )
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.EVENT, name="shared_prop", property_type=PropertyType.String
