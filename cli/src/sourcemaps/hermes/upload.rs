@@ -63,8 +63,11 @@ pub fn upload(args: &Args) -> Result<()> {
     // Event mode leaves nothing on the symbol set for the server to use. An exception then
     // resolves its release only from the app metadata on the event. Coordinates that come from
     // git instead of explicit flags do not match that metadata. The exception then reports no
-    // release, and nothing in the output says so.
-    if *release_mode == ReleaseMode::Event && (release.name.is_none() || release.version.is_none())
+    // release, and nothing in the output says so. The build number counts as a coordinate: the
+    // server packs it into the version it keys on, so a release without one matches no event that
+    // carries `$app_build`.
+    if *release_mode == ReleaseMode::Event
+        && (release.name.is_none() || release.version.is_none() || release.build.is_none())
     {
         warn!(
             "--release-mode=event resolves each exception's release from the app's namespace and \
