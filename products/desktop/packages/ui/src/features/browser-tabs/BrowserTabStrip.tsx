@@ -673,6 +673,7 @@ export function BrowserTabStrip() {
           });
         } else {
           navigate({ to: "/spaces/$channelId", params, state });
+        }
       } else if (tab.appView && isTabAppView(tab.appView)) {
         // A top-level app page — back to its canonical route (literal `to` per
         // case so the router types stay checked).
@@ -684,7 +685,10 @@ export function BrowserTabStrip() {
             navigate({ to: "/", state });
             break;
           case "inbox":
-            navigate({ to: channelReportsEnabled ? "/spaces" : "/inbox", state });
+            navigate({
+              to: channelReportsEnabled ? "/spaces" : "/inbox",
+              state,
+            });
             break;
           case "agents":
             navigate({ to: "/agents", state });
