@@ -9,7 +9,10 @@ scan (``PrecomputationMode.DIRECT``). Two checks per metric:
   counts are held to the strict tolerance. Retention resolves both of its numbers from metric events, so
   both get the loose tolerance.
 - correctness (B vs C): the precomputed read must agree with the events table within a loose tolerance that
-  covers live ingestion between the cache writes and the direct scan.
+  covers live ingestion between the cache writes and the direct scan. Deviations also need to clear an
+  absolute per-variant difference (``MIN_CORRECTNESS_DELTA``), because on sparse metrics a handful of
+  users' worth of expected live-vs-frozen drift (person merges, late-arriving events) exceeds any
+  relative tolerance.
 
 The bug class this guards (multi-node ClickHouse read-your-writes, see
 ``products/analytics_platform/backend/lazy_computation/CONSISTENCY.md``) cannot be reproduced in dev/CI
@@ -85,6 +88,12 @@ STRICT_TOLERANCE = 0.001
 # Precomputed-vs-direct (and mean-metric sums, which join live values) legitimately drift by the few minutes
 # of ingestion between the cache writes and the comparison read.
 LOOSE_TOLERANCE = 0.02
+
+# Correctness deviations below this absolute per-variant difference don't count. Frozen snapshots
+# legitimately drift from the live scan by a handful of users' events (post-freeze person merges,
+# late-arriving events), and on a sparse metric (tens of conversions over millions of exposures) that
+# handful already exceeds any relative tolerance and would page as the run's worst divergence.
+MIN_CORRECTNESS_DELTA = 100.0
 
 # Below this, a single user moves a variant by more than the strict tolerance and comparison is meaningless.
 MIN_EXPOSURES_PER_VARIANT = 100
@@ -237,12 +246,16 @@ def relative_deviation(a: float, b: float) -> float:
     return abs(a - b) / max(abs(a), abs(b), 1.0)
 
 
-def _max_deviation(run_x: CanaryRunSnapshot, run_y: CanaryRunSnapshot) -> float:
+def _max_deviation(run_x: CanaryRunSnapshot, run_y: CanaryRunSnapshot, min_delta: float = 0.0) -> float:
     deviations = [0.0]
     for key, stats_x in run_x.variants.items():
         stats_y = run_y.variants[key]
-        deviations.append(relative_deviation(stats_x.sum, stats_y.sum))
-        deviations.append(relative_deviation(stats_x.number_of_samples, stats_y.number_of_samples))
+        for value_x, value_y in (
+            (stats_x.sum, stats_y.sum),
+            (stats_x.number_of_samples, stats_y.number_of_samples),
+        ):
+            if abs(value_x - value_y) > min_delta:
+                deviations.append(relative_deviation(value_x, value_y))
     return max(deviations)
 
 
@@ -291,7 +304,7 @@ def evaluate_canary_runs(
         )
 
     stability_deviation = _max_deviation(run_a, run_b)
-    correctness_deviation = _max_deviation(run_b, run_c)
+    correctness_deviation = _max_deviation(run_b, run_c, min_delta=MIN_CORRECTNESS_DELTA)
     diverged = _stability_violated(metric_type, run_a, run_b) or correctness_deviation > LOOSE_TOLERANCE
 
     return CanaryVerdict(
