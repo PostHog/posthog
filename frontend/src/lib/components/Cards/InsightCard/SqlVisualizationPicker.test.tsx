@@ -56,6 +56,24 @@ describe('SqlVisualizationPicker', () => {
         })
     })
 
+    // Auto is the first option and resolves to a real chart, so it needs axes like the type it
+    // resolves to. Without them the chart draws with blank x labels.
+    it('gives Auto the axes of the chart it resolves to', async () => {
+        const persistDisplayOptions = jest.fn()
+        const { container } = render(
+            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={persistDisplayOptions} />
+        )
+
+        await openPicker(container)
+        await pick('Auto (Line chart)')
+
+        expect(persistDisplayOptions).toHaveBeenCalledWith({
+            ...query,
+            display: ChartDisplayType.Auto,
+            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'total' }] },
+        })
+    })
+
     it('keeps axes the insight already has', async () => {
         const persistDisplayOptions = jest.fn()
         const alreadyAxed = {

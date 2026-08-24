@@ -37,27 +37,31 @@ const AXIS_PLOTTING_TYPES = [
 
 // A chart reads its columns out of chartSettings, and loading the saved query resets the axes to
 // whatever it carries. So a query saved as a table has to gain axes here, or the chart draws empty.
-function withAxes(query: DataVisualizationNode, columns: Column[]): DataVisualizationNode {
-    if (!query.display || !AXIS_PLOTTING_TYPES.includes(query.display)) {
-        return query
-    }
-
-    if (query.chartSettings?.xAxis || query.chartSettings?.yAxis?.length) {
+// Auto counts: it resolves to a real chart, so it needs axes like the type it resolves to.
+function withAxes(
+    query: DataVisualizationNode,
+    columns: Column[],
+    autoVisualizationType: ChartDisplayType
+): DataVisualizationNode {
+    const drawnAs = query.display === ChartDisplayType.Auto ? autoVisualizationType : query.display
+    if (!drawnAs || !AXIS_PLOTTING_TYPES.includes(drawnAs)) {
         return query
     }
 
     const { xAxis, yAxis } = deriveDefaultAxes(columns)
-    if (!xAxis || yAxis.length === 0) {
+    // Fill only the side the query is missing, so axes the user chose stay untouched.
+    const nextXAxis = query.chartSettings?.xAxis ?? (xAxis ? { column: xAxis } : undefined)
+    const nextYAxis = query.chartSettings?.yAxis?.length
+        ? query.chartSettings.yAxis
+        : yAxis.map((column) => ({ column }))
+
+    if (!nextXAxis || nextYAxis.length === 0) {
         return query
     }
 
     return {
         ...query,
-        chartSettings: {
-            ...query.chartSettings,
-            xAxis: { column: xAxis },
-            yAxis: yAxis.map((column) => ({ column })),
-        },
+        chartSettings: { ...query.chartSettings, xAxis: nextXAxis, yAxis: nextYAxis },
     }
 }
 
@@ -89,8 +93,9 @@ export function SqlVisualizationPicker({
     )
 
     // The save is debounced and then round trips, so show the pick straight away rather than leaving
-    // the menu on the old value for a second. Drop it once the saved query catches up, so a save that
-    // failed or was skipped stops the control claiming a change that never landed.
+    // the menu on the old value for a second. The held value goes once the saved query catches up.
+    // A save that fails keeps showing the attempted type until the tile reloads, and the failure
+    // toast is the signal for that.
     const [pending, setPending] = useState<ChartDisplayType | null>(null)
     useEffect(() => setPending(null), [query.display])
 
@@ -107,7 +112,7 @@ export function SqlVisualizationPicker({
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             onChange={(value) => {
                 setPending(value)
-                persistDisplayOptions(withAxes({ ...query, display: value }, columns))
+                persistDisplayOptions(withAxes({ ...query, display: value }, columns, autoVisualizationType))
             }}
             options={options}
             dropdownMatchSelectWidth={false}

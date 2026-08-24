@@ -36,7 +36,7 @@ describe('resolveVisualizationPicker', () => {
             expected: 'trends',
         },
         {
-            label: 'funnel gets nothing, since its chart type is not a single dropdown',
+            label: 'insight whose chart type is not a single dropdown gets nothing',
             query: funnelQuery as Node,
             supportsDisplay: false,
             canPersist: true,
