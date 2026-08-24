@@ -961,9 +961,11 @@ impl Coordinator {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = tick.tick() => {
-                    // INVARIANT: listed before the handoffs — a
-                    // membership written after this read is not a
-                    // candidate, so the sweep cannot collect a record a
+                    // INVARIANT: listed before the handoffs, and each
+                    // delete is guarded on the mod_revision read here —
+                    // a membership written (or re-put by a plan chunk)
+                    // after this read is not a candidate and fails the
+                    // guard, so the sweep cannot collect a record a
                     // newer handoff refers to.
                     let quorum_candidates = store.list_freeze_quorum_ids().await;
                     let handoffs = store.list_handoffs().await?;
@@ -1012,16 +1014,15 @@ impl Coordinator {
         }
     }
 
-    /// Delete the freeze-quorum records no live handoff refers to.
-    /// Housekeeping without a transaction: a record left behind costs
-    /// kilobytes until the next tick, and one deleted in error only
-    /// makes its handoff fall back to requiring every live router —
-    /// neither can advance a handoff early. A wrong delete surfaces in
-    /// `unresolved_freeze_quorums_total` only from a process that has
-    /// to read; a cached coordinator neutralizes it silently.
+    /// Delete the freeze-quorum records no live handoff refers to. Each
+    /// delete is guarded on the record's listed mod_revision: a chunked
+    /// plan re-puts its record with every chunk, so a chunk landing
+    /// after the sweep's read bumps the revision and the delete stands
+    /// down — and a chunk landing after a delete re-creates the record,
+    /// so a referencing handoff can never be left dangling.
     async fn collect_stale_freeze_quorums(
         store: &PersonhogStore,
-        candidates: Result<Vec<String>>,
+        candidates: Result<Vec<(String, i64)>>,
         handoffs: &[HandoffState],
     ) {
         let candidates = match candidates {
@@ -1042,18 +1043,27 @@ impl Coordinator {
             .iter()
             .filter_map(|h| h.freeze_quorum_ref.as_deref())
             .collect();
-        for id in candidates
+        for (id, mod_revision) in candidates
             .iter()
-            .filter(|id| !referenced.contains(id.as_str()))
+            .filter(|(id, _)| !referenced.contains(id.as_str()))
         {
-            match store.delete_freeze_quorum(id).await {
-                Ok(()) => {
+            match store
+                .delete_freeze_quorum_if_unchanged(id, *mod_revision)
+                .await
+            {
+                Ok(true) => {
                     // The cheap half of the sweep's observability: a
                     // rate here that outpaces plan creation is the shape
                     // a sweep collecting records it should have spared
                     // would take.
                     counter!("personhog_coordination_freeze_quorums_collected_total").increment(1);
                     tracing::debug!(quorum_id = %id, "collected unreferenced freeze quorum");
+                }
+                Ok(false) => {
+                    tracing::debug!(
+                        quorum_id = %id,
+                        "freeze quorum re-put since the sweep's read; spared"
+                    );
                 }
                 Err(e) => {
                     // Counted, not only logged: the router runs at INFO,

@@ -84,17 +84,13 @@ impl StoreKey<'_> {
 #[derive(Clone)]
 pub struct PersonhogStore {
     inner: EtcdStore,
-    /// Freeze-quorum memberships already read, by record id. Records
-    /// are written once and only ever deleted, so an id identifies one
-    /// immutable value and caching cannot go stale; a plan's handoffs
-    /// share one id, so this turns a few hundred reads per reconcile
-    /// pass into one.
-    ///
-    /// INVARIANT: the cached value keeps `Some` (recorded membership)
-    /// distinct from `None` (record absent — requires every live
-    /// router). Flattening them would advance a handoff no router had
-    /// stopped routing for.
-    freeze_quorums: Arc<StdMutex<HashMap<String, Option<Vec<String>>>>>,
+    /// Freeze-quorum memberships already read, by record id. An id
+    /// names one immutable value (a chunked plan re-puts it only
+    /// byte-identically), so a recorded membership cannot go stale; a
+    /// plan's handoffs share one id, so this turns a few hundred reads
+    /// per reconcile pass into one. Absence is never cached — the
+    /// sweep can delete a record a later chunk re-creates.
+    freeze_quorums: Arc<StdMutex<HashMap<String, Vec<String>>>>,
 }
 
 /// Counts store calls by the method that made them. The shared etcd
@@ -145,6 +141,18 @@ impl UnitGuard {
 enum UnitOp {
     Put(String, Vec<u8>),
     DeletePrefix(String),
+}
+
+/// Whether etcd refused a transaction for exceeding its `--max-txn-ops`
+/// (`ErrGRPCTooManyOps`). Matched on the message — the gRPC code is a
+/// generic InvalidArgument.
+fn is_txn_too_large(e: &Error) -> bool {
+    matches!(
+        e,
+        Error::Store(assignment_coordination::error::Error::Etcd(
+            etcd_client::Error::GRpcStatus(status)
+        )) if status.message().contains("too many operations")
+    )
 }
 
 /// Greedy chunk boundaries over per-unit `(guards, ops)` costs: a chunk
@@ -835,11 +843,30 @@ impl PersonhogStore {
         let mut application = PlanApplication::default();
         for range in ranges {
             let chunk = &units[range];
-            if self.apply_units(chunk, &quorum).await? {
-                application
-                    .applied
-                    .extend(chunk.iter().map(|u| u.partition));
-                continue;
+            match self.apply_units(chunk, &quorum).await {
+                Ok(true) => {
+                    application
+                        .applied
+                        .extend(chunk.iter().map(|u| u.partition));
+                    continue;
+                }
+                Ok(false) => {}
+                // The server's effective --max-txn-ops can sit below the
+                // configured budget (values drift, a member not yet
+                // restarted with a raised flag). Degrade to the per-unit
+                // path — under any workable server limit — instead of
+                // handing back a rejection the planner retries forever.
+                Err(e) if chunk.len() > 1 && is_txn_too_large(&e) => {
+                    metrics::counter!("personhog_coordination_plan_chunk_over_server_budget_total")
+                        .increment(1);
+                    tracing::warn!(
+                        units = chunk.len(),
+                        max_txn_ops,
+                        error = %e,
+                        "plan chunk exceeds the server txn budget; applying per unit"
+                    );
+                }
+                Err(e) => return Err(e),
             }
             // A failed guard names no key, so retry the chunk one
             // partition at a time: the concurrent write that broke the
@@ -995,10 +1022,7 @@ impl PersonhogStore {
         match &handoff.freeze_quorum_ref {
             Some(id) => {
                 // A hit answers from memory: confirming against etcd
-                // would cost the read this cache removes, to observe a
-                // case it already neutralizes. A hit that resolved to
-                // nothing still counts, so the signal persists while
-                // the condition does.
+                // would cost the read this cache removes.
                 let cached = self
                     .freeze_quorums
                     .lock()
@@ -1006,38 +1030,38 @@ impl PersonhogStore {
                     .get(id)
                     .cloned();
                 if let Some(members) = cached {
-                    if members.is_none() {
-                        crate::util::record_unresolved_freeze_quorum();
-                    }
-                    return Ok(members);
+                    return Ok(Some(members));
                 }
                 let members = self.get_freeze_quorum(id).await?;
-                // A miss is cached too: an id that resolves to nothing
-                // resolves to nothing forever, and a lost record would
-                // otherwise cost a read per frozen partition per pass.
-                {
-                    let mut cache = self
-                        .freeze_quorums
-                        .lock()
-                        .expect("freeze quorum cache lock poisoned");
-                    // Sized for a rolling deploy (plans in flight, not
-                    // one). Evicting the oldest — ids lead with
-                    // milliseconds, so smallest is oldest — keeps the
-                    // working set.
-                    if cache.len() >= 32 {
-                        if let Some(oldest) = cache.keys().min().cloned() {
-                            cache.remove(&oldest);
+                match &members {
+                    Some(recorded) => {
+                        let mut cache = self
+                            .freeze_quorums
+                            .lock()
+                            .expect("freeze quorum cache lock poisoned");
+                        // Sized for a rolling deploy (plans in flight,
+                        // not one). Evicting the oldest — ids lead with
+                        // milliseconds, so smallest is oldest — keeps
+                        // the working set.
+                        if cache.len() >= 32 {
+                            if let Some(oldest) = cache.keys().min().cloned() {
+                                cache.remove(&oldest);
+                            }
                         }
+                        cache.insert(id.clone(), recorded.clone());
                     }
-                    cache.insert(id.clone(), members.clone());
-                }
-                if members.is_none() {
-                    crate::util::record_unresolved_freeze_quorum();
-                    tracing::warn!(
-                        partition = handoff.partition,
-                        quorum_id = %id,
-                        "freeze quorum record is missing; requiring every live router"
-                    );
+                    // Never cached: a chunked plan's re-puts can
+                    // re-create a swept record, so absence is not
+                    // permanent — and pinning it would hold every later
+                    // resolution on the every-live-router fallback.
+                    None => {
+                        crate::util::record_unresolved_freeze_quorum();
+                        tracing::warn!(
+                            partition = handoff.partition,
+                            quorum_id = %id,
+                            "freeze quorum record is missing; requiring every live router"
+                        );
+                    }
                 }
                 Ok(members)
             }
@@ -1045,22 +1069,42 @@ impl PersonhogStore {
         }
     }
 
-    /// The ids of every membership record currently stored.
-    pub async fn list_freeze_quorum_ids(&self) -> Result<Vec<String>> {
+    /// The ids of every membership record currently stored, each with
+    /// its mod_revision for the sweep's guarded delete.
+    pub async fn list_freeze_quorum_ids(&self) -> Result<Vec<(String, i64)>> {
         count_call("list_freeze_quorum_ids");
         let prefix = self.key(StoreKey::FreezeQuorumsPrefix);
-        let keys = self.inner.list_keys(&prefix).await?;
+        let keys = self.inner.list_keys_with_mod_revisions(&prefix).await?;
         Ok(keys
             .iter()
-            .filter_map(|key| key.strip_prefix(prefix.as_str()))
-            .map(str::to_string)
+            .filter_map(|(key, rev)| {
+                key.strip_prefix(prefix.as_str())
+                    .map(|id| (id.to_string(), *rev))
+            })
             .collect())
     }
 
-    pub async fn delete_freeze_quorum(&self, id: &str) -> Result<()> {
+    /// Delete a membership record only if unchanged since `mod_revision`.
+    /// A chunked plan re-puts its record with every chunk, so a re-put
+    /// after the sweep's read bumps the revision and the delete loses —
+    /// otherwise the sweep could collect a record a chunk it never saw
+    /// still references.
+    pub async fn delete_freeze_quorum_if_unchanged(
+        &self,
+        id: &str,
+        mod_revision: i64,
+    ) -> Result<bool> {
         count_call("delete_freeze_quorum");
         let key = self.key(StoreKey::FreezeQuorum(id));
-        Ok(self.inner.delete(&key).await?)
+        let txn = Txn::new()
+            .when(vec![Compare::mod_revision(
+                key.clone(),
+                CompareOp::Equal,
+                mod_revision,
+            )])
+            .and_then(vec![TxnOp::delete(key, None)]);
+        let resp = self.inner.txn(txn).await?;
+        Ok(resp.succeeded())
     }
 
     // ── Leader election ─────────────────────────────────────────

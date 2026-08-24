@@ -5502,8 +5502,8 @@ async fn a_cached_absent_membership_still_requires_every_live_router() {
         handoff_id: handoff.handoff_id.clone(),
     }];
 
-    // Resolve twice: the first read populates the cache, the second is
-    // answered from it. Both must say the same thing.
+    // Resolve twice: absence is never cached, so both are reads — and
+    // both must say the same thing.
     for pass in 1..=2 {
         let quorum = store
             .resolve_freeze_quorum(&handoff)
@@ -5611,10 +5611,17 @@ async fn a_membership_already_read_is_answered_without_reading_again() {
         "the first resolution reads the record"
     );
 
-    store
-        .delete_freeze_quorum(id)
+    let (_, mod_revision) = store
+        .list_freeze_quorum_ids()
         .await
-        .expect("delete the membership");
+        .expect("list memberships")
+        .into_iter()
+        .find(|(listed, _)| listed == id)
+        .expect("the membership is listed");
+    assert!(store
+        .delete_freeze_quorum_if_unchanged(id, mod_revision)
+        .await
+        .expect("delete the membership"));
     assert!(
         store
             .get_freeze_quorum(id)
@@ -5759,4 +5766,177 @@ async fn a_conflicted_partition_stands_down_alone() {
         "the winner's record must survive"
     );
     assert_eq!(ids.len(), total as usize);
+}
+
+/// The stale-quorum sweep's delete is guarded on the revision it listed:
+/// a chunked plan re-puts its record with every chunk, and a re-put
+/// after the sweep's read must win — otherwise the sweep collects a
+/// record the chunk it never saw still references.
+#[tokio::test]
+async fn a_swept_quorum_delete_loses_to_a_concurrent_re_put() {
+    use personhog_coordination::types::AssignmentPrecondition;
+
+    let store = test_store("quorum-sweep-guarded").await;
+    let quorum_id = "shared-quorum";
+    let quorum = vec!["router-0".to_string()];
+    let handoff = |partition: u32| HandoffState {
+        partition,
+        old_owner: None,
+        new_owner: "pod-new".to_string(),
+        new_owner_address: None,
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: format!("handoff-{partition}"),
+        freeze_quorum: None,
+        freeze_quorum_ref: Some(quorum_id.to_string()),
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+    };
+    let listed_revision = |store: Arc<personhog_coordination::store::PersonhogStore>| async move {
+        store
+            .list_freeze_quorum_ids()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|(id, _)| id == quorum_id)
+            .map(|(_, rev)| rev)
+    };
+
+    // The sweep's read: the first chunk wrote the record.
+    store
+        .apply_plan(
+            &[],
+            &[handoff(0)],
+            &[],
+            &[AssignmentPrecondition::Absent { partition: 0 }],
+            Some((quorum_id, &quorum)),
+            128,
+        )
+        .await
+        .unwrap();
+    let swept = listed_revision(Arc::clone(&store)).await.expect("listed");
+
+    // A later chunk re-puts it before the sweep deletes.
+    store
+        .apply_plan(
+            &[],
+            &[handoff(1)],
+            &[],
+            &[AssignmentPrecondition::Absent { partition: 1 }],
+            Some((quorum_id, &quorum)),
+            128,
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        !store
+            .delete_freeze_quorum_if_unchanged(quorum_id, swept)
+            .await
+            .unwrap(),
+        "a delete guarded on the pre-chunk revision must lose"
+    );
+    assert_eq!(
+        store.get_freeze_quorum(quorum_id).await.unwrap(),
+        Some(quorum.clone()),
+        "the record the later chunk references must survive"
+    );
+
+    let current = listed_revision(Arc::clone(&store)).await.expect("listed");
+    assert!(
+        store
+            .delete_freeze_quorum_if_unchanged(quorum_id, current)
+            .await
+            .unwrap(),
+        "a delete guarded on the current revision applies"
+    );
+}
+
+/// A missing membership record is not remembered as missing: a chunked
+/// plan can re-create a swept record, and a pinned absence would hold
+/// every later resolution on the every-live-router fallback.
+#[tokio::test]
+async fn a_missing_membership_is_resolved_again_once_written() {
+    use personhog_coordination::types::AssignmentPrecondition;
+
+    let store = test_store("quorum-absence-not-cached").await;
+    let quorum_id = "late-written";
+    let quorum = vec!["router-0".to_string()];
+    let handoff = HandoffState {
+        partition: 0,
+        old_owner: None,
+        new_owner: "pod-new".to_string(),
+        new_owner_address: None,
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+        handoff_id: "handoff-late".to_string(),
+        freeze_quorum: None,
+        freeze_quorum_ref: Some(quorum_id.to_string()),
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+    };
+
+    assert!(store
+        .resolve_freeze_quorum(&handoff)
+        .await
+        .unwrap()
+        .is_none());
+
+    store
+        .apply_plan(
+            &[],
+            std::slice::from_ref(&handoff),
+            &[],
+            &[AssignmentPrecondition::Absent { partition: 0 }],
+            Some((quorum_id, &quorum)),
+            128,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        store.resolve_freeze_quorum(&handoff).await.unwrap(),
+        Some(quorum),
+        "a record written after a miss must resolve on the next look"
+    );
+}
+
+/// A configured budget above the server's live `--max-txn-ops` (values
+/// drift, a member not yet restarted with the raised flag) must degrade
+/// to per-partition transactions rather than hand the planner a
+/// rejection it would retry forever.
+#[tokio::test]
+async fn an_over_server_budget_chunk_degrades_to_per_unit_transactions() {
+    use personhog_coordination::types::AssignmentPrecondition;
+
+    let store = test_store("plan-over-server-budget").await;
+    let total: u32 = 100;
+    let handoffs: Vec<HandoffState> = (0..total)
+        .map(|partition| HandoffState {
+            partition,
+            old_owner: None,
+            new_owner: "pod-survivor".to_string(),
+            new_owner_address: None,
+            phase: HandoffPhase::Freezing,
+            started_at: 0,
+            handoff_id: format!("handoff-{partition}"),
+            freeze_quorum: Some(Vec::new()),
+            freeze_quorum_ref: None,
+            created_at_ms: 0,
+            phase_entered_at_ms: 0,
+        })
+        .collect();
+    let preconditions: Vec<AssignmentPrecondition> = (0..total)
+        .map(|partition| AssignmentPrecondition::Absent { partition })
+        .collect();
+
+    // 200 compares in one chunk against the suite's default-limits etcd.
+    let application = store
+        .apply_plan(&[], &handoffs, &[], &preconditions, None, 100_000)
+        .await
+        .expect("an over-budget chunk must fall back, not fail");
+
+    assert_eq!(application.applied.len(), total as usize);
+    assert!(application.conflicted.is_empty());
+    assert_eq!(store.list_handoffs().await.unwrap().len(), total as usize);
 }
