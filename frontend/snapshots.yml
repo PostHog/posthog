@@ -6292,6 +6292,10 @@ snapshots:
         hash: v1.k794b7964.a38909c8222409c5fa2174c283833ab419c75a0ed5420da095a9aded11bf6532.5EK4l32txmbHcS11UWiwesynVVHf7FKe98dPAeWsjkw
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.ec64583fd2debf87822296f1c9fc10e73c1c6b7e31fe55f0ca974d3920f8bd14.Ch64gBgjo0wR0Ypvkhap6047UPjXBaWSQCNoKDOiNHc
+    scenes-app-experiments--experiment-replay-scanner-backlink--dark:
+        hash: v1.k794b7964.e04ec522e5f690078c89c21f4e160d067f13c755e65988852d89dbc624e4c74b.DbWktEPnIBX15xGlIGLocMuFHo7CzbH-yVTgowQMnck
+    scenes-app-experiments--experiment-replay-scanner-backlink--light:
+        hash: v1.k794b7964.c6573bba587cbabd798e942c29bd722fea308624f4cffda71303fb2b110dd7e0.j-wHlxQDewiAsZ_lDoIuGozhNEb_FEGu0tT0I_UXkMY
     scenes-app-experiments--experiment-stopped-with-conclusion--dark:
         hash: v1.k794b7964.0ed912970ce0a55c45fd54799febd21547cedb04534a56e8e789f7ee787c3b39.L7iFT9xjm0sWN6iCtvk9K_z2PKUSEOYkHI_b1oizB2M
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
@@ -6817,9 +6821,9 @@ snapshots:
     scenes-app-insights-error-empty-states--funnel-single-step--light:
         hash: v1.k794b7964.66bd00443e2e711874ed527bf57144f29725e97fe6485bd851a5a08fc1312baa.tlLUxnCoHj_VOErbA4ZPNkryCh306EmzhqWZkD8heAU
     scenes-app-insights-error-empty-states--long-loading--dark:
-        hash: v1.k794b7964.a6429bcd1656dc70e30624f2e2f222d77d001a2a0e6fd49e0715598251e08e5e.GjorOUsq0kK5NJezAdyIBqFjJBIveAR3brvuMItSSYc
+        hash: v1.k794b7964.72e7d9beabdb4e291b0150aecdcf78c88a1ecf0464ced8f7efe7ef2f441b1f77.jI0dBJdHaLqMcbeNMNotrnhAkK8k6KKxoE1F3RaGkvo
     scenes-app-insights-error-empty-states--long-loading--light:
-        hash: v1.k794b7964.e3f760b8e3b6d5138169be92e3a8026a00e7ec2ee9e252e54b67218df282b804.z796JAdbdGr_wQgg7t4XD97z7nQoKC3qrjEVudqDDeU
+        hash: v1.k794b7964.5e24ead32c7a27ccf972e4a3e149988c9e01825c22c5e6f9dc38ce51ebd90438.IgyBpoiGeHX0kzqL6bxOeoNODhUHp_3itx8CaUyrxHw
     scenes-app-insights-error-empty-states--memory-limit-exceeded--dark:
         hash: v1.k794b7964.ef18ee16bcec4b43d74979a5131a3f325f8e0542b6b4cba050746f6b02699ab9.kOLq5BxzD8AlGlxKgleq3uJTw_ddM6GTSmML4MNaZ5o
     scenes-app-insights-error-empty-states--memory-limit-exceeded--light:
