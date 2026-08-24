@@ -1,5 +1,7 @@
 import pytest
 
+from django.db.models import Field
+
 from pydantic import ValidationError
 
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
@@ -164,7 +166,9 @@ _REGISTERED_IDENTITIES = sorted({(c.source_product, c.source_type) for c in _SIG
 
 def _field_choices(field_name: str) -> set[str]:
     # The field's own choices are what ModelSerializer turns into the ChoiceField the API validates.
-    return {value for value, _label in SignalSourceConfig._meta.get_field(field_name).choices}
+    field = SignalSourceConfig._meta.get_field(field_name)
+    assert isinstance(field, Field)
+    return {value for value, _label in field.choices or ()}
 
 
 class TestAutoRegistered:
