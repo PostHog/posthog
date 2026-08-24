@@ -1,8 +1,9 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { urls } from '~/scenes/urls'

@@ -119,7 +119,9 @@ class TestComputeActivityAIConsentGate:
         assert exc_info.value.non_retryable
         assert AI_CONSENT_REQUIRED_MESSAGE in str(exc_info.value)
 
-        snapshot = await database_sync_to_async(MCPIntentClusterSnapshot.objects.for_team(team.id).get)()
+        # `for_team` resolves the team with its own query, so build the queryset inside the
+        # thread rather than passing an already-built one in.
+        snapshot = await database_sync_to_async(lambda: MCPIntentClusterSnapshot.objects.for_team(team.id).get())()
         assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
         assert snapshot.error_message == AI_CONSENT_REQUIRED_MESSAGE
 
