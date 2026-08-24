@@ -627,11 +627,10 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     other non-token auth. Single source of truth for the token->scopes mapping, shared by
     APIScopePermission and cross-resource scope checks so the two cannot drift — if they
     did, one path could grant access while the other skipped its check."""
-    credential = get_authenticator_user_credential(authenticator)
-    if isinstance(credential, PersonalAPIKey):
-        return list(credential.scopes or [])
-    if isinstance(credential, OAuthAccessToken):
-        return str(credential.scope or "").split()
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return list(authenticator.personal_api_key.scopes or [])
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return str(authenticator.access_token.scope or "").split()
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
