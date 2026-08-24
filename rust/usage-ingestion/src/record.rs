@@ -7,7 +7,10 @@ use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageMode, BillingUsageR
 use uuid::Uuid;
 
 const CLICKHOUSE_DATETIME64_YEARS: Range<i32> = 1900..2300;
-const MAX_IDENTIFIER_LENGTH: usize = 200;
+/// A record_id may have to mirror a whole dedup identity: the analytics producers compose
+/// theirs from the events table's sorting key, whose event name and distinct_id are each
+/// capped at 200. Rejecting one would drop the record and under-bill.
+const MAX_IDENTIFIER_LENGTH: usize = 512;
 const MAX_DIMENSIONS: usize = 50;
 const MAX_DIMENSION_LENGTH: usize = 500;
 
@@ -24,7 +27,7 @@ pub enum ValidationError {
     #[error("delta quantity must be positive")]
     InvalidDeltaQuantity,
     #[error(
-        "event_timestamp_ms must be milliseconds since the epoch, between years 1900 and 2300"
+        "timestamp_ms must be milliseconds since the epoch, between years 1900 and 2300"
     )]
     InvalidTimestamp,
     #[error("mode must be delta or snapshot")]
@@ -46,7 +49,7 @@ pub struct KafkaBillingUsageRecord {
     pub mode: String,
     pub unit: String,
     pub quantity: i64,
-    pub event_timestamp: String,
+    pub timestamp: String,
     pub inserted_at: String,
     pub dimensions: std::collections::HashMap<String, String>,
 }
@@ -88,7 +91,7 @@ impl KafkaBillingUsageRecord {
         };
         // This protects the Kafka engine rather than defining a billing-time policy. Tighten the
         // accepted range when producers have an explicit backfill and future-skew contract.
-        let event_timestamp = DateTime::from_timestamp_millis(record.event_timestamp_ms)
+        let timestamp = DateTime::from_timestamp_millis(record.timestamp_ms)
             .filter(|value| CLICKHOUSE_DATETIME64_YEARS.contains(&value.year()))
             .ok_or(ValidationError::InvalidTimestamp)?;
 
@@ -102,7 +105,7 @@ impl KafkaBillingUsageRecord {
             mode: mode.to_string(),
             unit: record.unit,
             quantity: record.quantity,
-            event_timestamp: event_timestamp.to_rfc3339_opts(SecondsFormat::Millis, true),
+            timestamp: timestamp.to_rfc3339_opts(SecondsFormat::Millis, true),
             inserted_at: inserted_at.to_rfc3339_opts(SecondsFormat::Millis, true),
             dimensions: record.dimensions,
         })
