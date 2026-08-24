@@ -1,8 +1,12 @@
-import { BellIcon, ChecksIcon } from "@phosphor-icons/react";
+import { BellIcon, ChecksIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
   Button,
   cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -91,19 +95,32 @@ export function ActivityFeedList({
       <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-3">
         <span className="font-bold text-base">Activity</span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {unreadItems.length > 0 && (
-            <Button
-              variant="default"
-              size="sm"
-              loading={isMarkingRead}
-              disabled={isMarkingRead}
-              onClick={markAllRead}
-            >
-              <ChecksIcon size={14} />
-              {markLoadedReadLabel(unreadItems.length, unreadCount)}
-            </Button>
-          )}
           <ActivityUnreadsToggle />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="default"
+                  size="icon-sm"
+                  aria-label="Activity actions"
+                  loading={isMarkingRead}
+                  disabled={isMarkingRead}
+                >
+                  <DotsThreeIcon size={14} weight="bold" />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+              <DropdownMenuItem
+                disabled={isMarkingRead || unreadItems.length === 0}
+                onClick={markAllRead}
+              >
+                <ChecksIcon size={14} />
+                {markLoadedReadLabel(unreadItems.length, unreadCount)}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <div ref={setScrollRoot} className="min-h-0 flex-1 overflow-y-auto p-1.5">

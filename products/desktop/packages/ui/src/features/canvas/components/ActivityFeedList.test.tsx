@@ -1,6 +1,6 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -9,13 +9,49 @@ const mocks = vi.hoisted(() => ({
   isFetchingNextPage: false,
   items: [] as TaskActivityItem[],
   markRead: vi.fn(),
+  unreadCount: 0,
 }));
 
 vi.mock("@posthog/quill", () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
-  Button: ({ children }: { children: ReactNode }) => (
-    <button type="button">{children}</button>
+  Button: ({
+    children,
+    disabled,
+    onClick,
+    "aria-label": ariaLabel,
+  }: {
+    children: ReactNode;
+    disabled?: boolean;
+    onClick?: () => void;
+    "aria-label"?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   ),
+  DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DropdownMenuItem: ({
+    children,
+    disabled,
+    onClick,
+  }: {
+    children: ReactNode;
+    disabled?: boolean;
+    onClick?: () => void;
+  }) => (
+    <button type="button" disabled={disabled} onClick={onClick}>
+      {children}
+    </button>
+  ),
+  DropdownMenuTrigger: ({ render }: { render: ReactElement }) => render,
   Empty: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   EmptyDescription: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
@@ -78,7 +114,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
   useTaskActivity: () => ({
     items: mocks.items,
-    unreadCount: 0,
+    unreadCount: mocks.unreadCount,
     isLoading: false,
     hasNextPage: mocks.hasNextPage,
     isFetchingNextPage: mocks.isFetchingNextPage,
@@ -99,6 +135,7 @@ describe("ActivityFeedList", () => {
     mocks.hasNextPage = true;
     mocks.isFetchingNextPage = false;
     mocks.items = [];
+    mocks.unreadCount = 0;
     useActivityFilterStore.setState({ unreadsOnly: false });
   });
 
@@ -135,6 +172,37 @@ describe("ActivityFeedList", () => {
         task_id: "task-1",
         seen_before: "2026-08-07T00:00:00Z",
         activity_id: "activity-1",
+      },
+    ]);
+  });
+
+  it("puts the mark-all action in a menu after the unreads switch", () => {
+    mocks.unreadCount = 1;
+    mocks.items = [
+      {
+        id: "activity-1",
+        taskId: "task-1",
+        activityAt: "2026-08-07T00:00:00Z",
+        activityKind: "completed",
+        isUnread: true,
+      } as TaskActivityItem,
+    ];
+
+    render(<ActivityFeedList />);
+
+    const unreadsSwitch = screen.getByRole("switch", { name: "Unreads" });
+    const activityActions = screen.getByRole("button", {
+      name: "Activity actions",
+    });
+    expect(unreadsSwitch.compareDocumentPosition(activityActions)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+    expect(mocks.markRead).toHaveBeenCalledWith([
+      {
+        task_id: "task-1",
+        seen_before: "2026-08-07T00:00:00Z",
       },
     ]);
   });

@@ -2,6 +2,7 @@ import {
   BellIcon,
   CheckIcon,
   ChecksIcon,
+  DotsThreeIcon,
   LinkIcon,
   RobotIcon,
 } from "@phosphor-icons/react";
@@ -11,6 +12,10 @@ import {
   AvatarFallback,
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -240,19 +245,6 @@ export function ActivityView() {
     });
   }, []);
 
-  const markAllReadButton = (
-    <Button
-      variant="default"
-      size="sm"
-      loading={isMarkingRead}
-      disabled={isMarkingRead}
-      onClick={markAllRead}
-    >
-      <ChecksIcon size={14} />
-      {markLoadedReadLabel(unreadItems.length, visibleUnreadCount)}
-    </Button>
-  );
-
   // Sits below the rows and below the empty state alike: filtering to unreads can
   // empty a page that still has unread activity waiting on the next one.
   const loadMoreButton = hasNextPage && (
@@ -325,8 +317,32 @@ export function ActivityView() {
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {unreadCount > 0 && markAllReadButton}
             <ActivityUnreadsToggle />
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="icon-sm"
+                    aria-label="Activity actions"
+                    loading={isMarkingRead}
+                    disabled={isMarkingRead}
+                  >
+                    <DotsThreeIcon size={14} weight="bold" />
+                  </Button>
+                }
+              />
+              <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+                <DropdownMenuItem
+                  disabled={isMarkingRead || unreadItems.length === 0}
+                  onClick={markAllRead}
+                >
+                  <ChecksIcon size={14} />
+                  {markLoadedReadLabel(unreadItems.length, visibleUnreadCount)}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div className="mt-4">{feed}</div>
