@@ -397,6 +397,11 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // $feature_flag_called fork into the flag_evaluations ClickHouse table.
         // Teams default empty so flipping the mode alone forks nobody; ramp by
         // naming teams (or '*') in INGESTION_FLAG_EVALUATIONS_TEAMS.
+        //
+        // On a split lane the fork runs in the Node processor pool, not in the
+        // Rust consumer that dispatches to it, so these belong on the lane's base
+        // values.yaml, which both roles inherit. Setting them on the consumer
+        // release alone does nothing.
         INGESTION_FLAG_EVALUATIONS_MODE: 'disabled',
         INGESTION_FLAG_EVALUATIONS_TEAMS: '',
         INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: '',

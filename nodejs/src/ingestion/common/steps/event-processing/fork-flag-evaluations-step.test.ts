@@ -165,20 +165,20 @@ describe('createForkFlagEvaluationsStep', () => {
     })
 
     describe('mapping/produce failure isolation', () => {
-        it('rides the raw rejecting ack in sideEffects when the produce fails asynchronously', async () => {
+        it('settles the ack rather than rejecting when the produce fails asynchronously', async () => {
             const { step, outputs } = createStep(enabledService())
             outputs.queueMessages.mockRejectedValue(new Error('produce failed'))
             const input = createInput()
 
             const result = await step(input)
 
-            // The raw rejecting ack must ride in sideEffects unswallowed, because
-            // it is what gates the batch's offset commit on the produce landing.
+            // A failed shadow produce must never reach the batch as a rejection.
+            // See createForkFlagEvaluationsStep for why.
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 expect(result.value).toBe(input)
                 expect(result.sideEffects).toHaveLength(1)
-                await expect(result.sideEffects[0]).rejects.toThrow('produce failed')
+                await expect(result.sideEffects[0]).resolves.toBeUndefined()
             }
             // A failed produce must never report as dual-written, and must be
             // counted rather than dropped silently.
@@ -222,9 +222,8 @@ describe('createForkFlagEvaluationsStep', () => {
 
             const result = await step(input)
 
-            // An oversized row is the same size on redelivery, so gating the offset
-            // commit on it would replay the partition forever. emit-event skips an
-            // oversized event for the same reason.
+            // An oversized row gets its own outcome and no warning, because
+            // retrying or alerting on it would change nothing.
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 await expect(result.sideEffects[0]).resolves.toBeUndefined()
@@ -240,7 +239,10 @@ describe('createForkFlagEvaluationsStep', () => {
             outputs.queueMessages.mockImplementation(() => {
                 throw new Error('sync produce failure')
             })
-            const input = createInput()
+            const input = createInput([
+                createProcessedEvent({ uuid: 'event-uuid-1' }),
+                createProcessedEvent({ uuid: 'event-uuid-2', properties: { $feature_flag_response: true } }),
+            ])
 
             const result = await step(input)
 
@@ -251,6 +253,14 @@ describe('createForkFlagEvaluationsStep', () => {
                 expect(result.value).toBe(input)
                 expect(result.sideEffects).toHaveLength(0)
             }
+            // One outcome per event: the invalid-key event is already counted, so
+            // continued_fork_error covers only the remaining one.
+            expect((await flagEvaluationsEventsTotal.get()).values).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ labels: { outcome: 'continued_invalid_flag_key' }, value: 1 }),
+                    expect.objectContaining({ labels: { outcome: 'continued_fork_error' }, value: 1 }),
+                ])
+            )
         })
     })
 })
