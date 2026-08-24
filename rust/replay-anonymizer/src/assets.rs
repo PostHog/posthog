@@ -54,7 +54,7 @@ pub(crate) fn tag_src_is_image(tag: &str) -> bool {
 ///
 /// A subset of [`MEDIA_SRC_ATTRS`], because the rest do not name one fetchable image.
 ///
-/// `src` and `rr_src` need the tag as well as the name.
+/// `src` needs the tag as well as the name.
 ///
 /// Without the tag check, the lane collects the `src` of a `<video>`, an `<audio>` or a `<track>`.
 /// The mutation path is worse: rrweb sends attributes with no tag, so any `src` passes, including
@@ -64,18 +64,9 @@ pub(crate) fn tag_src_is_image(tag: &str) -> bool {
 /// a different workload and a different data-classification question. `tag_src_is_image` is false
 /// on the tagless mutation path, so that path declines rather than guesses.
 ///
-/// `poster` needs no tag check. It exists only on a video element and it always names a still
-/// image.
-///
-/// `srcset` holds several candidates with descriptors, so it needs a parse and a choice of which
-/// candidate to fetch. `href` and `xlink:href` on a media tag are as often a link or an SVG
-/// fragment reference as an image. Both can be added later without changing anything else here.
+/// The other media attributes remain out of scope until the fetcher specification includes them.
 pub(crate) fn is_fetchable_src_attr(name: &str, tag_src_is_image: bool) -> bool {
-    match name {
-        "poster" => true,
-        "src" | "rr_src" => tag_src_is_image,
-        _ => false,
-    }
+    name == "src" && tag_src_is_image
 }
 
 /// True if an attribute map contains any media-source attribute.

@@ -108,16 +108,56 @@ There the class crosses for registration only, core drives only the registry's m
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
 Two products hold entries.
 `warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
-`product_analytics`: `Insight` and `InsightVariable`.
+`product_analytics`: `Insight`, `InsightVariable` and `InsightViewed`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
+`InsightViewed` crosses for the view-tracking upsert (`update_or_create`) that shared-insight rendering and the demo generator perform.
 The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
+
 An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
 That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
 The list lives in `MODEL_CROSSINGS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is keyed `(product, class)`, like the carve-outs above: a class that is not listed is a leak and blocks narrowing, so a product already on the list cannot grow a new crossing without a doctrine change.
 It only shrinks.
 Adding an entry requires amending this section to name the class and why it cannot yet be a contract.
-The bar is that some consumer needs ORM semantics a contract cannot express — relation traversal, queryset-typed downstream APIs like access-control filtering, row locking, or model behavior.
-A consumer that only reads fields, or that ends in `values_list`, is disqualifying: the remedy there is a facade function returning contracts, not an entry here.
+
+**The consumer side is default-deny.**
+A crossing class may appear in consumer code only in a shape that `hogli product:crossings` identifies as instance-free.
+These shapes are allowed:
+
+- an annotation, on an argument, a return, or a variable;
+- `X.DoesNotExist`;
+- a nested class attribute, such as `X.Status` or `X.PrivilegeLevel`;
+- `X._meta`;
+- a manager chain that ends in `values()`, `values_list()`, `count()`, `exists()`, or `aggregate()`;
+- a manager chain that `Exists(...)` or `Subquery(...)` embeds.
+
+Every other use is disallowed.
+The check does not ask what the consumer intended.
+If the check does not identify a use as instance-free, change the caller.
+
+**Move the code, do not permit it.**
+Code that queries, serializes, or writes a model belongs in that model's product.
+A consumer that holds such code is misplaced code, not a coupling to document.
+Move the code into the owning product.
+The facade function is what the move leaves behind.
+The consumer keeps the orchestration and the ids.
+
+**The ratchet.**
+`products/model_crossing_uses_baseline.txt` records every disallowed use still in the tree: one line for each crossing class, consumer module, kind, and count.
+A repo-invariant test compares that file against a fresh scan, in both directions.
+A count can go down.
+A count must not go up.
+A use that goes away must leave the file in the same change.
+Run `hogli product:crossings <product>` to see the uses of one product's classes.
+Run `hogli product:crossings --all --write-baseline` to record a decrease.
+
+**What the check cannot see.**
+The check reads uses of the class name.
+It does not read two things:
+
+- attribute access on an instance the consumer already holds, inside a function body;
+- traversal of a foreign key that the consumer's own model declares.
+
+Both are a declared residual, not permission to add more.
 
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
@@ -145,6 +185,10 @@ myproduct/
       tasks.py         # Celery entrypoints (call facade)
       schedules.py     # Celery beat / periodic config (optional)
 
+    management/
+      commands/
+        <command>.py   # CLI entrypoints (parse args, call facade)
+
     facade/
       __init__.py
       api.py           # Facade (the only thing other products may import)
@@ -156,6 +200,8 @@ myproduct/
       serializers.py   # DRF serializers (frozen dataclasses <-> JSON)
       views.py         # DRF views (HTTP endpoints)
       urls.py          # HTTP routing
+
+    routes.py          # register_routes(routers): the one module core reads to mount the views
 
     tests/
       test_models.py
@@ -172,6 +218,18 @@ myproduct/
 - Keeps the product root clean
 - Provides an explicit, enforced boundary (`facade/`)
 - Scales naturally with contract-based selective testing
+
+### Which locations are fixed, and which are yours
+
+Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
+They are the narrowed `backend:contract-check` inputs, and two import-linter contracts hold the HTTP surface inside them by shape: `routes.py` may only import `presentation/`, and `presentation/` may only import `facade/`.
+Core reaches a product's views only through `routes.py`, so the chain core → routes → presentation → facade is three import edges, and a view anywhere else simply cannot be routed.
+`hogli product:lint` holds the same two rules by reading the imports directly, because import-linter cannot see a module under a directory without `__init__.py`.
+
+Everything else under `backend/` is internal implementation.
+`logic/` is the default home and the scaffold creates it as a package, but as a domain grows into `services/`, `queries/`, `reviewer/`, or whatever it is called in that product, no lint polices the name.
+Nothing outside the product can import those packages, and their changes are exactly what the isolation skip is meant to skip.
+The boundary is the shape of what crosses the facade, not the location of what stays behind it.
 
 For the broader monorepo structure (products, services, platform), see [monorepo-layout.md](/docs/internal/monorepo-layout.md).
 
@@ -291,9 +349,10 @@ The value isn't the copying — it's having **one place** where "internal" becom
 
 The alternative — returning ORM objects — works until it doesn't, then you're retrofitting isolation under pressure.
 
-# 6. Business Logic (backend/logic.py)
+# 6. Business Logic (backend/logic/)
 
 Business logic lives here: validation, calculations, business rules, ORM queries.
+Further internal packages beside it are fine (see [Which locations are fixed](#which-locations-are-fixed-and-which-are-yours)).
 
 Start as a single `logic.py`.
 Once it outgrows one file, split it into a `logic/` package with one module per concern and mirror that split in `tests/logic/` — `products/visual_review/backend/logic/` is the reference, and `/splitting-oversized-modules` does the move.
@@ -327,6 +386,8 @@ Responsibilities:
 
 Presentation may only import `facade` and other `presentation` modules within the same product. It must not import `models`, `logic`, or any other internal module directly — even utility modules like `cache.py` or `permissions.py`. This is enforced by import-linter in CI.
 
+`backend/routes.py` may only import `presentation` — it exists to hand the views to core's router (`register_routes(routers)`), nothing else. Also enforced by import-linter; a product whose routes still register views from `backend/api/` carries a grandfathered `ignore_imports` line, and `hogli product:maturity` counts it as an open presentation bypass until `hogli product:isolate:move` relocates them.
+
 ### Where do cross-cutting utilities go?
 
 If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
@@ -349,6 +410,14 @@ The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` /
 ### Don't API views leak implementation?
 
 No. Views only call facades, and facades only return frozen dataclasses. The presentation layer remains decoupled from internal details — when the facade hasn't changed, nothing outside the product is affected.
+
+### Management commands
+
+`backend/management/commands/` is an entrypoint, the same as presentation and `tasks/`. A command reads its arguments, calls the facade, and writes its output through `self.stdout` and `self.stderr`. Do not put business logic in a command.
+
+The import-linter contract applies only to `presentation/`. It does not include this directory. Reviewers must enforce this rule.
+
+A command sometimes needs a capability that the facade does not have. Add the necessary facade function. Do not import `logic` or `models` in the command.
 
 # 8. Isolation Rules
 

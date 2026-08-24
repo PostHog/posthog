@@ -142,6 +142,7 @@ export const NO_ITEM_SELECTED = -1
 const DATA_WAREHOUSE_GROUP_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.DataWarehouse,
     TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
 ]
 
 export function getInitialPinnedRowIndex({

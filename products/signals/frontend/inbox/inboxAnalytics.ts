@@ -94,12 +94,12 @@ export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
 
 /**
- * Scout-management actions. The first block matches desktop's enum; the trailing three are
- * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, and the
- * scratchpad callout).
+ * Scout-management actions. The first block matches desktop's enum; the trailing block is
+ * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
+ * scratchpad callout, and the roster's on/off filter and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -122,6 +122,8 @@ export type ScoutActionType =
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
+    | 'filter_enabled'
+    | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'

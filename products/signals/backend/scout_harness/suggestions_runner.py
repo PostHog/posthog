@@ -22,11 +22,6 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT_SUGGESTIONS, resolve_agent_runtime
 from products.signals.backend.quota import is_team_signals_quota_limited
-from products.signals.backend.sandbox import (
-    SIGNALS_REPORT_RESEARCH_ENV_NAME,
-    get_or_create_signals_sandbox_env,
-    resolve_acting_user_id_for_team,
-)
 from products.signals.backend.scout_harness.config_registry import (
     MAX_RUN_INTERVAL_MINUTES,
     MIN_RUN_INTERVAL_MINUTES,
@@ -44,6 +39,11 @@ from products.signals.backend.scout_harness.suggestions import (
     fleet_context,
     mark_generation_failed,
     persist_suggestion_batch,
+)
+from products.signals.backend.temporal.agentic import (
+    SIGNALS_REPORT_RESEARCH_ENV_NAME,
+    get_or_create_signals_sandbox_env,
+    resolve_acting_user_id_for_team,
 )
 from products.skills.backend.api.skill_serializers import validate_skill_name_value
 from products.tasks.backend.facade import api as tasks_facade

@@ -88,6 +88,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except Evaluation.DoesNotExist:
             return Response({"error": f"Evaluation {evaluation_id} not found"}, status=404)
 
+        self.check_object_permissions(request, evaluation)
+
         # This endpoint runs one $ai_generation through the generation workflow. Without this check
         # a trace- or session-target evaluation is accepted and run as a generation, emitting a
         # verdict with $ai_target_type "generation_uuid" under that evaluation's name — which then

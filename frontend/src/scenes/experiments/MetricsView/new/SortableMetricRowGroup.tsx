@@ -21,7 +21,9 @@ const MetricDragHandle = ({
         <button
             type="button"
             ref={setActivatorNodeRef}
-            className="touch-none cursor-grab active:cursor-grabbing text-muted hover:text-default transition-colors border-none bg-transparent p-0 flex-shrink-0"
+            // The IconDrag glyph only fills the middle of its viewBox, so without the negative
+            // margin the visible dots sit much closer to the title than to the cell border.
+            className="touch-none cursor-grab active:cursor-grabbing text-muted hover:text-default transition-colors border-none bg-transparent p-0 flex-shrink-0 -ml-2"
             aria-label={`Reorder ${metricName}`}
             {...listeners}
             {...attributes}

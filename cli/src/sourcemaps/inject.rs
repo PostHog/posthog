@@ -110,14 +110,16 @@ pub fn inject_impl(
 }
 
 /// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
-/// `_posthogReleaseId` payload.
+/// `_posthogReleaseId` payload. A bundler-emitted debug id, when present, is adopted as the
+/// chunk id so one id identifies the chunk across the whole toolchain.
 pub fn inject_pairs(
     mut pairs: Vec<SourcePair>,
     release_id: Option<&str>,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         let Some(chunk_id) = pair.get_chunk_id() else {
-            let chunk_id = stable_chunk_id(&pair.source.inner.content);
+            let chunk_id = adopted_debug_id(pair)
+                .unwrap_or_else(|| stable_chunk_id(&pair.source.inner.content));
             pair.add_chunk_id(chunk_id, release_id)?;
             continue;
         };
@@ -138,6 +140,22 @@ pub fn inject_pairs(
     }
 
     Ok(pairs)
+}
+
+/// A bundler-emitted ECMA-426 debug id is already content-derived, so adopt it as the chunk id
+/// instead of deriving our own. Non-UUID values are refused: the id flows into upload rows and
+/// SDK events, and a malformed one is worse than a derived one.
+fn adopted_debug_id(pair: &SourcePair) -> Option<String> {
+    let debug_id = pair.get_debug_id()?;
+    if uuid::Uuid::parse_str(&debug_id).is_err() {
+        warn!(
+            "ignoring malformed debug id {:?} on {} — falling back to a content-derived chunk id",
+            debug_id,
+            pair.source.inner.path.display()
+        );
+        return None;
+    }
+    Some(debug_id)
 }
 
 /// Symbol-set-mode injection (the default): a random per-build chunk id and the created release
@@ -200,8 +218,11 @@ fn resolve_release_id(
 /// lands on the same row `sourcemap inject --release-mode=event` would have injected.
 pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
     let cwd = std::env::current_dir()?;
-    let release_args_were_provided =
-        release.name.is_some() || release.version.is_some() || release.build.is_some();
+    let release_args_were_provided = release.name.is_some()
+        || release.version.is_some()
+        || release.build.is_some()
+        || release.info_plist.is_some();
+    let release = release.resolve_info_plist()?;
     let mut builder: ReleaseBuilder = release.into();
     add_git_info_to_release_builder(&cwd, &mut builder, release_args_were_provided)?;
     if !builder.can_create() {
@@ -217,6 +238,11 @@ pub fn get_release_for_maps<'a>(
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
+    let release_args_were_provided = release.name.is_some()
+        || release.version.is_some()
+        || release.build.is_some()
+        || release.info_plist.is_some();
+    let release = release.resolve_info_plist()?;
     let needs_release = release.name.is_some()
         || release.version.is_some()
         || release.build.is_some()
@@ -224,8 +250,6 @@ pub fn get_release_for_maps<'a>(
 
     let mut created_release = None;
     if needs_release {
-        let release_args_were_provided =
-            release.name.is_some() || release.version.is_some() || release.build.is_some();
         let mut builder: ReleaseBuilder = release.into();
 
         add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
@@ -341,6 +365,7 @@ mod tests {
             name: name.map(String::from),
             version: version.map(String::from),
             build: build.map(String::from),
+            info_plist: None,
             skip_release_on_fail: true,
         }
     }

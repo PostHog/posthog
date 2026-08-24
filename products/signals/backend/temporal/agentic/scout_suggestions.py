@@ -37,7 +37,6 @@ from products.signals.backend.scout_harness.suggestions import (
     read_suggestion_settings,
     stamp_requested,
 )
-from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions
 
 logger = structlog.get_logger(__name__)
 
@@ -144,6 +143,10 @@ async def stamp_requested_scout_suggestions_activity(stamp_input: StampRequested
 async def run_scout_suggestions_activity(input: RunScoutSuggestionsInput) -> RunScoutSuggestionsOutput:
     """One headless suggestion scan for one team. Never raises for a failed generation; the row
     records the failure and the result carries `status='failed'`."""
+    # Deferred like the scout scheduler's runner import: the runner reaches back into this
+    # package for the sandbox helpers, and `temporal/__init__.py` imports this module.
+    from products.signals.backend.scout_harness.suggestions_runner import arun_scout_suggestions  # noqa: PLC0415
+
     settings = _settings_from_json(input.settings_json)
     try:
         async with Heartbeater():

@@ -37,7 +37,7 @@ export function PullRequestDetail({
     <InboxReportDetailGate
       reportId={reportId}
       cachedReport={cachedReport}
-      backTo="/code/inbox/pulls"
+      backTo="/inbox/pulls"
       backLabel="Back to pull requests"
       missingCopy="This pull request couldn't be found. It may have been deleted."
     >
@@ -54,7 +54,7 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
   return (
     <InboxDetailFrame
       report={report}
-      backTo="/code/inbox/pulls"
+      backTo="/inbox/pulls"
       backLabel="Back to pull requests"
       fallbackTitle="Untitled pull request"
       breadcrumb={

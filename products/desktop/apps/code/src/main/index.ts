@@ -22,7 +22,6 @@ import {
   SLACK_INTEGRATION_SERVICE,
 } from "@posthog/core/integrations/identifiers";
 import type { SlackIntegrationService } from "@posthog/core/integrations/slack";
-import type { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import type { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import type { ChannelLinkService } from "@posthog/core/links/channel-link";
 import type { InboxLinkService } from "@posthog/core/links/inbox-link";
@@ -53,7 +52,6 @@ import { initializeDeepLinks, registerDeepLinkHandlers } from "./deep-links";
 import { container } from "./di/container";
 import {
   APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE,
   AUTH_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
@@ -106,6 +104,7 @@ import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-inst
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
 import { createWindow, onMainWindowClosed } from "./window";
+import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
 type FileWatcherEventsByKind = {
   [K in FileWatcherEvent["kind"]]: Extract<FileWatcherEvent, { kind: K }>;
@@ -279,7 +278,6 @@ async function initializeServices(): Promise<void> {
   container.get<InboxLinkService>(INBOX_LINK_SERVICE);
   container.get<ScoutLinkService>(SCOUT_LINK_SERVICE);
   container.get<NewTaskLinkService>(NEW_TASK_LINK_SERVICE);
-  container.get<ApprovalLinkService>(APPROVAL_LINK_SERVICE);
   // Eagerly resolved so their constructors register the `canvas` / `channel` /
   // `loop` deep-link handlers at boot, before any link arrives.
   container.get<CanvasLinkService>(CANVAS_LINK_SERVICE);
@@ -371,6 +369,7 @@ app.whenReady().then(async () => {
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
+  installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
   createWindow();
   setupQuickAsk();
   // The hidden quick-ask panel must not keep the app alive after the main
