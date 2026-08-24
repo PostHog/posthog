@@ -92,7 +92,7 @@ export const metricsSqlEditorTrackingLogic = kea<metricsSqlEditorTrackingLogicTy
             ['addProductIntent'],
         ],
     })),
-    listeners(({ actions, cache }) => {
+    listeners(({ actions }) => {
         // Fires on submit, not on save success: intents measure interest, not achievement
         // (a user who names and submits a save has shown the interest we're after, even if
         // the request then fails), and sqlEditorLogic exposes no per-target success action
@@ -107,13 +107,6 @@ export const metricsSqlEditorTrackingLogic = kea<metricsSqlEditorTrackingLogicTy
         }
         return {
             sqlEditorRunQuery: () => {
-                // Skip the auto-init runQuery dispatched by MetricsSqlEditor's first mount.
-                // Trade-off: on revisit (queryInput already set, no auto-init), the user's first
-                // manual run is also skipped. Acceptable under-count for an alpha metric.
-                if (!cache.firstRunSeen) {
-                    cache.firstRunSeen = true
-                    return
-                }
                 posthog.capture('metrics sql query run')
                 actions.addProductIntent({
                     product_type: ProductKey.METRICS,

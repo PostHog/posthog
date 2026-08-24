@@ -24,7 +24,7 @@ export const MetricsSqlEditor = (): JSX.Element => {
     const { keepSqlEditorMounted } = useActions(metricsSceneLogic)
     const logic = sqlEditorLogic({ tabId: sqlEditorTabId, mode: SQLEditorMode.Embedded })
     const { queryInput } = useValues(logic)
-    const { setQueryInput, setSourceQuery, runQuery } = useActions(logic)
+    const { setQueryInput, setSourceQuery } = useActions(logic)
     const warehouseViewerDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
         AccessControlLevel.Viewer
@@ -37,6 +37,9 @@ export const MetricsSqlEditor = (): JSX.Element => {
         }
     }, [sqlEditorTabId, warehouseViewerDisabledReason]) // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Prefill the sample query but do not run it. The `posthog.metrics` tables
+    // are not present on every instance, so an auto-run greets the user with a
+    // raw ClickHouse error. Let the user press run when ready.
     useEffect(() => {
         if (queryInput === null && !warehouseViewerDisabledReason) {
             setQueryInput(DEFAULT_METRICS_QUERY)
@@ -48,7 +51,6 @@ export const MetricsSqlEditor = (): JSX.Element => {
                 },
                 display: ChartDisplayType.ActionsLineGraph,
             })
-            runQuery(DEFAULT_METRICS_QUERY)
         }
     }, [queryInput]) // eslint-disable-line react-hooks/exhaustive-deps
 
