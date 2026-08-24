@@ -279,7 +279,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             ).results
             or []
         }
-        assert {"team_id", "producer_id", "quantity", "dimensions", "timestamp"}.issubset(usage_columns)
+        assert {"team_id", "producer_id", "usage_key", "quantity", "timestamp"}.issubset(usage_columns)
         # inserted_at is the engine's version column and is withheld on purpose: it is absent from
         # the sorting key, so a query that filtered on it would read the whole partition.
         assert "inserted_at" not in usage_columns
