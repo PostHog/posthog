@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
@@ -24,10 +25,7 @@ from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQ
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
-from posthog.session_recordings.queries.sub_queries.base_query import (
-    SessionRecordingsListingBaseQuery,
-    replay_hogql_settings,
-)
+from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
@@ -234,7 +232,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._resolve_experiment_exposure()
         query = self.get_query()
 
-        settings_args: dict[str, int] = {}
+        # transform_null_in=1 (the HogQL default) stops ClickHouse using `bloom_filter_$session_id` for
+        # `$session_id IN (...)`; the sets here never contain NULL, '' or 'null', so results are unchanged.
+        settings_args: dict[str, int | bool] = {"transform_null_in": False}
         if self._max_execution_time is not None:
             settings_args["max_execution_time"] = self._max_execution_time
         linkage = self._experiment_exposure_linkage
@@ -254,7 +254,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 user=self._user,
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
-                settings=replay_hogql_settings(**settings_args),
+                settings=HogQLGlobalSettings(**settings_args),
             )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,

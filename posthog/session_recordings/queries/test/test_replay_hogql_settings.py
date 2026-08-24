@@ -21,7 +21,6 @@ from posthog.hogql.test.test_property_skip_indexes import _run_explain_and_get_s
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.sub_queries.base_query import replay_hogql_settings
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 
 SESSION_ID_BLOOM_FILTER_INDEX = "bloom_filter_$session_id"
@@ -86,7 +85,9 @@ class TestReplayHogQLSettings(ClickhouseTestMixin, APIBaseTest):
         sql, _ = prepare_and_print_ast(query.get_query_for_event_id_matching(), context, "clickhouse")
 
         with_defaults = _run_explain_and_get_skip_indexes(sql, context.values, HogQLGlobalSettings())
-        with_replay_settings = _run_explain_and_get_skip_indexes(sql, context.values, replay_hogql_settings())
+        with_replay_settings = _run_explain_and_get_skip_indexes(
+            sql, context.values, HogQLGlobalSettings(transform_null_in=False)
+        )
 
         self.assertNotIn(SESSION_ID_BLOOM_FILTER_INDEX, with_defaults)
         self.assertIn(SESSION_ID_BLOOM_FILTER_INDEX, with_replay_settings)

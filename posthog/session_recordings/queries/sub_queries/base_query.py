@@ -1,28 +1,15 @@
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
 
 from posthog.schema import DateRange, FilterLogicalOperator, PropertyGroupFilterValue, RecordingsQuery
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.types import AnyPropertyFilter
 from posthog.utils import relative_date_parse
-
-
-def replay_hogql_settings(**overrides: Any) -> HogQLGlobalSettings:
-    """ClickHouse settings for replay's `$session_id IN (...)` lookups.
-
-    HogQL defaults `transform_null_in=1`, and under it ClickHouse skips index analysis for `IN` on a Nullable key —
-    which the `nullIf(nullIf($session_id, ''), 'null')` scrub is — so `bloom_filter_$session_id` never engages and
-    each lookup scans the team's whole window. Replay's IN sets carry real session ids (never NULL, '' or 'null')
-    and nullable NOT IN is printed as `ifNull(notIn(...), 1)`, so results are identical with the setting off.
-    """
-    return HogQLGlobalSettings(transform_null_in=False, **overrides)
 
 
 class SessionRecordingsQueryDateRange(QueryDateRange):
