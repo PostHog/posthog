@@ -70,6 +70,54 @@ describe('Playlist', () => {
         expect(screen.queryByText('Show all')).not.toBeInTheDocument()
     })
 
+    it('widens the date window past 30 days from the end-of-list footer', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': {
+                    results: [{ id: 's1', viewed: false, viewers: [] }],
+                    has_next: false,
+                },
+                '/api/environments/:team_id/session_recordings/properties': { results: [] },
+            },
+        })
+        logic.actions.setFilters({ date_from: '-30d' })
+
+        renderPlaylist()
+
+        await waitFor(() => {
+            expect(logic.values.sessionRecordingsResponseLoading).toBe(false)
+        })
+
+        const widenButton = await screen.findByText('Search last 90 days')
+        userEvent.click(widenButton)
+
+        await waitFor(() => {
+            expect(logic.values.filters.date_from).toBe('-90d')
+        })
+    })
+
+    it('names the filters that constrain the list once results run out', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': {
+                    results: [{ id: 's1', viewed: false, viewers: [] }],
+                    has_next: false,
+                },
+                '/api/environments/:team_id/session_recordings/properties': { results: [] },
+            },
+        })
+        logic.actions.setFilters({ date_from: '-30d' })
+
+        renderPlaylist()
+
+        await waitFor(() => {
+            expect(logic.values.sessionRecordingsResponseLoading).toBe(false)
+        })
+
+        expect(await screen.findByText('These filters may be hiding recordings:')).toBeInTheDocument()
+        expect(screen.getByText('Last 30 days')).toBeInTheDocument()
+    })
+
     it('shows the selected sessions notice and clears session_ids via "Show all"', async () => {
         logic.actions.setFilters({ session_ids: ['s1', 's2'] })
 
