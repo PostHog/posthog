@@ -12,7 +12,6 @@ import type {
 import { EnvironmentEditForm } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentEditForm";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
-import { toast } from "@posthog/ui/primitives/toast";
 import { useState } from "react";
 
 interface EnvironmentEditPageProps {
@@ -84,10 +83,8 @@ function LoadedEditPage({
         ...planEnvironmentInput(plan, customImageId),
       });
       onDone();
-    } catch (error) {
-      toast.error("Couldn't save your changes", {
-        description: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      // The mutation's onError toast already explains the failure.
     }
   };
 
