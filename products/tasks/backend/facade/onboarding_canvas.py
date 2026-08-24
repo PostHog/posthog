@@ -24,7 +24,6 @@ TEACHING_CANVAS_NAME = "Start here"
 # validates this source against the contract.
 TEACHING_CANVAS_CODE = """\
 import { useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Button, Heading, Text } from "@posthog/quill";
 import { ArrowLeft, ArrowRight, Bot, BookOpen, Hash, LayoutDashboard } from "lucide-react";
 
@@ -75,7 +74,15 @@ const TOPICS = [
   },
 ];
 
-const spring = { type: "spring", stiffness: 380, damping: 32 };
+const TOUR_STYLES = `
+@keyframes tour-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes tour-slide-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+.tour-fade-up { animation: tour-fade-up 0.25s ease-out backwards; }
+.tour-slide-in { animation: tour-slide-in 0.2s ease-out backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-fade-up, .tour-slide-in { animation: none; }
+}
+`;
 
 function IconChip({ icon: Icon }) {
   return (
@@ -85,15 +92,9 @@ function IconChip({ icon: Icon }) {
   );
 }
 
-function HomeView({ onOpen, reduced }) {
+function HomeView({ onOpen }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: reduced ? 0 : 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: reduced ? 0 : -8 }}
-      transition={{ duration: 0.15 }}
-      className="flex flex-col gap-6"
-    >
+    <div className="tour-fade-up flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <Heading size="xl" render={<h1 />}>
           How PostHog Desktop works
@@ -102,12 +103,10 @@ function HomeView({ onOpen, reduced }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {TOPICS.map((topic, index) => (
-          <motion.div
+          <div
             key={topic.id}
-            initial={{ opacity: 0, y: reduced ? 0 : 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ ...spring, delay: 0.04 * index }}
-            whileHover={reduced ? undefined : { y: -2 }}
+            className="tour-fade-up transition-transform duration-150 hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:transform-none"
+            style={{ animationDelay: 0.04 * index + "s" }}
           >
             <Button
               variant="outline"
@@ -125,26 +124,20 @@ function HomeView({ onOpen, reduced }) {
                 <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               </div>
             </Button>
-          </motion.div>
+          </div>
         ))}
       </div>
       <Text size="sm" variant="muted">
         This page is a canvas: a small app that lives in this space. Done with the tour? You can
         delete it whenever you like.
       </Text>
-    </motion.div>
+    </div>
   );
 }
 
-function DetailView({ topic, next, onBack, onNext, reduced }) {
+function DetailView({ topic, next, onBack, onNext }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, x: reduced ? 0 : 16 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: reduced ? 0 : -16 }}
-      transition={{ duration: 0.15 }}
-      className="flex flex-col gap-5"
-    >
+    <div className="tour-slide-in flex flex-col gap-5">
       <div>
         <Button variant="link-muted" size="sm" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -173,7 +166,7 @@ function DetailView({ topic, next, onBack, onNext, reduced }) {
         </Text>
         {topic.prompts.map((prompt) => (
           <Text key={prompt} size="sm" variant="muted">
-            "{prompt}"
+            “{prompt}”
           </Text>
         ))}
       </div>
@@ -189,33 +182,29 @@ function DetailView({ topic, next, onBack, onNext, reduced }) {
           </Button>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 }
 
 export default function StartHere() {
   const [topicId, setTopicId] = useState(null);
-  const reduced = !!useReducedMotion();
   const index = TOPICS.findIndex((topic) => topic.id === topicId);
   const topic = index === -1 ? null : TOPICS[index];
   const next = topic && index < TOPICS.length - 1 ? TOPICS[index + 1] : null;
   return (
     <div className="h-screen overflow-y-auto bg-background">
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <AnimatePresence mode="wait">
-          {topic ? (
-            <DetailView
-              key={topic.id}
-              topic={topic}
-              next={next}
-              reduced={reduced}
-              onBack={() => setTopicId(null)}
-              onNext={() => next && setTopicId(next.id)}
-            />
-          ) : (
-            <HomeView key="home" onOpen={setTopicId} reduced={reduced} />
-          )}
-        </AnimatePresence>
+      <style>{TOUR_STYLES}</style>
+      <div className="mx-auto max-w-2xl px-6 py-10" key={topic ? topic.id : "home"}>
+        {topic ? (
+          <DetailView
+            topic={topic}
+            next={next}
+            onBack={() => setTopicId(null)}
+            onNext={() => next && setTopicId(next.id)}
+          />
+        ) : (
+          <HomeView onOpen={setTopicId} />
+        )}
       </div>
     </div>
   );
