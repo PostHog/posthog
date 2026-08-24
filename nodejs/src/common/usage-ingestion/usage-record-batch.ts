@@ -26,6 +26,7 @@ interface PendingRecord {
  */
 export class UsageRecordBatch {
     private records = new Map<string, PendingRecord>()
+    private pendingAcknowledgements: Promise<void>[] = []
 
     constructor(
         private readonly client: UsageIngestionClient | null,
@@ -46,7 +47,34 @@ export class UsageRecordBatch {
         }
     }
 
+    /**
+     * Adds a record only after every Kafka write for its logical event has
+     * succeeded. The flush side effect waits for these acknowledgements, so it
+     * is safe to schedule both production and usage reporting in the background.
+     */
+    addAfterAcknowledgements(
+        acknowledgements: Promise<unknown | null>[],
+        teamId: number,
+        usageKey: string,
+        recordId: string,
+        dimensions?: Record<string, string>
+    ): void {
+        this.pendingAcknowledgements.push(
+            Promise.all(acknowledgements)
+                .then((results) => {
+                    if (results.every((result) => result !== null)) {
+                        this.add(teamId, usageKey, recordId, dimensions)
+                    }
+                })
+                // Kafka errors are handled by the producer side effect. They must
+                // not turn into a billing record or an unhandled rejection here.
+                .catch(() => undefined)
+        )
+    }
+
     async flush(): Promise<void> {
+        await Promise.all(this.pendingAcknowledgements)
+        this.pendingAcknowledgements = []
         if (!this.client || this.records.size === 0) {
             return
         }

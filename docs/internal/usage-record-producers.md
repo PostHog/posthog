@@ -5,12 +5,15 @@ The rule that shapes all of them: **count after the last step that can drop the 
 
 ## Reading the tables
 
-`ReplacingMergeTree(event_timestamp)` sorts by `(team_id, producer_id, record_id, version)`.
-Two records with the same `(team_id, producer_id, record_id)` collapse to one — they do not add.
+`ReplacingMergeTree(inserted_at)` sorts by `(team_id, producer_id, usage_key, record_id)`.
+Two records sharing those four collapse to one — they do not add, and the later send wins.
 So a producer's `record_id` has to be a stable identity for the billed thing: the same work replayed must produce the same ID, and different work must never share one.
-`usage_key` is not in the sort key, which is why every producer's `record_id` includes it whenever the producer emits more than one key.
 
-Read with `FINAL`, or with `argMax(quantity, event_timestamp)` grouped by the sort key.
+`event_timestamp` is deliberately not in the sort key.
+Producers stamp it when they flush, so a retry or a replay carries a later one; in the key, every resend would have billed again.
+It is still the partition key, so a replay that crosses a month boundary leaves both rows.
+
+Read with `FINAL`, or with `argMax(quantity, inserted_at)` grouped by the sort key.
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 
