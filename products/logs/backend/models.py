@@ -147,6 +147,18 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
         BELOW = "below", "Below"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+
+    # Shared identity and destination-ownership root. Nullable until every alert
+    # row has been backfilled; DB constraints come after cleanup.
+    shared_alert = models.OneToOneField(
+        "alerts.AlertSharedIdentity",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="logs_configuration",
+        db_constraint=False,
+    )
+
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True)
 

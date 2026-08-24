@@ -66,6 +66,17 @@ class BillingAlertConfiguration(UUIDModel):
         related_name="+",
     )
 
+    # Shared identity and destination-ownership root. Nullable until every alert
+    # row has been backfilled; DB constraints come after cleanup.
+    shared_alert = models.OneToOneField(
+        "alerts.AlertSharedIdentity",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="billing_configuration",
+        db_constraint=False,
+    )
+
     name = models.CharField(max_length=160)
     description = models.TextField(blank=True)
     enabled = models.BooleanField(default=True)

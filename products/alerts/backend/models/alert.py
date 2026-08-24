@@ -114,6 +114,17 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE)
 
+    # Shared identity and destination-ownership root. Nullable until every alert
+    # row has been backfilled; DB constraints come after cleanup.
+    shared_alert = models.OneToOneField(
+        "alerts.AlertSharedIdentity",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="insight_configuration",
+        db_constraint=False,
+    )
+
     name = models.CharField(max_length=255, blank=True)
     subscribed_users = models.ManyToManyField(
         "posthog.User",

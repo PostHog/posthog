@@ -103,6 +103,27 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
         ]
+        constraints = [
+            # One executor per event kind per alert destination.
+            models.UniqueConstraint(
+                fields=["alert_destination", "alert_event_kind"],
+                condition=models.Q(alert_destination__isnull=False),
+                name="hogfunction_alert_destination_kind_uniq",
+            ),
+            # Alert-owned executors always carry an event kind and stay internal;
+            # ordinary functions carry neither ownership field.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(alert_destination__isnull=True, alert_event_kind__isnull=True)
+                    | models.Q(
+                        alert_destination__isnull=False,
+                        alert_event_kind__isnull=False,
+                        type="internal_destination",
+                    )
+                ),
+                name="hogfunction_alert_ownership_shape",
+            ),
+        ]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400, null=True, blank=True)
@@ -149,6 +170,18 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         null=True,
         blank=True,
     )
+
+    # Alert-owned executor: set when an alert destination owns this function.
+    # Ownership replaces the JSON `alert_id` filter as the source of truth;
+    # the filter keeps matching events until the runtime switches over.
+    alert_destination = models.ForeignKey(
+        "alerts.AlertDestination",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="executors",
+    )
+    alert_event_kind = models.CharField(max_length=32, null=True, blank=True)
 
     # db_default alongside default: the plugin-server test fixtures INSERT into this table with raw
     # SQL that doesn't list this column, and the test-schema builder skips migrations entirely.

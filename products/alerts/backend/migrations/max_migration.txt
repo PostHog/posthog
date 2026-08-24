@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0004_shared_alert_identity_and_destination
