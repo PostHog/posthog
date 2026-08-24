@@ -146,7 +146,7 @@ def produce_issue_lifecycle_internal_event(
         for key, value in (extra_properties or {}).items()
         if key in ("computed_baseline", "current_bucket_value") and value is not None
     }
-    status = properties.get("status")
+    status_property = properties.get("status")
     start_alert_delivery_workflow(
         team_id=inputs.team_id,
         event=event,
@@ -154,7 +154,7 @@ def produce_issue_lifecycle_internal_event(
         notification_id=inputs.notification_id,
         issue_name=inputs.issue.name,
         issue_description=inputs.issue.description,
-        status=status if isinstance(status, str) else None,
+        status=status_property if isinstance(status_property, str) else None,
         assignee=inputs.assignee,
         extra=extra or None,
     )

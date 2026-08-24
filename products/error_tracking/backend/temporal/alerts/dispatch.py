@@ -11,7 +11,7 @@ import asyncio
 from django.conf import settings
 
 import structlog
-import temporalio.client
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.client import sync_connect
 
@@ -62,7 +62,7 @@ def start_alert_delivery_workflow(
                 task_queue=settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
             )
         )
-    except temporalio.client.WorkflowAlreadyStartedError:
+    except WorkflowAlreadyStartedError:
         pass
     except Exception:
         logger.exception(

@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -36,7 +38,7 @@ class TestAlertDelivery(BaseTest):
             )
 
     def _inputs(self, event: str, notification_id: str = "notif-1", **overrides) -> AlertDeliveryWorkflowInputs:
-        defaults = {
+        defaults: dict[str, Any] = {
             "notification_id": notification_id,
             "team_id": self.team.id,
             "issue_id": str(self.issue.id),

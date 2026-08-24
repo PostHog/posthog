@@ -598,6 +598,7 @@ class TestErrorTracking(APIBaseTest):
 
         activity = ActivityLog.objects.get(scope="ErrorTrackingIssue", activity="merged")
         assert activity.item_id == str(issue_one.id)
+        assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == [str(issue_two.id)]
 
     def test_issue_merge_without_effect_logs_no_activity(self):
@@ -628,6 +629,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200, response.json()
         activity = ActivityLog.objects.get(scope="ErrorTrackingIssue", activity="split")
         assert activity.item_id == str(issue.id)
+        assert activity.detail is not None
         assert activity.detail["changes"][0]["after"] == response.json()["new_issue_ids"]
 
     def test_can_start_symbol_set_upload(self) -> None:
