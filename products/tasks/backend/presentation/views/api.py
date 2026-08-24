@@ -1242,10 +1242,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _is_sandbox_agent_request(self, task_id: str) -> bool:
         return is_sandbox_agent_request(self.request, task_id)
 
-    # Actions that only read run state. Everything else mutates or drives the
-    # run, so it requires task control (not just visibility): public-channel
-    # visibility lets teammates watch a run, never command it. connection_token
-    # is a GET but mints a write-capable token, so it is deliberately absent.
+    # Actions that only read run state. The visibility-only exception creates a
+    # separate analysis task without driving the target run. Other actions
+    # require task control (not just visibility): public-channel visibility lets
+    # teammates watch a run, never command it. connection_token is a GET but
+    # mints a write-capable token, so it is deliberately absent.
     _READ_ONLY_ACTIONS = (
         "list",
         "retrieve",
@@ -1258,6 +1259,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "artifacts_download",
         "artifacts_download_by_id",
     )
+    _VISIBILITY_ONLY_ACTIONS = ("analyze",)
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -1272,6 +1274,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Gate access to the parent task, including exact task-bound sandbox access."""
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
+        is_visibility_only = self.action in self._VISIBILITY_ONLY_ACTIONS
         bypass_visibility = self._is_sandbox_agent_request(task_id) or (
             is_read_only and _can_bypass_visibility(self.request, self.team_id)
         )
@@ -1280,7 +1283,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             bypass_visibility=bypass_visibility,
-            for_control=not is_read_only,
+            for_control=not (is_read_only or is_visibility_only),
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
