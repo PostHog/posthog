@@ -3626,6 +3626,86 @@ describe("AgentServer HTTP Mode", () => {
       });
     });
 
+    describe("idle handoff resume", () => {
+      const idlePayload: JwtPayload = {
+        task_id: "test-task-id",
+        run_id: "test-run-id",
+        team_id: 1,
+        user_id: 1,
+        distinct_id: "test-distinct-id",
+        mode: "interactive",
+      };
+
+      const setupIdleResume = async (
+        state: Record<string, unknown>,
+      ): Promise<{
+        prompt: ReturnType<typeof vi.fn>;
+        turnCompleteEvents: () => unknown[];
+        sendInitialTaskMessage: () => Promise<void>;
+      }> => {
+        const s = createServer();
+        await s.start();
+
+        const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
+        const broadcastEvent = vi.fn();
+        const internals = s as unknown as {
+          posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+          session: { clientConnection: { prompt: typeof prompt } };
+          nativeResume: { sessionId: string; warm: boolean } | null;
+          broadcastEvent: typeof broadcastEvent;
+          sendInitialTaskMessage(
+            payload: JwtPayload,
+            taskRun: TaskRun | null,
+          ): Promise<void>;
+        };
+        internals.session.clientConnection.prompt = prompt;
+        internals.nativeResume = { sessionId: "prior-session", warm: true };
+        internals.broadcastEvent = broadcastEvent;
+        vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(
+          createTaskRun({ id: "test-run-id", task: "test-task-id", state }),
+        );
+        process.env.POSTHOG_RESUME_IDLE = "1";
+
+        return {
+          prompt,
+          turnCompleteEvents: () =>
+            broadcastEvent.mock.calls.filter(
+              ([event]) =>
+                (event as { notification?: { method?: string } }).notification
+                  ?.method === POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+            ),
+          sendInitialTaskMessage: () =>
+            internals.sendInitialTaskMessage(idlePayload, null),
+        };
+      };
+
+      afterEach(() => {
+        delete process.env.POSTHOG_RESUME_IDLE;
+      });
+
+      it("does not prompt the resumed session", async () => {
+        const { prompt, turnCompleteEvents, sendInitialTaskMessage } =
+          await setupIdleResume({});
+
+        await sendInitialTaskMessage();
+
+        expect(prompt).not.toHaveBeenCalled();
+        expect(turnCompleteEvents()).toHaveLength(1);
+      });
+
+      it("still delivers a message that landed during the swap", async () => {
+        const { prompt, sendInitialTaskMessage } = await setupIdleResume({
+          pending_user_message: "landed mid-swap",
+        });
+
+        await sendInitialTaskMessage();
+
+        expect(prompt.mock.calls[0]?.[0]).toMatchObject({
+          prompt: [{ type: "text", text: "landed mid-swap" }],
+        });
+      });
+    });
+
     it("refetches the run before choosing a native resume prompt", async () => {
       const s = createServer();
       await s.start();
