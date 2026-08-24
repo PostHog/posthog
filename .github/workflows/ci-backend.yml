@@ -2568,7 +2568,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "${{ github.event_name }}" != "pull_request" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2664,10 +2664,12 @@ jobs:
                       fi
 
                       # The legacy-mode safeguard leg runs only where a regression must not
-                      # land: merge queue and master. PR lanes run the customer-default mode
-                      # only, so a PR pays no shards for the legacy mode. Compat keeps its
-                      # own legacy-mode rows in every lane — it guards old servers, not this.
-                      if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+                      # land: merge queue and master. Ordinary PR lanes run the
+                      # customer-default mode only, so a PR pays no shards for the legacy
+                      # mode. The queue's trunk-merge/** run is a pull_request event as well,
+                      # so it is exempted by branch. Compat keeps its own legacy-mode rows in
+                      # every lane, because it guards old servers, not this.
+                      if [[ "${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}" == "true" ]]; then
                           CORE_POE_SHARDS=0
                       fi
 
@@ -3162,8 +3164,8 @@ jobs:
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
-              # safeguard allowlist leg (matrix.person-on-events): always update — it runs
-              # a subset under the non-default mode, so it does not own snapshots
+              # safeguard allowlist leg (matrix.person-on-events): always update, because it
+              # runs a subset under the non-default mode and so does not own snapshots
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
               # --snapshot-warn-unused: pytest-split shards individual tests across
@@ -3234,14 +3236,13 @@ jobs:
               continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
-                  # Flipped: person-on-events v2 reads are the production default for
-                  # every project created since 2024-06-14, so the FULL suite runs with
-                  # the mode ON and the small allowlist leg keeps the legacy joined mode
-                  # covered. matrix.person-on-events marks that safeguard allowlist leg,
-                  # not the mode: every other condition keyed on it (targets, snapshot
-                  # ownership, timing artifacts) selects the leg and stays unchanged.
-                  # Compat rows stay on the legacy mode too, doubling as the old-server
-                  # safeguard.
+                  # Person-on-events v2 reads are the production default for every
+                  # project created since 2024-06-14, so the full Core rows run with the
+                  # mode on. matrix.person-on-events marks the safeguard allowlist leg
+                  # that keeps the legacy joined mode covered, not the mode itself: every
+                  # other condition keyed on it (targets, snapshot ownership, timing
+                  # artifacts) selects the leg. Compat rows run the legacy mode as well,
+                  # as the old-server safeguard.
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
