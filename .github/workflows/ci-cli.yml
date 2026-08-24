@@ -34,7 +34,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust-toolchain
               with:
                   toolchain: 1.91.1
 
@@ -57,7 +57,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust-toolchain
               with:
                   toolchain: 1.91.1
                   components: clippy
@@ -76,7 +76,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              uses: ./.github/actions/setup-rust-toolchain
               with:
                   toolchain: 1.91.1
                   components: rustfmt
