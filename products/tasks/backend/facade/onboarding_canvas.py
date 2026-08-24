@@ -21,11 +21,12 @@ TEACHING_CANVAS_NAME = "Start here"
 # Single-file source stored on Canvas.legacy_code: the desktop app transpiles it
 # in the viewer with no build queued, so seeding is one row write. The imports
 # must stay within the canvas platform allowlist; a canvas-product test
-# validates this source against the contract.
+# validates this source against the contract. Animations are plain CSS because
+# the canvas builder cannot currently bundle framer-motion.
 TEACHING_CANVAS_CODE = """\
 import { useState } from "react";
 import { Button, Heading, Text } from "@posthog/quill";
-import { ArrowLeft, ArrowRight, Bot, BookOpen, Hash, LayoutDashboard } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, BookOpen, Check, Hash, LayoutDashboard } from "lucide-react";
 
 const TOPICS = [
   {
@@ -75,10 +76,10 @@ const TOPICS = [
 ];
 
 const TOUR_STYLES = `
-@keyframes tour-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes tour-slide-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
-.tour-fade-up { animation: tour-fade-up 0.25s ease-out backwards; }
-.tour-slide-in { animation: tour-slide-in 0.2s ease-out backwards; }
+@keyframes tour-fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes tour-slide-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.tour-fade-up { animation: tour-fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+.tour-slide-in { animation: tour-slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
 @media (prefers-reduced-motion: reduce) {
   .tour-fade-up, .tour-slide-in { animation: none; }
 }
@@ -92,21 +93,34 @@ function IconChip({ icon: Icon }) {
   );
 }
 
-function HomeView({ onOpen }) {
+function StopProgress({ current }) {
+  return (
+    <div className="flex items-center gap-1.5" aria-hidden="true">
+      {TOPICS.map((topic, index) => (
+        <div
+          key={topic.id}
+          className={"h-1 w-6 rounded-full " + (index === current ? "bg-foreground" : "bg-border")}
+        />
+      ))}
+    </div>
+  );
+}
+
+function HomeView({ onOpen, seen, allSeen }) {
   return (
     <div className="tour-fade-up flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <Heading size="xl" render={<h1 />}>
+      <div className="flex flex-col gap-1.5">
+        <Heading size="2xl" render={<h1 />}>
           How PostHog Desktop works
         </Heading>
-        <Text variant="muted">A quick tour. Pick a topic to see how it works.</Text>
+        <Text variant="muted">A quick tour in four stops. Pick one.</Text>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {TOPICS.map((topic, index) => (
           <div
             key={topic.id}
             className="tour-fade-up transition-transform duration-150 hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:transform-none"
-            style={{ animationDelay: 0.04 * index + "s" }}
+            style={{ animationDelay: 0.05 * index + 0.05 + "s" }}
           >
             <Button
               variant="outline"
@@ -121,38 +135,51 @@ function HomeView({ onOpen }) {
                     {topic.tagline}
                   </Text>
                 </div>
-                <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                {seen[topic.id] ? (
+                  <Check className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-label="Seen" />
+                ) : (
+                  <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                )}
               </div>
             </Button>
           </div>
         ))}
       </div>
-      <Text size="sm" variant="muted">
-        This page is a canvas: a small app that lives in this space. Done with the tour? You can
-        delete it whenever you like.
-      </Text>
+      <div className="border-t border-border pt-4">
+        <Text size="sm" variant="muted">
+          {allSeen
+            ? "That's the whole tour. You can delete this canvas whenever you like, and ask the agent for a new one any time."
+            : "This page is a canvas: a small app that lives in this space. Delete it whenever you like."}
+        </Text>
+      </div>
     </div>
   );
 }
 
-function DetailView({ topic, next, onBack, onNext }) {
+function DetailView({ topic, index, next, onBack, onNext }) {
   return (
     <div className="tour-slide-in flex flex-col gap-5">
-      <div>
+      <div className="flex items-center justify-between">
         <Button variant="link-muted" size="sm" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           All topics
         </Button>
+        <StopProgress current={index} />
       </div>
-      <div className="flex items-center gap-3">
-        <IconChip icon={topic.icon} />
-        <div className="flex flex-col">
-          <Heading size="xl" render={<h1 />}>
-            {topic.title}
-          </Heading>
-          <Text size="sm" variant="muted">
-            {topic.tagline}
-          </Text>
+      <div className="flex flex-col gap-3">
+        <Text size="xs" variant="muted" className="uppercase tracking-wider">
+          Stop {index + 1} of {TOPICS.length}
+        </Text>
+        <div className="flex items-center gap-3">
+          <IconChip icon={topic.icon} />
+          <div className="flex flex-col">
+            <Heading size="2xl" render={<h1 />}>
+              {topic.title}
+            </Heading>
+            <Text size="sm" variant="muted">
+              {topic.tagline}
+            </Text>
+          </div>
         </div>
       </div>
       <div className="flex flex-col gap-3">
@@ -160,17 +187,19 @@ function DetailView({ topic, next, onBack, onNext }) {
           <Text key={paragraph}>{paragraph}</Text>
         ))}
       </div>
-      <div className="flex flex-col gap-2 rounded-md border border-border bg-muted p-4">
+      <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-muted p-4">
         <Text size="sm" weight="medium">
           Try asking
         </Text>
-        {topic.prompts.map((prompt) => (
-          <Text key={prompt} size="sm" variant="muted">
-            “{prompt}”
-          </Text>
-        ))}
+        <div className="flex flex-col items-start gap-2">
+          {topic.prompts.map((prompt) => (
+            <div key={prompt} className="rounded-lg border border-border bg-background px-3 py-2">
+              <Text size="sm">“{prompt}”</Text>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="flex justify-end">
+      <div className="flex justify-end border-t border-border pt-4">
         {next ? (
           <Button variant="outline" onClick={onNext}>
             Next: {next.title}
@@ -188,22 +217,29 @@ function DetailView({ topic, next, onBack, onNext }) {
 
 export default function StartHere() {
   const [topicId, setTopicId] = useState(null);
+  const [seen, setSeen] = useState({});
+  const open = (id) => {
+    setSeen((prev) => ({ ...prev, [id]: true }));
+    setTopicId(id);
+  };
   const index = TOPICS.findIndex((topic) => topic.id === topicId);
   const topic = index === -1 ? null : TOPICS[index];
   const next = topic && index < TOPICS.length - 1 ? TOPICS[index + 1] : null;
+  const allSeen = TOPICS.every((entry) => seen[entry.id]);
   return (
     <div className="h-screen overflow-y-auto bg-background">
       <style>{TOUR_STYLES}</style>
-      <div className="mx-auto max-w-2xl px-6 py-10" key={topic ? topic.id : "home"}>
+      <div className="mx-auto max-w-2xl px-6 py-12" key={topic ? topic.id : "home"}>
         {topic ? (
           <DetailView
             topic={topic}
+            index={index}
             next={next}
             onBack={() => setTopicId(null)}
-            onNext={() => next && setTopicId(next.id)}
+            onNext={() => next && open(next.id)}
           />
         ) : (
-          <HomeView onOpen={setTopicId} />
+          <HomeView onOpen={open} seen={seen} allSeen={allSeen} />
         )}
       </div>
     </div>
