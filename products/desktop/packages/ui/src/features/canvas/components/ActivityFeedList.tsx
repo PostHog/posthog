@@ -111,7 +111,12 @@ export function ActivityFeedList({
                 </Button>
               }
             />
-            <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={4}
+              className="w-max"
+            >
               <DropdownMenuItem
                 disabled={isMarkingRead || unreadItems.length === 0}
                 onClick={markAllRead}
