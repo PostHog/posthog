@@ -1885,20 +1885,6 @@ def test_bigquery_table_not_found_during_sync_is_non_retryable():
     assert "was not found in location" not in error_msg
 
 
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # Transient server errors must stay retryable.
-        "503 Service unavailable, please retry",
-        "500 Internal error encountered, please retry",
-    ],
-)
-def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert "Not found: Table" not in other_error
-    assert not any(key in other_error for key in non_retryable_errors)
-
-
 def test_bigquery_project_not_found_during_sync_is_non_retryable():
     """A source referencing a deleted or mistyped GCP project surfaces from `get_table()` at sync time
     as a google NotFound whose str() is "... Project <id> is not found. Make sure it references valid

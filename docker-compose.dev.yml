@@ -593,7 +593,8 @@ services:
                     clickhouse_app_metrics2 \
                     log_entries \
                     clickhouse_property_values \
-                    clickhouse_tophog"
+                    clickhouse_tophog \
+                    clickhouse_billing_usage_records"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"

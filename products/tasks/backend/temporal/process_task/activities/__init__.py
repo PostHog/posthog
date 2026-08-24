@@ -33,6 +33,7 @@ from .provision_sandbox import (
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
     prepare_sandbox_for_repository,
+    restore_sandbox_connection_state,
 )
 from .read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .record_peer_message_outcome import (
@@ -133,6 +134,7 @@ __all__ = [
     "get_sandbox_for_repository",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
+    "restore_sandbox_connection_state",
     "invalidate_resume_snapshot",
     "post_slack_update",
     "prepare_sandbox_for_repository",

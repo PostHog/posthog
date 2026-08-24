@@ -2071,6 +2071,10 @@ export class SessionService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.d.log.error("Failed to connect to task", { message });
+      this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+        task_id: taskId,
+        error_type: "connect_failed",
+      });
 
       const taskRunId = latestRun?.id ?? `error-${taskId}`;
       const session = createBaseSession(taskRunId, taskId, taskTitle);
@@ -3082,6 +3086,12 @@ export class SessionService {
             error: err,
           });
           const session = this.getSessionByRunId(taskRunId);
+          if (session) {
+            this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+              task_id: session.taskId,
+              error_type: "subscription_error",
+            });
+          }
           if (!session || session.isCloud) {
             this.d.store.updateSession(taskRunId, {
               status: "error",
@@ -8559,6 +8569,13 @@ export class SessionService {
     update: CloudTaskUpdatePayload,
   ): void {
     if (update.kind === "error") {
+      const session = this.d.store.getSessions()[taskRunId];
+      if (session) {
+        this.d.track(ANALYTICS_EVENTS.AGENT_SESSION_ERROR, {
+          task_id: session.taskId,
+          error_type: "cloud_task_error",
+        });
+      }
       this.d.store.updateSession(taskRunId, {
         status: "error",
         errorTitle: update.errorTitle,

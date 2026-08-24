@@ -3,7 +3,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, cached_property
-from time import monotonic, perf_counter
+from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 from zoneinfo import ZoneInfo
@@ -358,13 +358,7 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
 
 
 def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
-    """When a free org is over its monthly chargeable-bytes allowance, returns the moment
-    the counter resets; otherwise None.
-
-    Recomputed live from the synced subscription column and the Redis counter on every
-    call, so there is no verdict to go stale after an upgrade. Fails open on error.
-    """
-    if not django_settings.API_QUERIES_ENABLED or not django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+    if not django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
         return None
     try:
         if team.organization.has_active_subscription is not False:
@@ -378,22 +372,10 @@ def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
         return None
 
 
-# Flag evaluation is a network call to the flags service, and it runs once per chargeable
-# query from an over-quota org, so a runaway API consumer would hammer that service at its
-# own query rate. The short per-process cache bounds that load; the TTL also bounds how long
-# a flag flip takes to apply on any one worker.
-_ENFORCEMENT_FLAG_TTL_SECONDS = 30
-_enforcement_flag_cache: dict[str, tuple[bool, float]] = {}
-
-
 def _api_queries_enforcement_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
-    cached = _enforcement_flag_cache.get(org_id)
-    now = monotonic()
-    if cached is not None and cached[1] > now:
-        return cached[0]
     try:
-        enabled = bool(
+        return bool(
             posthoganalytics.feature_enabled(
                 API_QUERIES_QUOTA_ENFORCEMENT_FLAG,
                 org_id,
@@ -404,12 +386,7 @@ def _api_queries_enforcement_enabled(team: Team) -> bool:
             )
         )
     except Exception:
-        # Not cached, so enforcement resumes as soon as the flags service recovers.
         return False
-    if len(_enforcement_flag_cache) > 1024:
-        _enforcement_flag_cache.clear()
-    _enforcement_flag_cache[org_id] = (enabled, now + _ENFORCEMENT_FLAG_TTL_SECONDS)
-    return enabled
 
 
 def _format_data_size(bytes_count: int) -> str:

@@ -184,7 +184,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
 }
 
 
-def _required_scopes_for_query_payload(query: object) -> list[str] | None:
+def required_scopes_for_query_payload(query: object) -> list[str] | None:
     current_query = query
     while isinstance(current_query, dict):
         kind = current_query.get("kind")
@@ -211,7 +211,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        return _required_scopes_for_query_payload(query)
+        return required_scopes_for_query_payload(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":
