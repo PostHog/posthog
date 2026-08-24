@@ -207,12 +207,14 @@ def relative_date_parse_with_delta_mapping(
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
     team_week_start_day: Optional[int] = 0,
+    include_current_day: bool = False,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
     """
     Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
 
     :increase controls whether to add relative delta to the current time or subtract
         Should later control this using +/- infront of the input regex
+    :include_current_day treats a numeric relative day range as a calendar-day count that includes today
     """
     try:
         try:
@@ -258,6 +260,9 @@ def relative_date_parse_with_delta_mapping(
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
     else:
         parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+
+    if include_current_day and re.fullmatch(r"-[1-9][0-9]*d", input):
+        parsed_dt += datetime.timedelta(days=1)
 
     if match_group_dict["kind"] == "q":
         # Quarter boundaries depend on the resulting month, so they can't be expressed
@@ -379,6 +384,7 @@ def relative_date_parse(
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
     team_week_start_day: Optional[int] = None,
+    include_current_day: bool = False,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
         input,
@@ -388,6 +394,7 @@ def relative_date_parse(
         now=now,
         increase=increase,
         team_week_start_day=team_week_start_day,
+        include_current_day=include_current_day,
     )[0]
 
 
@@ -1195,10 +1202,7 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
 def get_compare_period_dates(
     date_from: datetime.datetime,
     date_to: datetime.datetime,
-    date_from_delta_mapping: Optional[dict[str, int]],
-    date_to_delta_mapping: Optional[dict[str, int]],
     interval: str,
-    exclude_incomplete_periods: bool = False,
 ) -> tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -1217,26 +1221,6 @@ def get_compare_period_dates(
         new_date_from = new_date_from.replace(
             hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
         )
-        # Handle date_from = -7d, -14d etc. specially
-        if (
-            interval == "day"
-            and date_from_delta_mapping
-            and date_from_delta_mapping.get("days", None)
-            and date_from_delta_mapping["days"] % 7 == 0
-            and not date_to_delta_mapping
-            # With excludeIncompletePeriods the ongoing day is clipped out of the range, so -7d
-            # covers exactly 7 complete days and the extra day would misalign the previous period.
-            and not exclude_incomplete_periods
-        ):
-            # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
-            # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
-            # are in reality, respectively, 8 and 15 days long. So for the common use case of comparing weeks,
-            # it's not possible to just use that period length directly - the results for the previous period
-            # would be misaligned by a day.
-            # The proper fix would be making -7d actually 7 days, but that requires careful consideration.
-            # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
-            # of relative date ranges:
-            new_date_from += datetime.timedelta(days=1)
         new_date_to = (new_date_from + diff).replace(
             hour=date_to.hour, minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
         )

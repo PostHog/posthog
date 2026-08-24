@@ -44,13 +44,35 @@ class TestQueryDateRange(APIBaseTest):
             query_date_range.date_to(), parser.isoparse("2021-08-26 07:00:00Z")
         )  # ensure last hour is included
 
-    def test_parsed_date_week(self):
+    @parameterized.expand(
+        [
+            ("one_day", "-1d", "2021-08-25 00:00:00Z"),
+            ("seven_days", "-7d", "2021-08-19 00:00:00Z"),
+            ("fourteen_days", "-14d", "2021-08-12 00:00:00Z"),
+            ("thirty_days", "-30d", "2021-07-27 00:00:00Z"),
+        ]
+    )
+    def test_relative_day_range_includes_today(self, _name: str, date_from: str, expected_date_from: str):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = DateRange(date_from="-7d")
+        date_range = DateRange(date_from=date_from)
         query_date_range = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.WEEK, now=now)
 
-        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-18 00:00:00Z"))
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_date_from))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-25 23:59:59.999999Z"))
+
+    def test_seven_day_range_produces_seven_daily_chart_buckets(self):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-7d"),
+            interval=IntervalType.DAY,
+            now=now,
+        )
+
+        self.assertEqual(
+            query_date_range.all_values(),
+            [parser.isoparse(f"2021-08-{day:02d}T00:00:00Z") for day in range(19, 26)],
+        )
 
     def test_all_values(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -469,7 +491,7 @@ class TestQueryDateRange(APIBaseTest):
 
         # date_to / date_from must reflect pinned_now, not initial_now
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-07-01T23:59:59.999999Z"))
-        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-06-24T00:00:00Z"))
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-06-25T00:00:00Z"))
 
     def test_pin_now_raises_after_derived_property_cached(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
@@ -629,9 +651,9 @@ class TestPreviousPeriodDateFrom(APIBaseTest):
                 "7d_range",
                 DateRange(date_from="-7d"),
                 IntervalType.DAY,
-                # date_from = 2021-08-18 00:00:00, date_to = 2021-08-25 23:59:59.999999
-                # previous = 2021-08-18 - (2021-08-25T23:59:59.999999 - 2021-08-18) = 2021-08-10 00:00:00.000001
-                "2021-08-10T00:00:00.000001Z",
+                # date_from = 2021-08-19 00:00:00, date_to = 2021-08-25 23:59:59.999999
+                # previous = 2021-08-19 - (2021-08-25T23:59:59.999999 - 2021-08-19) = 2021-08-12 00:00:00.000001
+                "2021-08-12T00:00:00.000001Z",
             ),
             (
                 "custom_explicit",

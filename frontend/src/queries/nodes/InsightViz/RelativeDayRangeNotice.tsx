@@ -9,17 +9,14 @@ import { InsightQueryNode } from '~/queries/schema/schema-general'
 
 const RELATIVE_DAY_RANGE_REGEX = /^-\d+d$/
 
-/** Whether corrected relative-day semantics can produce different results for this query.
- * Mirrors relative day ranges handled by relative_date_parse in posthog/utils.py. */
+/** Mirrors the relative day ranges that relative_date_parse in posthog/utils.py now shifts. */
 export function isAffectedByRelativeDayRangeChange(source: InsightQueryNode | null | undefined): boolean {
     if (!source || !('dateRange' in source)) {
         return false
     }
 
     const dateRange = source.dateRange
-    return (
-        !!dateRange && !dateRange.date_to && !!dateRange.date_from && RELATIVE_DAY_RANGE_REGEX.test(dateRange.date_from)
-    )
+    return !dateRange?.date_to && (!dateRange?.date_from || RELATIVE_DAY_RANGE_REGEX.test(dateRange.date_from))
 }
 
 // Remove after 2026-11-24, once affected users have had a full quarter to see it.

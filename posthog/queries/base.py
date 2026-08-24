@@ -24,8 +24,6 @@ def determine_compared_filter(filter: FilterType) -> FilterType:
     date_from, date_to = get_compare_period_dates(
         filter.date_from,
         filter.date_to,
-        filter.date_from_delta_mapping,
-        filter.date_to_delta_mapping,
         filter.interval,
     )
 

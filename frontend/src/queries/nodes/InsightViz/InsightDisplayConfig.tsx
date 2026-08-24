@@ -25,7 +25,6 @@ import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { useInsightDisplayOptions } from './insightDisplayOptions'
-import { SevenDayComparisonMode } from './SevenDayComparisonMode'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight, editingDisabledReason } = useValues(insightLogic)
@@ -115,8 +114,6 @@ export function InsightDisplayConfig(): JSX.Element {
                         />
                     </ConfigFilter>
                 )}
-
-                <SevenDayComparisonMode />
             </div>
             <div className="flex items-center gap-x-2">
                 {advancedOptions.length > 0 && (

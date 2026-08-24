@@ -29,9 +29,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
 
     def date_from_delta_mappings(self) -> dict[str, int] | None:
         if self._date_range and self._date_range.date_from == "all":
-            # "All time" resolves to the earliest event rather than a relative offset, so there is no
-            # delta to report. Reporting a 7-day one triggers the "-7d is really 8 days" correction in
-            # get_compare_period_dates, which shifts the whole previous period a day later.
+            # "All time" starts at the earliest event, so there is no relative delta to step back by.
             return None
 
         if self._date_range and isinstance(self._date_range.date_from, str):
@@ -46,17 +44,6 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             now=self.now_with_timezone,
         )[1]
         return delta_mapping
-
-    def date_to_delta_mappings(self) -> dict[str, int] | None:
-        if self._date_range and self._date_range.date_to:
-            delta_mapping = relative_date_parse_with_delta_mapping(
-                self._date_range.date_to,
-                self._timezone_info,
-                always_truncate=True,
-                now=self.now_with_timezone,
-            )[1]
-            return delta_mapping
-        return None
 
     def dates(self) -> DateRangeBounds:
         current_period_date_from = super().date_from()
@@ -77,10 +64,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
         previous_period_date_from, previous_period_date_to = get_compare_period_dates(
             current_period_date_from,
             current_period_date_to,
-            self.date_from_delta_mappings(),
-            self.date_to_delta_mappings(),
             self.interval_name,
-            exclude_incomplete_periods=bool(self._date_range and self._date_range.excludeIncompletePeriods),
         )
 
         return DateRangeBounds(date_from=previous_period_date_from, date_to=previous_period_date_to)

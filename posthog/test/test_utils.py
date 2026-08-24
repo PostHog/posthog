@@ -850,8 +850,6 @@ class TestShouldRefresh(TestCase):
         assert get_compare_period_dates(
             date_from=datetime(2022, 1, 1, 0, 0),
             date_to=datetime(2022, 11, 4, 21, 20, 41, 730028),
-            date_from_delta_mapping={"day": 1, "month": 1},
-            date_to_delta_mapping=None,
             interval="day",
         ) == (datetime(2021, 2, 27, 0, 0), datetime(2021, 12, 31, 21, 20, 41, 730028))
 

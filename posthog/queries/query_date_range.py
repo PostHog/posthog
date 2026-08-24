@@ -81,13 +81,16 @@ class QueryDateRange:
         if self._filter._date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            date_from = relative_date_parse(self._filter._date_from, self._team.timezone_info)
+            date_from = relative_date_parse(
+                self._filter._date_from,
+                self._team.timezone_info,
+                include_current_day=not self._filter.use_explicit_dates,
+            )
         elif isinstance(self._filter._date_from, datetime):
             date_from = self._localize_to_team(self._filter._date_from)
         else:
-            date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
-                days=DEFAULT_DATE_FROM_DAYS
-            )
+            default_days = DEFAULT_DATE_FROM_DAYS if self._filter.use_explicit_dates else DEFAULT_DATE_FROM_DAYS - 1
+            date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(days=default_days)
 
         if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)

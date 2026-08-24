@@ -92,7 +92,7 @@ class TestQueryDateRange(APIBaseTest):
 
         self.assertEqual(
             parsed_date_from % {**filter.hogql_context.values, **date_from_params},
-            "AND toTimeZone(timestamp, UTC) >= toDateTime(toStartOfWeek(toDateTime(2021-08-18 00:00:00, UTC), 0), UTC)",
+            "AND toTimeZone(timestamp, UTC) >= toDateTime(toStartOfWeek(toDateTime(2021-08-19 00:00:00, UTC), 0), UTC)",
         )
         self.assertEqual(
             parsed_date_to % {**filter.hogql_context.values, **date_to_params},

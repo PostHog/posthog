@@ -192,10 +192,22 @@ class QueryDateRange:
                 # when we look at graphs by minute (last hour or last three hours), don't truncate
                 always_truncate=not (self.interval_name in ("second", "minute") or self._exact_timerange),
                 team_week_start_day=self._team.week_start_day,
+                include_current_day=not (
+                    self.interval_name in ("second", "minute")
+                    or self._exact_timerange
+                    or self._date_range.explicitDate
+                    or self._date_range.excludeIncompletePeriods
+                ),
             )
         else:
+            default_days = (
+                DEFAULT_DATE_FROM_DAYS
+                if self._exact_timerange
+                or (self._date_range and (self._date_range.explicitDate or self._date_range.excludeIncompletePeriods))
+                else DEFAULT_DATE_FROM_DAYS - 1
+            )
             date_from = self.now_with_timezone.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
-                days=DEFAULT_DATE_FROM_DAYS
+                days=default_days
             )
 
         return date_from

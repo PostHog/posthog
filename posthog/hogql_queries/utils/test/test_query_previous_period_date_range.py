@@ -24,10 +24,6 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-22T23:59:59.999999Z"))
 
     def test_previous_period_with_exclude_incomplete_periods_stays_aligned(self):
-        # The "-7d is really 8 days" kludge in get_compare_period_dates adds a day to counteract
-        # the ongoing day, but a clipped range no longer includes it: current period is exactly
-        # Wed Aug 18 - Tue Aug 24, so the previous period must be Wed Aug 11 - Tue Aug 17
-        # (weekday-aligned, non-overlapping), not Aug 12 - Aug 18.
         now = parser.isoparse("2021-08-25T10:00:00.000Z")
         date_range = DateRange(date_from="-7d", excludeIncompletePeriods=True)
         query_date_range = QueryPreviousPeriodDateRange(
@@ -35,6 +31,15 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         )
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-11T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-17T23:59:59.999999Z"))
+
+    def test_previous_period_is_adjacent_and_weekday_aligned(self):
+        now = parser.isoparse("2021-08-25T10:00:00.000Z")
+        query_date_range = QueryPreviousPeriodDateRange(
+            team=self.team, date_range=DateRange(date_from="-7d"), interval=IntervalType.DAY, now=now
+        )
+
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-12T00:00:00Z"))
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-18T23:59:59.999999Z"))
 
     @parameterized.expand(
         [
