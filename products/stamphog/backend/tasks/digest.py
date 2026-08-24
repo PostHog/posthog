@@ -22,7 +22,7 @@ from celery import shared_task
 from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
 from products.stamphog.backend.logic.digest import pr_key, summarize_merged_prs
-from products.stamphog.backend.logic.slack_digest import post_digest
+from products.stamphog.backend.logic.slack_digest import post_digest_details, post_digest_lead
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequestAudience
 
 logger = structlog.get_logger(__name__)
@@ -154,7 +154,7 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         return
 
     try:
-        message_ts = post_digest(team_id, channel, summary)
+        message_ts = post_digest_lead(team_id, channel, summary)
     except Exception as e:
         # Unlink the claimed audiences (digest_run back to NULL) so the next run retries them — the
         # retry query filters digest_run__isnull=True, so leaving them linked to a FAILED run would
@@ -191,6 +191,10 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             if attempt == _PROOF_OF_POST_WRITE_ATTEMPTS - 1:
                 raise
             time.sleep(_PROOF_OF_POST_WRITE_RETRY_SECONDS)
+
+    # Only now, with the lead on record, is the thread reply safe to attempt. It never raises, and a
+    # worker dying inside it leaves a run the sweeper finalizes rather than re-sends.
+    post_digest_details(team_id, channel, summary, message_ts)
 
     now = timezone.now()
     with transaction.atomic(using=write_db):

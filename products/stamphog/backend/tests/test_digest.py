@@ -26,7 +26,7 @@ from products.stamphog.backend.logic.digest import (
     _parse_llm_response,
     summarize_merged_prs,
 )
-from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest
+from products.stamphog.backend.logic.slack_digest import DigestSlackError, post_digest_details, post_digest_lead
 from products.stamphog.backend.models import (
     DigestChannel,
     DigestRun,
@@ -150,7 +150,7 @@ def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
 
     with (
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="1234.5"),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", return_value="1234.5"),
         patch("products.stamphog.backend.tasks.digest.transaction.atomic", side_effect=_dying_atomic),
     ):
         with pytest.raises(RuntimeError):
@@ -198,7 +198,7 @@ def test_proof_of_post_write_retries_transient_db_error(team, fail_times: int, e
     post = MagicMock(return_value="1234.5")
     sleeps: list[float] = []
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", post),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", post),
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
         patch("products.stamphog.backend.tasks.digest.time.sleep", side_effect=lambda s: sleeps.append(s)),
         patch.object(QuerySet, "update", flaky_update),
@@ -242,7 +242,7 @@ def test_concurrent_runs_for_one_channel_post_to_slack_once(team) -> None:
         return f"ts-{len(posts)}"
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", side_effect=reentrant_post),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", side_effect=reentrant_post),
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
     ):
         send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
@@ -268,7 +268,7 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
     with (
         patch("products.stamphog.backend.tasks.digest.DIGEST_MAX_PRS_PER_RUN", 2),
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1"),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", return_value="ts-1"),
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=sized_summary),
     ):
         send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
@@ -288,7 +288,7 @@ def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
     channel_id = _seed_channel_and_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-1") as post,
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", return_value="ts-1") as post,
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
     ):
         send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
@@ -309,7 +309,7 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
     channel_id = _seed_channel_and_prs(team.id)
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", side_effect=RuntimeError("slack down")),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", side_effect=RuntimeError("slack down")),
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
     ):
         send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
@@ -320,7 +320,7 @@ def test_failed_slack_post_leaves_prs_retryable_next_run(team) -> None:
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2  # unlinked, retryable
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-ok"),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", return_value="ts-ok"),
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
     ):
         send_digest_for_channel(digest_channel_id=channel_id, team_id=team.id)
@@ -397,7 +397,7 @@ def test_digest_claim_floor(team, has_history: bool, claimed_offset: timedelta, 
         )
 
     with (
-        patch("products.stamphog.backend.tasks.digest.post_digest", return_value="ts-ok"),
+        patch("products.stamphog.backend.tasks.digest.post_digest_lead", return_value="ts-ok"),
         patch("products.stamphog.backend.tasks.digest.summarize_merged_prs", side_effect=_summary),
     ):
         send_digest_for_channel(digest_channel_id=str(channel.id), team_id=team.id)
@@ -559,11 +559,15 @@ def test_the_changes_are_posted_as_a_thread_reply_under_the_lead(team) -> None:
     channel = _slack_channel(team)
     posted: list[dict[str, Any]] = []
 
+    summary = _one_pr_summary("The util helper landed.")
+
     with patch(
         "products.stamphog.backend.logic.slack_digest.SlackIntegration",
         return_value=_recording_slack_stub(posted),
     ):
-        assert post_digest(team.id, channel, _one_pr_summary("The util helper landed.")) == "9999.1"
+        message_ts = post_digest_lead(team.id, channel, summary)
+        assert message_ts == "9999.1"
+        post_digest_details(team.id, channel, summary, message_ts)
 
     assert [p.get("thread_ts") for p in posted] == [None, "9999.1"]
     assert "pull/1" not in str(posted[0]["blocks"])
@@ -578,11 +582,16 @@ def test_a_failed_thread_reply_still_counts_as_a_posted_digest(team) -> None:
     channel = _slack_channel(team)
     posted: list[dict[str, Any]] = []
 
+    summary = _one_pr_summary("The util helper landed.")
+
     with patch(
         "products.stamphog.backend.logic.slack_digest.SlackIntegration",
         return_value=_recording_slack_stub(posted, fail_thread=True),
     ):
-        assert post_digest(team.id, channel, _one_pr_summary("The util helper landed.")) == "9999.1"
+        message_ts = post_digest_lead(team.id, channel, summary)
+        assert message_ts == "9999.1"
+        # Swallowed rather than raised, for any failure class and not only SlackApiError.
+        post_digest_details(team.id, channel, summary, message_ts)
 
     assert len(posted) == 2
 
@@ -642,10 +651,10 @@ def test_post_digest_joins_a_channel_the_app_was_never_invited_to(
 
     with patch("products.stamphog.backend.logic.slack_digest.SlackIntegration", return_value=stub):
         if expected_error is None:
-            assert post_digest(team.id, channel, summary) == "9999.1"
+            assert post_digest_lead(team.id, channel, summary) == "9999.1"
         else:
             with pytest.raises(expected_error) as caught:
-                post_digest(team.id, channel, summary)
+                post_digest_lead(team.id, channel, summary)
             if expected_error is DigestSlackError:
                 assert "/invite @PostHog" in str(caught.value)
                 assert str(join_error) in str(caught.value)

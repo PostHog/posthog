@@ -44,7 +44,7 @@ MAX_DIGEST_PRS = 10
 # post is a paragraph a reader skims; the links belong on the change lines in the thread, where each
 # one is attached to the change it opens. A headline carrying one is rejected rather than repaired,
 # because cutting the URL out of a sentence leaves the punctuation around the hole behind.
-_HEADLINE_URL_RE = re.compile(r"https?://")
+_HEADLINE_URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 
 @frozen
@@ -263,7 +263,11 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
             # The sample is capped; the count is not. Reporting the sample size as the count would
             # make a team that owns most of a large change look like it was grazed by it.
             owned_by_index[index] = (audience.owned_files or [], audience.owned_file_count)
-        if audience.reason == AudienceReason.AUTHORED:
+        # AUTHORED is also the reason on the repo-wide fallback audience, which the author-team
+        # lookup produces when it cannot resolve a team. That audience is not the author's team, and
+        # marking it would tell the model a whole repo's feed already knows the work and should drop
+        # it. Only a team-slug audience can honestly carry the marker.
+        if audience.reason == AudienceReason.AUTHORED and not audience.audience_key.startswith("repo:"):
             authored_indexes.add(index)
 
     for index, pr in enumerate(prs):

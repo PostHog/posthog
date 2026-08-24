@@ -36,7 +36,7 @@ from products.stamphog.backend.logic.slack_digest import (
     _detail_blocks,
     _lead_blocks,
 )
-from products.stamphog.backend.models import PullRequest, StamphogRepoConfig
+from products.stamphog.backend.models import PullRequest, PullRequestAudience, StamphogRepoConfig
 from products.stamphog.backend.temporal import activities as activities_module
 from products.stamphog.backend.temporal.registry import ACTIVITIES
 from products.stamphog.backend.tests import fakes
@@ -700,9 +700,47 @@ class AudienceOwnershipSignalTests(SimpleTestCase):
                 }
             }
         )
-        prompt = _build_prompt([pr], audiences)
+        # The prompt builder reads the rows the digest actually holds, so map the resolved audiences
+        # onto unsaved PullRequestAudience rows rather than passing the resolver's own type. Passing
+        # ResolvedAudience here would test a shape production never gives it.
+        rows = [
+            PullRequestAudience(
+                team_id=7,
+                pull_request=pr,
+                audience_key=audience.key,
+                reason=audience.reason,
+                owned_files=audience.owned_files,
+                owned_file_count=audience.owned_file_count,
+            )
+            for audience in audiences
+        ]
+        prompt = _build_prompt([pr], rows)
         assert "by_your_team index=0" in prompt
         assert "your_files index=0 count=5 of 5" in prompt
+
+    def test_a_repo_fallback_audience_is_not_marked_as_the_authors_team(self) -> None:
+        # The author-team lookup falls back to a repo-wide audience when it cannot resolve a team,
+        # and that audience still carries AUTHORED. Marking it would tell the model the whole repo's
+        # feed already knows the author's work, and the prompt tells it to drop what that feed knows.
+        pr = PullRequest(
+            repo_config=self.REPO_CONFIG,
+            team_id=7,
+            pr_number=1,
+            title="Ship it",
+            pr_url="https://github.com/o/r/pull/1",
+            author_login="dev",
+            additions=1,
+            deletions=0,
+            changed_files=5,
+            body_excerpt="",
+        )
+        row = PullRequestAudience(
+            team_id=7,
+            pull_request=pr,
+            audience_key="repo:PostHog/posthog",
+            reason=AudienceReason.AUTHORED,
+        )
+        assert "by_your_team index=0" not in _build_prompt([pr], [row])
 
 
 class OwnedFileCountTests(SimpleTestCase):
