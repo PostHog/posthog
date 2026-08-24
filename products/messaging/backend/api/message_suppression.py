@@ -103,6 +103,13 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         parameters=[
+            OpenApiParameter(
+                name="search",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match on the recipient email address.",
+            ),
             OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(name="page_size", type=int, location=OpenApiParameter.QUERY, required=False),
         ],
@@ -125,11 +132,15 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
             raise PermissionDenied("You need hog_flow viewer access to view the suppression list.")
 
-        suppressions = (
-            MessageSuppression.objects.for_team(self.team_id)
-            .filter(suppressed=True, deleted=False)
-            .order_by("-updated_at")
-        )
+        suppressions = MessageSuppression.objects.for_team(self.team_id).filter(suppressed=True, deleted=False)
+
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            if len(search) > 512:
+                raise serializers.ValidationError({"search": "Search term must be 512 characters or fewer."})
+            suppressions = suppressions.filter(identifier__icontains=search)
+
+        suppressions = suppressions.order_by("-updated_at")
 
         paginator = SuppressionPagination()
         page = paginator.paginate_queryset(suppressions, request)

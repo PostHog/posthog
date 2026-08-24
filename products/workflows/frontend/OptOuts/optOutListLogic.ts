@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import Papa from 'papaparse'
 
@@ -63,6 +63,7 @@ export interface optOutListLogicValues {
     personsModalOpen: boolean
     removeOptOut: string | null
     removeOptOutLoading: boolean
+    searchTerm: string
     selectedIdentifier: string | null
     showAddOptOutModal: boolean
     showImportCsvModal: boolean
@@ -224,6 +225,9 @@ export interface optOutListLogicActions {
     setPersonsModalOpen: (open: boolean) => {
         open: boolean
     }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     setSelectedIdentifier: (identifier: string | null) => {
         identifier: string | null
     }
@@ -260,6 +264,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
         setPersonsModalOpen: (open: boolean) => ({ open }),
         setManagePreferencesModalOpen: (open: boolean) => ({ open }),
         setSelectedIdentifier: (identifier: string | null) => ({ identifier }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setCurrentPage: (page: number) => ({ page }),
         loadNextPage: true,
         loadPreviousPage: true,
@@ -298,6 +303,12 @@ export const optOutListLogic = kea<optOutListLogicType>([
             null as string | null,
             {
                 setSelectedIdentifier: (_, { identifier }) => identifier,
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
         currentPage: [
@@ -367,6 +378,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
             }
             return await messagingPreferencesOptOutsRetrieve(String(values.currentProjectId), {
                 category_key: props.category?.key,
+                search: values.searchTerm.trim() || undefined,
                 page,
             })
         }
@@ -524,6 +536,12 @@ export const optOutListLogic = kea<optOutListLogicType>([
             },
         }
     }),
+    listeners(({ actions }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadOptOutPersons()
+        },
+    })),
     afterMount(({ props, actions }) => {
         // If no category is provided or it's a marketing category, load opt-out persons
         if (!props.category?.id || props.category?.category_type === 'marketing') {

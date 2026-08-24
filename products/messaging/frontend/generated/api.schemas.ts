@@ -515,11 +515,19 @@ export type MessagingPreferencesOptOutsRetrieveParams = {
     category_key?: string
     page?: number
     page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient identifier.
+     */
+    search?: string
 }
 
 export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number
     page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient email address.
+     */
+    search?: string
 }
 
 export type MessagingTemplatesListParams = {

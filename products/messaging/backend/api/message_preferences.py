@@ -196,6 +196,13 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 required=False,
                 description="Message category key to list opt-outs for. If omitted, lists recipients opted out of all marketing messages.",
             ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring match on the recipient identifier.",
+            ),
             OpenApiParameter(name="page", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
             OpenApiParameter(name="page_size", type=OpenApiTypes.INT, location=OpenApiParameter.QUERY, required=False),
         ],
@@ -223,7 +230,15 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         opt_outs = MessageRecipientPreference.objects.filter(
             team_id=self.team_id,
             **{f"preferences__{preference_key}": PreferenceStatus.OPTED_OUT.value},
-        ).order_by("-updated_at")  # Order by most recently updated first
+        )
+
+        search = (request.query_params.get("search") or "").strip()
+        if search:
+            if len(search) > 512:
+                raise serializers.ValidationError({"search": "Search term must be 512 characters or fewer."})
+            opt_outs = opt_outs.filter(identifier__icontains=search)
+
+        opt_outs = opt_outs.order_by("-updated_at")  # Order by most recently updated first
 
         # Apply pagination
         paginator = OptOutsPagination()

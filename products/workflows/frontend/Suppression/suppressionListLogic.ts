@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -26,6 +26,7 @@ export interface suppressionListLogicValues {
     newIdentifier: string
     removeSuppression: string | null
     removeSuppressionLoading: boolean
+    searchTerm: string
     showAddModal: boolean
     suppressions: PaginatedMessageSuppressionApi
     suppressionsLoading: boolean
@@ -126,6 +127,9 @@ export interface suppressionListLogicActions {
     setNewIdentifier: (identifier: string) => {
         identifier: string
     }
+    setSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
     setShowAddModal: (show: boolean) => {
         show: boolean
     }
@@ -133,11 +137,18 @@ export interface suppressionListLogicActions {
 
 export type suppressionListLogicType = MakeLogicType<suppressionListLogicValues, suppressionListLogicActions>
 
-const fetchPage = async (projectId: number | null, page: number): Promise<PaginatedMessageSuppressionApi> => {
+const fetchPage = async (
+    projectId: number | null,
+    page: number,
+    search: string
+): Promise<PaginatedMessageSuppressionApi> => {
     if (projectId === null) {
         return EMPTY_SUPPRESSIONS
     }
-    return await messagingSuppressionsSuppressionsRetrieve(String(projectId), { page })
+    return await messagingSuppressionsSuppressionsRetrieve(String(projectId), {
+        search: search.trim() || undefined,
+        page,
+    })
 }
 
 export const suppressionListLogic = kea<suppressionListLogicType>([
@@ -151,6 +162,7 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
         loadPreviousPage: true,
         setShowAddModal: (show: boolean) => ({ show }),
         setNewIdentifier: (identifier: string) => ({ identifier }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     reducers({
         currentPage: [
@@ -177,13 +189,19 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                 setShowAddModal: (state, { show }) => (show ? state : ''),
             },
         ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
     }),
     loaders(({ values, actions }) => ({
         suppressions: {
             __default: EMPTY_SUPPRESSIONS,
             loadSuppressions: async (): Promise<PaginatedMessageSuppressionApi> => {
                 try {
-                    return await fetchPage(values.currentProjectId, 1)
+                    return await fetchPage(values.currentProjectId, 1, values.searchTerm)
                 } catch (e) {
                     lemonToast.error('Failed to load suppression list')
                     // Rethrow so kea-loaders emits loadSuppressionsFailure and the currentPage reducer
@@ -194,7 +212,7 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
             },
             loadNextPage: async (): Promise<PaginatedMessageSuppressionApi> => {
                 try {
-                    return await fetchPage(values.currentProjectId, values.currentPage + 1)
+                    return await fetchPage(values.currentProjectId, values.currentPage + 1, values.searchTerm)
                 } catch (e) {
                     lemonToast.error('Failed to load next page')
                     throw e
@@ -202,7 +220,11 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
             },
             loadPreviousPage: async (): Promise<PaginatedMessageSuppressionApi> => {
                 try {
-                    return await fetchPage(values.currentProjectId, Math.max(1, values.currentPage - 1))
+                    return await fetchPage(
+                        values.currentProjectId,
+                        Math.max(1, values.currentPage - 1),
+                        values.searchTerm
+                    )
                 } catch (e) {
                     lemonToast.error('Failed to load previous page')
                     throw e
@@ -244,6 +266,12 @@ export const suppressionListLogic = kea<suppressionListLogicType>([
                     throw e
                 }
             },
+        },
+    })),
+    listeners(({ actions }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSuppressions()
         },
     })),
     afterMount(({ actions }) => {

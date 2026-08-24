@@ -66,6 +66,7 @@ export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zo
         ),
     page: zod.number().optional(),
     page_size: zod.number().optional(),
+    search: zod.string().optional().describe('Case-insensitive substring match on the recipient identifier.'),
 })
 
 /**
