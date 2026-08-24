@@ -47,6 +47,20 @@ def resolve_destination_writer(ctx: DestinationRunContext) -> DestinationWriter:
     return factory(ctx)
 
 
+def snapshot_registered_writers() -> dict[str, DestinationWriterFactory]:
+    """A copy of the registry, for a caller that will put it back.
+
+    The registry is process-global, so a test that registers a fake writer leaks it into every
+    test that runs after it. Pair with `restore_registered_writers`.
+    """
+    return dict(_writer_factories)
+
+
+def restore_registered_writers(snapshot: dict[str, DestinationWriterFactory]) -> None:
+    _writer_factories.clear()
+    _writer_factories.update(snapshot)
+
+
 def supported_destination_types() -> frozenset[str]:
     return frozenset(_writer_factories)
 

@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     get_or_create_warehouse_destination,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
-from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import register_destination_writer
+from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import (
+    register_destination_writer,
+    restore_registered_writers,
+    snapshot_registered_writers,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load import delivery
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -43,6 +47,10 @@ class DeliveryTestCase(BaseTest):
         super().setUp()
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
+
+        # The registry is process-global, so these fakes have to come back out or every later
+        # test sees destination types this deployment cannot really write.
+        self.addCleanup(restore_registered_writers, snapshot_registered_writers())
         for destination_type in (ExternalDataDestination.Type.REDSHIFT, ExternalDataDestination.Type.SNOWFLAKE):
             register_destination_writer(destination_type, RecordingWriter)
 
