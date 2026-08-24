@@ -76,6 +76,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                 subjectType="view"
                                 subjectId={targetView.id}
                                 columns={targetView.columns ?? []}
+                                dataLastSyncedAt={targetView.is_materialized ? targetView.last_run_at : undefined}
                             />
                         )}
                     </>
