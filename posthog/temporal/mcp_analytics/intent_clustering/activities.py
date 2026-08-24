@@ -41,7 +41,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.models import (
 )
 
 from products.mcp_analytics.backend import intent_clustering
-from products.mcp_analytics.backend.constants import AI_CONSENT_REQUIRED_MESSAGE
+from products.mcp_analytics.backend.facade.contracts import AI_CONSENT_REQUIRED_MESSAGE
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
 logger = structlog.get_logger(__name__)

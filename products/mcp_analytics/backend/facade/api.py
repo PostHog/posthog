@@ -7,7 +7,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.mcp_analytics.backend import logic
-from products.mcp_analytics.backend.constants import AI_CONSENT_REQUIRED_MESSAGE
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
@@ -142,7 +141,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
     if not team.organization.is_ai_data_processing_approved:
-        raise contracts.AIDataProcessingNotApproved(AI_CONSENT_REQUIRED_MESSAGE)
+        raise contracts.AIDataProcessingNotApproved(contracts.AI_CONSENT_REQUIRED_MESSAGE)
 
     # One run at a time per team: while a fresh run holds the snapshot in
     # COMPUTING, another dispatch would only stack a duplicate workflow on the

@@ -21,6 +21,16 @@ class AIDataProcessingNotApproved(RuntimeError):
     """
 
 
+# Shown in the UI and stored on a failed snapshot, so both the interactive trigger and a
+# scheduled run explain the same next step. Clustering embeds every intent, and the embedding
+# worker drops requests from organizations that haven't consented to AI data processing.
+# Part of the contract because the scheduled run raises it from outside the product.
+AI_CONSENT_REQUIRED_MESSAGE = (
+    "Clustering needs AI data processing approved for this organization. "
+    "Enable it in organization settings, then run clustering again."
+)
+
+
 @dataclass(frozen=True)
 class Submission:
     id: UUID

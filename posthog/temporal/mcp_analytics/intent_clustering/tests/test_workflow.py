@@ -102,7 +102,7 @@ class TestComputeActivityAIConsentGate:
         from posthog.sync import database_sync_to_async
         from posthog.temporal.mcp_analytics.intent_clustering.activities import compute_intent_clusters_activity
 
-        from products.mcp_analytics.backend.constants import AI_CONSENT_REQUIRED_MESSAGE
+        from products.mcp_analytics.backend.facade.contracts import AI_CONSENT_REQUIRED_MESSAGE
         from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
         organization = await database_sync_to_async(Organization.objects.create)(
