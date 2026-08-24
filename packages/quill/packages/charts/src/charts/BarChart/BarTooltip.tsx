@@ -36,7 +36,7 @@ export function BarTooltip<Meta>({
     tooltipConfig,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales, labels } = useChartLayout()
-    const { hitTest = 'bar', ...defaultTooltipConfig } = tooltipConfig ?? {}
+    const { hitArea = 'bar', ...defaultTooltipConfig } = tooltipConfig ?? {}
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
         const narrowed = narrowSeriesByCursor(
@@ -48,7 +48,7 @@ export function BarTooltip<Meta>({
             topStackedKeyByAxis,
             labels,
             allSeries,
-            hitTest
+            hitArea
         )
         if (!narrowed) {
             return null
@@ -69,7 +69,7 @@ function narrowSeriesByCursor<Meta>(
     topStackedKeyByAxis: Map<string, string>,
     labels: string[],
     allSeries: Series<Meta>[],
-    hitTest: 'bar' | 'band'
+    hitArea: 'bar' | 'band'
 ): TooltipContext<Meta> | null {
     const cursor = ctx.hoverPosition
     if (!cursor) {
@@ -106,7 +106,7 @@ function narrowSeriesByCursor<Meta>(
         })
         // Nothing filled under the cursor, so it sits in the empty track past the bar's value
         // extent, such as right of the longest horizontal bar.
-        if (!visible && hitTest === 'bar') {
+        if (!visible && hitArea === 'bar') {
             return null
         }
         visibleKey = visible?.series.key ?? null

@@ -421,13 +421,13 @@ describe('BarChart', () => {
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
-        const hoverBandCenter = async (hitTest: 'bar' | 'band', index: number): Promise<void> => {
+        const hoverBandCenter = async (hitArea: 'bar' | 'band', index: number): Promise<void> => {
             const { chart } = renderHogChart(
                 <BarChart
                     series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ tooltip: { hitTest } }}
+                    config={{ tooltip: { hitArea } }}
                 />
             )
             const bandCenterX = (i: number): number =>

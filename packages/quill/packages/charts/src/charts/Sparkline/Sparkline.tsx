@@ -107,7 +107,7 @@ function SparklineInner({
                       margins: BAR_MARGINS,
                       showCrosshair: false,
                       // Sparkline bars can be a pixel tall, or absent at a zero bucket.
-                      tooltip: { hitTest: 'band' as const },
+                      tooltip: { hitArea: 'band' as const },
                   }
                 : { showCrosshair: true, margins: LINE_MARGINS }),
             ...(hasTooltip ? {} : { tooltip: { enabled: false } }),
