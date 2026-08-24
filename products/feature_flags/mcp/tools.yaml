@@ -142,6 +142,9 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+    feature-flag-request-usage-list:
+        operation: feature_flag_request_usage_list
+        enabled: false
     feature-flags-activity-retrieve:
         operation: feature_flags_activity_retrieve
         enabled: true
