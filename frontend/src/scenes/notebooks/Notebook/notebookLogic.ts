@@ -666,7 +666,7 @@ export interface notebookLogicMeta {
             notebook: NotebookType | null,
             mode: NotebookLogicMode
         ) => boolean
-        isEditable: (shouldBeEditable: boolean, canEditNotebook: any) => boolean
+        isEditable: (shouldBeEditable: boolean, canEditNotebook: boolean) => boolean
         isShared: (arg: any) => boolean
         cachedInsightsByShortId: (arg: any) => Record<string, InsightModel>
         cachedInlineQueryResultsByNodeId: (arg: any) => Record<string, AnyResponseType>
