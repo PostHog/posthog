@@ -466,6 +466,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             # this point (connections, metadata queries, the delta log read) is spent whether or
             # not the sync has anything to move. The probe reads the same `source_inputs` the
             # extraction below would, so watermark processing and row filters cannot drift.
+            # `reset_pipeline` is re-checked here because a reset asked for through the workflow
+            # input never reaches `sync_type_config`, which is all eligibility can see.
             if inputs.fast_return_eligible and not reset_pipeline:
                 if not await _probe_found_new_data(new_source, config, source_inputs, logger):
                     # The run checked the source, so the schema must not read as stale. Mirrors

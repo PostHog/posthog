@@ -279,7 +279,8 @@ class CreateExternalDataJobModelActivityOutputs:
     person_property_sync_enabled: bool = False
     # True when this run may complete without extracting if the source proves it has nothing new:
     # the schema tracks a cursor, is past its initial sync, and no repair work is outstanding.
-    # Defaults False so an old history replays the full sequence.
+    # Computed here because this activity already resolves the repair gates the decision needs.
+    # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
 
 
