@@ -174,6 +174,7 @@ describe("CustomizeSidebarSettings", () => {
       "inbox",
       "activity",
       "command-center",
+      "contexts",
       "configure",
     ]);
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.SIDEBAR_REORDERED, {

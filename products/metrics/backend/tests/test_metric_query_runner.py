@@ -796,6 +796,31 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         # bucket 1: first sample contributes 0, then 5+5+5; bucket 2: 5+5
         self.assertEqual(values, [15.0, 10.0])
 
+    @parameterized.expand(
+        [
+            ("increase", [10.0, 20.0]),
+            ("rate", [10.0 / 60.0, 20.0 / 60.0]),
+        ]
+    )
+    def test_first_bucket_diffs_against_the_sample_before_the_range(self, aggregation: str, expected: list[float]):
+        # Scraped about once per bucket, which is the normal case: without a
+        # predecessor from before date_from the first point is a flat 0.
+        self._seed_counter(
+            [
+                (self.anchor - dt.timedelta(seconds=90), 100.0),
+                (self.anchor - dt.timedelta(seconds=30), 110.0),
+                (self.anchor + dt.timedelta(seconds=30), 130.0),
+            ]
+        )
+        rows = self._run(aggregation)
+        for row, expected_value in zip(rows, expected):
+            self.assertAlmostEqual(row["value"], expected_value)
+        # The pre-range sample only feeds the window function; its own bucket
+        # must not widen the grid the chart plots.
+        self.assertEqual(len(rows), len(expected))
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
+
     def test_rate_divides_by_bucket_seconds(self):
         self._seed_counter(
             [
@@ -1015,6 +1040,22 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
         rows = self._run(0.95)
         self.assertEqual(rows, [])
+
+    def test_first_bucket_diffs_against_the_histogram_before_the_range(self):
+        # Same missing-predecessor defect as the counter functions, but here it
+        # drops the point entirely rather than plotting a zero.
+        self._seed_histogram(
+            [
+                (self.anchor - dt.timedelta(seconds=90), [100, 100, 100, 0]),
+                (self.anchor - dt.timedelta(seconds=30), [110, 110, 110, 0]),
+            ],
+            temporality="cumulative",
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
+        self.assertEqual(earliest, self.anchor - dt.timedelta(minutes=1))
 
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")

@@ -8,6 +8,7 @@ interface SignInCardProps {
   hogMessage: string;
   subtitle: string;
   onAuthInitiated?: (region: CloudRegion) => void;
+  /** Defaults to the dev build, which is the only place a local instance is worth offering. */
   includeDevRegion?: boolean;
 }
 
@@ -16,7 +17,7 @@ export function SignInCard({
   hogMessage,
   subtitle,
   onAuthInitiated,
-  includeDevRegion = false,
+  includeDevRegion = import.meta.env.DEV,
 }: SignInCardProps) {
   return (
     <Flex direction="column" gap="4">
