@@ -9,7 +9,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from celery import Task, chain, current_task, shared_task
+from celery import Task, chain, shared_task
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
 
@@ -18,7 +18,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -42,6 +42,7 @@ from products.cohorts.backend.models.util import (
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
+    save_recovery_bookkeeping,
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
@@ -49,8 +50,15 @@ from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_t
 COHORT_RECALCULATION_MAX_RETRIES = 6
 
 # CH_TRANSIENT_ERRORS plus the Postgres errors calculate_cohort_ch's own ORM reads can hit
-# (e.g. a connection-pooler blip before the ClickHouse recalculation even starts).
-COHORT_RECALCULATION_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, OperationalError, InterfaceError)
+# (e.g. a connection-pooler blip before the ClickHouse recalculation even starts). Recalculation is
+# a background job nobody cancels by hand, so a cancelled query here means a deploy, not an operator
+# shedding load - which is why this task opts into 394 where the shared tuple leaves it out.
+COHORT_RECALCULATION_TRANSIENT_ERRORS = (
+    *CH_TRANSIENT_ERRORS,
+    CHQueryErrorQueryWasCancelled,
+    OperationalError,
+    InterfaceError,
+)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -466,6 +474,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     # Auto-retry for transient ClickHouse and Postgres errors with exponential backoff
@@ -475,7 +484,9 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     max_retries=COHORT_RECALCULATION_MAX_RETRIES,
 )
 @skip_team_scope_audit
-def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
+def calculate_cohort_ch(
+    self: Task, cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None
+) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
@@ -503,34 +514,41 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
             tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
             if initiating_user_id:
                 tags.user_id = initiating_user_id
-            if current_task and current_task.request and current_task.request.id:
-                tags.celery_task_id = current_task.request.id
+            if self.request.id:
+                tags.celery_task_id = self.request.id
             update_tags(tags)
         except Exception as err:
             # Recalculation never started - calculate_people_ch's own bookkeeping (which handles
             # is_calculating/errors_calculating for failures during recalculation) never ran either.
-            # If Celery won't retry this (a non-transient error, or retries already exhausted),
-            # clear is_calculating immediately rather than leaving the cohort stranded "in flight"
-            # until the hourly reset_stuck_cohorts job, which would then charge it an
-            # errors_calculating increment for a recalculation that never actually ran.
-            retries = current_task.request.retries if current_task and current_task.request else 0
-            will_retry = retries < COHORT_RECALCULATION_MAX_RETRIES and isinstance(
-                err, COHORT_RECALCULATION_TRANSIENT_ERRORS
-            )
-            if not will_retry:
-                Cohort.objects.filter(pk=cohort_id, is_calculating=True).update(is_calculating=False)
+            # When nothing will retry, clear is_calculating here rather than leaving the cohort
+            # stranded "in flight" until the hourly reset_stuck_cohorts job, which would then charge
+            # it an errors_calculating increment for a recalculation that never actually ran.
+            if _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS):
+                # pending_version guard matches _safe_reset_calculating_state: never clear the flag
+                # out from under a newer calculation that superseded this one. A null
+                # pending_version means nothing newer is queued, so it clears too.
+                save_recovery_bookkeeping(
+                    lambda: Cohort.objects.filter(
+                        Q(pending_version__lte=pending_version) | Q(pending_version__isnull=True),
+                        pk=cohort_id,
+                        is_calculating=True,
+                    ).update(is_calculating=False),
+                    cohort_id=cohort_id,
+                )
             raise
 
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 
 
-def _is_final_attempt(task: Task, err: Exception) -> bool:
+def _is_final_attempt(
+    task: Task, err: Exception, retryable_errors: tuple[type[BaseException], ...] = CH_TRANSIENT_ERRORS
+) -> bool:
     """Whether a failure is permanent, so the task must finalize terminal state now.
 
-    Nothing retries an error outside CH_TRANSIENT_ERRORS, a direct (synchronous) call, which has no
-    Celery retry machinery behind it, or the last autoretry attempt.
+    Nothing retries an error outside the task's retryable set, a direct (synchronous) call, which
+    has no Celery retry machinery behind it, or the last autoretry attempt.
     """
-    if not isinstance(err, CH_TRANSIENT_ERRORS):
+    if not isinstance(err, retryable_errors):
         return True
     if task.request.called_directly:
         return True

@@ -1040,11 +1040,13 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.
+# CHQueryErrorQueryWasCancelled (394) is deliberately absent: a deploy cancelling in-flight queries
+# and an operator or user deliberately killing one are indistinguishable at this layer, so callers
+# that want the deploy case retried opt in themselves (see COHORT_RECALCULATION_TRANSIENT_ERRORS).
 CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
-    CHQueryErrorQueryWasCancelled,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
 )

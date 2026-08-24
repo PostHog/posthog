@@ -140,15 +140,15 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(wrapped, CHQueryErrorTableIsReadOnly)
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
-    def test_wrap_clickhouse_query_error_query_was_cancelled_is_stable_and_transient(self):
-        # Code 394 (QUERY_WAS_CANCELLED) happens when a deploy cancels in-flight queries; it must
-        # map to the importable class that lives in CH_TRANSIENT_ERRORS so tasks can retry it,
-        # rather than falling back to a dynamically generated class that no autoretry tuple
-        # references.
+    def test_wrap_clickhouse_query_error_query_was_cancelled_is_stable(self):
+        # Code 394 (QUERY_WAS_CANCELLED) must map to an importable class so that tasks wanting to
+        # retry it (see COHORT_RECALCULATION_TRANSIENT_ERRORS) can name it in an autoretry tuple,
+        # rather than falling back to a dynamically generated class nothing can reference. It stays
+        # out of CH_TRANSIENT_ERRORS because a deliberate KILL QUERY looks identical here.
         server_error = ServerException("DB::Exception: Query was cancelled.", code=394)
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, CHQueryErrorQueryWasCancelled)
-        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+        assert not isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
 
 class TestCorruptedParquetMetadataError(TestCase):
