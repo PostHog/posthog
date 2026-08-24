@@ -1584,10 +1584,25 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 authorization = copy_inputs.get("authorization")
                 authorization_integration_id = _coerce_integration_id(authorization)
 
+                existing_copy_inputs = existing_config.get("copy_inputs") or {}
+
                 for field_name, copy_integration_id in (
                     ("bucket_credentials", bucket_integration_id),
                     ("authorization", authorization_integration_id),
                 ):
+                    # Sticky like the top-level integration: COPY credentials that reference an
+                    # integration cannot drop back to inline values.
+                    # TODO: remove this guard once integrations are mandatory for Redshift and
+                    # inline credentials are gone.
+                    if (
+                        instance is not None
+                        and copy_integration_id is None
+                        and _coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
+                    ):
+                        raise serializers.ValidationError(
+                            f"Cannot switch '{field_name}' from an integration to inline credentials. "
+                            "Send a different integration ID to swap, or omit the field to keep the current one."
+                        )
                     if copy_integration_id is None:
                         continue
                     # These ids live inside `config` rather than the team-scoped `integration`
