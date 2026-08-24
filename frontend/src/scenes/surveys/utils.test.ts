@@ -1562,7 +1562,9 @@ describe('getSurveyDisplayConditionProperties', () => {
                 },
                 cancelEvents: { values: [{ name: 'closed' }] },
             },
-            targeting_flag_filters: { groups: [{ properties: [] }, { properties: [] }] },
+            // Saved surveys expose audience filters through targeting_flag.filters, not the
+            // write-only targeting_flag_filters field, so the fixture uses the API-response shape.
+            targeting_flag: { filters: { groups: [{ properties: [] }, { properties: [] }] } },
         } as unknown as Survey
 
         expect(getSurveyDisplayConditionProperties(survey)).toEqual({

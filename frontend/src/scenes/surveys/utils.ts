@@ -663,7 +663,9 @@ export function getSurveyDisplayConditionProperties(survey: Survey | NewSurvey):
 
     // Audience targeting uses feature flag release conditions, which support OR groups.
     // Count the groups to compare audience use of OR against the trigger UI, which lacks it.
-    const targetingGroups = survey.targeting_flag_filters?.groups ?? []
+    // Saved surveys expose these filters through targeting_flag.filters, so use the shared
+    // fallback helper instead of the write-only targeting_flag_filters field.
+    const targetingGroups = getSurveyTargetingFilters(survey)?.groups ?? []
 
     return {
         has_display_url_condition: !!conditions?.url,
