@@ -199,7 +199,11 @@ def _target_context_state(target_task: Task, target_run: TaskRun) -> dict[str, A
     image_id = target_state.get("custom_image_id")
     if isinstance(image_id, str) and image_id:
         context[ANALYSIS_TARGET_IMAGE_ID_STATE_KEY] = image_id
-        image = SandboxCustomImage.objects.for_team(target_run.team_id).filter(id=image_id).first()
+        image = SandboxCustomImage.get_accessible_for_task(
+            image_id=image_id,
+            team_id=target_run.team_id,
+            task_created_by_id=target_task.created_by_id,
+        )
         if image is not None:
             context[ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY] = image.name
     return context

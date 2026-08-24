@@ -13659,6 +13659,21 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         self.assertEqual(run.state["analysis_target_custom_image_id"], str(image.id))
         self.assertEqual(run.state["analysis_target_custom_image_name"], "PostHog Stack")
 
+    def test_analyze_does_not_copy_name_of_another_users_private_image(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        private_image = _make_custom_image(team=self.team, user=other_user, name="their-private", private=True)
+        self.target_run.state = {"custom_image_id": str(private_image.id)}
+        self.target_run.save(update_fields=["state"])
+
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            response = self._analyze()
+
+        run = Task.objects.get(id=response.json()["analysis_task_id"]).latest_run
+        assert run is not None
+        self.assertEqual(run.state["analysis_target_custom_image_id"], str(private_image.id))
+        self.assertNotIn("analysis_target_custom_image_name", run.state)
+
     def test_analyze_is_idempotent_per_run(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
         with read_p, write_p, tag_p, dispatch_p:
