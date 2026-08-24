@@ -1,5 +1,6 @@
 import { once } from 'node:events'
 import type { AddressInfo } from 'node:net'
+import sharp from 'sharp'
 
 import { blurOnly } from './blur.ts'
 import { startServer } from './server.ts'
@@ -56,6 +57,25 @@ describe('image-scrub sidecar server', () => {
     it('422s a truncated image (fails mid-decode, not just at the header)', async () => {
         const res = await fetch(`${base}/scrub`, { method: 'POST', body: PNG.subarray(0, 40) })
         expect(res.status).toBe(422)
+    })
+
+    it('422s an image whose PLUS metadata prohibits AI training', async () => {
+        const optedOut = await sharp(PNG)
+            .withXmp(
+                `
+                <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                         xmlns:plus="http://ns.useplus.org/ldf/xmp/1.0/">
+                    <rdf:Description plus:DataMining="http://ns.useplus.org/ldf/vocab/DMI-PROHIBITED-AIMLTRAINING" />
+                </rdf:RDF>
+            `
+            )
+            .png()
+            .toBuffer()
+
+        const res = await fetch(`${base}/scrub`, { method: 'POST', body: optedOut })
+
+        expect(res.status).toBe(422)
+        expect(await res.text()).toBe('image metadata prohibits AI training')
     })
 
     it('serves health + metrics on the metrics listener, not the scrub listener', async () => {

@@ -39,7 +39,11 @@ from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.access import DesktopAccessResolutionError
+from products.tasks.backend.facade import (
+    access as tasks_access,
+    api as tasks_facade,
+)
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.code_usage_gate import (
@@ -71,8 +75,6 @@ from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     AgentPeerMessage,
     Channel,
-    CodeInvite,
-    CodeInviteRedemption,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -172,6 +174,8 @@ class BaseTaskAPITest(TestCase):
     user: ClassVar[User]
     feature_flag_patcher: MagicMock
     mock_feature_flag: MagicMock
+    desktop_access_patcher: Any
+    _desktop_access_enabled: bool
     client: APIClient
 
     @classmethod
@@ -192,15 +196,26 @@ class BaseTaskAPITest(TestCase):
         # accumulates across tests (APIBaseTest clears it in setUp for the same reason).
         cache.clear()
 
-        # Enable tasks feature flag by default
+        self.desktop_access_patcher = patch(
+            "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+            side_effect=lambda *_args, **_kwargs: (
+                tasks_access.DesktopAccessDecision.ALLOWED
+                if self._desktop_access_enabled
+                else tasks_access.DesktopAccessDecision.STARTUP_PLAN
+            ),
+        )
+        self.desktop_access_patcher.start()
         self.set_tasks_feature_flag(True)
 
     def tearDown(self):
         if hasattr(self, "feature_flag_patcher"):
             self.feature_flag_patcher.stop()
+        if hasattr(self, "desktop_access_patcher"):
+            self.desktop_access_patcher.stop()
         super().tearDown()
 
     def set_tasks_feature_flag(self, enabled=True):
+        self._desktop_access_enabled = enabled
         if hasattr(self, "feature_flag_patcher"):
             self.feature_flag_patcher.stop()
 
@@ -7834,6 +7849,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         mock_usage.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
@@ -9253,29 +9269,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_check_access_flag_on_no_redemption(self):
-        self.set_tasks_feature_flag(True)
-
-        response = self.client.get("/api/code/invites/check-access/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["has_access"])
-
-    def test_check_access_flag_off_no_redemption(self):
-        self.set_tasks_feature_flag(False)
-
-        response = self.client.get("/api/code/invites/check-access/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["has_access"])
-
-    def test_check_access_flag_off_with_redemption(self):
-        self.set_tasks_feature_flag(False)
-        invite = CodeInvite.objects.create(code="ACCESSCODE", max_redemptions=0, is_active=True)
-        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
-
-        response = self.client.get("/api/code/invites/check-access/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["has_access"])
-
     def test_authentication_required(self):
         task = self.create_task()
 
@@ -10243,9 +10236,120 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         mock_signal_followup.assert_not_called()
 
-    @parameterized.expand([("prompt",), ("steer",), ("follow_up",), ("bash",), ("compact",), ("set_model",)])
+    @parameterized.expand(
+        [
+            ("permission_response", {"requestId": "perm-1", "optionId": "allow"}),
+            (
+                "mcp_response",
+                {
+                    "requestId": "relay-1",
+                    "server": "playwright",
+                    "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+                },
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_model_resuming_response_requires_code_access(self, method, params, mock_post):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "req-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "permission_response",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "pi_permission_response",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "req-1", "type": "permission_response", "optionId": "allow"}},
+                status.HTTP_200_OK,
+            ),
+            (
+                "mcp_response",
+                Task.Runtime.ACP,
+                "mcp_response",
+                {
+                    "requestId": "relay-1",
+                    "server": "playwright",
+                    "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
+                },
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            (
+                "pi_prompt",
+                Task.Runtime.PI,
+                "pi/rpc",
+                {"command": {"id": "req-1", "type": "prompt", "message": "continue"}},
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        ]
+    )
+    @patch(
+        "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+        side_effect=DesktopAccessResolutionError("unavailable"),
+    )
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_access_resolution_failure_only_allows_permission_responses(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        method: str,
+        params: dict[str, Any],
+        expected_status: int,
+        mock_post: MagicMock,
+        _mock_access: MagicMock,
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {"accepted": True}})
+        task = self.create_task(runtime=runtime)
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": method, "params": params, "id": "req-1"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            mock_post.assert_called_once()
+        else:
+            self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+            mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("prompt",),
+            ("steer",),
+            ("follow_up",),
+            ("bash",),
+            ("compact",),
+            ("set_model",),
+            ("permission_response",),
+            ("mcp_permission_response",),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_pi_rpc_execution_requires_code_access(self, inner_type, mock_post):
         self.set_tasks_feature_flag(False)
@@ -10265,6 +10369,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         mock_post.assert_not_called()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
@@ -10282,7 +10387,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 "jsonrpc": "2.0",
                 "method": "pi/rpc",
                 "id": "c1",
-                "params": {"command": {"id": "c1", "type": "permission_response", "approved": True}},
+                "params": {"command": {"id": "c1", "type": "get_state"}},
             },
             format="json",
         )
@@ -11970,6 +12075,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         mock_warm.assert_not_called()
 
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
@@ -12050,7 +12156,44 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
+        mock_gate.assert_not_called()
+        mock_workflow.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_task_bound_internal_run_bypasses_access_for_its_own_task(self, _mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        task = self.create_task()
+        client = self._sandbox_oauth_client(task.id, internal_scope=True)
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
+    def test_task_bound_internal_run_cannot_bypass_access_for_another_task(self, mock_gate, mock_workflow):
+        self.set_tasks_feature_flag(False)
+        bound_task = self.create_task()
+        other_task = self.create_task()
+        client = self._sandbox_oauth_client(bound_task.id, internal_scope=True)
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{other_task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(TaskRun.objects.filter(task=other_task).exists())
         mock_gate.assert_not_called()
         mock_workflow.assert_not_called()
 
@@ -12072,6 +12215,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
@@ -12136,6 +12280,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         self.assertFalse(TaskRun.objects.filter(task=task).exists())
         mock_gate.assert_not_called()
 
@@ -12301,6 +12446,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
 
@@ -12323,6 +12469,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["reason"], "startup_plan")
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_create_local_run_is_not_gated(self, mock_gate):
@@ -12418,9 +12565,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self, _name, origin, gate_return, expected_status, mock_gate, _mock_workflow
     ):
         # Inbox tasks (report "Create PR" / "Discuss", scout chat) are entitled through
-        # self-driving, not PostHog Desktop, so they run with the `tasks` flag off — where a
-        # plain task 403s (see test_run_without_code_access_returns_403_before_usage_check).
-        # The usage cost-backstop must still fire on the entitlement-bypassed path.
+        # self-driving, not PostHog Desktop, so they run while the human Desktop policy denies
+        # access. A plain task returns 403 in the same state. The usage cost backstop must still
+        # fire on the entitlement-bypassed path.
         self.set_tasks_feature_flag(False)
         mock_gate.return_value = gate_return
         task = self._inbox_task(origin)
@@ -12526,13 +12673,18 @@ class TestUsageLimitResponse(TestCase):
         self.assertEqual(response.data["code"], "usage_limit_exceeded")
         self.assertEqual(response.data["limit_type"], "burst")
 
-    @patch("products.tasks.backend.logic.services.code_usage_gate.has_tasks_access", return_value=False)
-    def test_code_access_required_response_is_structured(self, _mock_access):
-        response = code_access_required_response(MagicMock())
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision")
+    def test_code_access_required_response_is_structured(self, mock_access):
+        mock_access.return_value = tasks_access.DesktopAccessDecision.STARTUP_PLAN
+        request = MagicMock()
+        request.successful_authenticator = None
+        organization = MagicMock(id=1)
+        response = code_access_required_response(request, organization)
 
         assert response is not None
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.data["code"], "code_access_required")
+        self.assertEqual(response.data["reason"], "startup_plan")
 
 
 def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:
@@ -13460,6 +13612,35 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         mock_copy.assert_called_once_with(self.target_run.log_url, artifact["storage_path"])
         mock_dispatch.assert_called_once()
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "read_only")
+
+    def test_flagged_user_can_analyze_a_teammate_public_task(self):
+        teammate = self.create_organization_user("teammate")
+        channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name="shared-analysis",
+            created_by=teammate,
+        )
+        task = Task.objects.create(
+            team=self.team,
+            created_by=teammate,
+            channel=channel,
+            title="Teammate task",
+            description="Inspect it",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/analyze/")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["created"])
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
 
     def test_analyze_is_idempotent_per_run(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()

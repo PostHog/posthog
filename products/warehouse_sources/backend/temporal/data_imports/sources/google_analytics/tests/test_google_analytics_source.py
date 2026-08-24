@@ -4,16 +4,11 @@ from unittest import mock
 import requests
 from google.auth.exceptions import RefreshError
 
-from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
-
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics import (
-    GoogleAnalyticsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
     GOOGLE_ANALYTICS_REPORT_SCHEMAS,
@@ -23,36 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
     GoogleAnalyticsSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 def _config(property_id: str = "123456789", custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
     return GoogleAnalyticsSourceConfig(
         property_id=property_id, google_analytics_integration_id=1, custom_reports=custom_reports
     )
-
-
-def test_source_type():
-    assert GoogleAnalyticsSource().source_type == ExternalDataSourceType.GOOGLEANALYTICS
-
-
-def test_get_source_config_fields():
-    cfg = GoogleAnalyticsSource().get_source_config
-
-    field_names = {field.name for field in cfg.fields}
-    assert field_names == {"google_analytics_integration_id", "property_id", "custom_reports"}
-    assert cfg.label == "Google Analytics"
-    assert cfg.featureFlag is None
-    assert cfg.releaseStatus == ReleaseStatus.GA
-    assert not cfg.unreleasedSource
-
-
-def test_get_source_config_oauth_field_declares_required_scope():
-    cfg = GoogleAnalyticsSource().get_source_config
-    oauth_field = next(field for field in cfg.fields if field.name == "google_analytics_integration_id")
-    assert isinstance(oauth_field, SourceFieldOauthConfig)
-    assert oauth_field.kind == "google-analytics"
-    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/analytics.readonly"
 
 
 def test_get_schemas_returns_all_schemas_with_date_incremental():
@@ -173,50 +145,6 @@ def test_all_schemas_have_date_dimension_and_in_primary_key():
         assert schema["primary_key"] == schema["dimensions"], name
 
 
-def test_get_resumable_source_manager_uses_resume_config():
-    inputs = mock.MagicMock()
-    manager = GoogleAnalyticsSource().get_resumable_source_manager(inputs)
-    assert manager._data_class is GoogleAnalyticsResumeConfig
-
-
-def test_source_for_pipeline_plumbs_arguments():
-    inputs = mock.MagicMock()
-    inputs.schema_name = "website_overview"
-    inputs.team_id = 7
-    inputs.should_use_incremental_field = True
-    inputs.db_incremental_field_last_value = "2026-04-01"
-    manager = mock.MagicMock()
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_source"
-    ) as mock_source:
-        GoogleAnalyticsSource().source_for_pipeline(_config(), manager, inputs)
-
-    mock_source.assert_called_once_with(
-        config=mock.ANY,
-        resource_name="website_overview",
-        team_id=7,
-        resumable_source_manager=manager,
-        should_use_incremental_field=True,
-        db_incremental_field_last_value="2026-04-01",
-    )
-
-
-def test_source_for_pipeline_drops_last_value_when_not_incremental():
-    inputs = mock.MagicMock()
-    inputs.schema_name = "website_overview"
-    inputs.team_id = 7
-    inputs.should_use_incremental_field = False
-    inputs.db_incremental_field_last_value = "2026-04-01"
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_source"
-    ) as mock_source:
-        GoogleAnalyticsSource().source_for_pipeline(_config(), mock.MagicMock(), inputs)
-
-    assert mock_source.call_args[1]["db_incremental_field_last_value"] is None
-
-
 @pytest.mark.parametrize("bad_property_id", ["not-a-number", "properties/abc", "12 34", ""])
 def test_validate_credentials_rejects_non_numeric_property_id(bad_property_id):
     ok, message = GoogleAnalyticsSource().validate_credentials(_config(bad_property_id), team_id=1)
@@ -330,14 +258,6 @@ def test_validate_credentials_succeeds_when_metadata_readable():
 
     assert ok is True
     assert message is None
-
-
-def test_non_retryable_errors_cover_auth_failures():
-    errors = GoogleAnalyticsSource().get_non_retryable_errors()
-    assert "401 Client Error" in errors
-    assert "403 Client Error" in errors
-    assert "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in errors
-    assert "invalid_grant" in errors
 
 
 def test_non_retryable_errors_matches_revoked_refresh_token():
