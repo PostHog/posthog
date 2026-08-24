@@ -653,6 +653,8 @@ class WorkflowTaskSlackContext:
     integration when the stamped pk is stale. ``slack_user_id`` is empty when a bot
     posted the triggering message. ``message_ts`` is the triggering message itself,
     which differs from ``thread_ts`` when a reply started the run.
+    ``is_ext_shared_channel`` comes from the Slack event envelope and decides whether the
+    channel needs an approval on file before a task may reply in it.
     """
 
     integration_id: int
@@ -661,6 +663,7 @@ class WorkflowTaskSlackContext:
     message_ts: str = ""
     slack_user_id: str = ""
     slack_team_id: str = ""
+    is_ext_shared_channel: bool = False
 
 
 @dataclass(frozen=True)

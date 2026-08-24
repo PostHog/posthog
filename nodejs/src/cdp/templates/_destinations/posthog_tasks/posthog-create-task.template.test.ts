@@ -122,7 +122,14 @@ describe('posthog create task template', () => {
             message_ts: '1700000000.000100',
             slack_user_id: 'U123',
             slack_team_id: 'T123',
+            is_ext_shared_channel: false,
         })
+    })
+
+    it('forwards the externally shared channel flag so the backend can check approval', async () => {
+        const { params } = await invokeAndGetFetch(fullInputs, slackMessageGlobals({ is_ext_shared_channel: true }))
+
+        expect(parseJSON(params.body!).slack_context.is_ext_shared_channel).toEqual(true)
     })
 
     it('sends an empty slack user when a bot posted the triggering message', async () => {

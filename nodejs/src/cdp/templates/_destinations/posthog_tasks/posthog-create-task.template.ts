@@ -56,7 +56,8 @@ if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_rec
     'thread_ts': event.properties.thread_ts ?? event.properties.ts,
     'message_ts': event.properties.ts,
     'slack_user_id': event.properties.user ?? '',
-    'slack_team_id': event.properties.slack_team_id ?? ''
+    'slack_team_id': event.properties.slack_team_id ?? '',
+    'is_ext_shared_channel': event.properties.is_ext_shared_channel ?? false
   }
 }
 

@@ -19,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
+from products.slack_app.backend.facade.api import slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
@@ -101,22 +102,16 @@ def create_workflow_task(
     runs in flight.
 
     `event` is rendered into the agent's prompt as data. `slack_context` binds the run to
-    the Slack thread that triggered the workflow; a context that can't be resolved to one
-    of the team's Slack integrations is dropped rather than failing the create.
+    the Slack thread that triggered the workflow. The task is created either way: a context
+    is dropped, rather than failing the create, when it resolves to no Slack integration of
+    this team, when the channel is externally shared without an approval, or when another
+    live run already owns the thread.
     """
     replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
     if replay is not None:
         return replay
 
     _validate_connectors(team.id, owner_id, mcp_installation_ids)
-
-    slack_binding = _resolve_slack_binding(team.id, slack_context)
-    thread_context = slack_binding.thread_context if slack_binding is not None else None
-    # Derived from the thread context rather than tested separately, because the two must
-    # travel together: a context passed without an explicit origin defaults the run to
-    # "slack", which flips actor and credential resolution to a Slack steering user the
-    # run does not have. It must keep executing as the workflow owner.
-    interaction_origin = "workflow" if thread_context is not None else None
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
@@ -144,6 +139,15 @@ def create_workflow_task(
             # same in-flight count and overshoot max_parallel_tasks.
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks:{hog_flow_id}"])
+                if slack_context is not None:
+                    # And once per thread, across workflows, because the live-run check below
+                    # decides who owns the thread's reply channel: two triggers arriving
+                    # together would otherwise both find it free and both talk into it. Always
+                    # taken after the workflow lock, so the pair has one order and can't deadlock.
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                        [f"workflow-task-slack-thread:{slack_context.channel}:{slack_context.thread_ts}"],
+                    )
 
             # Same in-transaction check loops make before minting: locks the owner and
             # membership rows so a concurrent offboarding can't slip between check and create.
@@ -155,6 +159,16 @@ def create_workflow_task(
             ).count()
             if in_flight >= max_parallel_tasks:
                 raise WorkflowTaskLimitExceeded(in_flight, max_parallel_tasks)
+
+            # Resolved under the thread lock so the live-run check inside it holds for the
+            # rest of the transaction.
+            slack_binding = _resolve_slack_binding(team.id, slack_context)
+            thread_context = slack_binding.thread_context if slack_binding is not None else None
+            # Derived from the thread context rather than tested separately, because the two
+            # must travel together: a context passed without an explicit origin defaults the
+            # run to "slack", which flips actor and credential resolution to a Slack steering
+            # user the run does not have. It must keep executing as the workflow owner.
+            interaction_origin = "workflow" if thread_context is not None else None
 
             task = Task.create_and_run(
                 team=team,
@@ -241,20 +255,22 @@ def _render_run_message(prompt: str, event: dict[str, Any] | None) -> str:
 
 
 def _render_event_json(event: dict[str, Any]) -> str:
-    """The event as JSON, with its own closing tag escaped.
+    """The event as JSON, with angle brackets escaped so its content cannot form tags.
 
     `json.dumps` escapes quotes and control characters but leaves `<` and `>`, so a Slack
-    message carrying a verbatim `</triggering_event>` would close the data block and have
-    the rest of itself read as instructions. Anyone who can post in the channel can write
-    that. Escaped the way `render_loop_run_message` escapes its own wrapper.
+    message carrying `</triggering_event>` (or a whitespace or casing variant the model
+    still reads as the closing tag) would close the data block and have the rest of
+    itself read as instructions. Anyone who can post in the channel can write that. In
+    JSON the brackets only ever occur inside string literals, so the `\\u003c`/`\\u003e`
+    forms keep the payload valid JSON that decodes to the same strings.
     """
     serialized = json.dumps(event, default=str)
     if len(serialized) > EVENT_PROMPT_MAX_CHARS:
         serialized = json.dumps(_trimmed_event(event), default=str)
     if len(serialized) > EVENT_PROMPT_MAX_CHARS:
         serialized = serialized[:EVENT_PROMPT_MAX_CHARS] + " [truncated]"
-    # After truncation, so a cut cannot leave a half-escaped tag behind.
-    return serialized.replace("</triggering_event>", "&lt;/triggering_event&gt;")
+    # After truncation, so a cut cannot leave an unescaped bracket behind.
+    return serialized.replace("<", "\\u003c").replace(">", "\\u003e")
 
 
 def _trimmed_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -298,6 +314,8 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
             slack_team_id=ctx.slack_team_id,
         )
         return None
+    if not _may_speak_in_channel(integration, ctx):
+        return None
     if _thread_has_a_live_run(integration, ctx):
         # No binding at all, rather than a binding that only loses the mapping race. The
         # thread context also drives the run's own status posts, so a task that kept it
@@ -321,6 +339,29 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
             mentioning_slack_user_id=ctx.slack_user_id or None,
         ),
     )
+
+
+def _may_speak_in_channel(integration: Integration, ctx: contracts.WorkflowTaskSlackContext) -> bool:
+    """Whether the task is allowed to reply in this channel at all.
+
+    An externally shared channel has members from another Slack workspace, so PostHog stays
+    silent there until someone in it approves. Mentions already refuse on the same rule; a
+    task binding the thread is the same disclosure, so it answers to the same approval.
+
+    The flag comes from Slack's own event envelope, carried through the trigger event and
+    the workflow step. That is the only place it exists without asking Slack again, and it
+    is what the approval prompt itself is driven by.
+    """
+    if not ctx.is_ext_shared_channel:
+        return True
+    if slack_channel_is_approved(integration.integration_id or "", ctx.channel):
+        return True
+    logger.info(
+        "workflow_task_slack_channel_not_approved",
+        team_id=integration.team_id,
+        channel=ctx.channel,
+    )
+    return False
 
 
 def _acknowledge_trigger_message(binding: _SlackBinding) -> None:
@@ -383,8 +424,10 @@ def _bind_slack_thread(*, team: Team, task: Task, binding: _SlackBinding) -> Non
                 "task": task,
                 "task_run": run,
                 "mentioning_slack_user_id": thread.mentioning_slack_user_id or "",
-                # Watermark for follow-up diffs: the triggering message is already in the prompt.
-                "last_forwarded_ts": thread.thread_ts,
+                # Watermark for follow-up diffs: the triggering message is already in the
+                # prompt, so anchoring on the thread instead would forward it a second time
+                # when a reply-triggered run gets its first follow-up.
+                "last_forwarded_ts": thread.user_message_ts or thread.thread_ts,
             },
         )
     except Exception:

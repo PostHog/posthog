@@ -65,6 +65,10 @@ class WorkflowTaskSlackContextSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Slack workspace ID, the fallback for resolving the integration when the stamped ID is stale.",
     )
+    is_ext_shared_channel = serializers.BooleanField(
+        required=False,
+        help_text="Whether the channel is shared with another Slack workspace. Such a channel needs an approval on file before the task replies in it.",
+    )
 
 
 class WorkflowTaskCreateSerializer(serializers.Serializer):

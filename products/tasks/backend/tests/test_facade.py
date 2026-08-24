@@ -219,10 +219,13 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
-    def test_run_detail_exposes_the_boot_prompt_and_still_hides_internal_state(self):
+    @parameterized.expand([("the_sandbox", True), ("a_human_reader", False)])
+    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state):
         # The agent reads initial_prompt_override off this payload to build its first
-        # message. Dropping it from the allowlist strips it silently, and the run falls
-        # back to task.description with none of its framing or triggering event.
+        # message; dropping it strips it silently and the run falls back to
+        # task.description. But it embeds the triggering event wholesale (for a Slack
+        # trigger, a private channel's content) and workflow tasks are team-readable,
+        # so human readers must not receive it.
         task = self._make_task()
         run = TaskRun.objects.create(
             task=task,
@@ -231,10 +234,11 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
         )
 
-        detail = facade.get_task_run_detail(run.id, task.id, self.team.id)
+        detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
 
         assert detail is not None
-        assert detail.state["initial_prompt_override"] == "framed prompt"
+        expected = "framed prompt" if include_agent_state else None
+        assert detail.state.get("initial_prompt_override") == expected
         assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
