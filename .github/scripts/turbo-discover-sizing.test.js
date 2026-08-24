@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, PRODUCT_JOB_OVERHEAD_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -49,90 +49,63 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
     assert.equal(getSegmentDuration('Core', union, ran), 100)
 })
 
-// Sizing at 50% parallel efficiency: a shard's test time equals its overhead,
-// which reduces to ceil(work / overhead).
-test('calculateShards sizes a segment at 50% parallel efficiency', () => {
-    // 100 min of work against 10 min of overhead: 10 shards, each 10 min of tests.
-    assert.equal(calculateShards(6000, 600, 1), 10)
+// Sizing to the shared flat wall target: every shard carries
+// (target - overhead) of work, so walls land near the target in every lane.
+test('calculateShards sizes shards to the flat wall target', () => {
+    // 100 min of work, 5 min overhead: each shard gets 10 min of tests,
+    // walls land at the 15 min target.
+    assert.equal(calculateShards(6000, 300, 1), 10)
 })
 
-test('calculateShards rounds up, so efficiency never falls below half', () => {
-    assert.equal(calculateShards(6001, 600, 1), 11)
+test('calculateShards rounds up, so the target is a ceiling, not an average', () => {
+    assert.equal(calculateShards(6001, 300, 1), 11)
 })
 
 test('calculateShards keeps the floor and ceiling', () => {
     assert.equal(calculateShards(1, 600), 3)
-    assert.equal(calculateShards(6000, 1, 1), 50)
+    assert.equal(calculateShards(100000, 300, 1), 50)
 })
 
-test('calculateShards caps out rather than dividing by a zero overhead', () => {
-    assert.equal(calculateShards(6000, 0, 1), 50)
+test('calculateShards degrades to 50% efficiency when overhead reaches the target', () => {
+    // Overhead above the target makes it unreachable; the work budget floors at
+    // the overhead itself instead of going negative.
+    assert.equal(calculateShards(6000, TARGET_WALL_SECONDS + 100, 1), Math.ceil(6000 / (TARGET_WALL_SECONDS + 100)))
 })
 
-// Product sizing: JUnit-calibrated {work, session} totals against the union's
-// call sums. The session cost is paid per shard, so it sizes like overhead.
-
-test('calculateShards rounds to nearest for products, so a small product stays whole', () => {
-    // Work barely past one overhead: a second shard would halve efficiency.
-    assert.equal(calculateShards(300, 270, 1, Math.round), 1)
-})
+// Product sizing: with the junit-scaled marker the union's product sums are
+// measured magnitudes; without it they are call-only undercounts and the
+// file-count staleness guard may override them.
 
 const O = PRODUCT_JOB_OVERHEAD_SECONDS
 
-test('resolveProductSizing prefers the setup-inclusive junit totals over the union call sum', () => {
-    const union = { 'products/big_one/backend/test_a.py::test_a': 60 }
-    const totals = { 'big-one': { work: 500, session: 20 } }
-
-    const sizing = resolveProductSizing('big-one', union, totals)
-
-    assert.equal(sizing.calibrated, true)
-    assert.equal(sizing.work, 500)
-    assert.equal(sizing.session, 20)
-})
-
-test('resolveProductSizing keeps the union sum when the branch moved suites into the job', () => {
-    // Union records more call time than the junit total: the timing run predates
-    // the change, so the junit numbers no longer describe the job.
+test('resolveProductSizing trusts scaled sums and skips the file-count guess', () => {
     const union = { 'products/big_one/backend/test_a.py::test_a': 900 }
-    const totals = { 'big-one': { work: 500, session: 20 } }
 
-    const sizing = resolveProductSizing('big-one', union, totals)
+    const sizing = resolveProductSizing('big-one', union, true)
 
-    assert.equal(sizing.calibrated, false)
     assert.equal(sizing.work, 900)
+    assert.equal(sizing.staleUnionWork, null)
 })
 
-test('buildMatrix splits a calibrated product by work over overhead plus session', () => {
-    const totals = { 'big-one': { work: O * 4, session: O } }
+test('buildMatrix splits a product to the shared wall target', () => {
+    const union = {}
+    for (let i = 0; i < 40; i++) {
+        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 50
+    }
 
-    const matrix = buildMatrix(['big-one'], {}, totals)
+    const matrix = buildMatrix(['big-one'], union, true)
 
-    // round(4*O / (O + O)) = 2 shards, not round(4*O / O) = 4: every shard
-    // re-pays the session cost, so it must count against splitting.
-    assert.equal(matrix.length, 2)
-    assert.match(matrix[0].group, /^big-one \(1\/2\)$/)
+    // 2000s of work over a (target - overhead) budget per shard.
+    assert.equal(matrix.length, Math.ceil(2000 / (TARGET_WALL_SECONDS - O)))
+    assert.match(matrix[0].group, /^big-one \(1\/\d+\)$/)
 })
 
-test('buildMatrix leaves a calibrated small product packed', () => {
-    const totals = { 'small-one': { work: 100, session: 10 } }
+test('buildMatrix leaves a small product packed', () => {
+    const union = { 'products/small_one/backend/test_c.py::test_c': 100 }
 
-    const matrix = buildMatrix(['small-one'], {}, totals)
+    const matrix = buildMatrix(['small-one'], union, true)
 
     assert.equal(matrix.length, 1)
     assert.equal(matrix[0].group, 'small-one')
     assert.equal(matrix[0].pytest_args, '')
-})
-
-test('buildMatrix falls back to the legacy wall-target rule when the union is ahead of junit', () => {
-    const union = {}
-    for (let i = 0; i < 60; i++) {
-        union[`products/big_one/backend/test_${i}.py::test_${i}`] = 60
-    }
-    const totals = { 'big-one': { work: 100, session: 10 } }
-
-    const matrix = buildMatrix(['big-one'], union, totals)
-
-    // 3600s of recorded call time beats the 110s junit total. Call sums undercount,
-    // so the conservative legacy divisor applies: ceil((3600 + 60) / 600).
-    assert.equal(matrix.length, 7)
 })

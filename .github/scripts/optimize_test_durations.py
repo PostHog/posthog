@@ -513,62 +513,63 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
-def run_product_totals(junit_dir: Path, output_file: Path) -> None:
-    """Emit per-product {work, session} seconds from product JUnit artifacts.
+PRODUCTS_SCALED_MARKER = "products/.junit-scaled"
 
-    Product jobs write junit-product-<module>.xml without junit_duration_report=call,
-    so testcase times include fixture setup and teardown. Summed per product they
-    track the runner work that shrinks with more shards, which the call-based union
-    under-reports on fixture-heavy suites. `session` is the per-invocation cost every
-    shard pays in full (collection, session fixtures), measured as the mean gap
-    between suite time and testcase sum. turbo-discover.js reads the output
-    (.test_durations.products) to size product shards; splitting keeps using the
-    union. Keys are the npm-style product names turbo-discover works with.
+
+def product_junit_work(junit_dir: Path) -> dict[str, float]:
+    """Sum raw testcase seconds per product module from junit-product-*.xml files.
+
+    Product jobs run without junit_duration_report=call, so testcase times include
+    fixture setup and teardown and track real runner work. Raw sum on purpose:
+    JUnitShard._parse_call_times collapses repeated pytest ids (parametrize) to
+    their max, which under-counts a total. Keys are product module dir names.
     """
     work: dict[str, float] = defaultdict(float)
-    session_sum: dict[str, float] = defaultdict(float)
-    invocations: dict[str, int] = defaultdict(int)
     for xml_path in sorted(junit_dir.rglob("junit-product-*.xml")):
-        product = xml_path.stem[len("junit-product-") :].replace("_", "-")
+        module = xml_path.stem[len("junit-product-") :]
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
             logger.warning("  Could not parse product JUnit %s: %s", xml_path, e)
             continue
-        root = tree.getroot()
-        suite_total = sum(float(suite.get("time") or 0.0) for suite in root.iter("testsuite"))
-        # Sum raw testcase times rather than reuse JUnitShard._parse_call_times:
-        # that helper collapses repeated pytest ids (parametrize) to their max,
-        # which under-counts a total.
-        shard_work = 0.0
-        for tc in root.iter("testcase"):
+        for tc in tree.getroot().iter("testcase"):
             try:
-                shard_work += float(tc.get("time") or 0.0)
+                work[module] += float(tc.get("time") or 0.0)
             except ValueError:
                 continue
-        work[product] += shard_work
-        # The suite time exceeds the testcase sum by the per-invocation session cost
-        # (collection, session fixtures, migrations). Every shard of a split product
-        # pays it in full — warehouse-sources shards show 128±4s while their testcase
-        # work varies 5x — so it sizes like overhead, not like work.
-        session_sum[product] += max(0.0, suite_total - shard_work)
-        invocations[product] += 1
-    if not work:
-        # Same guard as the other modes: an empty totals file would silently size
-        # every product from nothing instead of falling back to the union sums.
-        logger.error("No product JUnit files under %s — refusing to write an empty totals file", junit_dir)
-        sys.exit(1)
-    totals = {
-        product: {
-            "work": round(seconds, 1),
-            "session": round(session_sum[product] / invocations[product], 1),
-        }
-        for product, seconds in work.items()
-    }
-    with open(output_file, "w") as f:
-        json.dump(totals, f, indent=4, sort_keys=True)
-        f.write("\n")
-    logger.info("Saved junit work totals for %d products to %s", len(totals), output_file)
+    return dict(work)
+
+
+def scale_products_to_junit(durations: dict[str, float], junit_dir: Path) -> dict[str, float]:
+    """Scale each product's entries so their sum equals the JUnit-measured work.
+
+    The recorded durations are call-only, which under-reports fixture-heavy
+    suites several-fold, and shard sizing reads these sums as magnitudes. Scaling
+    per product keeps the relative weights pytest-split needs while making the
+    sums track real runner work.
+    Call this on a junit-scoped durations dict (the Products branch scopes first),
+    so every prefixed entry is one the product job really ran — suites another job
+    records under the same prefix (a product's temporal tests running in the
+    Django Temporal segment) are already scoped away and keep their own values in
+    the union merge. Writes PRODUCTS_SCALED_MARKER so turbo-discover.js knows the
+    sums are trustworthy; the marker key is not a real file and is ignored by
+    pytest-split.
+    """
+    junit_work = product_junit_work(junit_dir)
+    scaled = dict(durations)
+    for module, target in sorted(junit_work.items()):
+        prefix = f"products/{module}/"
+        keys = [k for k in scaled if k.startswith(prefix)]
+        current = sum(scaled[k] for k in keys)
+        if current <= 0 or target <= 0:
+            continue
+        factor = target / current
+        for k in keys:
+            scaled[k] *= factor
+        if abs(factor - 1) > 0.05:
+            logger.info("  Scaled %s by %.2fx to junit work %.1f min", module, factor, target / 60)
+    scaled[PRODUCTS_SCALED_MARKER] = 1.0
+    return scaled
 
 
 def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
@@ -698,24 +699,12 @@ def main():
         help="Aggregation for --average-files (default: mean).",
     )
     parser.add_argument(
-        "--product-totals",
-        type=Path,
-        default=None,
-        help="Totals mode: sum per-product work seconds from junit-product-*.xml files under "
-        "the given directory and write {product: seconds} JSON to output_file. Product JUnit "
-        "times are setup-inclusive, so the totals track real runner work. Ignores artifacts_dir.",
-    )
-    parser.add_argument(
         "--replace-prefix",
         default=None,
         help="In merge mode, remove matching entries from the first input before merging fresh segment data.",
     )
 
     args = parser.parse_args()
-
-    if args.product_totals:
-        run_product_totals(args.product_totals, args.output_file)
-        return
 
     if args.merge_files:
         run_merge_files(args.merge_files, args.output_file, args.replace_prefix)
@@ -726,7 +715,7 @@ def main():
         return
 
     if args.artifacts_dir is None:
-        parser.error("artifacts_dir is required unless --merge-files, --average-files, or --product-totals is given")
+        parser.error("artifacts_dir is required unless --merge-files or --average-files is given")
 
     # Load per-shard timing data
     logger.info("Loading timing artifacts from %s...", args.artifacts_dir)
@@ -811,8 +800,13 @@ def main():
                 len(junit_shards),
                 before_count - len(durations),
             )
+            # Scaling needs the scoped dict: prefix-wide scaling is then exactly
+            # "entries this product's job ran".
+            durations = scale_products_to_junit(durations, args.junit_dir)
         else:
-            logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
+            logger.warning(
+                "Product JUnit coverage incomplete; retaining unscoped timings — sums stay call-only undercounts"
+            )
 
     # Filter to only existing tests if requested
     if args.filter_existing:

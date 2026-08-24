@@ -608,7 +608,6 @@ jobs:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
-                      .test_durations.products
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
