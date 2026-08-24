@@ -67,18 +67,32 @@ export const externalIssueSearchLogic: LogicWrapper<externalIssueSearchLogicType
         inputChanged: (query: string) => ({ query }),
         issueSelected: true,
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, cache }) => ({
         results: [
             [] as ErrorTrackingExternalIssueResultApi[],
             {
                 searchIssues: async (query, breakpoint) => {
                     const search = query.trim()
+                    if (search) {
+                        // A nonblank search cancels any pending selection-clear search at the
+                        // breakpoint below, so its suppression must not survive to swallow a
+                        // later genuine clear.
+                        cache.suppressNextBlankSearch = false
+                    }
                     if (props.requiresRepository && !values.repository) {
                         return values.results
                     }
                     // The breakpoint debounces typing and cancels superseded searches, so a slow
                     // response can never overwrite the results of a newer query.
                     await breakpoint(300)
+                    // Selecting an option makes LemonInputSelect clear its input, which is
+                    // indistinguishable from the user clearing the search. The clear can land
+                    // before issueSelected (option click) or after it (input blur), so the flag
+                    // is only reliable here, after the debounce, not at dispatch time.
+                    if (!search && cache.suppressNextBlankSearch) {
+                        cache.suppressNextBlankSearch = false
+                        return values.results
+                    }
                     const response = await errorTrackingExternalReferencesSearchIssuesRetrieve(
                         String(teamLogic.values.currentTeamId),
                         {
@@ -107,20 +121,15 @@ export const externalIssueSearchLogic: LogicWrapper<externalIssueSearchLogicType
         },
     }),
     listeners(({ actions, cache }) => ({
-        setRepository: () => actions.searchIssues(''),
+        setRepository: () => {
+            // A repository change clears the results, so the reload must not be suppressed.
+            cache.suppressNextBlankSearch = false
+            actions.searchIssues('')
+        },
         issueSelected: () => {
             cache.suppressNextBlankSearch = true
         },
-        inputChanged: ({ query }) => {
-            // Selecting an option makes LemonInputSelect clear its input, which is
-            // indistinguishable from the user clearing a search - except that it directly
-            // follows issueSelected. Only a genuine clear reloads the recent issues.
-            if (!query.trim() && cache.suppressNextBlankSearch) {
-                cache.suppressNextBlankSearch = false
-                return
-            }
-            actions.searchIssues(query)
-        },
+        inputChanged: ({ query }) => actions.searchIssues(query),
     })),
     afterMount(({ actions }) => {
         actions.searchIssues('')
