@@ -26,50 +26,55 @@ interface ReportChatPanelState {
   setWidth: (width: number) => void;
   rememberStartedTask: (reportId: string, taskId: string) => void;
   setPendingQuote: (reportId: string, quote: string) => void;
-  clearPendingQuote: (reportId: string) => void;
+  takePendingQuote: (reportId: string) => string | null;
   setStarterDraft: (reportId: string, text: string) => void;
   clearStarterDraft: (reportId: string) => void;
 }
 
-export const useReportChatPanelStore = create<ReportChatPanelState>((set) => ({
-  open: false,
-  width: 420,
-  startedTaskIdByReport: {},
-  pendingQuoteByReport: {},
-  starterDraftByReport: {},
-  setOpen: (open) => set({ open }),
-  setWidth: (width) => set({ width }),
-  rememberStartedTask: (reportId, taskId) =>
-    set((state) => ({
-      startedTaskIdByReport: {
-        ...state.startedTaskIdByReport,
-        [reportId]: taskId,
-      },
-    })),
-  setPendingQuote: (reportId, quote) =>
-    set((state) => ({
-      pendingQuoteByReport: {
-        ...state.pendingQuoteByReport,
-        [reportId]: quote,
-      },
-    })),
-  clearPendingQuote: (reportId) =>
-    set((state) => {
-      if (!(reportId in state.pendingQuoteByReport)) return state;
-      const { [reportId]: _, ...rest } = state.pendingQuoteByReport;
-      return { pendingQuoteByReport: rest };
-    }),
-  setStarterDraft: (reportId, text) =>
-    set((state) => ({
-      starterDraftByReport: {
-        ...state.starterDraftByReport,
-        [reportId]: text,
-      },
-    })),
-  clearStarterDraft: (reportId) =>
-    set((state) => {
-      if (!(reportId in state.starterDraftByReport)) return state;
-      const { [reportId]: _, ...rest } = state.starterDraftByReport;
-      return { starterDraftByReport: rest };
-    }),
-}));
+export const useReportChatPanelStore = create<ReportChatPanelState>(
+  (set, get) => ({
+    open: false,
+    width: 420,
+    startedTaskIdByReport: {},
+    pendingQuoteByReport: {},
+    starterDraftByReport: {},
+    setOpen: (open) => set({ open }),
+    setWidth: (width) => set({ width }),
+    rememberStartedTask: (reportId, taskId) =>
+      set((state) => ({
+        startedTaskIdByReport: {
+          ...state.startedTaskIdByReport,
+          [reportId]: taskId,
+        },
+      })),
+    setPendingQuote: (reportId, quote) =>
+      set((state) => ({
+        pendingQuoteByReport: {
+          ...state.pendingQuoteByReport,
+          [reportId]: quote,
+        },
+      })),
+    takePendingQuote: (reportId) => {
+      const quote = get().pendingQuoteByReport[reportId];
+      if (!quote) return null;
+      set((state) => {
+        const { [reportId]: _, ...rest } = state.pendingQuoteByReport;
+        return { pendingQuoteByReport: rest };
+      });
+      return quote;
+    },
+    setStarterDraft: (reportId, text) =>
+      set((state) => ({
+        starterDraftByReport: {
+          ...state.starterDraftByReport,
+          [reportId]: text,
+        },
+      })),
+    clearStarterDraft: (reportId) =>
+      set((state) => {
+        if (!(reportId in state.starterDraftByReport)) return state;
+        const { [reportId]: _, ...rest } = state.starterDraftByReport;
+        return { starterDraftByReport: rest };
+      }),
+  }),
+);

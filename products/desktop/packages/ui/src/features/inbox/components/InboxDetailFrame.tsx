@@ -1,4 +1,11 @@
-import type { IconProps } from "@phosphor-icons/react";
+import {
+  ChartLineUpIcon,
+  type IconProps,
+  LightbulbIcon,
+  TargetIcon,
+  WarningCircleIcon,
+  WrenchIcon,
+} from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
 import { splitReportSummary } from "@posthog/core/inbox/reportPresentation";
@@ -56,7 +63,7 @@ interface InboxDetailFrameProps {
   metaPrefix?: ReactNode;
   /** Meta items appended after the timestamp + source (e.g. PR diff stats). */
   metaSuffix?: ReactNode;
-  /** Variant-specific primary action button (e.g. "Open in GitHub" or "Copy link"). */
+  /** Variant-specific primary action button (e.g. "Open PR in GitHub" or "Copy link"). */
   primaryAction?: ReactNode;
   /** Rendered at the top of the main column, before the summary (the verdict banner). */
   aboveSummary?: ReactNode;
@@ -67,6 +74,8 @@ interface InboxDetailFrameProps {
   };
   /** Sections rendered in the main column under the summary (e.g. PR comments). */
   belowSummary?: ReactNode;
+  /** Content that closes the overview after both responsive columns. */
+  footer?: ReactNode;
   /** Optional "Evidence" section icon + title; null hides it. */
   evidenceSection: {
     Icon: ComponentType<IconProps>;
@@ -103,6 +112,7 @@ export function InboxDetailFrame({
   aboveSummary,
   summarySection,
   belowSummary,
+  footer,
   evidenceSection,
   aboveEvidence,
   secondaryTab,
@@ -164,7 +174,7 @@ export function InboxDetailFrame({
             )}
             <RelativeTimestamp
               timestamp={report.updated_at ?? report.created_at}
-              className="text-[12px]"
+              className="text-[13px]"
             />
             {hasSource && (
               <>
@@ -213,10 +223,10 @@ export function InboxDetailFrame({
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList variant="line" className="h-auto gap-0.5">
               <TabsTrigger value="overview" className="gap-1.5 px-2.5 py-2">
-                <span className="font-medium text-[13px]">Overview</span>
+                <span className="font-medium text-[14px]">Overview</span>
               </TabsTrigger>
               <TabsTrigger value="secondary" className="gap-1.5 px-2.5 py-2">
-                <span className="flex items-center gap-1.5 font-medium text-[13px]">
+                <span className="flex items-center gap-1.5 font-medium text-[14px]">
                   {secondaryTab.label}
                 </span>
               </TabsTrigger>
@@ -228,13 +238,13 @@ export function InboxDetailFrame({
       {/*
          The detail body is a container-query grid:
            - Left column caps at 80ch – matches the prose width inside, because
-             we set the same 13px font context that the prose uses so `ch` here
+             we set the same 14px font context that the prose uses so `ch` here
              resolves to the same width as inside the markdown.
            - Right column grows beyond the prose to use the leftover space, but
              the grid container is capped so the right column never exceeds 50%
              of total width. Wider viewports just get larger side gutters.
         */}
-      <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[13px]">
+      <div className="@container mx-auto w-full max-w-[calc(160ch+5rem)] px-6 py-5 text-[14px]">
         {secondaryTab && activeTab === "secondary" ? (
           <div className="flex min-w-0 flex-col gap-5">
             {secondaryTab.content}
@@ -259,7 +269,7 @@ export function InboxDetailFrame({
                   title={evidenceSection.title}
                   collapsible
                   rightSlot={
-                    <span className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
+                    <span className="cursor-default select-none text-[12px] text-gray-10 tabular-nums">
                       {evidenceCount} signal
                       {evidenceCount === 1 ? "" : "s"}
                     </span>
@@ -275,6 +285,9 @@ export function InboxDetailFrame({
               {children}
             </div>
           </div>
+        )}
+        {(!secondaryTab || activeTab === "overview") && footer && (
+          <div className="mt-5">{footer}</div>
         )}
         {showDismiss && dismissDialog}
       </div>
@@ -309,6 +322,25 @@ function ReportSummarySlots({
     </div>
   );
 
+  const sectionIcon = (title: string): ComponentType<IconProps> => {
+    const normalizedTitle = title.toLowerCase();
+    if (normalizedTitle.includes("problem")) return WarningCircleIcon;
+    if (normalizedTitle.includes("impact")) return ChartLineUpIcon;
+    if (
+      normalizedTitle.includes("solution") ||
+      normalizedTitle.includes("recommend")
+    ) {
+      return LightbulbIcon;
+    }
+    if (
+      normalizedTitle.includes("implementation") ||
+      normalizedTitle.includes("fix")
+    ) {
+      return WrenchIcon;
+    }
+    return TargetIcon;
+  };
+
   if (split.sections.length === 0) {
     return (
       <DetailSection Icon={Icon} title={fallbackTitle} collapsible>
@@ -340,7 +372,7 @@ function ReportSummarySlots({
       {split.sections.map((section, index) => (
         <DetailSection
           key={`${section.title}-${index}`}
-          Icon={Icon}
+          Icon={sectionIcon(section.title)}
           title={section.title}
           collapsible
           defaultCollapsed={index > 0}
@@ -357,7 +389,7 @@ function ReportSummarySlots({
       {/* Charts stay outside the collapsibles: in-prose chart links jump to
           these anchors, and a jump into a folded section lands nowhere. */}
       {report.charts && report.charts.length > 0 && (
-        <DetailSection Icon={Icon} title="Charts">
+        <DetailSection Icon={ChartLineUpIcon} title="Charts">
           <ReportChartsSection reportId={report.id} charts={report.charts} />
         </DetailSection>
       )}
