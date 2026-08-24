@@ -1485,8 +1485,8 @@ importers:
         specifier: ^1.7.0
         version: 1.7.0(react@19.2.6)
       posthog-js:
-        specifier: ^1.418.15
-        version: 1.418.15
+        specifier: ^1.418.16
+        version: 1.418.16
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1760,8 +1760,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.418.15
-        version: 1.418.15
+        specifier: ^1.418.16
+        version: 1.418.16
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6340,8 +6340,8 @@ packages:
   '@posthog/types@1.405.1':
     resolution: {integrity: sha512-JvaR4ChUKUk7qSTG58vKN2Br6es9riFF5mvlu7YGcwbB476vfyTO0o/TBh+zE88QhsfxnE5Tr/jKxI+e1v3Q5A==}
 
-  '@posthog/types@1.405.2':
-    resolution: {integrity: sha512-NVsw5pER9YEDFOfvmbpyRtIgv+0411QXHg1IjCFh+EcxtmLUP2FdJyiWYVpNM6WhTTlrPEW+fPZpGz1OBXijvQ==}
+  '@posthog/types@1.405.3':
+    resolution: {integrity: sha512-HApKJSYfwo/z2KIVB98E/8XwEL3pTXawBp0AB7FKRVtStz9hizRlaO6n9RR7sjgXLnOLvqj++CGsZb8rQbOS2g==}
 
   '@preact/signals-core@1.13.0':
     resolution: {integrity: sha512-slT6XeTCAbdql61GVLlGU4x7XHI7kCZV5Um5uhE4zLX4ApgiiXc0UYFvVOKq06xcovzp7p+61l68oPi563ARKg==}
@@ -13860,8 +13860,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.418.15:
-    resolution: {integrity: sha512-5hzYt+W3cnz9bUcNOFT2eQaB5/pNaMH+YDblVl2c6fDqY5CR7wyCx/Ax4KtEEIQRHNBlxs/w6izxYMSfsMIHAQ==}
+  posthog-js@1.418.16:
+    resolution: {integrity: sha512-/xnf6/PfCpRttAUr9R809L0qb52DsDg+LsuVlafKKDSqB1jO3dvCd1lDMgHsDZARcojI2RXfYZbsXHIfR10hVQ==}
 
   posthog-node@5.51.1:
     resolution: {integrity: sha512-uEGB5OQvYl9f8Fy2t4FolhcBBlYB8sZM6/4Us517M5dcg/d00yyCusm0HydZFwbPQtPntlpr3gNAmv8TTbWuaA==}
@@ -21010,7 +21010,7 @@ snapshots:
   '@posthog/browser-common@0.5.1':
     dependencies:
       '@posthog/core': 1.48.10
-      '@posthog/types': 1.405.2
+      '@posthog/types': 1.405.3
 
   '@posthog/cli@0.14.1':
     dependencies:
@@ -21022,7 +21022,7 @@ snapshots:
 
   '@posthog/core@1.48.10':
     dependencies:
-      '@posthog/types': 1.405.2
+      '@posthog/types': 1.405.3
 
   '@posthog/core@1.48.8':
     dependencies:
@@ -21095,7 +21095,7 @@ snapshots:
 
   '@posthog/types@1.405.1': {}
 
-  '@posthog/types@1.405.2': {}
+  '@posthog/types@1.405.3': {}
 
   '@preact/signals-core@1.13.0': {}
 
@@ -29899,11 +29899,11 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.418.15:
+  posthog-js@1.418.16:
     dependencies:
       '@posthog/browser-common': 0.5.1
       '@posthog/core': 1.48.10
-      '@posthog/types': 1.405.2
+      '@posthog/types': 1.405.3
       core-js: 3.50.0
       dompurify: 3.4.13
       fflate: 0.4.8
