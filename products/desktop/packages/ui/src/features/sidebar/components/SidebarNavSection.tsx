@@ -5,6 +5,7 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
@@ -73,6 +74,9 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  // With channel reports on, spaces own reports (sidebar tab + feed) and the
+  // inbox disappears as a destination.
+  const channelReportsEnabled = useChannelReportsEnabled();
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -145,7 +149,7 @@ export function SidebarNavSection({
     ),
   );
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
-    inbox: true,
+    inbox: !channelReportsEnabled,
     "command-center": true,
     contexts: contextEnabled,
     activity: bluebirdEnabled,
