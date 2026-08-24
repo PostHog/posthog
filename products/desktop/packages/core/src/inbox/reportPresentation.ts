@@ -234,3 +234,52 @@ export function parsePrUrl(prUrl: string): ParsedPrUrl | null {
     return null;
   }
 }
+
+export interface ReportSummarySplit {
+  /** Prose before the first `##` heading — the summary's own tl;dr. */
+  lede: string;
+  /** The `##` sections, in document order, bodies untrimmed of markdown. */
+  sections: { title: string; body: string }[];
+}
+
+/**
+ * Split a report summary into its labeled slots: the tl;dr lede and each
+ * `##` section (Problem, Impact, Solution, ...). The reader jumps to the slot
+ * they need instead of reconstructing the structure by reading linearly —
+ * nothing is cut, it's sorted. Summaries without `##` headings return an
+ * empty section list, and callers render them whole.
+ */
+export function splitReportSummary(
+  summary: string | null | undefined,
+): ReportSummarySplit {
+  if (typeof summary !== "string" || !summary.trim()) {
+    return { lede: "", sections: [] };
+  }
+  const lines = summary.split(/\r?\n/);
+  const sections: { title: string; body: string }[] = [];
+  const lede: string[] = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      if (current) {
+        sections.push({
+          title: current.title,
+          body: current.body.join("\n").trim(),
+        });
+      }
+      current = { title: heading[1], body: [] };
+    } else if (current) {
+      current.body.push(line);
+    } else {
+      lede.push(line);
+    }
+  }
+  if (current) {
+    sections.push({
+      title: current.title,
+      body: current.body.join("\n").trim(),
+    });
+  }
+  return { lede: lede.join("\n").trim(), sections };
+}

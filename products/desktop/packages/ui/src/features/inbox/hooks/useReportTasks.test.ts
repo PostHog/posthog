@@ -10,8 +10,19 @@ import {
 
 function makeTask(
   id: string,
-  run?: { status?: TaskRunStatus; prUrl?: string | null },
+  run?: {
+    status?: TaskRunStatus;
+    prUrl?: string | null;
+    prMerged?: boolean;
+    prState?: string;
+  },
 ): Task {
+  let output: Record<string, unknown> | null = null;
+  if (run?.prUrl) {
+    output = { pr_url: run.prUrl };
+    if (run.prMerged) output.pr_merged = true;
+    if (run.prState) output.pr_state = run.prState;
+  }
   const latest_run: TaskRun | undefined = run
     ? ({
         id: `${id}-run`,
@@ -21,7 +32,7 @@ function makeTask(
         status: run.status ?? "in_progress",
         log_url: "",
         error_message: null,
-        output: run.prUrl ? { pr_url: run.prUrl } : null,
+        output,
         state: {},
         created_at: "2026-06-24T10:00:00Z",
         updated_at: "2026-06-24T10:00:00Z",
@@ -104,6 +115,46 @@ describe("findContinuableImplementationTask", () => {
     expect(
       findContinuableImplementationTask([entry(failed), entry(running)]),
     ).toBe(running);
+  });
+
+  it.each<[string, { prMerged?: boolean; prState?: string }]>([
+    ["pr_state merged", { prState: "merged" }],
+    ["legacy pr_merged flag", { prMerged: true }],
+  ])(
+    "treats a task whose PR already merged (%s) as not continuable",
+    (_label, merge) => {
+      const merged = makeTask("impl", {
+        status: "completed",
+        prUrl: "https://gh/pr/9",
+        ...merge,
+      });
+      expect(findContinuableImplementationTask([entry(merged)])).toBeNull();
+    },
+  );
+
+  it("prefers a still-running task over one whose PR already merged", () => {
+    const merged = makeTask("merged", {
+      status: "completed",
+      prUrl: "https://gh/pr/9",
+      prState: "merged",
+    });
+    const running = makeTask("running", { status: "in_progress" });
+    expect(
+      findContinuableImplementationTask([entry(merged), entry(running)]),
+    ).toBe(running);
+  });
+});
+
+describe("findLatestDiscussionTask", () => {
+  it("returns the newest discussion and ignores other purposes", () => {
+    const older = entry(makeTask("old-chat"), "discussion");
+    older.startedAt = "2026-06-20T10:00:00Z";
+    const newer = entry(makeTask("new-chat"), "discussion");
+    newer.startedAt = "2026-06-24T10:00:00Z";
+    const impl = entry(makeTask("impl", { prUrl: "https://gh/pr/1" }));
+    expect(findLatestDiscussionTask([impl, older, newer])).toBe(newer.task);
+    expect(findLatestDiscussionTask([impl])).toBeNull();
+    expect(findLatestDiscussionTask(undefined)).toBeNull();
   });
 });
 

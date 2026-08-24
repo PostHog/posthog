@@ -157,7 +157,7 @@ export function ReportDetailActions({
         title="Chat with the agent about this report"
       >
         <ChatCircleIcon size={12} />
-        Discuss
+        Chat with this report
       </Button>
 
       {canvasActionEnabled && (
@@ -179,7 +179,7 @@ export function ReportDetailActions({
                 title="Have the agent build a canvas from this report"
               >
                 {isCreatingCanvas ? <Spinner /> : <ShapesIcon size={12} />}
-                Canvas
+                Create canvas…
               </Button>
             }
           />
@@ -225,7 +225,22 @@ export function ReportDetailActions({
         </Popover>
       )}
 
-      {overflowMenu}
+      {/* An overflow menu earns its click only with something to hide; when
+          Copy link is the lone occasional action, it shows directly. */}
+      {!prUrl && !refund.canRefund ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label="Copy link to this report"
+          title="Copy link to this report"
+          onClick={() => copyInboxReportLink(report)}
+        >
+          <CopyIcon size={13} />
+        </Button>
+      ) : (
+        overflowMenu
+      )}
 
       {refund.canRefund && (
         <RefundReportDialog
