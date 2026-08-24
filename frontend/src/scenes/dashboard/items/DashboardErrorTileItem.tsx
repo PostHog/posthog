@@ -17,6 +17,8 @@ interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElemen
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     onRemove?: () => void
+    onRetry?: () => void
+    retryLoading?: boolean
     showEditingControls?: boolean
 }
 
@@ -29,6 +31,8 @@ function DashboardErrorTileItemInternal(
         onDragHandleMouseDown,
         onEnterEditModeFromEdge,
         onRemove,
+        onRetry,
+        retryLoading,
         showEditingControls,
         showResizeHandles,
         ...divProps
@@ -54,7 +58,11 @@ function DashboardErrorTileItemInternal(
                     ) : undefined
                 }
             />
-            <InsightErrorState title="There is a problem loading this dashboard tile." supportOnly />
+            <InsightErrorState
+                title="There is a problem loading this dashboard tile."
+                onRetry={onRetry}
+                retryLoading={retryLoading}
+            />
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}
