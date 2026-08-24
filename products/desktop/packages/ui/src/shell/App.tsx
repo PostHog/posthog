@@ -125,7 +125,7 @@ function App({ devToolbar }: AppProps) {
           spacesLayoutEnabledRef.current,
         );
         if (firstRun) {
-          showChannelList(firstRun.generalChannelId);
+          showChannelList({ keepForRoute: firstRun.generalChannelId });
           useSpaceTreeStore.getState().expandSpace(firstRun.generalChannelId);
         }
         router.history.replace(href);
