@@ -236,6 +236,62 @@ def _v3_batch(*, partitioned: bool = False) -> pa.Table:
     return pa.table(data_dict)
 
 
+class TestNullabilityDriftGuardOrder:
+    """The nullability reset signal guards only the delta-rs MERGE fallback: deltalite
+    relaxes a lying non-nullable column in the table metadata and writes, so it must
+    receive the batch before the guard fires."""
+
+    def _seed_non_nullable_table(self, path: str) -> deltalake.DeltaTable:
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("v", pa.int64(), nullable=False),
+            ]
+        )
+        deltalake.write_deltalake(path, pa.table({"id": pa.array([1, 2]), "v": pa.array([1, 1])}, schema=schema))
+        return deltalake.DeltaTable(path)
+
+    def _null_carrying_batch(self) -> pa.Table:
+        # Deliberately NOT passed through evolve_pyarrow_schema: its non-nullable
+        # backfill would replace the nulls with defaults, and the guard exists exactly
+        # for batches that bypass that preamble.
+        return pa.table({"id": pa.array([2, 3], pa.int64()), "v": pa.array([None, 5], pa.int64())})
+
+    @pytest.mark.asyncio
+    async def test_merge_fallback_raises_reset_signal_on_null_in_non_nullable(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        self._seed_non_nullable_table(delta_path)
+        helper = make_local_table_ref(delta_path)
+
+        # deltalite is off (the flag evaluation fails closed in tests), so the write falls
+        # through to the MERGE, which would silently store the nulls under a schema that
+        # denies them -- the guard must stop it with the reset signal instead.
+        with pytest.raises(SchemaColumnTypeChangedException, match="now contains nulls"):
+            await DeltaWriter(helper).write(
+                data=self._null_carrying_batch(),
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
+
+    @pytest.mark.asyncio
+    async def test_deltalite_write_bypasses_the_reset_signal(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        self._seed_non_nullable_table(delta_path)
+        helper = make_local_table_ref(delta_path)
+
+        # deltalite handled the batch (it relaxes the column itself), so the guard must
+        # not fire -- firing here would reset tables deltalite can write fine.
+        with patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(return_value=True)):
+            result = await DeltaWriter(helper).write(
+                data=self._null_carrying_batch(),
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
+        assert result is not None
+
+
 class TestLegacyDltTableReconciliation:
     """Pipeline_v3 must handle dlt-created Delta tables with NOT NULL _dlt_* columns."""
 

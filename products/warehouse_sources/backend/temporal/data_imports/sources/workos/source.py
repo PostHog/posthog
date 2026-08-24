@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -42,7 +43,7 @@ class WorkOSSource(ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig]):
             name=SchemaExternalDataSourceType.WORK_OS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="WorkOS",
-            releaseStatus="alpha",
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your WorkOS API key to sync your WorkOS data into the PostHog Data warehouse.
 
 You can find your API key in the [WorkOS Dashboard](https://dashboard.workos.com/) under **API Keys**.

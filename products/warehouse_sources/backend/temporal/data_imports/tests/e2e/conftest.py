@@ -9,6 +9,7 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
+import psycopg
 import pymysql
 import aioboto3
 import pytest_asyncio
@@ -35,7 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     STATUS_TABLE,
-    STATUS_VIEW,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
+    _ensure_tables,
+    _get_test_database_url,
 )
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import PostImportWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
@@ -61,65 +65,13 @@ def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
 
     The v3 pipeline tests patch WAREHOUSE_SOURCES_DATABASE_URL to point at
     the Django test database, but the product migration only runs on the
-    dedicated warehouse_sources_queue DB. This fixture bridges the gap by
-    creating non-partitioned copies of the tables in the test DB.
+    dedicated warehouse_sources_queue DB. This fixture bridges the gap with the
+    queue suite's own DDL, so a column jobs_db starts writing can't reach these
+    tests as a missing-column failure in an unrelated product suite.
     """
     with django_db_blocker.unblock():
-        from django.db import connection
-
-        with connection.cursor() as cur:
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS {BATCH_TABLE} (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    team_id BIGINT NOT NULL,
-                    schema_id VARCHAR(200) NOT NULL,
-                    source_id VARCHAR(200) NOT NULL,
-                    job_id VARCHAR(200) NOT NULL,
-                    run_uuid VARCHAR(200) NOT NULL,
-                    batch_index INT NOT NULL,
-                    s3_path TEXT NOT NULL,
-                    row_count INT NOT NULL,
-                    byte_size BIGINT NOT NULL,
-                    is_final_batch BOOLEAN NOT NULL,
-                    total_batches INT,
-                    total_rows BIGINT,
-                    sync_type VARCHAR(32) NOT NULL,
-                    cumulative_row_count BIGINT NOT NULL DEFAULT 0,
-                    resource_name VARCHAR(400) NOT NULL,
-                    is_resume BOOLEAN NOT NULL DEFAULT FALSE,
-                    is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
-                    metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
-                    latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
-                    latest_attempt SMALLINT NOT NULL DEFAULT 0,
-                    state_changed_at TIMESTAMPTZ,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-            """)
-            # Self-heal pre-existing test DBs where CREATE TABLE IF NOT EXISTS is a no-op.
-            cur.execute(f"""
-                ALTER TABLE {BATCH_TABLE}
-                    ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
-                    ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
-            """)
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    batch_id UUID NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
-                    job_state VARCHAR(32) NOT NULL,
-                    attempt SMALLINT NOT NULL DEFAULT 0,
-                    exec_time TIMESTAMPTZ,
-                    error_response JSONB,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-            """)
-            cur.execute(f"DROP VIEW IF EXISTS {STATUS_VIEW}")
-            cur.execute(f"""
-                CREATE VIEW {STATUS_VIEW} AS
-                SELECT DISTINCT ON (batch_id) *
-                FROM {STATUS_TABLE}
-                ORDER BY batch_id ASC, created_at DESC, id DESC
-            """)
+        with psycopg.connect(_get_test_database_url(), autocommit=True) as conn:
+            _ensure_tables(conn)
 
 
 @pytest.fixture
@@ -142,7 +94,7 @@ def mysql_container():
     local flox envs have Docker too. If Docker is unreachable the
     fixture errors loudly so the breakage isn't silently hidden.
     """
-    container = MySqlContainer("mysql:9.2")
+    container = MySqlContainer("mysql:9.2").with_env("MYSQL_INITDB_SKIP_TZINFO", "1")
     container.start()
     try:
         yield container
@@ -250,7 +202,6 @@ async def run_external_data_job_workflow(
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
-    # if not ignore_assertions:
     run = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=external_data_source.pk)
 
     assert run is not None

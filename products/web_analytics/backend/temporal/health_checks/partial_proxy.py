@@ -1,7 +1,7 @@
 import re
 from collections import defaultdict
 
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (

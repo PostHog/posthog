@@ -673,6 +673,7 @@ def finalize_review_report(
     run_index: int,
     head_sha: str,
     urgency_threshold: str | None = None,
+    will_publish: bool = False,
 ) -> None:
     """Mark the turn complete: store the body, bump `run_count`, stamp `last_run_at` and the reviewed head.
 
@@ -684,15 +685,24 @@ def finalize_review_report(
     `urgency_threshold` is the resolve snapshot the turn's body/publish gated on — stamped HERE, not
     at resolve (which describes the *next* turn and would drift mid re-review under a different
     acting user), so the detail view buckets published vs held-back findings by the gate that ran.
+
+    `will_publish` defers the idle write to the publish stage. The reviews API reads ACTIVE as
+    in-progress, so going idle here, seconds before `published_head_sha` lands, hands the UI's
+    poll a completed-but-unpublished row as the run's final state, and the poll stops on it with a
+    wrong "Not published" frozen on screen. The publish path returns the report to IDLE on every
+    outcome (`publish_persisted_review`), and the workflow's failure activity covers a publish that
+    dies past retries.
     """
-    ReviewReport.objects.for_team(team_id).filter(id=report_id, run_count=run_index - 1).update(
-        report_markdown=body_markdown,
-        run_count=run_index,
-        last_run_at=timezone.now(),
-        completed_head_sha=head_sha,
-        run_urgency_threshold=urgency_threshold,
-        status=ReviewReport.Status.IDLE,
-    )
+    updates: dict[str, object] = {
+        "report_markdown": body_markdown,
+        "run_count": run_index,
+        "last_run_at": timezone.now(),
+        "completed_head_sha": head_sha,
+        "run_urgency_threshold": urgency_threshold,
+    }
+    if not will_publish:
+        updates["status"] = ReviewReport.Status.IDLE
+    ReviewReport.objects.for_team(team_id).filter(id=report_id, run_count=run_index - 1).update(**updates)
 
 
 def _issue_key(issue: Issue, run_index: int) -> str:

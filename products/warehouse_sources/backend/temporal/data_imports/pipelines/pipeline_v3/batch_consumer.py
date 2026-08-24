@@ -103,6 +103,15 @@ def _is_connect_timeout_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.ConnectionTimeout)
 
 
+# SQLSTATE 57P01: the queue DB itself terminated the connection via an administrator
+# command — a managed-Postgres failover, a maintenance restart, or an explicit
+# pg_terminate_backend(). Same self-healing shape as the guards above: the connection
+# is simply gone, _ensure_poll_conn/_ensure_recovery_conn redial on the next cycle, and
+# the caller's existing retry/backoff already covers the gap.
+def _is_admin_shutdown_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.AdminShutdown)
+
+
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
@@ -444,7 +453,26 @@ class BatchConsumer:
             # scans the whole queue and can outlast the health server's startup
             # grace window, and a pod liveness-killed mid-sweep can never boot.
             self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-            await self._recovery_sweep_with_timeout()
+            try:
+                await self._recovery_sweep_with_timeout()
+            except psycopg.OperationalError as e:
+                # Mirrors _recovery_loop's handling of the same call: a queue DB that
+                # isn't reachable yet on startup must not crash the consumer, since the
+                # periodic recovery loop tolerates the identical failure once running.
+                if _is_dns_resolution_transient_error(e):
+                    logger.warning(self._event("startup_sweep_dns_unavailable"), error=str(e))
+                elif _is_server_not_ready_error(e):
+                    logger.warning(self._event("startup_sweep_db_starting_up"), error=str(e))
+                elif _is_connect_timeout_error(e):
+                    logger.warning(self._event("startup_sweep_connect_timeout"), error=str(e))
+                elif _is_admin_shutdown_error(e):
+                    logger.warning(self._event("startup_sweep_admin_shutdown"), error=str(e))
+                else:
+                    logger.exception(self._event("startup_sweep_error"))
+                    capture_exception(e)
+            except Exception as e:
+                logger.exception(self._event("startup_sweep_error"))
+                capture_exception(e)
             self._recovery_task = asyncio.create_task(self._recovery_loop())
 
             while not self._shutdown.is_set():
@@ -489,6 +517,8 @@ class BatchConsumer:
                         logger.warning(self._event("poll_failed_queue_db_starting_up"), error=str(e))
                     elif _is_connect_timeout_error(e):
                         logger.warning(self._event("poll_failed_queue_db_connect_timeout"), error=str(e))
+                    elif _is_admin_shutdown_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_admin_shutdown"), error=str(e))
                     else:
                         logger.exception(self._event("poll_failed_queue_db_unreachable"))
                         capture_exception(e)
@@ -684,13 +714,46 @@ class BatchConsumer:
             return
         try:
             await self._adapter.unlock(group_conn, batches=batches, owner_token=self._owner_token)
+            return
+        except psycopg.OperationalError as e:
+            if not self._adapter.per_group_connections:
+                # Advisory-lock adapters release on the session that acquired the lock;
+                # a fresh connection wouldn't hold it, so there's nothing to retry with.
+                self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+                return
         except Exception as e:
-            logger.exception(
-                self._event("unlock_for_batches_failed"),
-                team_id=team_id,
-                external_data_schema_id=schema_id,
-            )
-            capture_exception(e)
+            self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+            return
+
+        # The batch heartbeat shares this per-group connection with the batch loop and
+        # can be cancelled mid-query when the group task itself is cancelled (e.g. shutdown
+        # draining a batch stuck deep in the sink write) — a psycopg command cancelled
+        # mid-flight leaves the connection unable to accept another ("another command is
+        # already in progress"), the same class of issue _drop_conn guards against for the
+        # poll/recovery connections. The lease release isn't session-scoped, so retrying once
+        # on a fresh connection is safe, and cheap since this runs once per group, not per batch.
+        try:
+            retry_conn = await self._connect()
+        except Exception as e:
+            self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+            return
+        try:
+            await self._adapter.unlock(retry_conn, batches=batches, owner_token=self._owner_token)
+        except Exception as e:
+            self._log_unlock_failure(e, team_id=team_id, schema_id=schema_id)
+        finally:
+            try:
+                await retry_conn.close()
+            except Exception:
+                pass
+
+    def _log_unlock_failure(self, error: Exception, *, team_id: int, schema_id: str) -> None:
+        logger.exception(
+            self._event("unlock_for_batches_failed"),
+            team_id=team_id,
+            external_data_schema_id=schema_id,
+        )
+        capture_exception(error)
 
     async def _get_status_conn(self, lock_conn: psycopg.AsyncConnection[Any] | None) -> psycopg.AsyncConnection[Any]:
         """Return the connection to use for status writes, preferring the lock session."""
@@ -826,8 +889,6 @@ class BatchConsumer:
         Binds structlog contextvars so every downstream log line (including loader calls)
         routes to log_entries under the right schema/workflow before any logger fires.
         """
-        team_id = str(batch.team_id)
-        schema_id = batch.schema_id
         attempt = batch.latest_attempt + 1
 
         workflow_id = batch.metadata.get("workflow_id") or ""
@@ -869,7 +930,7 @@ class BatchConsumer:
             # cumulative TTL and get abandoned mid-group. The pre-commit check in
             # _process_single_inner stays a fail-closed verify.
             await self._renew_ownership(lock_conn, batch)
-            return await self._process_single_inner(batch, attempt, team_id, schema_id, lock_conn)
+            return await self._process_single_inner(batch, attempt, lock_conn)
         finally:
             self._inflight_started.pop(batch.id, None)
             structlog.contextvars.unbind_contextvars(*bound_keys)
@@ -878,8 +939,6 @@ class BatchConsumer:
         self,
         batch: PendingBatch,
         attempt: int,
-        team_id: str,
-        schema_id: str,
         lock_conn: psycopg.AsyncConnection[Any] | None = None,
     ) -> bool:
         if attempt > self._config.max_attempts:
@@ -920,9 +979,7 @@ class BatchConsumer:
                     batch_id=batch.id,
                     run_uuid=batch.run_uuid,
                 )
-                self._metrics.batches_processed_total.labels(
-                    team_id=team_id, schema_id=schema_id, status="skipped"
-                ).inc()
+                self._metrics.batches_processed_total.labels(status="skipped").inc()
                 return False
 
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
@@ -954,9 +1011,7 @@ class BatchConsumer:
                 await self._adapter.after_batch_processed(status_conn, batch=batch)
 
             duration = time.monotonic() - start
-            self._metrics.batch_processing_duration_seconds.labels(team_id=team_id, schema_id=schema_id).observe(
-                duration
-            )
+            self._metrics.batch_processing_duration_seconds.observe(duration)
 
             await self._verify_ownership(lock_conn, batch)
             await self._adapter.update_status(
@@ -966,7 +1021,7 @@ class BatchConsumer:
                 attempt=attempt,
                 batch_created_at=batch.created_at,
             )
-            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+            self._metrics.batches_processed_total.labels(status="success").inc()
             logger.info(
                 self._event("batch_processed_ok"),
                 batch_id=batch.id,
@@ -979,7 +1034,7 @@ class BatchConsumer:
         except OwnershipLostError:
             raise
         except Exception as err:
-            self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
+            self._metrics.batches_processed_total.labels(status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
@@ -1088,6 +1143,8 @@ class BatchConsumer:
                     logger.warning(self._event("recovery_sweep_db_starting_up"), error=str(e))
                 elif _is_connect_timeout_error(e):
                     logger.warning(self._event("recovery_sweep_connect_timeout"), error=str(e))
+                elif _is_admin_shutdown_error(e):
+                    logger.warning(self._event("recovery_sweep_admin_shutdown"), error=str(e))
                 else:
                     logger.exception(self._event("recovery_sweep_error"))
                     capture_exception(e)
@@ -1114,6 +1171,8 @@ class BatchConsumer:
                         logger.warning(self._event("reconcile_sweep_db_starting_up"), error=str(e))
                     elif _is_connect_timeout_error(e):
                         logger.warning(self._event("reconcile_sweep_connect_timeout"), error=str(e))
+                    elif _is_admin_shutdown_error(e):
+                        logger.warning(self._event("reconcile_sweep_admin_shutdown"), error=str(e))
                     else:
                         logger.exception(self._event("reconcile_sweep_error"))
                         capture_exception(e)

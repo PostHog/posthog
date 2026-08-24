@@ -9,6 +9,11 @@ pub const DEFAULT_PERSONS_DB_URL: &str =
 /// The dev-stack leader-mode router (bin/mprocs.yaml `personhog-router-leader`).
 pub const DEV_STACK_ROUTER_URL: &str = "http://127.0.0.1:50054";
 
+/// Connections a load-driving scenario opens to the router by default.
+/// Sized so a deployed instance spreads over a meaningful slice of a
+/// router fleet while staying trivial against a single local router.
+pub const DEFAULT_ROUTER_CHANNELS: usize = 8;
+
 /// Keys a traffic lane holds a person's document at. The changelog carries
 /// the whole document per update, so this multiplies the bed's byte rate.
 pub const DEFAULT_KEYS_PER_PERSON: u64 = 64;
@@ -78,6 +83,10 @@ pub struct CleanupArgs {
 pub struct BlastArgs {
     #[arg(long, default_value = DEV_STACK_ROUTER_URL)]
     pub router_url: String,
+
+    /// Connections to open to the router; see TrafficArgs::router_channels.
+    #[arg(long, default_value_t = DEFAULT_ROUTER_CHANNELS)]
+    pub router_channels: usize,
 
     #[arg(long)]
     pub team_id: i64,
@@ -350,6 +359,13 @@ pub struct TrafficArgs {
     /// served on this address.
     #[arg(long, env = "TRAFFIC_IDENTITY_URL")]
     pub identity_url: String,
+
+    /// Connections this instance opens to the router. A Kubernetes Service
+    /// pins each connection to one router pod, so a single connection
+    /// confines an instance's whole load to one pod and measures that
+    /// pod's ceiling rather than the fleet's.
+    #[arg(long, env = "TRAFFIC_ROUTER_CHANNELS", default_value_t = DEFAULT_ROUTER_CHANNELS)]
+    pub router_channels: usize,
 
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-

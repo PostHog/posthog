@@ -386,7 +386,9 @@ class ClickHouseClient:
         return request_data
 
     @staticmethod
-    def raise_clickhouse_error(error_message: str, query: str | None = None) -> typing.NoReturn:
+    def raise_clickhouse_error(
+        error_message: str, query: str | None = None, query_id: str | None = None
+    ) -> typing.NoReturn:
         """Raise the appropriate ClickHouseError subclass based on the error message."""
         ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
             "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
@@ -398,8 +400,8 @@ class ClickHouseClient:
         }
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
-                raise exc_class(error_message, query=query)
-        raise ClickHouseError(error_message, query=query)
+                raise exc_class(error_message, query=query, query_id=query_id)
+        raise ClickHouseError(error_message, query=query, query_id=query_id)
 
     async def acheck_response(self, response, query) -> None:
         """Asynchronously check the HTTP response received from ClickHouse."""
@@ -764,8 +766,11 @@ class ClickHouseClient:
         elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
             if raise_on_error:
                 error_message = error or f"Unknown query error in query with ID: {query_id}"
-                # we don't have the original query here so just use the query id
-                raise ClickHouseError(error_message, query_id=query_id)
+                # The query log's `exception` column holds the same text ClickHouse returns over
+                # HTTP, so classify it the same way for consistency. Otherwise, the exception a
+                # caller sees for a query result we fetch from the query log would differ from that
+                # they would get running the query and waiting for the result.
+                self.raise_clickhouse_error(error_message, query_id=query_id)
 
             return ClickHouseQueryStatus.ERROR
         elif "QueryStart" in events:

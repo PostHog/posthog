@@ -66,6 +66,63 @@ describe("createPiConversationTranslator", () => {
     expect(ended).toEqual([]);
   });
 
+  it("records assistant token usage on the completed turn", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
+    const translator = createPiConversationTranslator();
+    const first = assistant([{ type: "text", text: "first" }]);
+    first.usage.totalTokens = 1_200;
+    const second = assistant([{ type: "text", text: "second" }]);
+    second.usage.totalTokens = 900;
+
+    translator.translateEvent({ type: "message_end", message: first });
+    translator.translateEvent({ type: "message_end", message: second });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 2_100,
+      },
+    ]);
+    vi.useRealTimers();
+  });
+
+  it("does not carry usage from a terminally failed turn into the next turn", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(20);
+    const translator = createPiConversationTranslator();
+    const failedTurnMessage = assistant([{ type: "text", text: "failed" }]);
+    failedTurnMessage.usage.totalTokens = 500;
+    const nextTurnMessage = assistant([{ type: "text", text: "next" }]);
+    nextTurnMessage.usage.totalTokens = 900;
+
+    translator.translateEvent({
+      type: "message_end",
+      message: failedTurnMessage,
+    });
+    translator.translateEvent({
+      type: "agent_end",
+      messages: [failedTurnMessage],
+      willRetry: false,
+    });
+    translator.translateEvent({
+      type: "message_end",
+      message: nextTurnMessage,
+    });
+
+    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      {
+        type: "turn_completed",
+        timestamp: 20,
+        stopReason: "stop",
+        totalTokens: 900,
+      },
+    ]);
+    vi.useRealTimers();
+  });
+
   it("appends content missing from the streamed deltas at message_end", () => {
     const translator = createPiConversationTranslator();
     const message = assistant([{ type: "text", text: "complete" }]);
@@ -142,29 +199,35 @@ describe("createPiConversationTranslator", () => {
     ).toEqual([]);
   });
 
-  it("completes a turn using the settlement time", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(30);
-    const translator = createPiConversationTranslator();
-    const laterMessage = assistant(
-      [{ type: "text", text: "later" }],
-      "stop",
-      20,
-    );
-    const earlierMessage = assistant(
-      [{ type: "text", text: "earlier" }],
-      "stop",
-      10,
-    );
+  it.each(["stop", "aborted"] as const)(
+    "completes a %s turn using the settlement time and final stop reason",
+    (stopReason) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(30);
+      const translator = createPiConversationTranslator();
+      const laterMessage = assistant(
+        [{ type: "text", text: "later" }],
+        stopReason,
+        20,
+      );
+      const earlierMessage = assistant(
+        [{ type: "text", text: "earlier" }],
+        "stop",
+        10,
+      );
 
-    translator.translateEvent({ type: "message_end", message: laterMessage });
-    translator.translateEvent({ type: "message_end", message: earlierMessage });
+      translator.translateEvent({
+        type: "message_end",
+        message: earlierMessage,
+      });
+      translator.translateEvent({ type: "message_end", message: laterMessage });
 
-    expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
-      { type: "turn_completed", timestamp: 30 },
-    ]);
-    vi.useRealTimers();
-  });
+      expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+        { type: "turn_completed", timestamp: 30, stopReason },
+      ]);
+      vi.useRealTimers();
+    },
+  );
 
   it("translates retry lifecycle without rendering transient runtime errors", () => {
     const translator = createPiConversationTranslator();

@@ -138,6 +138,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "defaults_disabled": disabled_count,
             },
             team=self.team,
+            request=self.request,
         )
 
     @llma_track_latency("llma_clustering_job_update")
@@ -158,6 +159,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "llma clustering job updated",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
+            request=self.request,
         )
 
     @llma_track_latency("llma_clustering_job_destroy")
@@ -169,5 +171,6 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             "llma clustering job deleted",
             {"job_id": instance.id, "name": instance.name},
             team=self.team,
+            request=request,
         )
         return super().destroy(request, *args, **kwargs)

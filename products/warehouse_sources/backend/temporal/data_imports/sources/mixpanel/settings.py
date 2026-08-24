@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -30,7 +32,7 @@ class MixpanelRegion(StrEnum):
     IN = "in"
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RegionHosts:
     query_base: str  # query/app API base
     export_base: str  # raw export API base

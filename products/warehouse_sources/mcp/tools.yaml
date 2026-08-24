@@ -279,15 +279,16 @@ tools:
             idempotent: false
         title: Create data warehouse source (advanced; prefer source setup)
         description: >
-            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
-            most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
-            sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
-            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
-            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
-            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
-            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
-            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
-            (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
+            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. If you
+            only have credentials and want every table, call 'data-warehouse-source-setup' instead — one call, fewer
+            ways to get it wrong. Use this path when the user asked for specific tables or sync types. The 'schemas'
+            array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload =
+            {<credential fields…>, "schemas": [...]}. Each schemas entry has: name, should_sync (bool), sync_type
+            (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
+            primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first.
+            Omit 'schemas' entirely and every discovered table syncs with default settings. Sources back queryable
+            warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases
+            (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
             - account_id
@@ -385,27 +386,10 @@ tools:
             instead of telling the user the data isn't available. Lists every configured import source with its type
             (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
             timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Each
-            schema is summarized (name, status, sync type/frequency, last sync, error, table name, row count) — column
-            definitions and full sync configuration (incremental field, primary keys, row filters, column selection) are
-            on external-data-schemas-retrieve. To look up a single table's sync status by name use
+            schema is summarized (name, label, status, sync type, last sync, error, table name, row count) — column
+            definitions and full sync configuration (sync frequency, incremental field, primary keys, row filters,
+            column selection) are on external-data-schemas-retrieve. To look up a single table's sync status by name use
             external-data-schemas-list with a search.
-        response:
-            exclude:
-                - schemas.*.table.columns
-                - schemas.*.available_columns
-                - schemas.*.label
-                - schemas.*.description
-                - schemas.*.incremental_field
-                - schemas.*.incremental_field_type
-                - schemas.*.incremental_field_lookback_seconds
-                - schemas.*.sync_time_of_day
-                - schemas.*.primary_key_columns
-                - schemas.*.cdc_table_mode
-                - schemas.*.enabled_columns
-                - schemas.*.row_filters
-                - schemas.*.source
-                - schemas.*.api_version
-                - schemas.*.api_version_deprecation
     external-data-sources-oauth-accounts-retrieve:
         operation: external_data_sources_oauth_accounts_retrieve
         enabled: false
@@ -583,3 +567,9 @@ tools:
                 - '*.unreleasedSource'
                 - '*.fields'
             selectable: true
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
+        enabled: false

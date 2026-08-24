@@ -177,6 +177,12 @@ export type IngestionConsumerConfig = {
     // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
     // teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose person creation claims an existing unreachable posthog_person row holding
+    // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
+    // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
+    // for everyone else the probe is wasted load on the hottest write statement.
+    // Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -250,7 +256,6 @@ export type IngestionConsumerConfig = {
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
-    COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
     COOKIELESS_SESSION_TTL_SECONDS: number
     COOKIELESS_SALT_TTL_SECONDS: number
@@ -323,6 +328,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
@@ -391,7 +397,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,
-        COOKIELESS_FORCE_STATELESS_MODE: false,
         COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000,
         COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * (72 + 24),
         COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * (72 + 24),

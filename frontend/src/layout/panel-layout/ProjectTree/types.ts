@@ -22,6 +22,11 @@ export interface ProjectTreeAction {
     item: FileSystemEntry
     path: string
     newPath?: string
+    /**
+     * Ties a move to the `moveItems` batch that issued it. It rides on the action because a folder move
+     * settles in a second, re-queued action (`prepare-move` becomes `move`) that must still find its batch.
+     */
+    batchId?: string
 }
 
 export type FolderState = 'loading' | 'loaded' | 'has-more' | 'error'

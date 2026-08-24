@@ -18,7 +18,8 @@ use crate::stats::StatsCollector;
 use crate::traffic_metrics;
 
 pub async fn run(args: BlastArgs) -> Result<()> {
-    let client = HarnessClient::connect(&args.router_url).await?;
+    let client =
+        HarnessClient::connect_with_channels(&args.router_url, args.router_channels).await?;
     let person_ids = Arc::new(args.person_ids.clone());
 
     println!(

@@ -8,7 +8,14 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    LifecycleQuery,
+    Node,
+    NodeKind,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
@@ -223,6 +230,42 @@ describe('insightVizDataLogic', () => {
                         version: LATEST_VERSIONS[NodeKind.TrendsQuery], // carried over from the initial trends source, like the stale trendsFilter
                     },
                 },
+            })
+        })
+
+        it('clears a custom retention aggregation target when an entity switches away from the data warehouse', () => {
+            const dataWarehouseEntity = {
+                id: 'warehouse_orders',
+                type: 'data_warehouse' as const,
+                table_name: 'warehouse_orders',
+                timestamp_field: 'created_at',
+                aggregation_target_field: 'order_id',
+            }
+
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    customAggregationTarget: true,
+                    targetEntity: dataWarehouseEntity,
+                    returningEntity: dataWarehouseEntity,
+                },
+            } as RetentionQuery)
+            expect(builtInsightVizDataLogic.values.retentionFilter).toMatchObject({ customAggregationTarget: true })
+
+            // updateInsightFilter merges entity changes into the full filter, so the stale flag rides along
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    customAggregationTarget: true,
+                    targetEntity: { id: '$pageview', type: 'events' },
+                    returningEntity: dataWarehouseEntity,
+                },
+            } as RetentionQuery)
+
+            expect(builtInsightVizDataLogic.values.retentionFilter).toEqual({
+                customAggregationTarget: undefined,
+                targetEntity: { id: '$pageview', type: 'events' },
+                returningEntity: dataWarehouseEntity,
             })
         })
 
@@ -881,6 +924,23 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
+        })
+    })
+
+    describe('hasRenderableResults', () => {
+        it('tracks whether the loaded response contains results', async () => {
+            await expectLogic(builtInsightVizDataLogic).toMatchValues({ hasRenderableResults: false })
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({ result: funnelResult.result })
+            }).toMatchValues({ hasRenderableResults: true })
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess({
+                    cache_key: 'cache_1_abc',
+                    query_status: { id: 'cache_1_abc', complete: false },
+                } as Record<string, any>)
+            }).toMatchValues({ hasRenderableResults: false })
         })
     })
 

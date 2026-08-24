@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -32,6 +33,46 @@ logger = structlog.get_logger(__name__)
 # limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
 # free-tier org; self-hosted deployments raise it via the env var.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
+
+
+def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
+    """JSON org-id -> monthly credit cap; malformed config fails toward no override, never toward a crash.
+
+    Keys are normalized through `UUID`, so an id written in uppercase or without hyphens still caps the
+    org it names. Matching the raw string would leave the cap silently unapplied, which is the state
+    this setting exists to prevent. A bad entry is dropped on its own rather than voiding the rest.
+    """
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"expected an object, got {type(parsed).__name__}")
+    except (ValueError, TypeError):
+        logger.exception("replay_vision.malformed_org_credit_limit_overrides")
+        return {}
+
+    overrides: dict[str, int] = {}
+    for org_id, limit in parsed.items():
+        try:
+            key = str(UUID(str(org_id)))
+            # `int(True)` is 1, which would cap an org at a single credit. Billing's own limit parser
+            # rejects bools for the same reason.
+            if isinstance(limit, bool):
+                raise ValueError(f"credit limit must be a number, got {limit!r}")
+            # A negative cap would read as "already over", so the worst a typo can do is block the org.
+            overrides[key] = max(0, int(limit))
+        except (ValueError, TypeError):
+            logger.exception("replay_vision.invalid_org_credit_limit_override", org_id=str(org_id))
+    if overrides:
+        logger.info("replay_vision.org_credit_limit_overrides_applied", org_ids=sorted(overrides))
+    return overrides
+
+
+# Per-org monthly credit caps applied on top of billing's limit (the tighter one wins). For internal
+# orgs on unlimited plans, where billing correctly syncs no limit but dogfooding spend still needs a
+# ceiling. Enforcement and every spend surface treat it exactly like a billing limit.
+ORG_CREDIT_LIMIT_OVERRIDES: dict[str, int] = get_from_env(
+    "REPLAY_VISION_ORG_CREDIT_LIMIT_OVERRIDES", {}, type_cast=_parse_org_credit_limit_overrides
+)
 
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"
@@ -115,6 +156,10 @@ class BillingPeriod:
     start: datetime
     end: datetime
 
+    def __post_init__(self) -> None:
+        if self.start >= self.end:
+            raise ValueError(f"BillingPeriod start must be before end: start={self.start}, end={self.end}")
+
 
 def _current_month_bounds(now: datetime) -> BillingPeriod:
     return BillingPeriod(start=start_of_month(now), end=next_month_start(now))
@@ -129,9 +174,11 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
     """The org's active billing period when synced and current, else the calendar month containing `now`."""
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
-        synced = BillingPeriod(start=_as_utc(billing_period.start), end=_as_utc(billing_period.end))
-        if synced.start <= now < synced.end:
-            return synced
+        start = _as_utc(billing_period.start)
+        end = _as_utc(billing_period.end)
+        # Gate before constructing so a malformed synced period falls back to the calendar month
+        if start <= now < end:
+            return BillingPeriod(start=start, end=end)
     return _current_month_bounds(now)
 
 
@@ -403,6 +450,11 @@ def quota_state(organization_id: UUID) -> QuotaState:
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
+    # The tighter of billing's limit and the override, so a config mistake can only reduce credits;
+    # this is how an internal org on an unlimited plan still gets a spend ceiling.
+    override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
+    if override is not None:
+        credit_limit = override if credit_limit is None else min(credit_limit, override)
     return QuotaState(
         credit_limit=credit_limit,
         credits_used=usage,

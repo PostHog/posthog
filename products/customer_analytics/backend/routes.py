@@ -17,6 +17,8 @@ from products.customer_analytics.backend.presentation.views.views import (
     CustomPropertySourceViewSet,
     CustomPropertyValueViewSet,
     EventStreamViewSet,
+    FeatureRequestProductAreaViewSet,
+    FeatureRequestViewSet,
 )
 
 
@@ -40,6 +42,18 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(r"customer_journeys", CustomerJourneyViewSet, "project_customer_journeys", ["team_id"])
+    routers.projects.register(
+        r"feature_request_product_areas",
+        FeatureRequestProductAreaViewSet,
+        "project_feature_request_product_areas",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"feature_requests",
+        FeatureRequestViewSet,
+        "project_feature_requests",
+        ["team_id"],
+    )
     routers.projects.register(
         r"custom_property_definitions",
         CustomPropertyDefinitionViewSet,

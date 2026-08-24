@@ -11,7 +11,7 @@ use personhog_coordination::pod::{desired_state, DesiredState};
 use personhog_coordination::protocol::{
     drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied,
 };
-use personhog_coordination::strategy::{AssignmentStrategy, StickyBalancedStrategy};
+use personhog_coordination::strategy::{AssignmentStrategy, Member, StickyBalancedStrategy};
 use personhog_coordination::types::{
     AssignmentStatus, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
     RegisteredPod, RegisteredRouter, RouterFreezeAck,
@@ -48,17 +48,24 @@ fn production_handoff(p: Partition, h: &Handoff) -> HandoffState {
         phase: h.phase,
         started_at: 0,
         handoff_id: h.id.to_string(),
-        // The model always captures a snapshot (its Rebalance mirrors
-        // the production coordinator, which always writes one). The
-        // production `None` legacy fallback is a serialization concern
-        // pinned by unit tests, not a reachable state here. With
-        // `RouterJoin` in the action space the snapshot diverges from
-        // the live registry, and the production quorum predicate below
-        // is exercised on exactly that divergence.
-        freeze_quorum: Some(h.quorum.iter().map(|r| router_name(*r)).collect()),
+        // Membership lives beside the record in production, so the
+        // record carries neither form. `production_quorum` supplies it
+        // to the predicates that need it.
+        freeze_quorum: None,
+        freeze_quorum_ref: None,
         created_at_ms: 0,
         phase_entered_at_ms: 0,
     }
+}
+
+/// The membership a model handoff was created with, in the form the
+/// production quorum predicates take. The model always captures a
+/// snapshot; the production `None` fallback is a serialization concern
+/// pinned by unit tests, not a reachable state here. `RouterJoin` makes
+/// the snapshot diverge from the live registry, which is what exercises
+/// the predicate.
+fn production_quorum(h: &Handoff) -> Vec<String> {
+    h.quorum.iter().map(|r| router_name(*r)).collect()
 }
 
 /// Which produce-path protection the model runs with.
@@ -141,6 +148,11 @@ pub struct HandoffModel {
     /// Writes a lease-expired pod may still accept before its keepalive
     /// self-fences it. Zero disables the zombie window entirely.
     pub zombie_window: u8,
+    /// Pods below this id form a departing generation for the planner:
+    /// they are Hold members, and every other pod is capped at its final
+    /// share (the coordinator's rollout policies). Zero models the
+    /// steady state, where every pod is an uncapped active member.
+    pub hold_pods: u8,
     /// Adds reachability probes (`sometimes` properties) for scenario
     /// shapes that only exist at larger scale — used to measure, rather
     /// than assume, which configurations actually reach them. Off in the
@@ -213,14 +225,41 @@ impl HandoffModel {
             .iter()
             .map(|(p, owner)| (*p as u32, pod_name(*owner)))
             .collect();
-        let mut active: Vec<String> = state
+        let members = self.planner_members(state);
+        StickyBalancedStrategy.compute_assignments(&current, &members, self.partitions as u32)
+    }
+
+    /// Planner membership with the model's placement policies applied —
+    /// shared by target computation and rebalance planning so every
+    /// property judges the same placement mode.
+    fn planner_members(&self, state: &SystemState) -> Vec<Member> {
+        let mut ids: Vec<PodId> = state
             .pods
             .iter()
             .filter(|(_, p)| p.registered)
-            .map(|(id, _)| pod_name(*id))
+            .map(|(id, _)| *id)
             .collect();
-        active.sort();
-        StickyBalancedStrategy.compute_assignments(&current, &active, self.partitions as u32)
+        ids.sort();
+        if self.hold_pods == 0 {
+            return ids
+                .into_iter()
+                .map(|id| Member::active(pod_name(id)))
+                .collect();
+        }
+        // The cap mirrors the coordinator's: total over the incoming
+        // fleet's *desired* size, not its live count, so a crashed
+        // incoming pod does not inflate its peers' quota.
+        let incoming = self.pods.saturating_sub(self.hold_pods).max(1);
+        let cap = (self.partitions as u32).div_ceil(incoming as u32);
+        ids.into_iter()
+            .map(|id| {
+                if id < self.hold_pods {
+                    Member::hold(pod_name(id))
+                } else {
+                    Member::active_capped(pod_name(id), cap)
+                }
+            })
+            .collect()
     }
 
     fn target_owner(&self, state: &SystemState, partition: Partition) -> Option<PodId> {
@@ -675,18 +714,12 @@ impl HandoffModel {
             .iter()
             .map(|(p, h)| production_handoff(*p, h))
             .collect();
-        let mut active: Vec<String> = last
-            .pods
-            .iter()
-            .filter(|(_, p)| p.registered)
-            .map(|(id, _)| pod_name(*id))
-            .collect();
-        active.sort();
+        let members = self.planner_members(last);
         let mut plan = plan_partial_rebalance(
             &StickyBalancedStrategy,
             &current,
             &in_flight,
-            &active,
+            &members,
             self.partitions as u32,
         );
         if plan.handoffs.is_empty() {
@@ -767,7 +800,12 @@ impl HandoffModel {
                         })
                     })
                     .collect();
-                if !freeze_quorum_met(&routers, &acks, &production_handoff(p, h)) {
+                if !freeze_quorum_met(
+                    &routers,
+                    &acks,
+                    &production_handoff(p, h),
+                    Some(&production_quorum(h)),
+                ) {
                     return None;
                 }
                 // Initial assignments (no old owner) skip the drain

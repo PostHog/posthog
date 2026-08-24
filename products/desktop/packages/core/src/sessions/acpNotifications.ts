@@ -17,6 +17,7 @@ export const POSTHOG_NOTIFICATIONS = {
   PROGRESS: "_posthog/progress",
   TASK_NOTIFICATION: "_posthog/task_notification",
   COMPACT_BOUNDARY: "_posthog/compact_boundary",
+  CONVERSATION_CLEARED: "_posthog/conversation_cleared",
   USAGE_UPDATE: "_posthog/usage_update",
   PERMISSION_RESPONSE: "_posthog/permission_response",
   PERMISSION_REQUEST: "_posthog/permission_request",

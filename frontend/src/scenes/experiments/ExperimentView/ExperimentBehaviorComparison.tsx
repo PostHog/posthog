@@ -24,6 +24,7 @@ import {
     type ExperimentWatchCardApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
+import { hasEnded } from '../experimentStatus'
 import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
 import { VariantTag } from './VariantTag'
 
@@ -60,6 +61,16 @@ function cardSentence(card: ExperimentWatchCardApi, armKeys: string[]): string {
 }
 
 /**
+ * How many recordings a card can show, written the way it has to be read. A count that reached the
+ * ceiling is a floor, and a bare number beside an event name reads as how often that event
+ * happened, which the Results tab answers over a different window and unit. Saturated counts are
+ * also the ones that look equal across variants when the underlying event isn't.
+ */
+function recordingCount(card: ExperimentWatchCardApi, maxRecordings: number): string {
+    return card.recording_count >= maxRecordings ? `${maxRecordings}+` : `${card.recording_count}`
+}
+
+/**
  * A comparison card whose event one of the experiment's metrics counts. The tag is what stops the
  * card being read as a second answer about that metric: the results measure the same event over the
  * whole run window, and this card only points at recordings.
@@ -80,11 +91,13 @@ function WatchCard({
     card,
     selected,
     armKeys,
+    maxRecordings,
     onSelect,
 }: {
     card: ExperimentWatchCardApi
     selected: boolean
     armKeys: string[]
+    maxRecordings: number
     onSelect: (card: ExperimentWatchCardApi | null) => void
 }): JSX.Element {
     return (
@@ -105,7 +118,10 @@ function WatchCard({
                 {/* Pushed to the bottom rather than following the text, so the footers line up
                     across a row whose cards carry different numbers of lines. */}
                 <div className="mt-auto flex w-full items-center justify-between pt-2 text-xs">
-                    <span className="text-secondary">{pluralize(card.recording_count, 'recording')}</span>
+                    <span className="text-secondary">
+                        {recordingCount(card, maxRecordings)}{' '}
+                        {pluralize(card.recording_count, 'recording', undefined, false)}
+                    </span>
                     <span className="font-medium">{selected ? 'Showing below' : 'Watch'}</span>
                 </div>
             </button>
@@ -123,12 +139,14 @@ function MetricEventCard({
     metricName,
     cards,
     selectedCard,
+    maxRecordings,
     onSelect,
 }: {
     event: string
     metricName: string | null
     cards: ExperimentWatchCardApi[]
     selectedCard: ExperimentWatchCardApi | null
+    maxRecordings: number
     onSelect: (card: ExperimentWatchCardApi | null) => void
 }): JSX.Element {
     return (
@@ -149,7 +167,12 @@ function MetricEventCard({
                                 active={selected}
                                 aria-pressed={selected}
                                 onClick={() => onSelect(selected ? null : card)}
-                                tooltip={`${pluralize(card.recording_count, 'recording')} in ${card.variant}`}
+                                tooltip={`${recordingCount(card, maxRecordings)} ${pluralize(
+                                    card.recording_count,
+                                    'recording',
+                                    undefined,
+                                    false
+                                )} in ${card.variant}`}
                                 data-attr="experiment-watch-metric-variant"
                             >
                                 <span className="flex items-center gap-1.5">
@@ -157,7 +180,9 @@ function MetricEventCard({
                                     {/* The count stays on the chip's face rather than in the
                                         tooltip: without it two variants of the same event look
                                         interchangeable. */}
-                                    <span className="text-xs text-secondary">{card.recording_count}</span>
+                                    <span className="text-xs text-secondary">
+                                        {recordingCount(card, maxRecordings)}
+                                    </span>
                                 </span>
                             </LemonButton>
                         )
@@ -184,6 +209,7 @@ function ShelfFrame({
     cards,
     selectedCard,
     recordingsById,
+    maxRecordings,
     onOpenHighlight,
     children,
 }: {
@@ -192,6 +218,7 @@ function ShelfFrame({
     cards: ExperimentWatchCardApi[]
     selectedCard: ExperimentWatchCardApi | null
     recordingsById: Map<string, ExperimentReplayRecording>
+    maxRecordings: number
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
     children: React.ReactNode
 }): JSX.Element {
@@ -207,7 +234,12 @@ function ShelfFrame({
             </div>
             {children}
             {selectedHere && (
-                <HighlightList card={selectedHere} recordingsById={recordingsById} onOpenHighlight={onOpenHighlight} />
+                <HighlightList
+                    card={selectedHere}
+                    recordingsById={recordingsById}
+                    maxRecordings={maxRecordings}
+                    onOpenHighlight={onOpenHighlight}
+                />
             )}
         </div>
     )
@@ -219,6 +251,7 @@ function Shelf({
     cards,
     selectedCard,
     armKeys,
+    maxRecordings,
     onSelect,
     recordingsById,
     onOpenHighlight,
@@ -228,6 +261,7 @@ function Shelf({
     cards: ExperimentWatchCardApi[]
     selectedCard: ExperimentWatchCardApi | null
     armKeys: string[]
+    maxRecordings: number
     onSelect: (card: ExperimentWatchCardApi | null) => void
     recordingsById: Map<string, ExperimentReplayRecording>
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
@@ -242,6 +276,7 @@ function Shelf({
             cards={cards}
             selectedCard={selectedCard}
             recordingsById={recordingsById}
+            maxRecordings={maxRecordings}
             onOpenHighlight={onOpenHighlight}
         >
             <div className="flex flex-wrap gap-2">
@@ -251,6 +286,7 @@ function Shelf({
                         card={card}
                         selected={isSameCard(selectedCard, card)}
                         armKeys={armKeys}
+                        maxRecordings={maxRecordings}
                         onSelect={onSelect}
                     />
                 ))}
@@ -272,10 +308,12 @@ function Shelf({
 function HighlightList({
     card,
     recordingsById,
+    maxRecordings,
     onOpenHighlight,
 }: {
     card: ExperimentWatchCardApi
     recordingsById: Map<string, ExperimentReplayRecording>
+    maxRecordings: number
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
 }): JSX.Element {
     if (card.highlights.length === 0) {
@@ -293,8 +331,8 @@ function HighlightList({
         <div className="flex flex-col gap-1" data-attr="experiment-watch-highlights">
             <div className="flex items-baseline gap-2">
                 <span className="text-xs text-muted">
-                    {pluralize(card.highlights.length, 'recording')} to start with, out of the {card.recording_count}{' '}
-                    behind {card.event}:
+                    {pluralize(card.highlights.length, 'recording')} to start with, out of the{' '}
+                    {recordingCount(card, maxRecordings)} behind {card.event}:
                 </span>
             </div>
             <div className="flex w-fit max-w-full flex-col overflow-hidden rounded border border-primary">
@@ -398,6 +436,10 @@ export function ExperimentBehaviorComparison({
             ) : (
                 <WatchShelves
                     deltas={sessionEventDeltas}
+                    // What "no differences yet" is allowed to promise. Read from the status rather
+                    // than from end_date, so a state that carries an end date without having
+                    // stopped enrolling people cannot reach the past-tense copy.
+                    ended={hasEnded(experiment)}
                     selectedCard={selectedWatchCard}
                     onSelect={selectWatchCard}
                     recordingsById={loadedRecordingsById}
@@ -417,12 +459,14 @@ export function ExperimentBehaviorComparison({
 
 function WatchShelves({
     deltas,
+    ended,
     selectedCard,
     onSelect,
     recordingsById,
     onOpenHighlight,
 }: {
     deltas: ExperimentSessionEventDeltaResponseApi
+    ended: boolean
     selectedCard: ExperimentWatchCardApi | null
     onSelect: (card: ExperimentWatchCardApi | null) => void
     recordingsById: Map<string, ExperimentReplayRecording>
@@ -457,8 +501,9 @@ function WatchShelves({
                 broken instead. */}
             {behaviorCards.length === 0 && frictionCards.length === 0 && (
                 <div className="text-xs text-secondary">
-                    No variant shows clearly different behavior in its recorded sessions yet. Differences small enough
-                    to be chance don't get a card, so this can change as more people are exposed.
+                    {ended
+                        ? "No variant showed clearly different behavior in its recorded sessions. Differences small enough to be chance don't get a card."
+                        : "No variant shows clearly different behavior in its recorded sessions yet. Differences small enough to be chance don't get a card, so this can change as more people are exposed."}
                 </div>
             )}
             <Shelf
@@ -466,6 +511,7 @@ function WatchShelves({
                 cards={behaviorCards}
                 selectedCard={selectedCard}
                 armKeys={armKeys}
+                maxRecordings={deltas.max_card_recordings}
                 onSelect={onSelect}
                 recordingsById={recordingsById}
                 onOpenHighlight={onOpenHighlight}
@@ -475,6 +521,7 @@ function WatchShelves({
                 cards={frictionCards}
                 selectedCard={selectedCard}
                 armKeys={armKeys}
+                maxRecordings={deltas.max_card_recordings}
                 onSelect={onSelect}
                 recordingsById={recordingsById}
                 onOpenHighlight={onOpenHighlight}
@@ -485,6 +532,7 @@ function WatchShelves({
                 cards={variantOnlyCards}
                 selectedCard={selectedCard}
                 armKeys={armKeys}
+                maxRecordings={deltas.max_card_recordings}
                 onSelect={onSelect}
                 recordingsById={recordingsById}
                 onOpenHighlight={onOpenHighlight}
@@ -496,6 +544,7 @@ function WatchShelves({
                     cards={metricCards}
                     selectedCard={selectedCard}
                     recordingsById={recordingsById}
+                    maxRecordings={deltas.max_card_recordings}
                     onOpenHighlight={onOpenHighlight}
                 >
                     <div className="flex flex-wrap gap-2">
@@ -508,6 +557,7 @@ function WatchShelves({
                                     metricName={cards[0].metric_name}
                                     cards={cards}
                                     selectedCard={selectedCard}
+                                    maxRecordings={deltas.max_card_recordings}
                                     onSelect={onSelect}
                                 />
                             )

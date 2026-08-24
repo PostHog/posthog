@@ -650,23 +650,7 @@ async def run_eval_report_agent_activity(
 
             evaluation_target = _load_evaluation_target(inputs.team_id, inputs.evaluation_id)
             return (
-                run_eval_report_agent(
-                    team_id=inputs.team_id,
-                    report_id=inputs.report_id,
-                    trace_id=inputs.trace_id,
-                    session_id=inputs.session_id,
-                    evaluation_id=inputs.evaluation_id,
-                    evaluation_name=inputs.evaluation_name,
-                    evaluation_description=inputs.evaluation_description,
-                    evaluation_prompt=inputs.evaluation_prompt,
-                    evaluation_type=inputs.evaluation_type,
-                    evaluation_target=evaluation_target,
-                    output_type=inputs.output_type,
-                    period_start=inputs.period_start,
-                    period_end=inputs.period_end,
-                    previous_period_start=inputs.previous_period_start,
-                    report_prompt_guidance=inputs.report_prompt_guidance,
-                ),
+                run_eval_report_agent(inputs, evaluation_target=evaluation_target),
                 evaluation_target,
             )
 

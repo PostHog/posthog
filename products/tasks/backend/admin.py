@@ -1,6 +1,8 @@
+import logging
 from typing import cast
 
 from django.contrib import admin, messages
+from django.db.models import QuerySet
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -10,8 +12,20 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
-from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
+from .loop_lifecycle import DISABLED_REASON_ADMIN_PAUSED, pause_loop
+from .models import (
+    CodeInvite,
+    CodeInviteQuerySet,
+    CodeInviteRedemption,
+    Loop,
+    LoopTrigger,
+    SandboxSnapshot,
+    Task,
+    TaskRun,
+)
 from .visibility import task_run_visibility_q, task_visibility_q
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(Task)
@@ -146,6 +160,16 @@ class CodeInviteAdmin(admin.ModelAdmin):
     readonly_fields = ("id", "redemption_count", "created_at")
     autocomplete_fields = ("created_by",)
     inlines = []
+    actions = ["expire_invites"]
+
+    @admin.action(description="Expire selected invites")
+    def expire_invites(self, request: HttpRequest, queryset: CodeInviteQuerySet) -> None:
+        selected = queryset.count()
+        expired = queryset.expire()
+        message = f"Expired {expired} of {selected} selected invite(s)."
+        if expired < selected:
+            message += " Invites that were already expired were left unchanged."
+        self.message_user(request, message)
 
     def get_fieldsets(self, request, obj=None):
         if obj:
@@ -200,10 +224,41 @@ class LoopAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("team", "created_by", "creator")
     raw_id_fields = ("sandbox_environment",)
+    actions = ["pause_loops"]
 
     def get_queryset(self, request: HttpRequest):
         # Admin has no team context; Loop's default manager is fail-closed.
         return Loop.objects.unscoped().select_related("team", "created_by")
+
+    @admin.action(description="Pause selected loops")
+    def pause_loops(self, request: HttpRequest, queryset: QuerySet[Loop]) -> None:
+        selected = queryset.count()
+        paused = 0
+        failed: list[Loop] = []
+        for loop in queryset.filter(enabled=True, deleted=False):
+            try:
+                pause_loop(loop, DISABLED_REASON_ADMIN_PAUSED, cancel_runs=False)
+                paused += 1
+            except Exception:
+                # Temporal never lands here: `pause_loop_schedules` swallows and logs its own
+                # failures, and a schedule left running can't start anything because `fire_loop`
+                # refuses a disabled loop. What reaches this is a failed row save (loop still
+                # enabled) or a failed notification dispatch (loop paused, owner not told).
+                logger.exception("loop_admin.pause_failed", extra={"loop_id": str(loop.id)})
+                failed.append(loop)
+
+        message = f"Paused {paused} of {selected} selected loop(s)."
+        if paused + len(failed) < selected:
+            message += " Loops that were already paused or deleted were left unchanged."
+        self.message_user(request, message)
+        if failed:
+            failed_ids = ", ".join(str(loop.id) for loop in failed)
+            self.message_user(
+                request,
+                f"Could not pause {len(failed)} loop(s): {failed_ids}. Check the logs and confirm their "
+                "state in the list.",
+                level=messages.ERROR,
+            )
 
     def delete_model(self, request: HttpRequest, obj: Loop) -> None:
         # Tear down Temporal Schedules before the row is gone; CASCADE never talks to Temporal, so

@@ -20,7 +20,7 @@ whatever HogQL refs it also reads — the same input shape Python nodes use.
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -56,7 +56,7 @@ class SQLV2Ref:
     message, and only surfaces when the query actually reads the name.
     """
 
-    kind: str  # "hogql" | "local"
+    kind: Literal["hogql", "local"]
     node_id: str | None = None
     run_id: str | None = None
     last_run_code: str | None = None
