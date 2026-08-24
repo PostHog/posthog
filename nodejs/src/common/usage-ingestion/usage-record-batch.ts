@@ -93,14 +93,17 @@ export class UsageRecordBatch {
         if (!this.client || this.records.size === 0) {
             return
         }
-        const eventTimestampMs = Date.now()
+        // Flush time, never anything off the event. toDate of this lands in the storage
+        // sorting key, so a customer-supplied value would let a customer decide whether
+        // their own records deduplicate.
+        const timestampMs = Date.now()
         const records: UsageRecordInput[] = [...this.records.values()].map((record) => ({
             recordId: record.recordId,
             teamId: record.teamId,
             usageKey: record.usageKey,
             unit: record.unit ?? this.config.unit,
             quantity: record.quantity,
-            eventTimestampMs,
+            timestampMs,
             dimensions: record.dimensions,
         }))
         this.records.clear()

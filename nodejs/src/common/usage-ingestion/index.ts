@@ -16,7 +16,16 @@ export type UsageIngestionConfig = Pick<
     | 'USAGE_INGESTION_REPORT_APM_TEAMS'
 >
 
-export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp' | 'surveys' | 'logs' | 'apm' | 'session_replay' | 'enhanced_persons'
+export type UsageReportSite =
+    | 'events'
+    | 'ai_events'
+    | 'exceptions'
+    | 'cdp'
+    | 'surveys'
+    | 'logs'
+    | 'apm'
+    | 'session_replay'
+    | 'enhanced_persons'
 
 const TEAM_MATCHER_KEYS = {
     events: 'USAGE_INGESTION_REPORT_INGESTION_TEAMS',

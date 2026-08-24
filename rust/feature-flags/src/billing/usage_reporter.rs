@@ -70,8 +70,11 @@ impl UsageReporter {
         })))
     }
 
-    pub fn report(&self, entries: &[(AggregationKey, u64)], event_timestamp_ms: i64) {
-        let records = build_records(entries, &self.teams, event_timestamp_ms);
+    /// `timestamp_ms` must be the reporter's own clock, never anything derived from a request.
+    /// toDate of it is part of the storage sorting key, so a caller-controlled value would
+    /// decide whether these records deduplicate.
+    pub fn report(&self, entries: &[(AggregationKey, u64)], timestamp_ms: i64) {
+        let records = build_records(entries, &self.teams, timestamp_ms);
         if records.is_empty() {
             return;
         }
@@ -143,7 +146,7 @@ async fn run_sender(
 fn build_records(
     entries: &[(AggregationKey, u64)],
     teams: &TeamIdCollection,
-    event_timestamp_ms: i64,
+    timestamp_ms: i64,
 ) -> Vec<BillingUsageRecord> {
     entries
         .iter()
@@ -156,7 +159,7 @@ fn build_records(
             mode: BillingUsageMode::Delta as i32,
             unit: UNIT.to_string(),
             quantity: i64::try_from(*count).unwrap_or(i64::MAX),
-            event_timestamp_ms,
+            timestamp_ms,
             dimensions: dimensions_for(key),
         })
         .collect()

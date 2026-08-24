@@ -32,7 +32,7 @@ export interface UsageRecordInput {
     usageKey: string
     unit: string
     quantity: number
-    eventTimestampMs: number
+    timestampMs: number
     dimensions?: Record<string, string>
 }
 
@@ -84,7 +84,7 @@ export class UsageIngestionClient {
                     mode: BillingUsageMode.DELTA,
                     unit: record.unit,
                     quantity: BigInt(record.quantity),
-                    eventTimestampMs: BigInt(record.eventTimestampMs),
+                    timestampMs: BigInt(record.timestampMs),
                     dimensions: record.dimensions ?? {},
                 })
             ),

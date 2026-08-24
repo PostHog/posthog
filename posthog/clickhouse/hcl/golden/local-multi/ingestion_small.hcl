@@ -82,7 +82,7 @@ database "posthog" {
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
@@ -1085,7 +1085,7 @@ database "posthog" {
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
@@ -1859,7 +1859,7 @@ SELECT
   mode,
   unit,
   quantity,
-  event_timestamp,
+  timestamp,
   inserted_at,
   dimensions,
   _timestamp,
@@ -1895,7 +1895,7 @@ SQL
     column "quantity" {
       type = "Int64"
     }
-    column "event_timestamp" {
+    column "timestamp" {
       type = "DateTime64(6, 'UTC')"
     }
     column "inserted_at" {
