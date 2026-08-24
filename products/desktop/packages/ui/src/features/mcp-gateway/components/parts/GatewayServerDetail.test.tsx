@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   gateway: {} as Record<string, unknown>,
   setMemberAccess: vi.fn(),
+  setAgentAccess: vi.fn(),
   currentUser: null as { id: number } | null,
   refresh: vi.fn(),
 }));
@@ -50,7 +51,7 @@ vi.mock("@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts", () => ({
   useServiceAccounts: () => ({
     accounts: [],
     accountsLoading: false,
-    setAccess: vi.fn(),
+    setAccess: mocks.setAgentAccess,
     setAccessPending: false,
   }),
 }));
@@ -196,6 +197,15 @@ describe("GatewayServerDetail", () => {
       agents: [
         {
           service_account_id: "sa-1",
+          user: {
+            id: 7,
+            uuid: "user-7",
+            first_name: "Ada",
+            last_name: "Lovelace",
+            email: "ada@example.com",
+            hedgehog_config: null,
+          },
+          scope: "personal",
           name: "Deploy bot",
           handle: "deploy-bot",
           status: "active",
@@ -226,6 +236,76 @@ describe("GatewayServerDetail", () => {
     // (label "Set all") must not render alongside it.
     expect(screen.getByText("Set all for Deploy bot")).toBeInTheDocument();
     expect(screen.queryByText("Set all")).not.toBeInTheDocument();
+  });
+
+  it("offers the grant scope toggle only on the caller's own agent share", async () => {
+    mocks.currentUser = { id: 7 };
+    const yourShare = {
+      service_account_id: "sa-1",
+      user: {
+        id: 7,
+        uuid: "user-7",
+        first_name: "Ada",
+        last_name: "Lovelace",
+        email: "ada@example.com",
+        hedgehog_config: null,
+      },
+      scope: "personal",
+      name: "Deploy bot",
+      handle: "deploy-bot",
+      status: "active",
+      last_active_at: null,
+      granted_by: null,
+    };
+    const teammateShare = {
+      ...yourShare,
+      user: {
+        ...yourShare.user,
+        id: 8,
+        uuid: "user-8",
+        first_name: "Grace",
+        last_name: "Hopper",
+        email: "grace@example.com",
+      },
+      scope: "team",
+    };
+    mocks.gateway.servers = [
+      { ...server, agents: [yourShare, teammateShare] } as McpGatewayServer,
+    ];
+
+    const user = userEvent.setup();
+    render(
+      <Theme>
+        <GatewayServerDetail
+          serverId={server.id}
+          isAdmin={false}
+          canManageAgentAccess
+          onNavigate={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // The teammate's team share is attributed but not editable, so exactly
+    // one toggle renders: the caller's own.
+    expect(
+      screen.getAllByRole("radiogroup", {
+        name: "Which runs use your connection",
+      }),
+    ).toHaveLength(1);
+    expect(
+      screen.getByText(/shared to the team by Grace Hopper/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "All team agents" }));
+
+    expect(mocks.setAgentAccess).toHaveBeenCalledWith({
+      accountId: "sa-1",
+      serverId: server.id,
+      enabled: true,
+      scope: "team",
+      successMessage:
+        "Linear shared with Deploy bot. Every Deploy bot run in this project can use your connection.",
+    });
   });
 
   it("collects credentials before connecting a custom server", async () => {

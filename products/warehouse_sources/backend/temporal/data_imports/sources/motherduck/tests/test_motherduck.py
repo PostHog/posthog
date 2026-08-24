@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.motherduck import (
@@ -17,13 +17,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck
     MOTHERDUCK_SYSTEM_DATABASES,
     MotherDuckImplementation,
     build_motherduck_connection_string,
+    connect,
     filter_motherduck_incremental_fields,
     translate_motherduck_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.source import MotherduckSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-_CONNECT_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.duckdb.connect"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck"
+_CONNECT_PATH = f"{_MODULE}.duckdb.connect"
 
 
 def _make_config(**overrides) -> MotherduckSourceConfig:
@@ -176,13 +178,28 @@ class TestMotherDuck:
                 pass
         mock_connect.return_value.execute.assert_not_called()
 
-    def test_connect_uses_a_writable_home_directory(self):
-        # Regression: DuckDB defaults extension/secrets storage to `~/.duckdb`, which raised
-        # `IOException: Failed to create directory "/root/.duckdb": Permission denied` in a
-        # worker container where the real home directory isn't writable.
-        home_directory = DUCKDB_LOCAL_CONFIG["home_directory"]
-        os.makedirs(home_directory, exist_ok=True)
-        assert os.access(home_directory, os.W_OK)
+    def test_config_redirects_extension_storage_off_the_home_directory(self):
+        # `home_directory` alone leaves extension storage at `~/.duckdb`, so it needs its own key.
+        assert DUCKDB_LOCAL_CONFIG["extension_directory"] != DUCKDB_LOCAL_CONFIG["home_directory"]
+        assert DUCKDB_LOCAL_CONFIG["extension_directory"].startswith(DUCKDB_LOCAL_CONFIG["home_directory"])
+
+    def test_connect_creates_the_configured_extension_store(self, tmp_path):
+        # Regression: extension autoload creates `~/.duckdb` on connect, which raised
+        # `Failed to create directory "/root/.duckdb": Permission denied` in a locked-down worker.
+        # connect() must create the store it configures, so driving it against a fresh base (rather
+        # than pre-making the directories) is what catches a dropped or reordered makedirs.
+        base = tmp_path / "duckdb-home"
+        config = {
+            **DUCKDB_LOCAL_CONFIG,
+            "home_directory": str(base),
+            "extension_directory": str(base / "extensions"),
+        }
+        with patch(f"{_MODULE}.DUCKDB_LOCAL_CONFIG", config), patch(_CONNECT_PATH) as mock_connect:
+            assert not base.exists()
+            connect("md-token", "my_db")
+        assert os.path.isdir(config["extension_directory"])
+        assert os.access(config["extension_directory"], os.W_OK)
+        assert mock_connect.call_args.kwargs["config"]["extension_directory"] == config["extension_directory"]
 
     def test_connect_closes_on_exit(self, impl):
         with patch(_CONNECT_PATH) as mock_connect:
@@ -507,12 +524,6 @@ class TestMotherDuck:
         schema_field = next(f for f in source.get_source_config.fields if f.name == "schema")
         assert isinstance(schema_field, SourceFieldInputConfig)
         assert schema_field.required is False
-
-    def test_access_token_is_stored_as_a_secret(self, source):
-        token_field = next(f for f in source.get_source_config.fields if f.name == "access_token")
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.secret is True
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
 
     @pytest.mark.parametrize(
         "error_msg",

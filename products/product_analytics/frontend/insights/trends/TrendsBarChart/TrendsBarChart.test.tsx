@@ -165,7 +165,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         }
     )
 
-    it('shows current and previous period rows in compare mode', async () => {
+    it('dates the previous period row in compare mode', async () => {
         renderInsight({
             query: trendsBar({ compareFilter: { compare: true } }),
         })
@@ -180,7 +180,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
         const tooltip = await chart.hoverTooltip(2)
 
         expect(tooltip.row('Current')).toBeTruthy()
-        expect(tooltip.row('Previous')).toBeTruthy()
+        expect(tooltip.row('5 Jun')).toBeTruthy()
     })
 
     it('formats values as percentages in percent stack view', async () => {

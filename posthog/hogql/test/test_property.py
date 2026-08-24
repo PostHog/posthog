@@ -835,16 +835,12 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(
-                elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
-            ),
+            clear_locations(elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
-                elements_chain_match(
-                    '(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
-                )
+                elements_chain_match("(^|;)div[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))div[^;]*?($|;|:([^;^\\s]*(;|$|\\s))).*")
             ),
         )
         self.assertEqual(
@@ -852,32 +848,20 @@ class TestProperty(BaseTest):
             clear_locations(
                 parse_expr(
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
-                    {
-                        "regex": elements_chain_match(
-                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                        )
-                    },
+                    {"regex": elements_chain_match('(^|;)a.*?href="boo".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
                 )
             ),
         )
         self.assertEqual(
             self._selector_to_expr(".class"),
-            clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
-            ),
+            clear_locations(elements_chain_match("(^|;).*?\\.class[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
         )
         self.assertEqual(
             self._selector_to_expr("a#withid"),
             clear_locations(
                 parse_expr(
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
-                    {
-                        "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                        )
-                    },
+                    {"regex": elements_chain_match('(^|;)a.*?attr_id="withid".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))')},
                 )
             ),
         )
@@ -889,7 +873,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -919,9 +903,7 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".sm:[max-width:640px]"),
             clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
+                elements_chain_match("(^|;).*?\\.sm:\\[max\\-width:640px\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
             ),
         )
 
@@ -929,9 +911,7 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".w-[calc(100%-2rem)]"),
             clear_locations(
-                elements_chain_match(
-                    '(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                )
+                elements_chain_match("(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")
             ),
         )
 
@@ -940,9 +920,15 @@ class TestProperty(BaseTest):
             self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
             clear_locations(
                 elements_chain_match(
-                    '(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    "(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\][^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
                 )
             ),
+        )
+
+        # Test Tailwind fraction/opacity class with a slash
+        self.assertEqual(
+            self._selector_to_expr(".bg-yellow/50"),
+            clear_locations(elements_chain_match("(^|;).*?\\.bg\\-yellow/50[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))")),
         )
 
     def test_cohort_filter_static(self):
@@ -1266,10 +1252,71 @@ class TestProperty(BaseTest):
             ),
             self._parse_expr("$group_0 = '13'"),
         )
-        # a non-group-key property is left alone — the coercion is scoped to group keys
+        # a non-group-key property with an as-yet-undefined type is also coerced: its LHS is a
+        # JSON-extracted String, so a numeric value is stringified to avoid NO_COMMON_TYPE
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "price", "value": 13, "operator": "exact"}),
-            self._parse_expr("properties.price = 13"),
+            self._parse_expr("properties.price = '13'"),
+        )
+
+    @parameterized.expand(
+        [
+            ("person", "person", None),
+            ("event", "event", None),
+            ("group", "group", 0),
+        ]
+    )
+    def test_property_to_expr_numeric_value_on_string_property(self, _name, property_type, group_type_index):
+        # Person/event/group properties are JSON-extracted as strings. A numeric filter value
+        # against a string-typed (or as-yet-undefined) one used to compile to equals(<String>, <number>),
+        # which ClickHouse rejects with NO_COMMON_TYPE — so the value is stringified.
+        base: dict = {"type": property_type, "key": "prop", "value": 0, "operator": "exact"}
+        if group_type_index is not None:
+            base["group_type_index"] = group_type_index
+        prefix = {"person": "person.properties", "event": "properties", "group": "group_0.properties"}[property_type]
+
+        # integer value -> string
+        self.assertEqual(
+            self._property_to_expr(base),
+            self._parse_expr(f"{prefix}.prop = '0'"),
+        )
+        # is_not carries the same coercion
+        self.assertEqual(
+            self._property_to_expr({**base, "operator": "is_not"}),
+            self._parse_expr(f"{prefix}.prop != '0'"),
+        )
+        # multiple numeric values (rendered as IN) are each stringified
+        self.assertEqual(
+            self._property_to_expr({**base, "value": [0, 1]}),
+            self._parse_expr(f"{prefix}.prop in ('0', '1')"),
+        )
+        # in a mixed list only the numeric values are stringified
+        self.assertEqual(
+            self._property_to_expr({**base, "value": [0, "a"]}),
+            self._parse_expr(f"{prefix}.prop in ('0', 'a')"),
+        )
+        # an integer-valued float drops its trailing '.0' (0.0 -> '0')
+        self.assertEqual(
+            self._property_to_expr({**base, "value": 0.0}),
+            self._parse_expr(f"{prefix}.prop = '0'"),
+        )
+
+    def test_property_to_expr_numeric_value_on_numeric_property_stays_numeric(self):
+        # A Numeric-typed property is cast to a Float LHS by PropertySwapper, so its comparison
+        # already has a common type — the numeric value must NOT be stringified.
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="count",
+            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": 5, "operator": "exact"}),
+            self._parse_expr("properties.count = 5"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "event", "key": "count", "value": [5, 6], "operator": "exact"}),
+            self._parse_expr("properties.count in (5, 6)"),
         )
 
     def test_property_to_expr_event_metadata_invalid_scope(self):

@@ -129,10 +129,7 @@ export function PullRequestCardView({
       {renderBody(body, inboxCardBodyClassName)}
 
       <InboxCardActions>
-        <SuggestedReviewerAvatarStack
-          reportId={report.id}
-          artefacts={artefacts}
-        />
+        <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />
         <UiButton
           type="button"
           variant="soft"
@@ -184,7 +181,7 @@ export function PullRequestCard({
   isDismissPending = false,
 }: PullRequestCardProps) {
   const detailRoute = {
-    to: "/code/inbox/pulls/$reportId" as const,
+    to: "/inbox/pulls/$reportId" as const,
     params: { reportId: report.id },
   };
   const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(

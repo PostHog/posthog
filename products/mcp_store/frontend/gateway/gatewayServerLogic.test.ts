@@ -381,13 +381,32 @@ describe('gatewayServerLogic', () => {
         expect(mockServiceAccountAccess).toHaveBeenCalledWith(expect.any(String), account.id, {
             gateway_server_id: 'server-id',
             enabled: true,
-            scope: 'personal',
+            scope: 'team',
             policies: [
                 { tool_name: 'list_issues', policy_state: 'approved' },
                 { tool_name: 'create_issue', policy_state: 'do_not_use' },
             ],
         })
         expect(logic.values.agentAccessModalOpen).toBe(false)
+    })
+
+    it('sends the scope picked in the share modal instead of the team default', async () => {
+        const account = serviceAccount()
+        parentLogic.actions.loadServiceAccountsSuccess([account])
+        logic.actions.openAgentAccessModal()
+        logic.actions.loadTeamToolPoliciesSuccess([toolPolicy('list_issues')])
+        logic.actions.setAgentAccessSelectedId(account.id)
+        logic.actions.setAgentAccessScope('personal')
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAgentAccess()
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(
+            expect.any(String),
+            account.id,
+            expect.objectContaining({ scope: 'personal' })
+        )
     })
 
     it.each([

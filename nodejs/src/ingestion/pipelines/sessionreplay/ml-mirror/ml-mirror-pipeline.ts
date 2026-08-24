@@ -43,11 +43,11 @@ export interface MlMirrorImageScrubProducer {
 export interface MlMirrorUrlFetchProducer {
     outputs: IngestionOutputs<MlImageFetchOutput | MlImageScrubOutput>
     producedRefCacheMax: number
+    producedRefCacheWindowMs: number
 }
 
 /**
- * Which collection lanes the anonymizer runs, and the key they derive their per-team ref prefix
- * from.
+ * Which collection lanes the anonymizer runs, and the key they derive their ref HMAC keys from.
  *
  * Separate from the two producer settings, because collecting and producing are separate
  * decisions. Collection alone measures. A produce puts original, unscrubbed URLs onto Kafka.
@@ -56,7 +56,7 @@ export interface MlMirrorUrlFetchProducer {
  * make that measurement impossible to take on its own.
  */
 export interface MlMirrorCollection {
-    /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
+    /** The ML pseudonym HMAC key, also used by the block-metadata sink. */
     pseudonymSecret: string | Buffer
     collectImages: boolean
     collectUrls: boolean
@@ -110,6 +110,8 @@ export function createMlMirrorReplayPipeline(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                         overflowMode,
                                         preservePartitionLocality: true,
+                                        // Mirrors replay, which never reads or writes persons.
+                                        pipelineWritesPersons: false,
                                     })
                                 )
                                 .pipe(createValidateSessionReplayHeadersStep())
@@ -190,7 +192,8 @@ export function createMlMirrorReplayPipeline(
                                                         ? withImagesProduced.pipe(
                                                               createProduceCollectedUrlsStep(
                                                                   urlFetch.outputs,
-                                                                  urlFetch.producedRefCacheMax
+                                                                  urlFetch.producedRefCacheMax,
+                                                                  urlFetch.producedRefCacheWindowMs
                                                               )
                                                           )
                                                         : withImagesProduced

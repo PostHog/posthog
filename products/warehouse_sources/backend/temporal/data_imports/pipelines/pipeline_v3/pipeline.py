@@ -225,6 +225,7 @@ class PipelineV3(Generic[ResumableData]):
             team_id=self._job.team_id,
             schema_name=self._schema.name,
             coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -272,7 +273,15 @@ class PipelineV3(Generic[ResumableData]):
         try:
             await self._sinks.clear()
 
-            await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
+            # v3 stages the incremental cursor until job completion, so a retried attempt
+            # re-extracts from batch 0 and the previous attempt's count must not be kept.
+            await reset_rows_synced_if_needed(
+                self._job,
+                self._is_incremental,
+                self._reset_pipeline,
+                should_resume,
+                incremental_cursor_staged=True,
+            )
 
             validate_incremental_sync(
                 self._is_incremental,

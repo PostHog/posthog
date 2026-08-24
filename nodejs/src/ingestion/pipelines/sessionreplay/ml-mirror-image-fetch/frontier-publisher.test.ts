@@ -1,10 +1,12 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { parseJSON } from '~/common/utils/json-parse'
 
-import { FetchCandidate, MAX_HOPS } from './collected-urls-record'
+import { FetchCandidate, MAX_HOPS, parseCollectedUrlsRecord } from './collected-urls-record'
 import { FrontierPublisher } from './frontier-publisher'
+import { ImageFetchResult } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 
 const FRONTIER = 'session_replay_image_fetch'
+const SCRUB = 'session_replay_image_scrub'
 const TIERS = [
     { topic: 'retry_1m', delayMs: 60_000 },
     { topic: 'retry_10m', delayMs: 600_000 },
@@ -13,131 +15,149 @@ const TIERS = [
 
 function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
     return {
-        ref: 'imageurl:team:originalhash0000000000',
-        urlHash: 'originalhash0000000000',
-        url: 'https://cdn.example.com/a.png',
+        originalRef: `imageurl:${'a'.repeat(22)}`,
+        currentUrl: 'https://cdn.example.com/a.png',
         host: 'cdn.example.com',
-        domain: 'example.com',
-        pseudoTeam: 'team',
-        capturedAtMs: 1_700_000_000_000,
-        hopsRemaining: MAX_HOPS,
+        origin: 'https://cdn.example.com',
+        registrableDomain: 'example.com',
+        remainingHops: MAX_HOPS,
         notBeforeMs: 0,
+        firstSeenAtMs: 1_700_000_000_000,
+        fetchCount: 0,
+        republishCount: 0,
+        lastRepublishReason: null,
         ...overrides,
     }
 }
 
-function build(): { publisher: FrontierPublisher; sent: { topic: string; key: string; body: any }[] } {
-    const sent: { topic: string; key: string; body: any }[] = []
+interface SentMessage {
+    topic: string
+    key: string
+    value: Buffer
+    headers?: Record<string, string>
+}
+
+function build(): { publisher: FrontierPublisher; sent: SentMessage[] } {
+    const sent: SentMessage[] = []
     const producer = {
-        produce: ({ topic, key, value }: { topic: string; key: Buffer; value: Buffer }) => {
-            sent.push({ topic, key: key.toString(), body: parseJSON(value.toString()) })
+        produce: (message: { topic: string; key: Buffer; value: Buffer; headers?: Record<string, string> }) => {
+            sent.push({ ...message, key: message.key.toString() })
             return Promise.resolve()
         },
     } as unknown as KafkaProducerWrapper
-    return { publisher: new FrontierPublisher(producer, { frontierTopic: FRONTIER, delayTiers: TIERS }), sent }
+    return {
+        publisher: new FrontierPublisher(producer, {
+            frontierTopic: FRONTIER,
+            scrubTopic: SCRUB,
+            delayTiers: TIERS,
+            maxConcurrentImagePublishes: 2,
+        }),
+        sent,
+    }
 }
 
 describe('FrontierPublisher', () => {
-    it('keeps the original ref when handing a redirect target on (requirement 10)', async () => {
-        // The recording points at the original ref. A hash of the redirect target names an image
-        // nothing refers to, so the fetch would succeed and the image would still be unreachable.
-        const { publisher, sent } = build()
+    beforeEach(() => jest.useFakeTimers().setSystemTime(1_700_000_000_000))
+    afterEach(() => {
+        jest.useRealTimers()
+        jest.restoreAllMocks()
+    })
 
-        await publisher.republish(
+    it('keeps the global ref and durable state when it republishes a redirect', async () => {
+        const { publisher, sent } = build()
+        const republished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
+        const result = await publisher.republish(
             candidate(),
-            { url: 'https://img.other.net/a.png', host: 'img.other.net', domain: 'other.net' },
+            {
+                currentUrl: 'https://img.other.net/a.png',
+                host: 'img.other.net',
+                origin: 'https://img.other.net',
+                registrableDomain: 'other.net',
+            },
             'redirect'
         )
 
-        expect(sent).toHaveLength(1)
-        expect(sent[0].key).toBe('other.net')
-        expect(sent[0].body.urls[0]).toEqual({
-            ref: 'imageurl:team:originalhash0000000000',
-            url: 'https://img.other.net/a.png',
-            host: 'img.other.net',
+        expect(result).toBe('published')
+        expect(republished).toHaveBeenCalledWith('redirect', 'frontier')
+        expect(sent[0]).toMatchObject({ topic: FRONTIER, key: 'other.net' })
+        expect(parseCollectedUrlsRecord(sent[0].value, 'other.net')).toMatchObject({
+            ok: true,
+            candidates: [
+                {
+                    originalRef: `imageurl:${'a'.repeat(22)}`,
+                    currentUrl: 'https://img.other.net/a.png',
+                    remainingHops: MAX_HOPS - 1,
+                    republishCount: 1,
+                    lastRepublishReason: 'redirect',
+                },
+            ],
         })
     })
 
-    it('spends a hop on every republish (requirement 11)', async () => {
+    it.each([
+        ['an unspecified retry', 0, 'retry_1m', 60_000],
+        ['a short retry', 30_000, 'retry_1m', 60_000],
+        ['a medium retry', 120_000, 'retry_10m', 600_000],
+        ['a long supported retry', 3_600_000, 'retry_1h', 3_600_000],
+    ])('parks %s once in the smallest sufficient delay topic', async (_name, waitMs, topic, delayMs) => {
         const { publisher, sent } = build()
+        const republished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
 
-        await publisher.republish(candidate({ hopsRemaining: 4 }), targetOf(), 'retry', 0)
-
-        expect(sent[0].body.hopsRemaining).toBe(3)
+        expect(await publisher.republish(candidate(), candidate(), 'retry', waitMs)).toBe('published')
+        expect(republished).toHaveBeenCalledWith('retry', 'delay')
+        expect(sent[0].topic).toBe(topic)
+        expect(parseCollectedUrlsRecord(sent[0].value, 'example.com')).toMatchObject({
+            ok: true,
+            candidates: [{ notBeforeMs: 1_700_000_000_000 + delayMs }],
+        })
     })
 
-    it('refuses to republish a URL with one hop left, so nothing circulates forever', async () => {
+    it('refuses a delay longer than the largest deployed tier', async () => {
         const { publisher, sent } = build()
 
-        const published = await publisher.republish(candidate({ hopsRemaining: 1 }), targetOf(), 'retry', 0)
-
-        expect(published).toBe(false)
+        expect(await publisher.republish(candidate(), candidate(), 'retry', 3_600_001)).toBe('refused_delay')
         expect(sent).toEqual([])
     })
 
-    it.each([
-        ['a retry with no period named', 0, 'retry_1m'],
-        ['a wait inside the first tier', 30_000, 'retry_1m'],
-        ['a wait between tiers', 120_000, 'retry_10m'],
-        ['a wait past every tier', 24 * 3_600_000, 'retry_1h'],
-    ])('parks %s in the right topic', async (_name, waitMs, topic) => {
+    it('refuses a redirect that has no hop left after republishing', async () => {
         const { publisher, sent } = build()
 
-        await publisher.republish(candidate(), targetOf(), 'retry', waitMs)
-
-        expect(sent[0].topic).toBe(topic)
+        expect(await publisher.republish(candidate({ remainingHops: 1 }), candidate(), 'redirect')).toBe(
+            'refused_delay'
+        )
+        expect(sent).toEqual([])
     })
 
-    it('never sends a retry straight back to the frontier (requirement 14)', async () => {
-        // A retry sent to the frontier is a loop: the consumer reads the record, meets the same
-        // condition, and publishes it again, spending a hop each lap until the URL is written off
-        // without ever being fetched.
-        const { publisher, sent } = build()
-
-        await publisher.republish(candidate(), targetOf(), 'retry', 0)
-
-        expect(sent[0].topic).not.toBe(FRONTIER)
-        expect(sent[0].body.notBeforeMs).toBeGreaterThan(Date.now())
-    })
-
-    it('sends a redirect to the frontier at once, because its target is ready', async () => {
-        const { publisher, sent } = build()
-
-        await publisher.republish(candidate(), targetOf(), 'redirect')
-
-        expect(sent[0].topic).toBe(FRONTIER)
-        expect(sent[0].body.notBeforeMs).toBe(0)
-    })
-
-    it('keeps the requested wait when it is longer than every tier (requirement 15)', async () => {
-        // A site that names a day comes back after an hour. The record says it is not due, so the
-        // consumer leaves it alone rather than fetching it 23 hours early.
-        const { publisher, sent } = build()
-        const before = Date.now()
-
-        await publisher.republish(candidate(), targetOf(), 'retry', 24 * 3_600_000)
-
-        expect(sent[0].body.notBeforeMs).toBeGreaterThanOrEqual(before + 24 * 3_600_000)
-    })
-
-    it('holds a short wait for the whole period of the tier it parks in', async () => {
-        const { publisher, sent } = build()
-        const before = Date.now()
-
-        await publisher.republish(candidate(), targetOf(), 'retry', 30_000)
-
-        expect(sent[0].body.notBeforeMs).toBeGreaterThanOrEqual(before + 60_000)
-    })
-
-    it('reports a failed publish rather than throwing', async () => {
+    it('reports a failed produce without throwing', async () => {
         const producer = { produce: () => Promise.reject(new Error('broker down')) } as unknown as KafkaProducerWrapper
-        const publisher = new FrontierPublisher(producer, { frontierTopic: FRONTIER, delayTiers: TIERS })
+        const publisher = new FrontierPublisher(producer, {
+            frontierTopic: FRONTIER,
+            scrubTopic: SCRUB,
+            delayTiers: TIERS,
+            maxConcurrentImagePublishes: 2,
+        })
 
-        // One failed produce must not abandon the rest of the batch.
-        await expect(publisher.republish(candidate(), targetOf(), 'retry', 0)).resolves.toBe(false)
+        await expect(publisher.republish(candidate(), candidate(), 'retry')).resolves.toBe('failed')
+    })
+
+    it('publishes fetched bytes under the original global ref', async () => {
+        const { publisher, sent } = build()
+        const fetchResult = {
+            outcome: 'ok',
+            redirects: 0,
+            currentUrl: candidate().currentUrl,
+            bytes: Buffer.from('image'),
+            contentType: 'image/png',
+            contentEncoding: 'gzip',
+        } as ImageFetchResult
+
+        await publisher.publishImage(candidate(), fetchResult)
+
+        expect(sent[0]).toEqual({
+            topic: SCRUB,
+            key: `imageurl:${'a'.repeat(22)}`,
+            value: Buffer.from('image'),
+            headers: { 'content-type': 'image/png', 'content-encoding': 'gzip' },
+        })
     })
 })
-
-function targetOf(): { url: string; host: string; domain: string } {
-    return { url: 'https://cdn.example.com/a.png', host: 'cdn.example.com', domain: 'example.com' }
-}

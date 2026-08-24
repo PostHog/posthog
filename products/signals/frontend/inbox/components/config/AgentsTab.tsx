@@ -1,18 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
+import { IconArrowLeft, IconCompass } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
-import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
+import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 import { ConnectionsSection } from './ConnectionsSection'
 import { DataSourceSetup } from './DataSourceSetup'
-import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
 function Subsection({
@@ -37,6 +37,28 @@ function Subsection({
     )
 }
 
+/**
+ * The roster lives on its own tab now, so this points at it rather than mounting a second copy —
+ * two live rosters on one project would each poll the runs window and fight over the same state.
+ */
+function ScoutsSubsectionLink(): JSX.Element {
+    const { scoutConfigs, enabledCount } = useValues(scoutFleetLogic)
+
+    return (
+        <div className="flex items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3">
+            <IconCompass className="size-5 shrink-0 text-accent" />
+            <span className="flex-1 text-sm text-secondary">
+                {scoutConfigs === null
+                    ? 'Manage the scouts sweeping this project.'
+                    : `${enabledCount} of ${scoutConfigs.length} scouts on patrol.`}
+            </span>
+            <LemonButton type="secondary" size="small" to={urls.inbox('scouts')}>
+                Open scouts
+            </LemonButton>
+        </div>
+    )
+}
+
 function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
     return (
         <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onClick} className="-ml-2 w-fit">
@@ -52,16 +74,10 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
  * render inline (replacing the roster) when their sub-flow is open.
  */
 export function AgentsTab(): JSX.Element {
-    const { sessionAnalysisSetupOpen, dataSourceSetupSource } = useValues(signalSourcesLogic)
+    const { dataSourceSetupSource } = useValues(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const {
-        loadSources,
-        loadSourceConfigs,
-        loadToolDataEvents,
-        closeSessionAnalysisSetup,
-        closeDataSourceSetup,
-        onDataSourceSetupComplete,
-    } = useActions(signalSourcesLogic)
+    const { loadSources, loadSourceConfigs, loadToolDataEvents, closeDataSourceSetup, onDataSourceSetupComplete } =
+        useActions(signalSourcesLogic)
 
     useEffect(() => {
         loadSources()
@@ -75,13 +91,6 @@ export function AgentsTab(): JSX.Element {
             <div className="flex flex-col gap-3">
                 <BackLink onClick={closeDataSourceSetup} />
                 <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
-            </div>
-        )
-    } else if (sessionAnalysisSetupOpen) {
-        agentsBody = (
-            <div className="flex flex-col gap-3">
-                <BackLink onClick={closeSessionAnalysisSetup} />
-                <SessionAnalysisSetup />
             </div>
         )
     } else {
@@ -102,7 +111,7 @@ export function AgentsTab(): JSX.Element {
                     title="Scouts"
                     description="Scheduled agents that sweep this project on a cadence and emit signals to your inbox."
                 >
-                    <ScoutsFleetSection />
+                    <ScoutsSubsectionLink />
                 </Subsection>
 
                 <Subsection
