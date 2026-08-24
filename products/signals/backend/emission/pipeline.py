@@ -30,7 +30,7 @@ from products.signals.backend.temporal.drop_telemetry import summarize_drop_erro
 
 logger = structlog.get_logger(__name__)
 
-LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-4-5")
+LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5")
 # ai_product label for the emission-stage generations (summarization, actionability).
 EMISSION_AI_PRODUCT = "signals_emission"
 # Concurrent LLM calls limit for actionability/summarization checks

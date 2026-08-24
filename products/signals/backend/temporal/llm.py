@@ -19,7 +19,7 @@ from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
 
-MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
+MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5")
 
 
 @frozen

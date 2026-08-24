@@ -1014,7 +1014,7 @@ Telemetry is best-effort; failures are logged, not raised.
 
 ## LLM Integration
 
-Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-4-5`).
+Most direct LLM calls use Anthropic via the shared `call_llm()` helper in `backend/temporal/llm.py`, with model selection driven by `SIGNAL_MATCHING_LLM_MODEL` (default: `claude-sonnet-5`). The emission stage (summarization, actionability) uses its own `SIGNAL_EMISSION_LLM_MODEL` (default: `claude-sonnet-5`). Each model's request shape (assistant prefill, per-request temperature, extended thinking) is resolved from `MODEL_CAPABILITIES` in `backend/temporal/llm.py`, so swapping either default is a config change.
 
 That said, **not all “LLM-ish” behavior in Signals goes through `call_llm()` anymore**:
 
@@ -1376,7 +1376,8 @@ Signal {index}:
 | Setting                                  | Default                       | Description                                                                                                                  |
 | ---------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                                                         |
-| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-4-5`           | LLM model for all signal operations                                                                                          |
+| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for matching, grouping, and safety-judge signal operations                                                         |
+| `SIGNAL_EMISSION_LLM_MODEL`              | `claude-sonnet-5`             | LLM model for emission-stage summarization and actionability checks                                                         |
 | `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)                                           |
 | Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                                               |
 | Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                                                        |
