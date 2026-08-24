@@ -485,6 +485,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
     )
+    suggested_prompts = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Follow-up questions the report's author suggests asking about it, in the order they were "
+            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -545,6 +553,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
+            "suggested_prompts",
             "priority",
             "actionability",
             "already_addressed",

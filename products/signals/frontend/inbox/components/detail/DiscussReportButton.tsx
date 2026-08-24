@@ -7,7 +7,7 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 
-import { captureInboxReportAction } from '../../inboxAnalytics'
+import { InboxQuestionSource, captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
@@ -15,8 +15,29 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     const { isDiscussing, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { discussReport } = useActions(inboxTaskKickoffLogic)
     const buttonRef = useRef<HTMLButtonElement>(null)
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const [isOpen, setIsOpen] = useState(false)
     const [question, setQuestion] = useState('')
+    // The suggestion the textarea was last filled from, so a submitted question can be reported as
+    // sent as written or edited first. Null once the reader has typed something of their own.
+    const [filledFrom, setFilledFrom] = useState<string | null>(null)
+
+    const suggestions = report.suggested_prompts ?? []
+
+    const questionSource = (trimmed: string): InboxQuestionSource => {
+        if (filledFrom === null) {
+            return 'typed'
+        }
+        return trimmed === filledFrom ? 'suggested' : 'edited_suggestion'
+    }
+
+    const fillFromSuggestion = (suggestion: string): void => {
+        setQuestion(suggestion)
+        setFilledFrom(suggestion)
+        // Fills the box and stops. The reader still presses Ask AI, so a mis-click costs nothing and
+        // a suggestion that is nearly right can be edited before it spends a run.
+        textAreaRef.current?.focus()
+    }
 
     const submit = (): void => {
         const trimmed = question.trim()
@@ -30,7 +51,15 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             lemonToast.error(aiConsentDisabledReason)
             return
         }
-        captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
+        captureInboxReportAction({
+            report,
+            actionType: 'discuss',
+            surface: 'detail_pane',
+            extra: discussQuestionProperties({
+                source: questionSource(trimmed),
+                suggestionCount: suggestions.length,
+            }),
+        })
         // The popover stays open on its spinner until the run is created and we navigate to it, so
         // the request is visibly in flight and a failure leaves the draft question to retry with.
         discussReport(report, reportUrl, trimmed)
@@ -48,11 +77,44 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-2 p-2 w-[22rem]">
+                    {suggestions.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-xs font-semibold text-tertiary">Suggested questions</span>
+                            {suggestions.map((suggestion) => (
+                                <LemonButton
+                                    key={suggestion}
+                                    // Secondary, not tertiary: these sit above a textarea rather than
+                                    // in a menu, so with no border at rest they read as a bulleted
+                                    // list and the reader never learns the rows are clickable.
+                                    type="secondary"
+                                    size="small"
+                                    fullWidth
+                                    disabledReason={isDiscussing ? 'Already asking AI' : undefined}
+                                    onClick={() => fillFromSuggestion(suggestion)}
+                                    data-attr="inbox-report-suggested-prompt"
+                                >
+                                    {suggestion}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    )}
                     <LemonTextArea
+                        ref={textAreaRef}
                         value={question}
-                        onChange={setQuestion}
+                        onChange={(value) => {
+                            setQuestion(value)
+                            // Emptying the box starts over: what the reader types next is their own
+                            // question, not an edit of the suggestion that used to be there.
+                            if (!value) {
+                                setFilledFrom(null)
+                            }
+                        }}
                         onPressCmdEnter={submit}
-                        placeholder="What would you like to ask about this report?"
+                        placeholder={
+                            suggestions.length > 0
+                                ? 'Pick a question above, or ask your own'
+                                : 'What would you like to ask about this report?'
+                        }
                         maxLength={4000}
                         rows={4}
                         autoFocus
@@ -67,6 +129,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                             disabledReason={
                                 aiConsentDisabledReason ?? (question.trim() ? undefined : 'Enter a question first')
                             }
+                            data-attr="inbox-report-ask-ai-submit"
                         >
                             Ask AI
                         </LemonButton>

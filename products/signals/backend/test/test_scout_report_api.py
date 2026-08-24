@@ -763,6 +763,87 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).charts == []
 
+    def test_suggested_prompt_edit_event_uuid_keys_on_the_prompts(self) -> None:
+        # Same collision class as the chart case above: suggested prompts are a valid sole input to an
+        # edit, so two prompt-only edits to one report in a run share every other part of the key.
+        # Without keying on them the second hashes identically and ingestion drops it, so the team
+        # never hears the questions changed. An identical retried edit must still stay one event.
+        run = _make_run(self.team)
+        result = EditReportResult(
+            report_id=str(uuid4()), updated_fields=[], note_appended=False, suggested_prompts_set=1
+        )
+
+        def forward(prompts: list[str]) -> str:
+            with patch(CAPTURE_PATH):
+                captured = _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=result,
+                    title=None,
+                    summary=None,
+                    note=None,
+                    suggested_prompts=prompts,
+                )
+            assert captured is not None
+            return captured.event_uuid
+
+        teams = forward(["Which teams are affected?"])
+        deploy = forward(["Did the 18 June deploy do this?"])
+        assert teams != deploy
+        assert teams == forward(["Which teams are affected?"])
+        # The rows render in the order they were sent, so a reorder changes what the reader sees.
+        assert forward(["a?", "b?"]) != forward(["b?", "a?"])
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, 1, None),
+            ("null", {"suggested_prompts": None}, 1, None),
+            ("empty_list", {"suggested_prompts": []}, 0, 0),
+        ]
+    )
+    def test_edit_suggested_prompts_distinguishes_untouched_from_cleared(
+        self, _name: str, prompt_field: dict, expected_stored: int, expected_set: int | None
+    ) -> None:
+        # A rewrite can leave a question answering the old report, and the only way a scout can say
+        # so is an empty list. Treating that as "didn't mention them" leaves the stale question up
+        # with no way to retract it short of replacing it with a decoy.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data={**self._payload(), "suggested_prompts": ["Which teams are affected?"]},
+                format="json",
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "append_note": "checked", **prompt_field},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["suggested_prompts_set"] == expected_set
+        assert len(SignalReport.objects.get(id=created["report_id"]).suggested_prompts) == expected_stored
+
+    def test_clearing_suggested_prompts_is_a_valid_sole_edit(self) -> None:
+        # `suggested_prompts: []` is the whole instruction on a retraction, so the "needs at least
+        # one input" guard has to count it as an input — checking it for falsiness rejects the
+        # retraction as an empty edit and leaves the stale question up.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data={**self._payload(), "suggested_prompts": ["Which teams are affected?"]},
+                format="json",
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "suggested_prompts": []},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalReport.objects.get(id=created["report_id"]).suggested_prompts == []
+
     def test_chart_counts_ride_the_lifecycle_events(self) -> None:
         # `charts_set` / `chart_count` are what a dashboard or CDP destination reads to tell a
         # chart-bearing report from a plain one; without them both event streams look identical.
