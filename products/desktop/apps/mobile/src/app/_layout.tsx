@@ -15,6 +15,7 @@ import {
   OfflineBanner,
 } from "@/components/OfflineBanner";
 import { useAuthStore } from "@/features/auth";
+import { useOrgConsent } from "@/features/consent/hooks/useOrgConsent";
 import { setupNotificationResponseListener } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
@@ -37,6 +38,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   const { isAuthenticated, isLoading, initializeAuth } = useAuthStore();
   const themeColors = useThemeColors();
   const pathname = usePathname();
+  const consent = useOrgConsent();
 
   useScreenTracking();
   useIdentifyUser();
@@ -64,7 +66,24 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
     router.replace(next ? { pathname: "/auth", params: { next } } : "/auth");
   }, [isAuthenticated, isLoading, pathname]);
 
-  if (isLoading) {
+  // Consent gate. Keep a signed-in user out of the app until their organization
+  // has met both consent requirements, even if a deep link drops them straight
+  // onto a protected route. Wait for the status to resolve before routing so we
+  // never bounce a user whose consent we haven't checked yet.
+  const consentSatisfied = consent.status === "resolved" && consent.satisfied;
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || pathname === "/auth") return;
+    if (consent.status === "loading") return;
+    if (!consentSatisfied && pathname !== "/consent") {
+      router.replace("/consent");
+    } else if (consentSatisfied && pathname === "/consent") {
+      router.replace("/(tabs)/tasks");
+    }
+  }, [isAuthenticated, isLoading, consent.status, consentSatisfied, pathname]);
+
+  // Hold the app on a spinner until consent resolves, so tabs never render for
+  // a frame before the gate redirects an unconsented user.
+  if (isLoading || (isAuthenticated && consent.status === "loading")) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator size="large" color={themeColors.accent[9]} />
@@ -84,6 +103,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false }} />
+      <Stack.Screen name="consent" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
 
       {/* Tinder-style inbox review */}
