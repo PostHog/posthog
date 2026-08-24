@@ -191,7 +191,9 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
  * The sections of the Reports list, in render order. Each is a collapsible run of report cards with
  * its own fixed server filter (see `INBOX_REPORT_SECTION_LIST_PARAMS`), keyed `reportListLogic`
  * instance, header count, and pagination — the sections stack in one column rather than switching.
- * pinned: these keys are the `tab` property on the inbox analytics events.
+ * pinned: these keys are the `tab` property on the inbox analytics events, the `data-attr` on each
+ * section header, and the keys of the persisted expanded/collapsed state, so they outlive renames of
+ * the labels above them (`needs-decision` is now "Needs a PR", `monitoring` is "Review and merge").
  */
 export const INBOX_REPORT_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'not-actionable'] as const
 export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
@@ -203,16 +205,16 @@ export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
 export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-decision'
 
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
-    'needs-decision': 'Needs a decision',
-    monitoring: 'Monitoring',
+    'needs-decision': 'Needs a PR',
+    monitoring: 'Review and merge',
     resolved: 'Resolved',
     'not-actionable': 'Not actionable',
 }
 
 /** One line per section, shown under its header while the section is open. */
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
-    'needs-decision': 'Reports that need your judgment before an agent acts.',
-    monitoring: 'Reports with a pull request open. Review and merge them on GitHub.',
+    'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     resolved: 'Reports resolved by a merged pull request, and reports you archived.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',

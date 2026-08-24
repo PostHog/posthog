@@ -20,8 +20,8 @@ import { useReportImpressions } from './useReportImpressions'
 
 /** Copy shown in place of the rows when a section matches nothing. */
 const EMPTY_SECTION_COPY: Record<InboxReportSectionKey, string> = {
-    'needs-decision': 'Nothing needs your judgment right now.',
-    monitoring: 'No pull requests open. Agent-written fixes land here to review and merge.',
+    'needs-decision': 'No reports are waiting for a pull request.',
+    monitoring: 'No pull requests open yet. Start one from a report above.',
     resolved: 'Nothing resolved or archived yet.',
     'not-actionable': 'Nothing has been judged not actionable.',
 }
@@ -55,7 +55,7 @@ function SectionHeader({ sectionKey }: { sectionKey: InboxReportSectionKey }): J
     return (
         <button
             type="button"
-            className="flex w-full items-center gap-2 rounded px-0.5 py-1 text-left"
+            className="flex w-full cursor-pointer items-center gap-2 rounded px-0.5 py-1 text-left"
             onClick={() => toggleSection(sectionKey)}
             aria-expanded={isOpen}
             title={INBOX_REPORT_SECTION_DESCRIPTION[sectionKey]}

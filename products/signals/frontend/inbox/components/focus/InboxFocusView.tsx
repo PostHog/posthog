@@ -289,7 +289,7 @@ export function InboxFocusView(): JSX.Element {
                 >
                     Reports
                 </LemonButton>
-                <Tooltip title="Your place in the reports that need a decision">
+                <Tooltip title="Your place in the reports that need a pull request">
                     <span className="text-xs text-tertiary tabular-nums">{counter}</span>
                 </Tooltip>
             </div>
@@ -305,7 +305,8 @@ export function InboxFocusView(): JSX.Element {
                     <div className="flex flex-col items-center gap-2 text-center">
                         <h3 className="m-0 text-base font-semibold">Nothing left to decide</h3>
                         <p className="m-0 text-sm text-tertiary">
-                            Every report that needs a decision has one. New reports show up here as agents file them.
+                            Every report that needs a pull request has one. New reports show up here as agents file
+                            them.
                         </p>
                         <LemonButton type="secondary" size="small" to={urls.inbox('reports')}>
                             Back to reports

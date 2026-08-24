@@ -10,7 +10,7 @@ import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './reportListLogic'
 
 /**
- * Focus mode triages the Needs-a-decision queue, sharing that section's loaded pages, filters, and
+ * Focus mode triages the Needs-a-PR queue, sharing that section's loaded pages, filters, and
  * scope. It walks every loaded report, not just the rows the section has expanded to show.
  */
 export const FOCUS_SECTION_KEY: InboxReportSectionKey = INBOX_PRIMARY_REPORT_SECTION_KEY

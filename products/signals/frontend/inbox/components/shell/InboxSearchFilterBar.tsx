@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
+import { IconChevronDown, IconFlag, IconSearch, IconSort, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import {
@@ -18,7 +18,6 @@ import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { FilterItem, FilterPopover } from './filterControls'
-import { InboxScopeSelect } from './InboxScopeSelect'
 
 /**
  * Collapsible per-scout sub-filter nested under the "Scout" source row. Collapsed by default
@@ -84,21 +83,19 @@ function ScoutSubFilter({
 
 interface InboxSearchFilterBarProps {
     searchPlaceholder?: string
-    /** Triggers a reload of the report list (lives on `inboxSceneLogic`). */
-    onRefresh?: () => void
-    refreshing?: boolean
 }
 
 /**
- * Search input + reviewer scope + Sort / Source / Priority filter popovers + refresh. There is
- * no status filter: the Reports views above the bar are the status split. Each popover stays a
+ * What narrows the report list: search, then the Source / Priority / Sort popovers. There is no
+ * status filter, because the sections below the bar are the status split. Each popover stays a
  * quiet, muted chip until its filter is in use, then gains a solid border and shows its value.
- * Filter state is persisted via `inboxFiltersLogic`; the central scene reloads on change.
+ * Filter state is persisted via `inboxFiltersLogic`; every section reloads on change.
+ *
+ * Reviewer scope is deliberately not here. It sits with focus mode on the other side of the row,
+ * because it picks whose inbox this is rather than narrowing the one you are looking at.
  */
 export function InboxSearchFilterBar({
-    searchPlaceholder = 'Search by title or description…',
-    onRefresh,
-    refreshing,
+    searchPlaceholder = 'Search reports…',
 }: InboxSearchFilterBarProps): JSX.Element {
     const { searchQuery, sortField, sortDirection, sourceProductFilter, scoutFilter, priorityFilter } =
         useValues(inboxFiltersLogic)
@@ -115,9 +112,9 @@ export function InboxSearchFilterBar({
     )
 
     return (
-        <div className="flex items-center gap-2 flex-wrap w-full">
+        <div className="flex flex-wrap items-center gap-2">
             <LemonInput
-                className="min-w-[220px] max-w-[420px] [&_.LemonInput__input]:pr-4"
+                className="min-w-[160px] max-w-[280px] flex-1 [&_.LemonInput__input]:pr-4"
                 type="search"
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -126,95 +123,76 @@ export function InboxSearchFilterBar({
                 size="small"
             />
 
-            {/* ml-auto right-aligns the cluster; flex-wrap + max-w-full keep the controls from
-                overflowing on narrow viewports — each can wrap within the group rather than the
-                whole row clipping, the behavior the flat (ungrouped) layout had before. */}
-            <div className="flex flex-wrap items-center justify-end gap-2 ml-auto max-w-full">
-                <InboxScopeSelect />
-                <FilterPopover
-                    label="Sort"
-                    value={activeSort?.label ?? 'Priority first'}
-                    icon={<IconSort />}
-                    active={activeSortKey !== 'priority:asc'}
-                >
-                    {INBOX_SORT_OPTIONS.map((option) => (
+            <FilterPopover
+                label="Source"
+                value={inboxSourceFilterLabel(sourceProductFilter, scoutFilter)}
+                icon={<IconTarget />}
+                active={sourceProductFilter.length > 0 || scoutFilter.length > 0}
+            >
+                {INBOX_SOURCE_OPTIONS.map((option) => (
+                    <div key={option.value}>
                         <FilterItem
-                            key={inboxSortOptionKey(option.field, option.direction)}
                             icon={option.icon}
                             label={option.label}
-                            active={sortField === option.field && sortDirection === option.direction}
-                            onClick={() => setSort(option.field, option.direction)}
+                            active={sourceProductFilter.includes(option.value)}
+                            onClick={() => toggleSourceProduct(option.value)}
                         />
-                    ))}
-                </FilterPopover>
-
-                <FilterPopover
-                    label="Source"
-                    value={inboxSourceFilterLabel(sourceProductFilter, scoutFilter)}
-                    icon={<IconTarget />}
-                    active={sourceProductFilter.length > 0 || scoutFilter.length > 0}
-                >
-                    {INBOX_SOURCE_OPTIONS.map((option) => (
-                        <div key={option.value}>
-                            <FilterItem
-                                icon={option.icon}
-                                label={option.label}
-                                active={sourceProductFilter.includes(option.value)}
-                                onClick={() => toggleSourceProduct(option.value)}
+                        {option.value === 'signals_scout' && scoutNames.length > 0 && (
+                            <ScoutSubFilter
+                                scoutNames={scoutNames}
+                                scoutFilter={scoutFilter}
+                                onToggle={toggleScout}
+                                onClear={clearScoutFilter}
                             />
-                            {option.value === 'signals_scout' && scoutNames.length > 0 && (
-                                <ScoutSubFilter
-                                    scoutNames={scoutNames}
-                                    scoutFilter={scoutFilter}
-                                    onToggle={toggleScout}
-                                    onClear={clearScoutFilter}
-                                />
-                            )}
-                        </div>
-                    ))}
-                </FilterPopover>
+                        )}
+                    </div>
+                ))}
+            </FilterPopover>
 
-                <FilterPopover
-                    label="Priority"
-                    value={inboxPriorityFilterLabel(priorityFilter)}
-                    icon={<IconFlag />}
-                    active={priorityFilter.length > 0}
-                >
-                    {INBOX_PRIORITY_OPTIONS.map((priority) => (
-                        <FilterItem
-                            key={priority}
-                            icon={
-                                <span
-                                    className="size-2 rounded-full"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
-                                />
-                            }
-                            label={
-                                <span>
-                                    {priority}
-                                    <span className="text-muted"> · {PRIORITY_MEANING[priority].label}</span>
-                                </span>
-                            }
-                            active={priorityFilter.includes(priority)}
-                            onClick={() => togglePriority(priority)}
-                        />
-                    ))}
-                </FilterPopover>
-
-                {onRefresh && (
-                    <LemonButton
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconRefresh />}
-                        loading={refreshing}
-                        tooltip="Refresh"
-                        aria-label="Refresh"
-                        onClick={onRefresh}
-                        className="bg-surface-primary"
+            <FilterPopover
+                label="Priority"
+                value={inboxPriorityFilterLabel(priorityFilter)}
+                icon={<IconFlag />}
+                active={priorityFilter.length > 0}
+            >
+                {INBOX_PRIORITY_OPTIONS.map((priority) => (
+                    <FilterItem
+                        key={priority}
+                        icon={
+                            <span
+                                className="size-2 rounded-full"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ backgroundColor: PRIORITY_ACCENT[priority] }}
+                            />
+                        }
+                        label={
+                            <span>
+                                {priority}
+                                <span className="text-muted"> · {PRIORITY_MEANING[priority].label}</span>
+                            </span>
+                        }
+                        active={priorityFilter.includes(priority)}
+                        onClick={() => togglePriority(priority)}
                     />
-                )}
-            </div>
+                ))}
+            </FilterPopover>
+
+            <FilterPopover
+                label="Sort"
+                value={activeSort?.label ?? 'Priority first'}
+                icon={<IconSort />}
+                active={activeSortKey !== 'priority:asc'}
+            >
+                {INBOX_SORT_OPTIONS.map((option) => (
+                    <FilterItem
+                        key={inboxSortOptionKey(option.field, option.direction)}
+                        icon={option.icon}
+                        label={option.label}
+                        active={sortField === option.field && sortDirection === option.direction}
+                        onClick={() => setSort(option.field, option.direction)}
+                    />
+                ))}
+            </FilterPopover>
         </div>
     )
 }

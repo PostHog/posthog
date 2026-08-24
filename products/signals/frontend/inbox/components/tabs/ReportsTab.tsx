@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { JSX, useEffect, useRef } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
@@ -23,6 +23,7 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxReportSection } from '../InboxReportSection'
 import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxScopeSelect } from '../shell/InboxScopeSelect'
 import { InboxSearchFilterBar } from '../shell/InboxSearchFilterBar'
 
 /**
@@ -39,11 +40,10 @@ interface SectionListState {
     count: number | null
     countLoading: boolean
     visibleReports: SignalReport[]
-    refresh: () => void
 }
 
 /**
- * Each counted section's header count, rendered rows, and refresh action, keyed by section.
+ * Each counted section's header count and rendered rows, keyed by section.
  *
  * Read one value at a time rather than spreading what `useValues` returns: it hands back a proxy
  * whose properties are subscribing getters, and spreading it yields an empty object — silently, and
@@ -76,28 +76,21 @@ function useCountedSections(): Record<CountedSectionKey, SectionListState> {
         visibleReports: resolvedReports,
     } = useValues(reportListLogic(resolvedProps))
 
-    const { refresh: refreshNeedsDecision } = useActions(reportListLogic(needsDecisionProps))
-    const { refresh: refreshMonitoring } = useActions(reportListLogic(monitoringProps))
-    const { refresh: refreshResolved } = useActions(reportListLogic(resolvedProps))
-
     return {
         'needs-decision': {
             count: needsDecisionCount,
             countLoading: needsDecisionCountLoading,
             visibleReports: needsDecisionReports,
-            refresh: refreshNeedsDecision,
         },
         monitoring: {
             count: monitoringCount,
             countLoading: monitoringCountLoading,
             visibleReports: monitoringReports,
-            refresh: refreshMonitoring,
         },
         resolved: {
             count: resolvedCount,
             countLoading: resolvedCountLoading,
             visibleReports: resolvedReports,
-            refresh: refreshResolved,
         },
     }
 }
@@ -162,8 +155,8 @@ function ReportsEmptyState(): JSX.Element {
             </div>
             <h3 className="m-0 text-base font-semibold">Nothing in your inbox yet</h3>
             <p className="m-0 text-sm text-tertiary">
-                Agents file what they find here: issues that need your judgment, pull requests to review, and the work
-                already resolved.
+                Agents file what they find here: reports waiting on a pull request, pull requests for you to review, and
+                the work already resolved.
             </p>
             <SelfDrivingInstallingHint>
                 Reports will start arriving as soon as live data comes in.
@@ -173,9 +166,9 @@ function ReportsEmptyState(): JSX.Element {
 }
 
 /**
- * The Reports tab: one filter row over a single column of collapsible sections (Needs a decision /
- * Monitoring / Resolved, plus Not actionable for staff). Each section owns its own filtered request,
- * count, and paging via the keyed `reportListLogic`, while the filter row, reviewer scope, and bulk
+ * The Reports tab: one toolbar over a single column of collapsible sections (Needs a PR / Review and
+ * merge / Resolved, plus Not actionable for staff). Each section owns its own filtered request,
+ * count, and paging via the keyed `reportListLogic`, while the toolbar, reviewer scope, and bulk
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
@@ -186,7 +179,6 @@ export function ReportsTab(): JSX.Element {
     const visibleSections: InboxReportSectionKey[] = INBOX_REPORT_SECTION_KEYS.filter(
         (key) => isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)
     )
-    const refreshing = COUNTED_SECTION_KEYS.some((key) => sections[key].countLoading)
     // Empty is a verdict about resolved counts: hold the sections until every count has answered, so
     // a slow first load never flashes the "nothing yet" screen at a full inbox.
     const countsSettled = COUNTED_SECTION_KEYS.every((key) => sections[key].count !== null)
@@ -195,23 +187,24 @@ export function ReportsTab(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <div className="min-w-0 flex-1 basis-64">
-                    <InboxSearchFilterBar
-                        onRefresh={() => COUNTED_SECTION_KEYS.forEach((key) => sections[key].refresh())}
-                        refreshing={refreshing}
-                    />
+                {/* The filters shrink and wrap within their own group before the row breaks, so
+                    focus mode and the scope switch keep their place on the right. */}
+                <div className="min-w-0 flex-1">
+                    <InboxSearchFilterBar />
                 </div>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    to={urls.inboxFocus()}
-                    sideIcon={<KeyboardShortcut f />}
-                    tooltip="Go through the reports that need a decision one at a time"
-                    className="shrink-0"
-                    data-attr="inbox-focus-mode"
-                >
-                    Focus mode
-                </LemonButton>
+                <div className="flex shrink-0 items-center gap-2">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        to={urls.inboxFocus()}
+                        sideIcon={<KeyboardShortcut f />}
+                        tooltip="Go through the reports that need a pull request one at a time"
+                        data-attr="inbox-focus-mode"
+                    >
+                        Focus mode
+                    </LemonButton>
+                    <InboxScopeSelect />
+                </div>
             </div>
             <InboxBulkSelectionBar />
 

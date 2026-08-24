@@ -93,7 +93,7 @@ function requestContextFromValues(values: {
 
 /**
  * Whether to auto-switch the reviewer scope to Entire project on first load. True only for the
- * primary section (Needs a decision) when the user is still on the (default) For-you scope, hasn't
+ * primary section (Needs a PR) when the user is still on the (default) For-you scope, hasn't
  * chosen a scope themselves, has resolved to a real user, and has zero reports suggested to them —
  * so a user with nothing assigned doesn't land on an empty inbox. Pure so the branching is
  * unit-testable without mounting the logic.
@@ -294,7 +294,7 @@ export type reportListLogicType = MakeLogicType<
 >
 
 /**
- * Keyed per-section report list. Mounted once per Reports section (Needs a decision / Monitoring /
+ * Keyed per-section report list. Mounted once per Reports section (Needs a PR / Review and merge /
  * Resolved / Not actionable), each with its own fixed `listParams`, so every section is its own
  * filtered request with its own accurate `count` and its own pagination. The shared user chrome
  * (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and applied

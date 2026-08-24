@@ -58,7 +58,7 @@ describe('reportListLogic', () => {
             ['user has assigned reports', { count: 3 }],
             // The user deliberately picked a scope – never override it, even with zero reports.
             ['user chose their scope', { hasUserChosenScope: true }],
-            // Only the primary section (Needs a decision) drives the default.
+            // Only the primary section (Needs a PR) drives the default.
             ['not the primary section', { sectionKey: 'monitoring' as InboxReportSectionKey }],
             // Already off For you – nothing to default.
             ['already entire project', { scope: INBOX_SCOPE_ENTIRE_PROJECT as InboxScope }],

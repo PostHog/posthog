@@ -92,7 +92,7 @@ export default meta
 
 type Story = StoryObj
 
-// The default arrangement: Needs a decision and Monitoring open, Resolved collapsed.
+// The default arrangement: Needs a PR and Review and merge open, Resolved collapsed.
 export const Reports: Story = {
     decorators: [reportsListDecorator(reportTabReports)],
     render: () => <ReportsTabStory />,
