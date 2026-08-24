@@ -539,6 +539,7 @@ export class IngestionApiServer implements NodeServer {
                     maxStreamsPerSession: this.config.INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION,
                     sessionMemoryMb: this.config.INGESTION_API_GRPC_SESSION_MEMORY_MB,
                     sessionIdleTimeoutMs: this.config.INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS,
+                    readMaxBytes: this.config.INGESTION_API_GRPC_READ_MAX_BYTES,
                 },
                 {
                     driver: this.createStreamIngestDriver(),

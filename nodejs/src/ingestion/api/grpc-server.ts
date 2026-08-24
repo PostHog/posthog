@@ -108,6 +108,12 @@ export interface WorkerIngestServerOptions {
     maxStreamsPerSession?: number
     /** Per-session memory budget in MB (HTTP/2 `maxSessionMemory`). */
     sessionMemoryMb?: number
+    /**
+     * Largest gRPC message the server will deserialize; bigger frames get
+     * ResourceExhausted. The consumer targets 10 MiB sub-batches, but an
+     * over-limit frame is replayed verbatim, so keep generous headroom.
+     */
+    readMaxBytes?: number
     /** Idle time before a session with no activity is closed, reaping dead peers. */
     sessionIdleTimeoutMs?: number
 }
@@ -300,6 +306,7 @@ export class WorkerIngestServer {
     private readonly maxStreamsPerSession: number
     private readonly sessionMemoryMb: number
     private readonly sessionIdleTimeoutMs: number
+    private readonly readMaxBytes: number
     private sessionCount = 0
     private readonly slots: FifoSlots
 
@@ -314,6 +321,7 @@ export class WorkerIngestServer {
         this.maxStreamsPerSession = options.maxStreamsPerSession ?? 8
         this.sessionMemoryMb = options.sessionMemoryMb ?? 64
         this.sessionIdleTimeoutMs = options.sessionIdleTimeoutMs ?? 300_000
+        this.readMaxBytes = options.readMaxBytes ?? 32 * 1024 * 1024
         this.slots = new FifoSlots(options.maxConcurrentBatches)
     }
 
@@ -329,6 +337,7 @@ export class WorkerIngestServer {
                 maxSessionMemory: this.sessionMemoryMb,
             },
             connectNodeAdapter({
+                readMaxBytes: this.readMaxBytes,
                 routes: (router: ConnectRouter) => {
                     router.service(WorkerIngest, {
                         ingestStream: (requests, context: HandlerContext) =>
