@@ -356,6 +356,19 @@ describe('Workflows E2E (postgres-v2)', () => {
         config: { delay_duration: duration },
     })
 
+    // Waits for a date carried by the event rather than a fixed span. Bytecode is what the HogQL compiler
+    // emits for `properties.expires_at`, which is what HogFlowSerializer stores for this expression.
+    const delayUntilAction = (offset?: string) => ({
+        type: 'delay' as const,
+        config: {
+            delay_until: {
+                expression: 'properties.expires_at',
+                bytecode: ['_H', 1, 32, 'expires_at', 32, 'properties', 1, 2],
+                ...(offset ? { offset } : {}),
+            },
+        },
+    })
+
     const exitAction = () => ({ type: 'exit' as const, config: {} })
 
     // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
@@ -502,6 +515,89 @@ describe('Workflows E2E (postgres-v2)', () => {
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+    })
+
+    describe('delay until a date carried by the data', () => {
+        const workflowWaitingUntil = async (offset?: string): Promise<void> => {
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayUntilAction(offset),
+                    function_1: fetchAction('https://example.com/reminder'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+        }
+
+        it('parks until the date on the event, then continues', async () => {
+            // A fixed duration cannot express this: the instant comes from the payload, so two runs of the
+            // same workflow park to different times.
+            const expiresAt = DateTime.utc().plus({ seconds: 3 })
+            await workflowWaitingUntil()
+            await triggerWorkflow(createGlobals({ properties: { expires_at: expiresAt.toISO() } } as any))
+            await waitForExpect(async () => {
+                const parked = (await queryCyclotronJobs()).filter(
+                    (j: any) => j[statusColumn] === 'available' && new Date(j.scheduled) > new Date()
+                )
+                expect(parked).toHaveLength(1)
+                // Parked to the instant from the data, not to some default span.
+                const scheduled = DateTime.fromJSDate(new Date(parked[0].scheduled)).toUTC()
+                expect(Math.abs(scheduled.diff(expiresAt).as('seconds'))).toBeLessThan(2)
+            }, 5000)
+
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/reminder', expect.anything())
+        })
+
+        it('continues straight away when the date has already passed', async () => {
+            // The guard against a reminder for something that already happened firing days late.
+            await workflowWaitingUntil()
+            await triggerWorkflow(
+                createGlobals({ properties: { expires_at: DateTime.utc().minus({ days: 5 }).toISO() } } as any)
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+        })
+
+        it('fires before the date when an offset asks for it', async () => {
+            // The shape a "remind me N days before" workflow needs, and the reason an offset exists rather
+            // than only a bare date: here the date is 1 hour out and the offset pulls the wait to now.
+            await workflowWaitingUntil('-1h')
+            await triggerWorkflow(
+                createGlobals({ properties: { expires_at: DateTime.utc().plus({ hours: 1 }).toISO() } } as any)
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+        })
+
+        it('aborts instead of sending when the date cannot be worked out', async () => {
+            // The outcome that matters: a "before it expires" message must not go out for someone with no
+            // expiry. on_error defaults to 'continue', which would do exactly that, so an unresolvable date
+            // aborts the run regardless of that setting.
+            await workflowWaitingUntil()
+            await triggerWorkflow(createGlobals({ properties: {} } as any))
+
+            // Waiting for a terminal state, not merely "not available": a job being worked on is also not
+            // available, so the looser check can pass in the window before the run would have sent.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.filter((j: any) => j[statusColumn] === 'failed')).toHaveLength(1)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
         })
     })
 
