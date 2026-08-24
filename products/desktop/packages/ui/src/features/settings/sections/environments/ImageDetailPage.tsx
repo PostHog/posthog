@@ -40,9 +40,12 @@ export function ImageDetailPage({
   const nameId = useId();
   const current = data ?? image;
   const [name, setName] = useState(current.name);
+  // Baseline captured at mount. Comparing against the live server name would
+  // read a teammate's concurrent rename as a local edit and revert it on save.
+  const [savedName] = useState(current.name);
   const [spec, setSpec] = useState<string | null>(null);
   const specYaml = spec ?? current.spec_yaml ?? "";
-  const nameChanged = name.trim() !== "" && name.trim() !== current.name;
+  const nameChanged = name.trim() !== "" && name.trim() !== savedName;
   const specChanged = spec !== null && spec !== (current.spec_yaml ?? "");
   const building = isImageBuildInProgress(current.status);
 
