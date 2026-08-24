@@ -20,9 +20,10 @@ from products.canvas.backend.layout import (
 )
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
 from products.canvas.backend.presentation.views import CanvasViewSet
-from products.canvas.backend.source import has_errors, validate_source_project
+from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
+from products.tasks.backend.facade.onboarding_canvas import TEACHING_CANVAS_CODE
 from products.tasks.backend.models import Channel
 
 
@@ -465,6 +466,12 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
 class TestWelcomeChecklistProject(SimpleTestCase):
     def test_seed_project_passes_source_validation(self):
         diagnostics = validate_source_project(welcome.welcome_checklist_project(), kind="component")
+        assert not has_errors(diagnostics), diagnostics
+
+
+class TestTeachingCanvasSource(SimpleTestCase):
+    def test_seed_source_passes_source_validation(self):
+        diagnostics = validate_source_project(synthetic_source_project(TEACHING_CANVAS_CODE), kind="freeform")
         assert not has_errors(diagnostics), diagnostics
 
 

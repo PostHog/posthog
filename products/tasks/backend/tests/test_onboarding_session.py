@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
+from django.apps import apps
 from django.db import IntegrityError
 from django.test import TestCase
 from django.test.utils import override_settings
@@ -14,7 +15,8 @@ from posthog.models.user import User
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import _origin_key, _session_enabled, start_onboarding_session
-from products.tasks.backend.models import Task, TaskClientProvenance
+from products.tasks.backend.facade.onboarding_canvas import TEACHING_CANVAS_TEMPLATE_ID
+from products.tasks.backend.models import Channel, Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
 
@@ -103,6 +105,19 @@ class TestOnboardingSessionIdempotency(TestCase):
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
 
+    def test_seeding_the_tour_failing_does_not_block_the_session(self) -> None:
+        task_id = uuid4()
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertNotIn("open_canvas", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.ensure_teaching_canvas", side_effect=RuntimeError("canvas app down")):
+            started, create_calls = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create_calls, 1)
+
     def test_an_invalid_managed_prompt_uses_the_bundled_prompt_and_captures_the_fallback(self) -> None:
         task_id = uuid4()
 
@@ -128,3 +143,67 @@ class TestOnboardingSessionIdempotency(TestCase):
             capture.call_args.kwargs["properties"]["missing_placeholders"],
             ("brief", "channel_id", "followup", "homepage"),
         )
+
+
+class TestTeachingCanvasSeeding(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Northwind")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email="ada@northwind.example", distinct_id="ada-distinct")
+        self.channel = Channel.objects.create(
+            team=self.team,
+            name=Channel.GENERAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PUBLIC,
+            system_role=Channel.SystemRole.GENERAL,
+            created_by=self.user,
+        )
+        self.canvas_model = apps.get_model("canvas", "Canvas")
+
+    def _tour_canvases(self):
+        return self.canvas_model.objects.for_team(self.team.id).filter(
+            channel_id=self.channel.id, template_id=TEACHING_CANVAS_TEMPLATE_ID
+        )
+
+    def _start(self, user: User) -> str:
+        descriptions: list[str] = []
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            descriptions.append(kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=uuid4(), team_id=self.team.id, latest_run=None)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(f"{MODULE}.find_general_channel_id", return_value=self.channel.id),
+            patch(f"{MODULE}.research_domain", return_value=NOT_CONFIGURED),
+            patch(f"{MODULE}.create_and_run_task", side_effect=succeed),
+        ):
+            start_onboarding_session(self.team, user)
+        return descriptions[0]
+
+    def test_a_first_session_seeds_the_tour_and_points_the_agent_at_it(self):
+        description = self._start(self.user)
+
+        canvas = self._tour_canvases().get()
+        self.assertIsNotNone(canvas.pinned_at)
+        self.assertIn(f"canvas_id `{canvas.id}`", description)
+        self.assertIn(f"channel_id `{self.channel.id}`", description)
+
+    def test_a_second_joiner_reuses_the_tour_the_first_one_seeded(self):
+        self._start(self.user)
+        seeded = self._tour_canvases().get()
+
+        joiner = User.objects.create(email="grace@northwind.example", distinct_id="grace-distinct")
+        description = self._start(joiner)
+
+        self.assertEqual(self._tour_canvases().count(), 1)
+        self.assertIn(f"canvas_id `{seeded.id}`", description)
+
+    def test_a_deleted_tour_stays_deleted_and_unmentioned(self):
+        self._start(self.user)
+        self._tour_canvases().update(deleted=True)
+
+        joiner = User.objects.create(email="grace@northwind.example", distinct_id="grace-distinct")
+        description = self._start(joiner)
+
+        self.assertEqual(self._tour_canvases().count(), 1)
+        self.assertNotIn("open_canvas", description)
