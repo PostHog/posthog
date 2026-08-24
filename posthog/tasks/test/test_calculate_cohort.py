@@ -15,6 +15,8 @@ from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
+    COHORT_BACKFILL_REFUSAL_OUTCOMES,
+    COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
     COHORT_STUCK_COUNT_GAUGE,
     COHORTS_STALE_COUNT_GAUGE,
     COHORTS_TOTAL_GAUGE,
@@ -31,6 +33,8 @@ from posthog.tasks.calculate_cohort import (
 )
 from posthog.test.persons import create_person
 
+from products.cohorts.backend.backfill.runs import BackfillRefusalReason
+from products.cohorts.backend.backfill.sizing import PersonSeedEstimate
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
@@ -1164,6 +1168,54 @@ class TestCohortCalculationTasks(APIBaseTest):
 
         estimate.assert_not_called()
         self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
+    def test_trigger_backfill_run_task_labels_a_budget_refusal_apart_from_a_blocked_slot(self) -> None:
+        # These two refusals call for opposite operator responses — raise the budget vs. go unwedge
+        # a stuck run — so the single flat `refused` outcome could not drive either alert.
+        cohort = self._backfillable_cohort()
+
+        with (
+            patch.object(COHORT_BACKFILL_TRIGGER_TASK_COUNTER, "labels") as counter,
+            override_settings(**{**BACKFILL_TASK_SETTINGS, "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1}),
+            patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes") as estimate,
+        ):
+            estimate.return_value = PersonSeedEstimate(
+                estimated_persons=10,
+                pinned_condition_count=1,
+                bytes_per_seed=294,
+                estimated_topic_bytes=2_940,
+                budget_bytes=1,
+            )
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_created", CohortBackfillKind.PERSON_PROPERTY.value
+            )
+
+        counter.assert_called_once_with(
+            backfill_kind=CohortBackfillKind.PERSON_PROPERTY.value, outcome="refused_over_budget"
+        )
+
+        with override_settings(**BACKFILL_TASK_SETTINGS):
+            trigger_cohort_backfill_run_task(
+                self.team.pk, cohort.pk, "cohort_created", CohortBackfillKind.BEHAVIORAL.value
+            )
+            with patch.object(COHORT_BACKFILL_TRIGGER_TASK_COUNTER, "labels") as counter:
+                trigger_cohort_backfill_run_task(
+                    self.team.pk, cohort.pk, "cohort_edited", CohortBackfillKind.BEHAVIORAL.value
+                )
+
+        counter.assert_called_once_with(
+            backfill_kind=CohortBackfillKind.BEHAVIORAL.value, outcome="refused_slot_occupied"
+        )
+
+    def test_every_backfill_refusal_reason_has_a_trigger_outcome(self) -> None:
+        # A reason with no mapping entry falls back to the flat `refused`, which reads as an
+        # unclassified refusal rather than an omission. Catch the drift here instead.
+        self.assertEqual(set(COHORT_BACKFILL_REFUSAL_OUTCOMES), set(BackfillRefusalReason))
+        # The alert rules match these literals, so a rename has to break a test, not a dashboard.
+        self.assertEqual(
+            set(COHORT_BACKFILL_REFUSAL_OUTCOMES.values()),
+            {"refused_over_budget", "refused_slot_occupied", "refused_ineligible", "refused_transient"},
+        )
 
     def test_trigger_backfill_run_task_rechecks_the_allowlist_at_execution_time(self) -> None:
         # Tasks sit in the queue for the debounce countdown, so an operator shrinking the allowlist
