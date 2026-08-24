@@ -551,6 +551,12 @@ export interface PersonalAPIKeyType {
     scoped_teams?: TeamType['id'][] | null
 }
 
+export interface PersonalAPIKeyScopeSuggestionType {
+    /** `object:action` scopes, most relevant first. Empty when the description was too vague to map. */
+    scopes: string[]
+    summary: string
+}
+
 export interface ProjectSecretAPIKeyRequest {
     label: string
     scopes: ProjectSecretAPIKeyAllowedScope[]

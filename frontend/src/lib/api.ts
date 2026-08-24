@@ -162,6 +162,7 @@ import {
     OrganizationType,
     PersonListParams,
     PersonType,
+    PersonalAPIKeyScopeSuggestionType,
     PersonalAPIKeyType,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
@@ -6459,6 +6460,12 @@ const api = {
         },
         async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
             return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        },
+        async suggestScopes(description: string): Promise<PersonalAPIKeyScopeSuggestionType> {
+            return await new ApiRequest()
+                .personalApiKeys()
+                .withAction('suggest_scopes')
+                .create({ data: { description } })
         },
     },
 

@@ -6,10 +6,12 @@ from django.utils import timezone
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import response, serializers, status, viewsets
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
@@ -17,6 +19,13 @@ from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.scope_suggestions import (
+    SCOPE_SUGGESTION_FEATURE_FLAG,
+    SCOPE_SUGGESTION_TEST_VARIANT,
+    scope_suggestion_flag_person_properties,
+    suggest_scopes,
+)
 from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
@@ -251,6 +260,26 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return [str(org_id) for org_id in org_ids]
 
 
+class ScopeSuggestionRequestSerializer(serializers.Serializer):
+    description = serializers.CharField(
+        max_length=1000,
+        trim_whitespace=True,
+        help_text='What the key will be used for, in free text, e.g. "nightly job that reads insights into our warehouse".',
+    )
+
+
+class ScopeSuggestionResponseSerializer(serializers.Serializer):
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Suggested scopes as `object:action`, most relevant first. Only scopes a user can grant themselves; "
+        "never the `*` full-access scope. Empty when the description was too vague to map.",
+    )
+    summary = serializers.CharField(
+        allow_blank=True,
+        help_text="One sentence on why these scopes were picked, shown next to the suggestion.",
+    )
+
+
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
     Personal API keys can only access their own key and only for retrieval
@@ -279,6 +308,14 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
     authentication_classes = [PersonalAPIKeyAuthentication, SessionAuthentication]
     queryset = PersonalAPIKey.objects.none()
+    # Suggesting scopes mints nothing, so it doesn't warrant the re-auth prompt that guards key writes.
+    time_sensitive_exclude_actions = ["suggest_scopes"]
+
+    def get_throttles(self):
+        if self.action == "suggest_scopes":
+            # An LLM call per request, and the default throttles exempt session auth entirely.
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         return PersonalAPIKey.objects.filter(user_id=cast(User, self.request.user).id).order_by("-created_at")
@@ -295,6 +332,51 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
+
+    @extend_schema(
+        operation_id="personal_api_keys_suggest_scopes",
+        summary="Suggest scopes from a description",
+        description="Maps a free-text description of what a key will be used for onto the scopes it needs. "
+        "Returns a suggestion for the user to review, and grants nothing. Gated on the "
+        "`ai-scope-picker-experiment` flag and on the organization approving AI data processing.",
+        request=ScopeSuggestionRequestSerializer,
+        responses={200: ScopeSuggestionResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="suggest_scopes")
+    def suggest_scopes(self, request, *args, **kwargs):
+        user = cast(User, request.user)
+        organization = user.organization
+        if organization is None or not organization.is_ai_data_processing_approved:
+            raise PermissionDenied("AI data processing must be approved by your organization")
+
+        # The experiment picks the UI, so control must not be able to reach the endpoint behind it.
+        # Exposure is captured where the frontend reads the flag, so this read stays silent.
+        variant = posthoganalytics.get_feature_flag(
+            SCOPE_SUGGESTION_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+            person_properties=scope_suggestion_flag_person_properties(user),
+            send_feature_flag_events=False,
+        )
+        if variant != SCOPE_SUGGESTION_TEST_VARIANT:
+            raise PermissionDenied("This feature is not available.")
+
+        request_serializer = ScopeSuggestionRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        try:
+            suggestion = suggest_scopes(
+                request_serializer.validated_data["description"], distinct_id=str(user.distinct_id)
+            )
+        except Exception as e:
+            capture_exception(e)
+            raise APIException("Couldn't suggest scopes. Pick them from the list instead, or try again.")
+
+        response_serializer = ScopeSuggestionResponseSerializer(
+            {"scopes": suggestion.scopes, "summary": suggestion.summary}
+        )
+        return response.Response(response_serializer.data)
 
     @action(methods=["POST"], detail=True, url_path="roll")
     def roll(self, request, *args, **kwargs):
