@@ -1,6 +1,5 @@
 import { ArchiveIcon } from "@phosphor-icons/react";
 import { cn, Separator } from "@posthog/quill";
-import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { ActivityFeedList } from "@posthog/ui/features/canvas/components/ActivityFeedList";
 import { ChannelItemPreviewCardProvider } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
@@ -11,6 +10,7 @@ import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/
 import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
 import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentChannel";
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
@@ -24,7 +24,6 @@ import {
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -160,13 +159,7 @@ export function ChannelsSidebar() {
   // Channels stay behind project-bluebird: the switch only appears where the
   // canvas backend is wired, and a persisted "on" is ignored when the flag is
   // off so the sidebar can't strand a user on an unsupported feature.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const channelsEnabled =
-    useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const channelsWorld = channelsLayout || channelsEnabled;
+  const channelsWorld = useChannelsWorld();
   const bodyChannelsWorld = useDeferredValue(channelsWorld);
   // Under the layout the row moves into the account menu (ProjectSwitcher),
   // beside Settings — the bottom of the sidebar belongs to the channel list.

@@ -43,9 +43,15 @@ export function clearKeepListForRoute(): void {
   keepListForChannelId = null;
 }
 
-/** Slide back to the channel list, keeping the scoped channel as it is. */
-export function showChannelList(): void {
-  keepListForChannelId = null;
+/**
+ * Slide back to the channel list, keeping the scoped channel as it is.
+ *
+ * Pass `keepForRoute` when the caller is about to navigate into that channel:
+ * arriving at a channel pulls the slider to it, and the latch holds the list
+ * across that navigation.
+ */
+export function showChannelList(keepForRoute?: string): void {
+  keepListForChannelId = keepForRoute ?? null;
   useChannelPaneStore.getState().setPane("list");
 }
 

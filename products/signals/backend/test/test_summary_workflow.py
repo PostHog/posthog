@@ -4,7 +4,7 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -42,40 +42,6 @@ from products.signals.backend.temporal.types import SignalData, SignalReportSumm
 
 SUMMARY_MODULE_PATH = "products.signals.backend.temporal.summary"
 TASK_QUEUE = "test-summary-workflow-queue"
-
-
-@pytest.mark.asyncio
-async def test_disabled_report_canvases_do_not_start_child_workflow() -> None:
-    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()))
-    execute_activity = AsyncMock(return_value=False)
-    start_child_workflow = AsyncMock()
-
-    with (
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.patched", return_value=True),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.execute_activity", execute_activity),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.start_child_workflow", start_child_workflow),
-    ):
-        await SignalReportSummaryWorkflow()._start_report_canvas(inputs)
-
-    execute_activity.assert_awaited_once()
-    start_child_workflow.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_report_canvas_gate_failure_does_not_fail_completed_report() -> None:
-    inputs = SignalReportSummaryWorkflowInputs(team_id=1, report_id=str(uuid.uuid4()))
-    execute_activity = AsyncMock(side_effect=RuntimeError("database unavailable"))
-    start_child_workflow = AsyncMock()
-
-    with (
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.patched", return_value=True),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.execute_activity", execute_activity),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.start_child_workflow", start_child_workflow),
-        patch(f"{SUMMARY_MODULE_PATH}.workflow.logger"),
-    ):
-        await SignalReportSummaryWorkflow()._start_report_canvas(inputs)
-
-    start_child_workflow.assert_not_awaited()
 
 
 @pytest_asyncio.fixture

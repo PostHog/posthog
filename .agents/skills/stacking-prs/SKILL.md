@@ -70,15 +70,15 @@ gh stack sync --prune    # also delete local branches for merged PRs
 
 ## Merging
 
-Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack merge`, which merges the chain through GitHub's API and bypasses the queue.
+Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack merge`, which merges the chain through GitHub's API and bypasses the queue. An agent must obtain explicit user approval in the current conversation for the identified stack before enqueueing, re-enqueueing, or otherwise causing any layer to land.
 
 **Whole stack at once (default).**
 The queue handles stacks natively: enqueueing a PR enqueues it and every unmerged layer below it, tests them together, and merges them atomically.
-Comment `/trunk merge` on the **top** PR to land the whole stack, or on the highest layer that's ready to land just the bottom part.
+After explicit user approval, comment `/trunk merge` on the **top** PR to land the whole stack, or on the highest layer that's ready to land just the bottom part.
 Every layer being merged must individually pass `/merging-prs` preflight (ready, approved, no failing checks — pending ones are fine, the queue waits for them) — a mid-stack draft or missing approval blocks the layers above it.
 
 **Bottom-first, one layer at a time.**
-Merge the layer based on `master` via `/merging-prs`, exactly as you would an unstacked PR.
+After explicit user approval, merge the layer based on `master` via `/merging-prs`, exactly as you would an unstacked PR.
 GitHub then retargets the next layer onto `master` and updates the stack.
 
 After either path:
