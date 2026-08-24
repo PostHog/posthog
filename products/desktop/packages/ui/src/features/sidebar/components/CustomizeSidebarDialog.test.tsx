@@ -141,7 +141,7 @@ describe("CustomizeSidebarSettings", () => {
     useSidebarStore.setState({ navItemOverrides: { inbox: false } });
     renderSettings();
 
-    await user.click(screen.getByRole("checkbox", { name: "Inbox" }));
+    await user.click(screen.getByRole("checkbox", { name: "Self-driving" }));
 
     expect(useSidebarStore.getState().navItemOverrides.inbox).toBe(true);
     expect(track).toHaveBeenCalledWith(ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED, {
@@ -154,7 +154,7 @@ describe("CustomizeSidebarSettings", () => {
     useSidebarStore.setState({ navItemOrder: ["configure", "inbox"] });
     renderSettings();
 
-    expect(rowLabels().slice(0, 2)).toEqual(["Settings", "Inbox"]);
+    expect(rowLabels().slice(0, 2)).toEqual(["Settings", "Self-driving"]);
   });
 
   it("previews on dragover and persists only on drop", () => {
@@ -204,7 +204,7 @@ describe("CustomizeSidebarSettings", () => {
     dragOver("loops", "inbox");
     dragEnd("loops", { cancel: true });
 
-    expect(rowLabels()[0]).toBe("Inbox");
+    expect(rowLabels()[0]).toBe("Self-driving");
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
     expect(track).not.toHaveBeenCalled();
   });
@@ -227,6 +227,6 @@ describe("CustomizeSidebarSettings", () => {
     await user.click(screen.getByRole("button", { name: "Reset" }));
 
     expect(useSidebarStore.getState().navItemOrder).toEqual([]);
-    expect(rowLabels()[0]).toBe("Inbox");
+    expect(rowLabels()[0]).toBe("Self-driving");
   });
 });

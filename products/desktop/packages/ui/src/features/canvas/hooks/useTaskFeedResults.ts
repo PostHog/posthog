@@ -10,7 +10,6 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useMemo } from "react";
 import {
@@ -71,7 +70,6 @@ export function useFeedQueryPlan(query: string | undefined): {
     refetch: refetchMembers,
   } = useOrgMembers({ enabled: needsMembers });
   const { channels, isLoading: channelsLoading } = useChannels();
-  const reportsEnabled = useChannelReportsEnabled();
 
   const memberLookupFailed = needsMembers && membersError !== null;
   const memberLookupIncomplete = needsMembers && !membersComplete;
@@ -93,7 +91,7 @@ export function useFeedQueryPlan(query: string | undefined): {
       members,
       spaces: channels.map((c) => ({ id: c.id, name: c.name })),
       me: me ?? null,
-      reportsEnabled,
+      reportsEnabled: false,
     });
   }, [
     normalized,
@@ -104,7 +102,6 @@ export function useFeedQueryPlan(query: string | undefined): {
     members,
     channels,
     me,
-    reportsEnabled,
   ]);
 
   return {

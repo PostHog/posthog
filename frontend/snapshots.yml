@@ -1937,9 +1937,9 @@ snapshots:
     components-slack-channel-picker--recently-subscribed-first--light:
         hash: v1.k794b7964.54bc88c73e7d32bbab8a32b91162eab1fb1ba78215aa188aa748b65b9fb531b8.YkOXS4kFGcgECAArUGil25uNoJVbhGKe_zYYmpzzu44
     components-sparkline--bar-chart--dark:
-        hash: v1.k794b7964.cb1d1d3239f78521823c1278cadb102e136422579a910c3a691c2b6b17ebb962.aj9xFX3wR7NQKuqnk4Tgypbsd2Ase4rHeCGuKjORB3w
+        hash: v1.k794b7964.65da75bd15e9d0d9f2e575e4eb04e0aaafdb39e02dbc19ba5006cf3651cb792d.zeJ6dGjiWJ_9biIrGypyok73SsFJJ-NLmGNHZJDCJ-w
     components-sparkline--bar-chart--light:
-        hash: v1.k794b7964.31239811ce1a1008b0f7ce278672dea78cc73785762735c6dc75437b165e6546.6_LSwYHJwrSsIBtnEhFwPCl3X6531Z_0iJaYpOj5sIU
+        hash: v1.k794b7964.6eb3adde804dad4d1679afdac8ba0885d492ce67b8b9e6165a8c249f44ecdd15.WmlBW3Ty9XLHt-AeaJBxjzmnlYaDXpGa28EO2xhdVvo
     components-sparkline--bar-chart-quill--dark:
         hash: v1.k794b7964.65da75bd15e9d0d9f2e575e4eb04e0aaafdb39e02dbc19ba5006cf3651cb792d.4h71v2aMuCoUCk73AbsUPFhaiOPh4OZNrsDfJF_hB8g
     components-sparkline--bar-chart-quill--light:
@@ -6025,9 +6025,9 @@ snapshots:
     scenes-app-customer-analytics-track-rules--configured--light:
         hash: v1.k794b7964.de5a3e9672100bbd083b4608693261a0e5624693afd5de70b0014a9adfa13b3e.k9pAMbCur-xOSs_utBsXvuCXde14rcNor-R-C89EedA
     scenes-app-customer-analytics-track-rules--feature-gate-off--dark:
-        hash: v1.k794b7964.247e31dff1b806907ec4c327f1ad132fc186861cbe8f2265fa05296f1aa2a95b.KZZKeqM5D6IpwNrMdlEf5EbTm6KGmcdapADEzg755Gw
+        hash: v1.k794b7964.68dfb562def4db8fb8b8082b864115e315caf6662c6be713af5572a9f263bc57.z9X01dYMXIIFZXt9s1TM1GrALc0HZlSgEzRxu85W9Kg
     scenes-app-customer-analytics-track-rules--feature-gate-off--light:
-        hash: v1.k794b7964.5bf2ef575702ea1997fa9c147c10662b40445407894616a915c9e330cbc8c06a.0vS8B765QPDhC4h_KtJPlL5o3f5b_PZ-giJD2DPRkd4
+        hash: v1.k794b7964.365fcdc6fae12bf1f704d0bc3a6d8992b7fea05cb5d48eb78bfc1f2f24fac929.ad9HX_I4T-esxuMW3YamDdHs0pZbTQRDjBRsSvX8ReA
     scenes-app-customer-analytics-track-rules--preview--dark:
         hash: v1.k794b7964.4d60ac636f3d4b309108ff038058f81c38dfd65d4badfb9dcf780b2dedf88c25.ZUVE6wN40QhrIaL0iR-shEMXZja7utjNvptDYTLVxPY
     scenes-app-customer-analytics-track-rules--preview--light:
@@ -6241,9 +6241,9 @@ snapshots:
     scenes-app-discussions--threads--light:
         hash: v1.k794b7964.28ac830bf83be5cbb6d7a397d67c9b9c61711904a822de38402b82220b0f7a49.7wENY7hvo1-qAJwq5fcsvKGJsfRAF_vDkpnM8iqFZcc
     scenes-app-engineering-analytics-repo-overview--repo-overview--dark:
-        hash: v1.k794b7964.ea0cac6dc4e88af4e62d1bec32c9abfb613c44f74713205c1990fa44d467190a._Jn8n4C9-F5naZmW4FU1Utu9_wVDapw2ekc7qSlbgvc
+        hash: v1.k794b7964.8e6b4034168c2ae8907ac92efb3941209867a95ef8388505b9bcb7a57830c243._1Y9xmZSpOpt_qzloETiebDiX0ROe1GBE2c00TKYaDM
     scenes-app-engineering-analytics-repo-overview--repo-overview--light:
-        hash: v1.k794b7964.646864073ca10e6cd01f9523215da333ea50b674caede591e12c8e241f4f1590.h76KD47dx5rmRHXFYEen7HjjKJDRtqHIn8vcJ2g1Azk
+        hash: v1.k794b7964.4a0774ee6bc116b4fa7a71bcb3ede68edc930a93231ade9fbf72f16a5b9eba1c.OII3xJtYXX1Udah76yG4WxQE6d5Am0PRCSBrCfGDGcM
     scenes-app-engineering-analytics-run-activity-chart--default--dark:
         hash: v1.k794b7964.7f17c5ac7c6862493f7c4d59e6e3c3146c42e3d7b08908ee1716d387c129ba64.lPsE9KrOSZee9wJq8zjqYnvk09numvEFWOn4mdCOgJE
     scenes-app-engineering-analytics-run-activity-chart--default--light:
@@ -6352,6 +6352,10 @@ snapshots:
         hash: v1.k794b7964.a38909c8222409c5fa2174c283833ab419c75a0ed5420da095a9aded11bf6532.5EK4l32txmbHcS11UWiwesynVVHf7FKe98dPAeWsjkw
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.ec64583fd2debf87822296f1c9fc10e73c1c6b7e31fe55f0ca974d3920f8bd14.Ch64gBgjo0wR0Ypvkhap6047UPjXBaWSQCNoKDOiNHc
+    scenes-app-experiments--experiment-replay-scanner-backlink--dark:
+        hash: v1.k794b7964.e04ec522e5f690078c89c21f4e160d067f13c755e65988852d89dbc624e4c74b.DbWktEPnIBX15xGlIGLocMuFHo7CzbH-yVTgowQMnck
+    scenes-app-experiments--experiment-replay-scanner-backlink--light:
+        hash: v1.k794b7964.c6573bba587cbabd798e942c29bd722fea308624f4cffda71303fb2b110dd7e0.j-wHlxQDewiAsZ_lDoIuGozhNEb_FEGu0tT0I_UXkMY
     scenes-app-experiments--experiment-stopped-with-conclusion--dark:
         hash: v1.k794b7964.e347bbe9e217d7cbd915b09b362a9d995285c1f6492229235ce3dcef74e49f30.5xV99CaEDXp-xFACHoS4M9vQ6zFGOjestb-iW79F5Q4
     scenes-app-experiments--experiment-stopped-with-conclusion--light:

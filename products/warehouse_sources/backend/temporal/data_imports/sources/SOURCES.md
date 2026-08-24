@@ -745,7 +745,7 @@ the row lists both.
 | workable                         | HTTP                        | requests                                                        | ✅                          |
 | workday                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workiz                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| workos                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| workos                           | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | world_bank                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                            | HTTP                        | requests                                                        | ✅                          |
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
