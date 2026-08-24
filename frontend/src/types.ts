@@ -4615,6 +4615,22 @@ export type ScheduledChangePayload =
           }
       }
 
+// Keep in sync with products/approvals/backend/models.py ChangeRequestState
+export enum ScheduledChangeRequestState {
+    Pending = 'pending',
+    Approved = 'approved',
+    Applied = 'applied',
+    Rejected = 'rejected',
+    Expired = 'expired',
+    Failed = 'failed',
+}
+
+/** Summary of the approval change request gating a scheduled change. */
+export interface ScheduledChangeRequestSummary {
+    id: string
+    state: ScheduledChangeRequestState
+}
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
@@ -4631,6 +4647,8 @@ export interface ScheduledChangeType {
     cron_expression: string | null
     last_executed_at: string | null
     end_date: string | null
+    /** Null when the change is not gated on approval. */
+    change_request: ScheduledChangeRequestSummary | null
 }
 
 export interface PrevalidatedInvite {

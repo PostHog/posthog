@@ -29,8 +29,10 @@ import {
     OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
+    RecurrenceInterval,
     ScheduledChangeModels,
     ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
     ScheduledChangeType,
 } from '~/types'
 import { FeatureFlagFilters } from '~/types'
@@ -1908,6 +1910,7 @@ describe('featureFlagLogic', () => {
             cron_expression: null,
             last_executed_at: null,
             end_date: null,
+            change_request: null,
             ...overrides,
         })
 
@@ -1954,6 +1957,47 @@ describe('featureFlagLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 activeSchedules: expectedIds.map((id) => partial({ id })),
+            })
+        })
+
+        it('moves one-time schedules with a rejected or expired approval to history, keeps others active', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                makeScheduledChange({
+                                    id: 1,
+                                    change_request: { id: 'cr-1', state: ScheduledChangeRequestState.Rejected },
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    change_request: { id: 'cr-2', state: ScheduledChangeRequestState.Expired },
+                                }),
+                                makeScheduledChange({
+                                    id: 3,
+                                    change_request: { id: 'cr-3', state: ScheduledChangeRequestState.Pending },
+                                }),
+                                // A recurring schedule re-gates each occurrence, so a denied request is not terminal.
+                                makeScheduledChange({
+                                    id: 4,
+                                    is_recurring: true,
+                                    recurrence_interval: RecurrenceInterval.Daily,
+                                    change_request: { id: 'cr-4', state: ScheduledChangeRequestState.Expired },
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                activeSchedules: [partial({ id: 3 }), partial({ id: 4 })],
+                completedSchedules: [partial({ id: 2 }), partial({ id: 1 })],
             })
         })
 

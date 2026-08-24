@@ -81,6 +81,7 @@ import {
     RecordingUniversalFilters,
     RecurrenceInterval,
     ScheduledChangeOperationType,
+    ScheduledChangeRequestState,
     ScheduledChangeType,
     Survey,
     SurveyQuestionType,
@@ -302,6 +303,19 @@ export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): nu
         return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
     }
     return epoch(b) - epoch(a) || b.id - a.id
+}
+
+// A one-time schedule whose approval request was rejected or expired will never apply: the
+// applier skips it at fire time. It reads as terminal in the UI and sorts with history.
+// Recurring schedules are excluded because each occurrence is re-gated with a fresh request.
+export function isScheduleDeniedApproval(sc: ScheduledChangeType): boolean {
+    return (
+        !sc.is_recurring &&
+        !sc.recurrence_interval &&
+        !sc.cron_expression &&
+        (sc.change_request?.state === ScheduledChangeRequestState.Rejected ||
+            sc.change_request?.state === ScheduledChangeRequestState.Expired)
+    )
 }
 
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
@@ -994,18 +1008,10 @@ export interface featureFlagLogicActions {
         errorObject?: any
     }
     createScheduledChangeSuccess: (
-        scheduledChange:
-            | {
-                  scheduled_change: ScheduledChangeType
-              }
-            | undefined,
+        scheduledChange: ScheduledChangeType | undefined,
         payload?: any
     ) => {
-        scheduledChange:
-            | {
-                  scheduled_change: ScheduledChangeType
-              }
-            | undefined
+        scheduledChange: ScheduledChangeType | undefined
         payload?: any
     }
     createStaticCohort: () => any
@@ -3878,7 +3884,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
-                lemonToast.success('Change scheduled successfully')
+                if (scheduledChange.change_request?.state === ScheduledChangeRequestState.Pending) {
+                    lemonToast.success(
+                        'Change scheduled - pending approval. It will be skipped if not approved before the scheduled time.'
+                    )
+                } else {
+                    lemonToast.success('Change scheduled successfully')
+                }
                 actions.setScheduleDateMarker(null)
                 actions.setSchedulePayload(NEW_FLAG.filters, NEW_FLAG.active, {}, null, null)
                 actions.setIsRecurring(false)
@@ -4437,13 +4449,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.scheduledChanges],
             (scheduledChanges: ScheduledChangeType[]) =>
                 scheduledChanges.filter(
-                    (sc) => !sc.is_recurring && !sc.recurrence_interval && !sc.cron_expression && !sc.executed_at
+                    (sc) =>
+                        !sc.is_recurring &&
+                        !sc.recurrence_interval &&
+                        !sc.cron_expression &&
+                        !sc.executed_at &&
+                        !isScheduleDeniedApproval(sc)
                 ),
         ],
         completedSchedules: [
             (s) => [s.scheduledChanges],
             (scheduledChanges: ScheduledChangeType[]) =>
-                scheduledChanges.filter((sc) => !!sc.executed_at).sort(byExecutedAt),
+                scheduledChanges.filter((sc) => !!sc.executed_at || isScheduleDeniedApproval(sc)).sort(byExecutedAt),
         ],
         activeSchedules: [
             (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
