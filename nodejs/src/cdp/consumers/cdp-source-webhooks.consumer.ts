@@ -310,7 +310,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 this.cdpUsageReporter.reportBillableInvocation({
                     teamId: invocation.teamId,
                     recordId: `webhook:${invocationId}`,
-                    kind: 'source_webhook',
                 })
             } else {
                 addMetric({

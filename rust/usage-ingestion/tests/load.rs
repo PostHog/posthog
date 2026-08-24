@@ -12,9 +12,7 @@ use std::time::{Duration, Instant};
 
 use common::{clickhouse, clickhouse_url, env_usize, table, Service};
 use tokio::sync::Semaphore;
-use usage_ingestion_proto::usage_ingestion::v1::{
-    BillingUsageMode, BillingUsageRecord, IngestBillingUsageRequest,
-};
+use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageRecord, IngestBillingUsageRequest};
 use uuid::Uuid;
 
 /// Midnight UTC, so the whole run shares one `toDate(timestamp)` and one monthly partition.
@@ -46,19 +44,9 @@ fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
         producer_id: "usage-ingestion-load".to_string(),
         team_id: 1 + (index % 8) as i64,
         usage_key: usage_key.to_string(),
-        mode: if index.is_multiple_of(7) {
-            BillingUsageMode::Snapshot as i32
-        } else {
-            BillingUsageMode::Delta as i32
-        },
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
-        timestamp_ms: BASE_TIMESTAMP_MS
-            + event_offset_ms
-            + if retry { RETRY_OFFSET_MS } else { 0 },
-        dimensions: [("region".to_string(), format!("region-{}", index % 3))]
-            .into_iter()
-            .collect(),
+        timestamp_ms: BASE_TIMESTAMP_MS + event_offset_ms + if retry { RETRY_OFFSET_MS } else { 0 },
     }
 }
 

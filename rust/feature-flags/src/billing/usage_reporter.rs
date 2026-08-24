@@ -5,7 +5,6 @@
 //! rebuckets and merges requeued entries, so one key legitimately carries different quantities
 //! across flushes. ID reuse is scoped to the retry the gRPC client performs on one request.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -14,8 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tonic::transport::{Channel, Endpoint};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    usage_ingestion_client::UsageIngestionClient, BillingUsageMode, BillingUsageRecord,
-    IngestBillingUsageRequest,
+    usage_ingestion_client::UsageIngestionClient, BillingUsageRecord, IngestBillingUsageRequest,
 };
 use uuid::Uuid;
 
@@ -156,25 +154,11 @@ fn build_records(
             producer_id: PRODUCER_ID.to_string(),
             team_id: i64::from(key.team_id),
             usage_key: USAGE_KEY.to_string(),
-            mode: BillingUsageMode::Delta as i32,
             unit: UNIT.to_string(),
             quantity: i64::try_from(*count).unwrap_or(i64::MAX),
             timestamp_ms,
-            dimensions: dimensions_for(key),
         })
         .collect()
-}
-
-fn dimensions_for(key: &AggregationKey) -> HashMap<String, String> {
-    let mut dimensions = HashMap::with_capacity(2);
-    dimensions.insert(
-        "request_type".to_string(),
-        key.request_type.as_str().to_string(),
-    );
-    if let Some(library) = key.library {
-        dimensions.insert("library".to_string(), library.as_str().to_string());
-    }
-    dimensions
 }
 
 #[cfg(test)]
@@ -210,18 +194,6 @@ mod tests {
     fn build_records_skips_zero_counts() {
         let entries = vec![(key(1, None), 0)];
         assert!(build_records(&entries, &TeamIdCollection::All, 1).is_empty());
-    }
-
-    #[test]
-    fn build_records_carries_the_aggregation_key_as_dimensions() {
-        let entries = vec![(key(3, Some(Library::PosthogJs)), 2)];
-        let records = build_records(&entries, &TeamIdCollection::All, 1_700_000_000_000);
-
-        assert_eq!(records[0].dimensions.get("request_type").unwrap(), "decide");
-        assert_eq!(records[0].dimensions.get("library").unwrap(), "posthog-js");
-        assert_eq!(records[0].mode, BillingUsageMode::Delta as i32);
-        assert_eq!(records[0].producer_id, PRODUCER_ID);
-        assert_eq!(records[0].usage_key, USAGE_KEY);
     }
 
     #[test]
