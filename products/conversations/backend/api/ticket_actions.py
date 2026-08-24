@@ -2,8 +2,8 @@
 
 Two routes wrap these handlers with different authentication: the public external route
 (legacy Team.secret_api_token bearer, api/external.py) and the internal service route
-(scoped service JWT, api/internal.py). Behavior must stay identical while the worker
-migrates from legacy tokens to scoped JWTs (#82564).
+(scoped service JWT, api/internal.py). The worker selects between them per environment
+by config presence (#82564), so the two must behave identically.
 """
 
 import uuid

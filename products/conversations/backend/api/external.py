@@ -5,8 +5,8 @@ These endpoints are used by the CDP worker for workflow actions and can be opene
 to third-party developers in the future.
 Authenticated via team secret API token passed as a Bearer token in the Authorization header.
 
-This auth path is legacy: the CDP worker is migrating to the scoped-JWT internal route
-(api/internal.py, #82564). Both routes share the handlers in api/ticket_actions.py.
+This auth path is legacy (#82564 tracks the worker's move to the scoped-JWT internal
+route, api/internal.py). Both routes share the handlers in api/ticket_actions.py.
 """
 
 import hashlib

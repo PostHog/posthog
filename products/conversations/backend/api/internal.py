@@ -1,11 +1,11 @@
 """
 Internal ticket endpoints for the Conversations product.
 
-The service-to-service surface the CDP worker's ticket workflow actions call, replacing
-the external route's plaintext Team.secret_api_token auth (#82564). Callers authenticate
-with a short-lived scoped service JWT pinned to one team and one ticket. Mounted under
-/api/projects/<team_id>/internal/ in posthog/urls.py, a namespace Contour ingress does
-not expose, so the route is unreachable from the public internet.
+The service-to-service surface the CDP worker's ticket workflow actions call. Callers
+authenticate with a short-lived scoped service JWT pinned to one team and one ticket
+(#82564 tracks retiring the legacy secret_api_token route in api/external.py). Mounted
+under /api/projects/<team_id>/internal/ in posthog/urls.py, a namespace Contour ingress
+does not expose, so the route is unreachable from the public internet.
 """
 
 import uuid
@@ -79,8 +79,12 @@ def _check_ticket_access(request: Request, ticket_id: uuid.UUID) -> tuple[Team, 
 
     # The auth class already verified the team claim exists, matches the URL, and names a real
     # team; fetch the full row because the handlers need organization access for activity
-    # logging and assignment.
-    team = Team.objects.get(id=claims["team_id"])
+    # logging and assignment. The team can still vanish between the two reads, so a clean 404
+    # beats an unhandled 500.
+    try:
+        team = Team.objects.get(id=claims["team_id"])
+    except Team.DoesNotExist:
+        return None, Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
     if not team.conversations_enabled:
         return None, Response({"error": "Conversations is not enabled for this team"}, status=status.HTTP_403_FORBIDDEN)
 
