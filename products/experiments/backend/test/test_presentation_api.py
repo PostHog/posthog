@@ -4827,9 +4827,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "start_date": "2024-01-01T10:00:00Z",
                 "stats_config": {"method": "frequentist"},
                 "exposure_criteria": {
-                    "kind": "ExperimentEventExposureConfig",
-                    "event": "$feature_flag_called",
-                    "properties": [],
+                    "exposure_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "$feature_flag_called",
+                        "properties": [],
+                    },
                 },
             },
         )
@@ -4837,9 +4839,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         updated_metrics = response.json()["metrics"]
 
         expected_updated_fingerprints = {
-            "mean": "d6a393e5456b71c16961c45e07eb17cb86e4f7972549033f9883c99430248c02",
-            "funnel": "9f7888cb2f7f9c3dac2b6482a964eef6911f97e376ed53305ed6653f7f70ce9b",
-            "ratio": "1b83a833a62ff9c2f01ba86be1f3e578b97749d3264e08ff9e76d863865e3ff3",
+            "mean": "24bf7ca8d497f33ace065e9e5facd961a4a2cb68938263b4008266fb22055f98",
+            "funnel": "c1325e7c9c494859e14901f144e99532745d6c22a8cb1536ef1cd9574cfa5672",
+            "ratio": "9d74f7f895166c1ac12708a4bc2aa8c61c963bb98a9ad15fecf747b79e706631",
         }
 
         for metric in updated_metrics:
