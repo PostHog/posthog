@@ -7570,7 +7570,12 @@ async function handleFetch(
         // object is never coerced into `ApiError`'s `message`: that coercion files the failure as a
         // nameless `Error` whose text is the object's stringified form, with no status for the
         // downstream filters to key on, so it re-fingerprints into a fresh issue on every deploy.
-        const message = typeof error === 'string' ? error : error instanceof Error ? error.message : undefined
+        // Read `.message` structurally rather than via `instanceof Error`: a realm-local prototype
+        // test misses an `Error` from an iframe, a worker, or an extension-replaced `fetch`, which
+        // would drop its text and fall back to `ApiError`'s generic message. Mirrors the read above.
+        const candidate = error as { message?: unknown } | null
+        const message =
+            typeof error === 'string' ? error : typeof candidate?.message === 'string' ? candidate.message : undefined
         throw new ApiError(message, response?.status)
     }
 
