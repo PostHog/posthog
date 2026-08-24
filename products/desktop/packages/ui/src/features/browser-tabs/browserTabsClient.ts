@@ -1,15 +1,7 @@
-import type { TabsSnapshot, TabViewState } from "@posthog/shared";
+import type { TabIdentity, TabLocation, TabsSnapshot } from "@posthog/shared";
 
 /** Where a tab is, plus the route-derived label/icon cache. */
-interface TabLocationInput {
-  href: string | null;
-  viewState: TabViewState | null;
-  dashboardId: string | null;
-  taskId: string | null;
-  channelId: string | null;
-  channelSection?: string | null;
-  appView?: string | null;
-}
+type TabLocationInput = TabLocation & TabIdentity;
 
 interface Subscriber<T> {
   onData: (data: T) => void;
@@ -36,6 +28,14 @@ export interface BrowserTabsClient {
     input: TabLocationInput & { tabId: string },
   ): Promise<TabsSnapshot>;
   close(tabId: string): Promise<TabsSnapshot>;
+  closeMany(input: {
+    tabIds: string[];
+    focusTabId?: string | null;
+  }): Promise<TabsSnapshot>;
+  setOrder(input: {
+    windowId: string;
+    tabIds: string[];
+  }): Promise<TabsSnapshot>;
   setActiveTab(input: {
     windowId: string;
     tabId: string | null;

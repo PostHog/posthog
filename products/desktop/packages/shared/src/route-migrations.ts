@@ -35,9 +35,14 @@ const MOVED_LONGEST_FIRST = [...MOVED_PREFIXES].sort(
 export function rewriteSavedLocation(href: string): string {
   for (const [from, to] of MOVED_LONGEST_FIRST) {
     if (href === from) return to;
-    if (href.startsWith(`${from}/`)) {
+    const boundary = href[from.length];
+    if (
+      href.startsWith(from) &&
+      (boundary === "/" || boundary === "?" || boundary === "#")
+    ) {
       const rest = href.slice(from.length);
-      return to === "/" ? rest : to + rest;
+      if (to !== "/") return to + rest;
+      return rest.startsWith("/") ? rest : `/${rest}`;
     }
   }
   return href;

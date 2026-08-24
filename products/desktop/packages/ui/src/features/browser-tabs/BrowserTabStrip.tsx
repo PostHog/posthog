@@ -1,12 +1,4 @@
-import {
-  BookOpenTextIcon,
-  BrainIcon,
-  PlugsConnectedIcon,
-  RobotIcon,
-  SquaresFourIcon,
-  TrayIcon,
-} from "@phosphor-icons/react";
-import { useHostTRPC } from "@posthog/host-router/react";
+import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
   closeTabs as closeTabsLocal,
@@ -45,15 +37,19 @@ import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useAppView } from "@posthog/ui/router/useAppView";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   useNavigate,
   useParams,
   useRouter,
   useRouterState,
 } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "./browserTabsClient";
 import {
   frontOfUnpinnedOrder,
   partitionPinnedFirst,
@@ -63,9 +59,13 @@ import { usePinnedTabsStore } from "./pinnedTabsStore";
 import { settledLocation } from "./settledLocation";
 import { TabStrip, type TabView } from "./TabStrip";
 import { TaskTabDot } from "./TaskTabMarks";
+import {
+  isTabAppView,
+  TAB_APP_VIEW_META,
+  type TabAppView,
+} from "./tabAppViews";
 import { pushTabHistoryEntry } from "./tabHistory";
 import { useTabReorderStore } from "./tabReorderStore";
-import { requestTabSelection } from "./tabSelection";
 import { applyLocalTransform, persistWrite, readMirror } from "./tabsSync";
 import { useTabsSnapshot } from "./useBrowserTabs";
 import { useOpenBrowserTab } from "./useOpenBrowserTab";
@@ -117,42 +117,12 @@ type TabRef = {
   appView: string | null;
 };
 
-// The top-level app pages that can be a tab. Keyed by useAppView's view.type;
-// each maps to its canonical route (a task/canvas/channel tab has its own
-// route, these don't) plus the strip's label + icon.
-type AppView =
-  | "inbox"
-  | "agents"
-  | "skills"
-  | "mcp-servers"
-  | "command-center"
-  | "context";
-
-const APP_VIEW_META: Record<AppView, { label: string; icon: ReactNode }> = {
-  inbox: { label: "Inbox", icon: <TrayIcon size={14} /> },
-  agents: { label: "Agents", icon: <RobotIcon size={14} /> },
-  skills: { label: "Skills", icon: <BrainIcon size={14} /> },
-  "mcp-servers": {
-    label: "MCP servers",
-    icon: <PlugsConnectedIcon size={14} />,
-  },
-  "command-center": {
-    label: "Command center",
-    icon: <SquaresFourIcon size={14} />,
-  },
-  context: { label: "Context", icon: <BookOpenTextIcon size={14} /> },
-};
-
-function isAppView(value: string): value is AppView {
-  return value in APP_VIEW_META;
-}
-
 export function BrowserTabStrip() {
   const spacesLayout = useChannelsLayout();
   const snapshot = useTabsSnapshot();
   const navigate = useNavigate();
   const router = useRouter();
-  const trpc = useHostTRPC();
+  const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const openBrowserTab = useOpenBrowserTab();
   const params = useParams({ strict: false }) as {
     channelId?: string;
@@ -190,14 +160,12 @@ export function BrowserTabStrip() {
   // plain task tab (no space) is unscoped. The space decides where a task or
   // blank tab navigates.
   const inChannels = pathname.startsWith("/spaces");
-  // Top-level app pages (Inbox, Agents, Skills, MCP servers, Command Center)
-  // are tab targets too. useAppView normalizes the scoped and unscoped routes
-  // to the same view.type, so a tab survives either space. A
-  // top-level route that ISN'T here falls through to `task-input`, and the
-  // strip then reconciles the location against the wrong tab and navigates
-  // straight back off the page.
+  // Top-level app pages are tab targets too. Their typed metadata keeps route
+  // classification, persisted labels, and rendered labels in one vocabulary.
   const view = useAppView();
-  const routeAppView: AppView | null = isAppView(view.type) ? view.type : null;
+  const routeAppView: TabAppView | null = isTabAppView(view.type)
+    ? view.type
+    : null;
 
   const { channels } = useChannels();
   // Whether the channels surface is live — the same gate the sidebar uses. This
@@ -227,17 +195,6 @@ export function BrowserTabStrip() {
   // The mutations below are pure transport — their returned snapshots are
   // handled by persistWrite's last-settle reconcile, never applied directly,
   // so a stale echo can't rewind the mirror mid-interaction.
-  const openTab = useMutation(trpc.browserTabs.openTab.mutationOptions());
-  const setTabTarget = useMutation(
-    trpc.browserTabs.setTabTarget.mutationOptions(),
-  );
-  const close = useMutation(trpc.browserTabs.close.mutationOptions());
-  const closeMany = useMutation(trpc.browserTabs.closeMany.mutationOptions());
-  const setOrder = useMutation(trpc.browserTabs.setOrder.mutationOptions());
-  const setActiveTab = useMutation(
-    trpc.browserTabs.setActiveTab.mutationOptions(),
-  );
-
   const pinnedTabIds = usePinnedTabsStore((s) => s.pinnedTabIds);
   const togglePinned = usePinnedTabsStore((s) => s.togglePinned);
   const prunePinned = usePinnedTabsStore((s) => s.prune);
@@ -336,7 +293,7 @@ export function BrowserTabStrip() {
       const channel = channelName(currentChannelId);
       return channelSectionFor(routeChannelSection)?.label ?? channel;
     }
-    if (routeAppView) return APP_VIEW_META[routeAppView].label;
+    if (routeAppView) return TAB_APP_VIEW_META[routeAppView].label;
     return null;
   }, [
     activeTitle,
@@ -455,7 +412,7 @@ export function BrowserTabStrip() {
           setWindowActiveTab(s, windowId, decision.tabId),
         );
         void persistWrite(() =>
-          setActiveTab.mutateAsync({ windowId, tabId: decision.tabId }),
+          client.setActiveTab({ windowId, tabId: decision.tabId }),
         );
         // Heal the history tag to the tab we're activating. Normally it
         // already matches (a tagged switch), so `stamp` no-ops.
@@ -473,7 +430,7 @@ export function BrowserTabStrip() {
         applyLocalTransform((s) =>
           setTabTargetLocal(s, { ...target, now: Date.now }),
         );
-        void persistWrite(() => setTabTarget.mutateAsync(target));
+        void persistWrite(() => client.setTabTarget(target));
         if (decision.stampTabId) stamp(decision.stampTabId);
         break;
       }
@@ -490,9 +447,7 @@ export function BrowserTabStrip() {
               now: Date.now,
             }).snapshot,
         );
-        void persistWrite(() =>
-          openTab.mutateAsync({ ...input, tabId: mintedId }),
-        );
+        void persistWrite(() => client.openTab({ ...input, tabId: mintedId }));
         // Stamp the entry with the tab that now owns this route.
         stamp(mintedId);
         break;
@@ -519,9 +474,7 @@ export function BrowserTabStrip() {
     railPane,
     listOpen,
     scopedSpaceId,
-    openTab.mutateAsync,
-    setTabTarget.mutateAsync,
-    setActiveTab.mutateAsync,
+    client,
     router,
   ]);
 
@@ -626,11 +579,11 @@ export function BrowserTabStrip() {
           };
         }
         // A top-level app page (Inbox, Agents, Skills, …).
-        if (appView && isAppView(appView)) {
+        if (appView && isTabAppView(appView)) {
           return {
             id: t.id,
-            label: t.viewState?.title ?? APP_VIEW_META[appView].label,
-            icon: APP_VIEW_META[appView].icon,
+            label: TAB_APP_VIEW_META[appView].label,
+            icon: TAB_APP_VIEW_META[appView].icon,
             channelName: null,
             pinned,
           };
@@ -713,15 +666,27 @@ export function BrowserTabStrip() {
         } else {
           navigate({ to: "/spaces/$channelId", params, state });
         }
-      } else if (tab.appView && isAppView(tab.appView)) {
+      } else if (tab.appView && isTabAppView(tab.appView)) {
         // A top-level app page — back to its canonical route (literal `to` per
         // case so the router types stay checked).
         switch (tab.appView) {
+          case "activity":
+            navigate({ to: "/activity", state });
+            break;
+          case "home":
+            navigate({ to: "/", state });
+            break;
           case "inbox":
             navigate({ to: "/inbox", state });
             break;
           case "agents":
             navigate({ to: "/agents", state });
+            break;
+          case "loops":
+            navigate({ to: "/loops", state });
+            break;
+          case "archived":
+            navigate({ to: "/archived", state });
             break;
           case "skills":
             navigate({ to: "/skills", state });
@@ -734,6 +699,9 @@ export function BrowserTabStrip() {
             break;
           case "context":
             navigate({ to: "/context", search: { path: undefined }, state });
+            break;
+          case "settings":
+            navigate({ to: "/settings", state });
             break;
           default: {
             // Exhaustiveness guard: a new AppView value fails to compile here
@@ -755,7 +723,10 @@ export function BrowserTabStrip() {
   const handleSelect = useCallback(
     (tabId: string) => {
       if (!windowId) return;
-      requestTabSelection(readMirror(), windowId, tabId, goToTab);
+      const target = readMirror().tabs.find(
+        (tab) => tab.windowId === windowId && tab.id === tabId,
+      );
+      if (target) goToTab(target);
     },
     [goToTab, windowId],
   );
@@ -778,7 +749,7 @@ export function BrowserTabStrip() {
   const handleClose = (tabId: string) => {
     const next = applyLocalTransform((s) => closeTabLocal(s, tabId).snapshot);
     applyCloseResult(next);
-    void persistWrite(() => close.mutateAsync({ tabId }));
+    void persistWrite(() => client.close(tabId));
   };
 
   // Unpinning re-homes the tab at the front of the unpinned block. Apply the
@@ -790,7 +761,7 @@ export function BrowserTabStrip() {
     if (!wasPinned || !windowId) return;
     const order = frontOfUnpinnedOrder(snapshot, windowId, tabId, pinnedTabIds);
     applyLocalTransform((s) => setTabOrder(s, windowId, order));
-    void persistWrite(() => setOrder.mutateAsync({ windowId, tabIds: order }));
+    void persistWrite(() => client.setOrder({ windowId, tabIds: order }));
   };
 
   // Bulk closes operate on the strip's *displayed* order (pinned-first) and
@@ -803,7 +774,7 @@ export function BrowserTabStrip() {
     );
     applyCloseResult(next);
     void persistWrite(() =>
-      closeMany.mutateAsync({ tabIds, focusTabId: anchorTabId }),
+      client.closeMany({ tabIds, focusTabId: anchorTabId }),
     );
   };
 

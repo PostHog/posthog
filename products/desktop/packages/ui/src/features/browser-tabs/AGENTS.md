@@ -233,9 +233,9 @@ predecessors and are gone.
 - **Tab selection writes history first.** A click must not optimistically focus
   the mirror or restore the target's `viewState` while the outgoing route is
   still settled. That transient pairing lets the navigation effect write the
-  outgoing href into the selected tab. `requestTabSelection` only navigates;
-  the settled tagged entry drives view-state restore, activation, and durable
-  focus through the navigation effect.
+  outgoing href into the selected tab. Selection only pushes the target's
+  tagged history entry; that settled entry drives view-state restore,
+  activation, and durable focus through the navigation effect.
 - **The effect reconciles SETTLED state only (`settledLocation.ts`).** During a
   pending navigation the router's `location` is already the destination while
   `resolvedLocation` (and `matches`, and so `params` / `railPane`) still describe

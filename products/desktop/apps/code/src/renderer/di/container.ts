@@ -220,6 +220,8 @@ const browserTabsClient: BrowserTabsClient = {
   openTab: (input) => trpcClient.browserTabs.openTab.mutate(input),
   setTabTarget: (input) => trpcClient.browserTabs.setTabTarget.mutate(input),
   close: (tabId) => trpcClient.browserTabs.close.mutate({ tabId }),
+  closeMany: (input) => trpcClient.browserTabs.closeMany.mutate(input),
+  setOrder: (input) => trpcClient.browserTabs.setOrder.mutate(input),
   setActiveTab: (input) => trpcClient.browserTabs.setActiveTab.mutate(input),
   onSnapshotChange: (sub) =>
     trpcClient.browserTabs.onSnapshotChange.subscribe(undefined, sub),
