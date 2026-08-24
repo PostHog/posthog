@@ -71,9 +71,7 @@ describe("AiApprovalScreen", () => {
     await user.click(button);
 
     await waitFor(() =>
-      expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith(
-        "org-id",
-      ),
+      expect(approveAiDataProcessing).toHaveBeenCalledExactlyOnceWith("org-id"),
     );
   });
 
