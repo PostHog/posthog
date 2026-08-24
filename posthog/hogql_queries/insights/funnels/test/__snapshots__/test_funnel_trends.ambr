@@ -33,8 +33,8 @@
      GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                           date_time_input_format='best_effort') AS data
   RIGHT OUTER JOIN
-    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'UTC'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+    (SELECT plus(toStartOfDay(assumeNotNull(toDateTime('2021-04-30 00:00:00', 'UTC'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2021-04-30 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
   GROUP BY entrance_period_start,
            data.breakdown
   ORDER BY entrance_period_start ASC
@@ -87,8 +87,8 @@
      GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                           date_time_input_format='best_effort') AS data
   RIGHT OUTER JOIN
-    (SELECT plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-04-30 00:00:00'), 6, 'US/Pacific'))), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'US/Pacific')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+    (SELECT plus(toStartOfDay(assumeNotNull(toDateTime('2021-04-30 00:00:00', 'US/Pacific'))), toIntervalDay(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2021-04-30 00:00:00', 'US/Pacific'))), toStartOfDay(assumeNotNull(toDateTime('2021-05-07 23:59:59', 'US/Pacific')))), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
   GROUP BY entrance_period_start,
            data.breakdown
   ORDER BY entrance_period_start ASC
@@ -141,8 +141,8 @@
      GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                           date_time_input_format='best_effort') AS data
   RIGHT OUTER JOIN
-    (SELECT plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
-     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-01 00:00:00'), 6, 'UTC')), 0), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull(('2021-05-07 23:59:59'), 6, 'UTC')), 0)), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
+    (SELECT plus(toStartOfWeek(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), 0), toIntervalWeek(period_offsets.number)) AS entrance_period_start
+     FROM numbers(plus(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2021-05-01 00:00:00', 'UTC')), 0), toStartOfWeek(assumeNotNull(toDateTime('2021-05-07 23:59:59', 'UTC')), 0)), 1)) AS period_offsets) AS fill ON equals(data.entrance_period_start, fill.entrance_period_start)
   GROUP BY entrance_period_start,
            data.breakdown
   ORDER BY entrance_period_start ASC

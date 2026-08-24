@@ -1,9 +1,3 @@
-import {
-  CANVAS_COMPONENT_PATH,
-  CANVAS_ENTRY_HTML,
-  CANVAS_PLATFORM_MANIFEST,
-  CANVAS_SOURCE_SCHEMA_VERSION,
-} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import {
   type CanvasBuildActionInput,
@@ -12,46 +6,45 @@ import {
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
 import type {
+  CanvasActionDefinition,
+  CanvasActionResult,
+  CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
+  CanvasStateEntry,
+  CanvasStateScope,
   CanvasVersion,
   DashboardRecord,
 } from "./dashboardSchemas";
-import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
 import {
-  apiErrorStatus,
+  type CanvasAgentRequestResult,
+  canvasAgentRequestResultSchema,
+  FREEFORM_TEMPLATE_ID,
+} from "./freeformSchemas";
+import {
+  type CanvasLayout,
+  type CanvasLayoutResult,
+  componentMetaSchema,
+  type LayoutOperation,
+} from "./gridLayoutSchemas";
+import {
   PROJECT_API_CLIENT,
   type ProjectApiClient,
+  ProjectApiError,
 } from "./projectApiClient";
-
-// Display name (canvas h1) of a channel's auto-created home canvas.
-const HOME_CANVAS_NAME = "Home";
-
-// The entry shell for a client-authored single-file project (the home canvas
-// seed): the runtime mounts the default export of the canvas component file.
-const SINGLE_FILE_INDEX_HTML = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/${CANVAS_COMPONENT_PATH}"></script>
-  </body>
-</html>
-`;
 
 // A canvas as the PostHog canvases API returns it.
 interface ApiCanvas {
   id: string;
   name: string;
+  kind?: "freeform" | "grid" | "component";
+  description?: string;
+  component_meta?: unknown;
   channel: string;
   template_id: string;
   context: string;
   generation_task_id: string | null;
   pinned_at: string | null;
-  is_home: boolean;
   current_version_id: string | null;
   published_build_id: string | null;
   created_by?: {
@@ -73,6 +66,15 @@ interface ApiVersion {
   created_at: string;
 }
 
+interface ApiDraft {
+  version_id: string;
+  prompt: string | null;
+  created_by?: ApiCanvas["created_by"];
+  created_at: string;
+  build_status: "queued" | "building" | "ready" | "failed" | null;
+  build_id: string | null;
+}
+
 function creatorLabel(created_by: ApiCanvas["created_by"]): string | undefined {
   if (!created_by) return undefined;
   const name = [created_by.first_name, created_by.last_name]
@@ -89,10 +91,16 @@ function toEpoch(value: string | null | undefined): number | undefined {
 }
 
 function toRecord(api: ApiCanvas): DashboardRecord {
+  // Fail-soft on the contract shape: a meta this client doesn't understand
+  // renders as "not placeable", never a crashed record list.
+  const meta = componentMetaSchema.safeParse(api.component_meta);
   return {
     id: api.id,
     channelId: api.channel,
     name: api.name,
+    kind: api.kind ?? "freeform",
+    description: api.description ?? "",
+    componentMeta: meta.success ? meta.data : null,
     templateId: api.template_id || FREEFORM_TEMPLATE_ID,
     context: api.context ?? "",
     generationTaskId: api.generation_task_id,
@@ -101,7 +109,6 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     createdAt: toEpoch(api.created_at) ?? 0,
     updatedAt: toEpoch(api.updated_at) ?? 0,
     pinnedAt: toEpoch(api.pinned_at),
-    isHome: api.is_home,
     currentVersionId: api.current_version_id,
     publishedBuildId: api.published_build_id,
   };
@@ -162,11 +169,24 @@ export class DashboardsService {
     return toRecord((await res.json()) as ApiCanvas);
   }
 
+  // The component store: component-kind canvases across every channel visible
+  // to the caller, optionally narrowed by a name/description search.
+  async listComponents(input: { search?: string }): Promise<DashboardRecord[]> {
+    const search = input.search
+      ? `&search=${encodeURIComponent(input.search)}`
+      : "";
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      `canvases/?kind=component${search}`,
+      "list canvas components",
+      { limit: 200 },
+    );
+    return rows.map(toRecord);
+  }
+
   async create(input: {
     channelId: string;
     name: string;
     templateId?: string;
-    isHome?: boolean;
   }): Promise<DashboardRecord> {
     const api = await this.api.json<ApiCanvas>(`canvases/`, "create canvas", {
       method: "POST",
@@ -175,10 +195,93 @@ export class DashboardsService {
         channel_id: input.channelId,
         name: input.name,
         template_id: input.templateId ?? FREEFORM_TEMPLATE_ID,
-        is_home: input.isHome ?? false,
       }),
     });
     return toRecord(api);
+  }
+
+  // Get-or-create the caller's home canvas: a grid canvas in their personal
+  // channel, pointed at by their home preference. Idempotent.
+  async home(): Promise<DashboardRecord> {
+    const api = await this.api.json<ApiCanvas>(
+      `canvases/home/`,
+      "provision home canvas",
+      { method: "POST" },
+    );
+    return toRecord(api);
+  }
+
+  // Read a grid canvas's layout document — the head, or a historical version.
+  async getLayout(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasLayoutResult> {
+    const suffix = input.versionId
+      ? `?version_id=${encodeURIComponent(input.versionId)}`
+      : "";
+    const body = await this.api.json<{
+      layout: CanvasLayout;
+      current_version_id: string | null;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/layout/${suffix}`,
+      "load canvas layout",
+    );
+    return { layout: body.layout, currentVersionId: body.current_version_id };
+  }
+
+  // Publish a complete layout document as the grid canvas's new head. Live
+  // immediately — layout is data, no build runs.
+  async publishLayout(input: {
+    id: string;
+    layout: CanvasLayout;
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult> {
+    const body = await this.api.json<{
+      layout: CanvasLayout;
+      current_version_id: string;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/layout/publish/`,
+      "publish canvas layout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          layout: input.layout,
+          prompt: input.prompt,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return { layout: body.layout, currentVersionId: body.current_version_id };
+  }
+
+  // Apply surgical operations to the grid canvas's current layout — the
+  // default write path, guarded so concurrent edits conflict (409) instead of
+  // silently merging.
+  async patchLayout(input: {
+    id: string;
+    operations: LayoutOperation[];
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult> {
+    const body = await this.api.json<{
+      layout: CanvasLayout;
+      current_version_id: string;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/layout/patch/`,
+      "patch canvas layout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operations: input.operations,
+          prompt: input.prompt,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return { layout: body.layout, currentVersionId: body.current_version_id };
   }
 
   private async patch(
@@ -228,6 +331,136 @@ export class DashboardsService {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
   }
 
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord> {
+    return this.patch(
+      input.id,
+      { channel_id: input.channelId },
+      "file canvas to space",
+    );
+  }
+
+  // File a rendering error in the canvas's authoring-task thread (the server
+  // dedupes per build and error type). Best-effort: a report must never affect
+  // the render, and backends without the endpoint just refuse it, so every
+  // failure is swallowed.
+  async reportError(input: {
+    id: string;
+    buildId: string;
+    errorType: string;
+  }): Promise<void> {
+    try {
+      await this.api.fetch(
+        `canvases/${encodeURIComponent(input.id)}/report_error/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            build_id: input.buildId,
+            error_type: input.errorType,
+          }),
+        },
+      );
+    } catch {
+      // Advisory call — rendering carries on regardless.
+    }
+  }
+
+  // The canvas's readable ph.state entries: shared ones plus the caller's own
+  // user-scoped ones. Optionally narrowed to one scope.
+  async listState(input: {
+    id: string;
+    scope?: CanvasStateScope;
+  }): Promise<CanvasStateEntry[]> {
+    const suffix = input.scope
+      ? `?scope=${encodeURIComponent(input.scope)}`
+      : "";
+    const body = await this.api.json<{
+      entries: Array<{
+        scope: CanvasStateScope;
+        key: string;
+        value: unknown;
+        updated_at: string;
+      }>;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/state/${suffix}`,
+      "read canvas state",
+    );
+    return body.entries.map((entry) => ({
+      scope: entry.scope,
+      key: entry.key,
+      value: entry.value,
+      updatedAt: entry.updated_at,
+    }));
+  }
+
+  // Write one ph.state key; a null value deletes it (the 204 path).
+  async setState(input: {
+    id: string;
+    scope: CanvasStateScope;
+    key: string;
+    value: unknown;
+  }): Promise<void> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/state/set/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: input.scope,
+          key: input.key,
+          value: input.value ?? null,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res
+        .json()
+        .then((body) => (body as { detail?: string }).detail ?? null)
+        .catch(() => null);
+      throw new ProjectApiError(
+        detail ?? `Failed to write canvas state (${res.status})`,
+        res.status,
+      );
+    }
+  }
+
+  // The action registry: every verb a canvas may declare and invoke.
+  async listActions(): Promise<CanvasActionDefinition[]> {
+    const body = await this.api.json<{ actions: CanvasActionDefinition[] }>(
+      `canvases/actions/`,
+      "list canvas actions",
+    );
+    return body.actions;
+  }
+
+  // Invoke one registered action verb as the viewer.
+  async invokeAction(input: {
+    id: string;
+    verb: string;
+    payload: Record<string, unknown>;
+  }): Promise<CanvasActionResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/actions/invoke/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verb: input.verb, payload: input.payload }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      verb?: string;
+      result?: Record<string, unknown>;
+    };
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to invoke canvas action (${res.status})`,
+        res.status,
+      );
+    }
+    return { verb: body.verb ?? input.verb, result: body.result ?? {} };
+  }
+
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
   }
@@ -267,6 +500,44 @@ export class DashboardsService {
     }));
   }
 
+  // The canvas's staged drafts, newest first, each with its latest build status.
+  async listDrafts(id: string): Promise<CanvasDraft[]> {
+    const rows = await this.api.json<ApiDraft[]>(
+      `canvases/${encodeURIComponent(id)}/drafts/`,
+      "list canvas drafts",
+    );
+    return rows.map((row) => ({
+      versionId: row.version_id,
+      prompt: row.prompt,
+      createdBy: creatorLabel(row.created_by),
+      createdAt: toEpoch(row.created_at) ?? 0,
+      buildStatus: row.build_status,
+      buildId: row.build_id,
+    }));
+  }
+
+  // Make a draft version the canvas's live head (adopting its ready build, or
+  // rebuilding when the artifacts aged out). Returns the now-live build.
+  async promoteDraft(input: {
+    id: string;
+    versionId: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasBuildRecord> {
+    const build = await this.api.json<Record<string, unknown>>(
+      `canvases/${encodeURIComponent(input.id)}/promote/`,
+      "promote canvas draft",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version_id: input.versionId,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return toBuildRecord(build);
+  }
+
   // Move the canvas's head back to an existing version and rebuild it.
   async revertToVersion(input: {
     id: string;
@@ -290,12 +561,21 @@ export class DashboardsService {
 
   // Read a canvas's build lifecycle (pointers + recent builds). Publishing
   // queues a build server-side; callers poll this until it settles.
-  async getBuilds(id: string): Promise<CanvasBuildLifecycle> {
+  async getBuilds(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasBuildLifecycle> {
+    const suffix = input.versionId
+      ? `?version_id=${encodeURIComponent(input.versionId)}`
+      : "";
     const body = await this.api.json<{
       published_build_id: string | null;
       current_version_id: string | null;
       builds: Record<string, unknown>[];
-    }>(`canvases/${encodeURIComponent(id)}/builds/`, "load canvas builds");
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/builds/${suffix}`,
+      "load canvas builds",
+    );
     // Each build row is already validated by tryToBuildRecord; this endpoint is
     // polled every couple of seconds during builds, so don't re-run the whole
     // lifecycle schema (which would zod-parse every record a second time).
@@ -321,104 +601,6 @@ export class DashboardsService {
     return toBuildRecord(build);
   }
 
-  // Ensure the channel has a home canvas: the freeform board shown when the
-  // channel opens. Idempotent — reuses the channel's existing home canvas, and
-  // seeds its source (via a real publish, so it gets built) when empty.
-  async ensureHomeCanvas(channelId: string): Promise<DashboardRecord> {
-    let record = await this.findHomeCanvas(channelId);
-    if (!record) {
-      try {
-        record = await this.create({
-          channelId,
-          name: HOME_CANVAS_NAME,
-          templateId: FREEFORM_TEMPLATE_ID,
-          isHome: true,
-        });
-      } catch (error) {
-        // Only the is_home uniqueness race (409) means another client created
-        // it; reuse theirs. Any other failure (auth, capacity, network) must
-        // surface, not be masked as a race.
-        if (apiErrorStatus(error) !== 409) throw error;
-        record = await this.findHomeCanvas(channelId);
-        if (!record) throw new Error("Failed to create home canvas");
-      }
-    }
-    if (!record.currentVersionId) {
-      record = await this.publishHomeSeed(record, channelId);
-    }
-    return record;
-  }
-
-  // Rebuild a channel's home canvas from the default template. Non-destructive:
-  // the pre-reset source stays in the version history, so a revert restores it.
-  async resetHomeCanvas(channelId: string): Promise<DashboardRecord> {
-    const record = await this.findHomeCanvas(channelId);
-    if (!record) return this.ensureHomeCanvas(channelId);
-    return this.publishHomeSeed(record, channelId);
-  }
-
-  private async findHomeCanvas(
-    channelId: string,
-  ): Promise<DashboardRecord | null> {
-    const rows = await this.api.listPaginated<ApiCanvas>(
-      `canvases/?channel=${encodeURIComponent(channelId)}&is_home=true`,
-      "find home canvas",
-      { limit: 200 },
-    );
-    return rows.length ? toRecord(rows[0]) : null;
-  }
-
-  // Publish the generated home board as the canvas's new head version. The
-  // board queries system.canvases/system.tasks ad hoc, so inline queries are
-  // declared as a capability.
-  private async publishHomeSeed(
-    record: DashboardRecord,
-    channelId: string,
-  ): Promise<DashboardRecord> {
-    const project = {
-      schemaVersion: CANVAS_SOURCE_SCHEMA_VERSION,
-      files: {
-        [CANVAS_ENTRY_HTML]: SINGLE_FILE_INDEX_HTML,
-        [CANVAS_COMPONENT_PATH]: buildHomeCanvasCode(channelId, record.id),
-      },
-      entryHtml: CANVAS_ENTRY_HTML,
-      dependencies: {
-        react: CANVAS_PLATFORM_MANIFEST.dependencies.react.version,
-      },
-      canvasSdkVersion: CANVAS_PLATFORM_MANIFEST.canvasSdkVersion,
-      capabilities: {
-        posthog: { insights: [], inlineQueries: true, captureEvents: [] },
-        network: { origins: [] },
-      },
-    };
-    const publish = (expectedVersionId: string | null) =>
-      this.api.json<unknown>(
-        `canvases/${encodeURIComponent(record.id)}/publish/`,
-        "seed home canvas",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            project,
-            prompt: "Default home board",
-            expected_current_version_id: expectedVersionId,
-          }),
-        },
-      );
-    try {
-      await publish(record.currentVersionId ?? null);
-    } catch (error) {
-      // A concurrent seed can win the guarded publish between our read and
-      // POST. On the 409 version conflict, re-read the head and retry once
-      // against the fresh version id rather than failing the channel open.
-      if (apiErrorStatus(error) !== 409) throw error;
-      const conflicted = await this.get(record.id);
-      await publish(conflicted?.currentVersionId ?? null);
-    }
-    const fresh = await this.get(record.id);
-    return fresh ?? record;
-  }
-
   async delete(id: string): Promise<void> {
     const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`, {
       method: "DELETE",
@@ -428,396 +610,36 @@ export class DashboardsService {
       throw new Error(`Failed to delete canvas (${res.status})`);
     }
   }
-}
 
-// The seeded React source for a channel's home canvas. It runs in the freeform
-// sandbox (null-origin iframe), so its only data avenue is `window.ph.query`
-// (HogQL). It reads its lists from the `system.canvases`/`system.tasks` HogQL tables:
-//   - Canvases: this channel's canvases (excluding the home canvas).
-//   - Inbox / to-dos: stubbed (no data source yet) with an assignee filter.
-//   - Tasks: this channel's tasks, newest first.
-// Each list shows a page at a time and loads more as its own box is scrolled.
-// Rows and the "New" buttons drive host routing via the allowlisted
-// `ph.navigate` bridge (toTask/toNewTask/toCanvas/toNewCanvas); the Inbox stub
-// stays a no-op until it has a data source. channelId is host-supplied, so the
-// canvas can only navigate within its own channel; homeCanvasId lets the
-// Canvases list exclude this board.
-function buildHomeCanvasCode(channelId: string, homeCanvasId: string): string {
-  const cid = JSON.stringify(channelId);
-  const hid = JSON.stringify(homeCanvasId);
-  return `import { useCallback, useEffect, useRef, useState } from "react";
-
-const CHANNEL_ID = ${cid};
-const HOME_CANVAS_ID = ${hid};
-const PAGE_SIZE = 10;
-
-const ph = (window as any).ph;
-
-// Single-quote a value for inlining into a HogQL string literal.
-function sql(v: string): string {
-  return "'" + String(v).replace(/'/g, "''") + "'";
-}
-
-type Row = { id: string; title: string; createdAt: string };
-
-// Paginated reader for the channel's canvases or tasks, newest first.
-function useChannelRows(kind: "dashboard" | "task") {
-  const [rows, setRows] = useState<Row[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-  const offsetRef = useRef(0);
-  const busyRef = useRef(false);
-
-  const loadMore = useCallback(async () => {
-    if (busyRef.current || done) return;
-    busyRef.current = true;
-    setLoading(true);
-    try {
-      const page = " ORDER BY created_at DESC LIMIT " + PAGE_SIZE + " OFFSET " + offsetRef.current;
-      const query =
-        kind === "dashboard"
-          ? "SELECT id, name, created_at FROM system.canvases" +
-            " WHERE channel_id = " + sql(CHANNEL_ID) +
-            " AND id != " + sql(HOME_CANVAS_ID) + page
-          : "SELECT id, title, created_at FROM system.tasks" +
-            " WHERE channel_id = " + sql(CHANNEL_ID) + page;
-      const res = await ph.query(query);
-      const batch: Row[] = ((res && res.results) || []).map((r: any[]) => ({
-        id: String(r[0]),
-        title: String(r[1]),
-        createdAt: String(r[2]),
-      }));
-      offsetRef.current += batch.length;
-      setRows((prev) => prev.concat(batch));
-      if (batch.length < PAGE_SIZE) setDone(true);
-    } catch (err) {
-      // Stop paging on error (e.g. the system table isn't available yet) rather
-      // than spinning; the section just shows what it has.
-      setDone(true);
-    } finally {
-      busyRef.current = false;
-      setLoading(false);
-    }
-  }, [kind, done]);
-
-  useEffect(() => {
-    void loadMore();
-    // Load the first page once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return { rows, loadMore, loading, done };
-}
-
-// A fixed-height, scrollable section card. A sentinel at the bottom (observed
-// against THIS box, not the page) fires onLoadMore as the user scrolls near the
-// end. Styled to match the PostHog app: greenish-gray neutrals, soft
-// shadow, ~16px radius, a per-section accent dot.
-function Section(props: {
-  title: string;
-  accent: string;
-  onNew: () => void;
-  loading: boolean;
-  done: boolean;
-  onLoadMore: () => void;
-  children: any;
-  // A "+ New" that isn't wired yet: disable it and explain via tooltip rather
-  // than offering a button that silently does nothing.
-  newDisabled?: boolean;
-  newTooltip?: string;
-}) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const root = scrollRef.current;
-    const target = sentinelRef.current;
-    if (!root || !target) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) props.onLoadMore();
+  async requestAgent(input: {
+    id: string;
+    prompt: string;
+  }): Promise<CanvasAgentRequestResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/request_agent/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: input.prompt }),
       },
-      { root, rootMargin: "120px" },
     );
-    io.observe(target);
-    return () => io.disconnect();
-  }, [props.onLoadMore]);
-
-  return (
-    <section
-      style={{
-        flex: "1 1 0",
-        minWidth: 0,
-        maxWidth: 380,
-        height: 460,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--card-bg)",
-        border: "1px solid var(--card-border)",
-        borderRadius: 16,
-        overflow: "hidden",
-        boxShadow:
-          "0 1px 2px rgba(13,13,13,0.04), 0 12px 32px rgba(13,13,13,0.06)",
-      }}
-    >
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "14px 16px",
-          borderBottom: "1px solid var(--header-border)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 999,
-              background: props.accent,
-              boxShadow: "0 0 0 3px " + props.accent + "22",
-            }}
-          />
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 15,
-              fontWeight: 600,
-              color: "var(--title)",
-              letterSpacing: "-0.01em",
-            }}
-          >
-            {props.title}
-          </h2>
-        </div>
-        <button
-          type="button"
-          className="ph-btn"
-          onClick={props.onNew}
-          disabled={props.newDisabled}
-          title={props.newTooltip}
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            padding: "4px 10px",
-            borderRadius: 8,
-            border: "1px solid var(--btn-border)",
-            background: "var(--btn-bg)",
-            color: "var(--btn-color)",
-            cursor: props.newDisabled ? "not-allowed" : "pointer",
-            opacity: props.newDisabled ? 0.5 : 1,
-          }}
-        >
-          + New
-        </button>
-      </header>
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-        {props.children}
-        {!props.done ? (
-          <div ref={sentinelRef} style={{ height: 1 }} />
-        ) : null}
-        {props.loading ? (
-          <div style={{ padding: 8, fontSize: 12, color: "var(--meta)" }}>Loading…</div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function ListRow(props: { title: string; meta?: string; onClick?: () => void }) {
-  return (
-    <div
-      className="ph-row"
-      role={props.onClick ? "button" : undefined}
-      tabIndex={props.onClick ? 0 : undefined}
-      onClick={props.onClick}
-      onKeyDown={(e) => {
-        if (props.onClick && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          props.onClick();
-        }
-      }}
-      style={{
-        padding: "8px 10px",
-        borderRadius: 8,
-        fontSize: 13,
-        color: "var(--row-color)",
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 8,
-        cursor: props.onClick ? "pointer" : "default",
-      }}
-    >
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {props.title}
-      </span>
-      {props.meta ? (
-        <span style={{ color: "var(--meta)", fontSize: 11, flexShrink: 0 }}>{props.meta}</span>
-      ) : null}
-    </div>
-  );
-}
-
-function Empty(props: { label: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        height: "100%",
-        minHeight: 120,
-        alignItems: "center",
-        justifyContent: "center",
-        textAlign: "center",
-        padding: 16,
-        fontSize: 12,
-        color: "var(--empty)",
-      }}
-    >
-      {props.label}
-    </div>
-  );
-}
-
-function CanvasesSection() {
-  const { rows, loadMore, loading, done } = useChannelRows("dashboard");
-  return (
-    <Section
-      title="Canvases"
-      accent="#f54d00"
-      onNew={() => ph.navigate?.toNewCanvas()}
-      loading={loading}
-      done={done}
-      onLoadMore={loadMore}
-    >
-      {rows.length === 0 && done ? <Empty label="No canvases yet." /> : null}
-      {rows.map((r) => (
-        <ListRow key={r.id} title={r.title} onClick={() => ph.navigate?.toCanvas(r.id)} />
-      ))}
-    </Section>
-  );
-}
-
-function TasksSection() {
-  const { rows, loadMore, loading, done } = useChannelRows("task");
-  return (
-    <Section
-      title="Tasks"
-      accent="#f8be2a"
-      onNew={() => ph.navigate?.toNewTask()}
-      loading={loading}
-      done={done}
-      onLoadMore={loadMore}
-    >
-      {rows.length === 0 && done ? <Empty label="No tasks yet." /> : null}
-      {rows.map((r) => (
-        <ListRow
-          key={r.id}
-          title={r.title}
-          meta={r.createdAt.slice(0, 10)}
-          onClick={() => ph.navigate?.toTask(r.id)}
-        />
-      ))}
-    </Section>
-  );
-}
-
-// Inbox / to-dos: there's no data source for these yet, so this is a stub. The
-// assignee toggle and "New" button are placeholders the host will wire up later.
-function InboxSection() {
-  const [scope, setScope] = useState<"me" | "team">("me");
-  const accent = "#1d4aff";
-  return (
-    <Section title="Inbox" accent={accent} onNew={() => {}} loading={false} done={true} onLoadMore={() => {}} newDisabled={true} newTooltip="Coming soon">
-      <div style={{ display: "flex", gap: 6, padding: "2px 2px 10px" }}>
-        {(["me", "team"] as const).map((s) => {
-          const active = scope === s;
-          return (
-            <button
-              key={s}
-              type="button"
-              className="ph-btn"
-              onClick={() => setScope(s)}
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                padding: "4px 10px",
-                borderRadius: 8,
-                border: "1px solid " + (active ? accent : "var(--btn-border)"),
-                background: active ? accent + "14" : "var(--btn-bg)",
-                color: active ? accent : "var(--btn-color)",
-                cursor: "pointer",
-              }}
-            >
-              {s === "me" ? "Assigned to me" : "Teammates"}
-            </button>
-          );
-        })}
-      </div>
-      <Empty label={"No " + (scope === "me" ? "items assigned to you" : "teammate items") + " yet."} />
-    </Section>
-  );
-}
-
-// Colors are CSS variables so the canvas follows the user's PostHog theme. The
-// iframe loader toggles a \`dark\` class on <html> (sandboxRuntime.applyTheme);
-// \`html.dark\` overrides win on specificity, so every value flips with no JS.
-const STYLE_TEXT =
-  ":root{" +
-  "--bg-from:#f4f5f0;--bg-to:#eceee8;--card-bg:#ffffff;--card-border:#e4e5de;" +
-  "--header-border:#eceee8;--title:#0d0d0d;--btn-border:#d8dbd1;--btn-bg:#f2f3ee;" +
-  "--btn-color:#3a4036;--btn-hover-bg:#eceee8;--btn-hover-border:#cbd0c3;" +
-  "--row-color:#3a4036;--row-hover-bg:#f2f3ee;--meta:#93998a;--empty:#a9af9f;" +
-  "--page-color:#3a4036;--scroll-thumb:#cbd0c3;--scroll-thumb-hover:#a9af9f}" +
-  "html.dark{" +
-  "--bg-from:#1b1d1a;--bg-to:#141613;--card-bg:#202220;--card-border:#33362e;" +
-  "--header-border:#2b2e27;--title:#f3f4ef;--btn-border:#3a3e34;--btn-bg:#2a2d26;" +
-  "--btn-color:#d4d7cd;--btn-hover-bg:#34372f;--btn-hover-border:#474c3f;" +
-  "--row-color:#d4d7cd;--row-hover-bg:#2a2d26;--meta:#8a917e;--empty:#6f7567;" +
-  "--page-color:#d4d7cd;--scroll-thumb:#3a3e34;--scroll-thumb-hover:#4a4f42}" +
-  ".ph-btn{transition:background .15s ease,border-color .15s ease,color .15s ease}" +
-  ".ph-btn:hover{background:var(--btn-hover-bg);border-color:var(--btn-hover-border)}" +
-  ".ph-row{transition:background .12s ease}" +
-  ".ph-row:hover{background:var(--row-hover-bg)}" +
-  "*::-webkit-scrollbar{width:10px;height:10px}" +
-  "*::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:8px;border:2px solid transparent;background-clip:padding-box}" +
-  "*::-webkit-scrollbar-thumb:hover{background:var(--scroll-thumb-hover);background-clip:padding-box}";
-
-export default function ChannelHome() {
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        boxSizing: "border-box",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 40,
-        background:
-          "linear-gradient(180deg, var(--bg-from) 0%, var(--bg-to) 100%)",
-        fontFamily:
-          '"Open Runde", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-        color: "var(--page-color)",
-      }}
-    >
-      <style>{STYLE_TEXT}</style>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          justifyContent: "center",
-          gap: 20,
-          width: "100%",
-          maxWidth: 1200,
-          flexWrap: "wrap",
-        }}
-      >
-        <CanvasesSection />
-        <InboxSection />
-        <TasksSection />
-      </div>
-    </div>
-  );
-}
-`;
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      request_outcome?: string;
+      task_id?: string;
+    };
+    // The backend answers quota, capability, and missing-task refusals with a
+    // structured `detail`; surface it so the viewer sees the reason, not a bare
+    // status code.
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to request canvas agent (${res.status})`,
+        res.status,
+      );
+    }
+    return canvasAgentRequestResultSchema.parse({
+      requestOutcome: body.request_outcome,
+      taskId: body.task_id,
+    });
+  }
 }

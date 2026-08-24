@@ -3,14 +3,17 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: [
     "src/index.ts",
-    "src/agent-platform-types.ts",
     "src/analytics-events.ts",
+    "src/announcements.ts",
     "src/constants.ts",
     "src/deeplink.ts",
     "src/dismissalReasons.ts",
     "src/domain-types.ts",
     "src/mcp-sandbox-proxy.ts",
     "src/posthog-property-headers.ts",
+    "src/product-engineer-prompt.ts",
+    "src/quick-ask-shortcuts.ts",
+    "src/rich-output-prompt.ts",
     "src/types.ts",
   ],
   format: ["esm"],

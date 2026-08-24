@@ -17,8 +17,8 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     bigquery_default_fields,
     get_our_google_cloud_credentials,
 )
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 

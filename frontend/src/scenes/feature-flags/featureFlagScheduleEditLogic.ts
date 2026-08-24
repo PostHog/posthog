@@ -2,6 +2,7 @@ import { CronExpressionParser } from 'cron-parser'
 import { MakeLogicType, actions, connect, key, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -9,12 +10,7 @@ import { RecurrenceInterval, ScheduledChangeOperationType, ScheduledChangeType }
 
 import type { TeamPublicType, TeamType } from '../../types'
 import { teamLogic } from '../teamLogic'
-import {
-    describeCron,
-    featureFlagLogic,
-    scheduleDateFromStoredISO,
-    scheduleDateToProjectTzISO,
-} from './featureFlagLogic'
+import { featureFlagLogic, scheduleDateFromStoredISO, scheduleDateToProjectTzISO } from './featureFlagLogic'
 
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'

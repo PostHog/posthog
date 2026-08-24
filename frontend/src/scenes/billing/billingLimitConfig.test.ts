@@ -4,6 +4,8 @@ import {
     BillingLimitConfig,
     getBillingLimitConfig,
     MAX_BILLING_LIMIT,
+    POSTHOG_CODE_USAGE_PRODUCT_KEY,
+    REPLAY_VISION_PRODUCT_KEY,
     STARTUP_PROGRAM_BILLING_LIMIT_MAX,
 } from './billingLimitConfig'
 
@@ -20,16 +22,16 @@ describe('getBillingLimitConfig', () => {
             billingLimitNextPeriod: limits.billingLimitNextPeriod ?? null,
         })
 
-    it.each(['posthog_code_usage', 'replay_vision'])(
-        'caps %s for startup program customers and explains why',
-        (productType) => {
-            const config = getConfig(productType, StartupProgramLabel.YC)
-            expect(config.max).toBe(STARTUP_PROGRAM_BILLING_LIMIT_MAX)
-            expect(config.removalDisabledReason).toBeTruthy()
-            expect(config.help).toContain('startup program')
-            expect(config.maxExceededError).toContain('startup program')
-        }
-    )
+    it.each([
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 'Desktop'],
+        [REPLAY_VISION_PRODUCT_KEY, 'Replay vision'],
+    ])('caps %s for startup program customers and explains why', (productType, productName) => {
+        const config = getConfig(productType, StartupProgramLabel.YC)
+        expect(config.max).toBe(STARTUP_PROGRAM_BILLING_LIMIT_MAX)
+        expect(config.removalDisabledReason).toBeTruthy()
+        expect(config.help).toContain(`${productName} billing limits`)
+        expect(config.maxExceededError).toContain(`${productName} billing limits`)
+    })
 
     it.each(['posthog_code_usage', 'replay_vision', 'product_analytics'])(
         'does not cap %s without startup program enrollment',

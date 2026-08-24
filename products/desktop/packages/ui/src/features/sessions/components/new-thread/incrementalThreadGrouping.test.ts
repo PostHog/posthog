@@ -84,12 +84,12 @@ describe("createIncrementalThreadGrouper", () => {
       toolItem("t2"),
     ];
 
-    grouper.update(items, "partial", overrides);
+    grouper.update(items, overrides);
 
     const next = [...items, toolItem("t3")];
     expectGroupingEquivalent(
-      grouper.update(next, "partial", overrides),
-      buildThreadGroups(next, "partial", overrides),
+      grouper.update(next, overrides),
+      buildThreadGroups(next, overrides),
     );
   });
 
@@ -97,15 +97,12 @@ describe("createIncrementalThreadGrouper", () => {
     const grouper = createIncrementalThreadGrouper();
     const overrides = {};
     const items = [userMessage("u1"), toolItem("t1", completeContext)];
-    const first = grouper.update(items, "partial", overrides);
+    const first = grouper.update(items, overrides);
 
     const next = [...items, agentMessage("m1")];
-    const second = grouper.update(next, "partial", overrides);
+    const second = grouper.update(next, overrides);
 
-    expectGroupingEquivalent(
-      second,
-      buildThreadGroups(next, "partial", overrides),
-    );
+    expectGroupingEquivalent(second, buildThreadGroups(next, overrides));
     expect(second.rows[0]).toBe(first.rows[0]);
   });
 
@@ -120,12 +117,12 @@ describe("createIncrementalThreadGrouper", () => {
       toolItem("c1", completeContext),
       toolItem("c2", completeContext),
     ];
-    grouper.update(items, "partial", overrides);
+    grouper.update(items, overrides);
 
     const next = [...items, toolItem("a1", activeContext)];
     expectGroupingEquivalent(
-      grouper.update(next, "partial", overrides),
-      buildThreadGroups(next, "partial", overrides),
+      grouper.update(next, overrides),
+      buildThreadGroups(next, overrides),
     );
   });
 
@@ -134,7 +131,6 @@ describe("createIncrementalThreadGrouper", () => {
     const overrides = {};
     grouper.update(
       [userMessage("u1"), toolItem("t1", completeContext)],
-      "partial",
       overrides,
     );
 
@@ -142,8 +138,8 @@ describe("createIncrementalThreadGrouper", () => {
     // a full rebuild.
     const replaced = [userMessage("x1"), toolItem("y1", completeContext)];
     expectGroupingEquivalent(
-      grouper.update(replaced, "partial", overrides),
-      buildThreadGroups(replaced, "partial", overrides),
+      grouper.update(replaced, overrides),
+      buildThreadGroups(replaced, overrides),
     );
   });
 
@@ -151,10 +147,10 @@ describe("createIncrementalThreadGrouper", () => {
     const grouper = createIncrementalThreadGrouper();
     const overrides = {};
     const items = [userMessage("u1"), toolItem("t1", completeContext)];
-    const first = grouper.update(items, "partial", overrides);
+    const first = grouper.update(items, overrides);
     const firstEntries = [...first.idToRowIndex.entries()];
 
-    grouper.update([...items, agentMessage("m1")], "partial", overrides);
+    grouper.update([...items, agentMessage("m1")], overrides);
 
     expect([...first.idToRowIndex.entries()]).toEqual(firstEntries);
   });

@@ -1,6 +1,8 @@
 import type {
   CanvasAnalyticsConfig,
+  CanvasCommentHighlight,
   CanvasNavIntent,
+  CanvasTextSelection,
 } from "@posthog/core/canvas/freeformSchemas";
 import { create } from "zustand";
 
@@ -9,7 +11,7 @@ import { create } from "zustand";
 // across canvases. The sandbox's `init` message swaps the rendered canvas in place
 // without reloading, so a booted iframe can be re-pointed at a different canvas's
 // code. We therefore keep a small pool of physical frames (indexed slots) alive in
-// the persistent WebsiteLayout and assign canvases to them: the first few distinct
+// the persistent ShellLayout and assign canvases to them: the first few distinct
 // canvases each boot a frame; after the pool is full, a new canvas reuses the
 // least-recently-active frame via an init code-swap — no reload.
 //
@@ -34,6 +36,10 @@ export interface CanvasFrameInputs {
   onError?: (message: string, stack?: string) => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
+  commentHighlights?: CanvasCommentHighlight[];
+  clearTextSelectionKey?: number;
 }
 
 interface CanvasFrameSlot {

@@ -49,7 +49,15 @@ from products.tasks.backend.loop_lifecycle import (
     pause_loops_for_removed_member,
     pause_loops_referencing_integrations,
 )
-from products.tasks.backend.models import Channel, Loop, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    Loop,
+    LoopTrigger,
+    SandboxEnvironment,
+    Task,
+    TaskClientProvenance,
+    TaskRun,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -809,7 +817,13 @@ def _validate_context_visibility(visibility: str, context_target: dict | None) -
         raise LoopValidationError("A loop attached to a context must have team visibility.")
 
 
-def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDTO:
+def create_loop(
+    team_id: int,
+    user: User | None,
+    validated_data: dict,
+    *,
+    client_provenance: TaskClientProvenance | None = None,
+) -> LoopDTO:
     data = dict(validated_data)
     validate_loop_write(team_id, data)
     _validate_context_visibility(data.get("visibility", Loop.Visibility.PERSONAL), data.get("context_target"))
@@ -860,6 +874,7 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             # the public API are always user-facing and attributed to `user_created`.
             internal=data.get("internal", False),
             origin_product=data.get("origin_product", Task.OriginProduct.USER_CREATED),
+            client_provenance=client_provenance,
         )
         created_triggers = [
             LoopTrigger.objects.create(

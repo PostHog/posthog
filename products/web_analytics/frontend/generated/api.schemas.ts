@@ -21,6 +21,18 @@ export const HeatmapTypeApi = {
 } as const
 
 /**
+ * * `server` - Server
+ * * `toolbar` - Toolbar
+ */
+export type HeatmapScreenshotResponseSourceEnumApi =
+    (typeof HeatmapScreenshotResponseSourceEnumApi)[keyof typeof HeatmapScreenshotResponseSourceEnumApi]
+
+export const HeatmapScreenshotResponseSourceEnumApi = {
+    Server: 'server',
+    Toolbar: 'toolbar',
+} as const
+
+/**
  * * `processing` - Processing
  * * `completed` - Completed
  * * `failed` - Failed
@@ -123,13 +135,18 @@ export interface HeatmapScreenshotResponseApi {
      */
     data_url?: string | null
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
-    target_widths?: unknown
+    readonly target_widths: readonly number[]
     /** Render mode: 'screenshot', 'iframe', or 'recording'.
      *
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
     type?: HeatmapTypeApi
+    /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
+     *
+     * * `server` - Server
+     * * `toolbar` - Toolbar */
+    readonly source: HeatmapScreenshotResponseSourceEnumApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
      *
      * * `processing` - Processing
@@ -283,6 +300,39 @@ export interface PatchedSavedHeatmapRequestApi {
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
     block_consent_modals?: boolean
+}
+
+export interface SavedHeatmapCaptureRequestApi {
+    /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
+    image?: string
+    /**
+     * Viewport width (CSS pixels) the single 'image' was captured at.
+     * @minimum 100
+     * @maximum 3000
+     */
+    width?: number
+    /**
+     * One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths.
+     * @maxItems 16
+     */
+    images?: string[]
+    /**
+     * Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.
+     * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
+     */
+    widths?: number[]
+    /**
+     * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
+     * @maxLength 400
+     */
+    name?: string
 }
 
 export interface HeatmapPreflightRequestApi {
@@ -674,6 +724,65 @@ export interface PatchedWebAnalyticsFilterPresetApi {
     filters?: unknown
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
+}
+
+export interface ApplyPathCleaningSuggestionResponseApi {
+    /** Number of rules merged into the team's path_cleaning_filters. */
+    applied: number
+}
+
+export interface PathCleaningPreviewExampleApi {
+    /** A real sampled path before the suggested rules are applied. */
+    before: string
+    /** The same path after all suggested rules run in order. */
+    after: string
+    /** Pageviews this path received in the sampling window. */
+    views: number
+}
+
+export interface PreviewPathCleaningSuggestionResponseApi {
+    /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
+    examples: PathCleaningPreviewExampleApi[]
+    /** How many of the sampled paths the suggested rules rewrite in total. */
+    changed_path_count: number
+    /** How many top paths were sampled for this preview. */
+    sampled_path_count: number
+}
+
+export interface SuggestedRuleApi {
+    /** re2 pattern matching the dynamic path segment. */
+    regex: string
+    /** Replacement with angle-bracket placeholders, e.g. /users/<id>. */
+    alias: string
+    /** Apply order; rules run sequentially, output feeds the next. */
+    order: number
+    /** How many of the sampled paths this rule rewrites — evidence the rule was validated on real traffic. */
+    match_count: number
+}
+
+/**
+ * A path-cleaning suggestion, stored as a `path_cleaning_suggestions` health issue.
+ */
+export interface PathCleaningSuggestionIssueApi {
+    /** Health-issue id; pass it to the apply endpoint or the health-issues API. */
+    id: string
+    /** When the suggestion was generated (ISO 8601). */
+    created_at: string
+    /** Validated path-cleaning rules proposed for this team, most specific first. */
+    rules: SuggestedRuleApi[]
+    /** LLM that generated the rules. */
+    model: string
+    /** How many real paths were sampled for generation. */
+    sampled_path_count: number
+    /** Distinct pathnames seen in the sampling window. */
+    distinct_path_count: number
+}
+
+export interface GeneratePathCleaningSuggestionResponseApi {
+    /** generated, skipped_low_cardinality, skipped_no_paths, skipped_configured, or error. */
+    status: string
+    /** The stored suggestion when status is generated, else null. */
+    suggestion?: PathCleaningSuggestionIssueApi | null
 }
 
 export type HeatmapScreenshotsContentRetrieveParams = {

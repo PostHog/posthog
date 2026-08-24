@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
 from django.db.models import F
@@ -29,9 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGGER = get_logger(__name__)
@@ -112,7 +111,6 @@ async def notify_revenue_analytics_that_sync_has_completed(
 
     try:
 
-        @database_sync_to_async_pool
         def _check_and_notify():
             if (
                 schema.name == STRIPE_CHARGE_RESOURCE_NAME
@@ -134,7 +132,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                 schema.team.revenue_analytics_config.notified_first_sync = True
                 schema.team.revenue_analytics_config.save()
 
-        await _check_and_notify()
+        await database_sync_to_async_pool(retry_on_operational_error(_check_and_notify))()
     except Exception as e:
         # Silently fail, we don't want this to crash the pipeline
         # Sending an email is not critical to the pipeline
@@ -146,7 +144,7 @@ async def _seed_cdc_companion_from_snapshot(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
     source: "ExternalDataSource",
-    snapshot_delta_table_helper: "DeltaTableHelper",
+    snapshot_delta_table_ref: "DeltaTableRef",
     logger: FilteringBoundLogger,
 ) -> None:
     """Populate the _cdc companion table with snapshot rows as synthetic INSERT events.
@@ -168,13 +166,11 @@ async def _seed_cdc_companion_from_snapshot(
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 
-    snapshot_dt = await snapshot_delta_table_helper.get_delta_table()
+    snapshot_dt = await snapshot_delta_table_ref.get_delta_table()
     if snapshot_dt is None:
         return
 
@@ -192,14 +188,14 @@ async def _seed_cdc_companion_from_snapshot(
     read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
 
     companion_resource_name = f"{schema.name}_cdc"
-    companion_helper = DeltaTableHelper(
+    companion_ref = DeltaTableRef(
         resource_name=companion_resource_name,
         job=job,
         logger=logger,
     )
 
     # Reset so a full resync always starts the companion fresh.
-    await companion_helper.reset_table()
+    await companion_ref.reset_table()
 
     hogql_schema = HogQLSchema()
     total_rows = 0
@@ -243,7 +239,7 @@ async def _seed_cdc_companion_from_snapshot(
 
         # Plain append — the companion table is freshly reset so there are no existing
         # rows to close, making SCD2 merge unnecessary.
-        await DeltaWriter(companion_helper).write(
+        await DeltaWriter(companion_ref).write(
             data=batch_table,
             write_type="append",
             should_overwrite_table=False,
@@ -259,7 +255,7 @@ async def _seed_cdc_companion_from_snapshot(
         job=job,
         schema=schema,
         source=source,
-        delta_table_helper=companion_helper,
+        delta_table_ref=companion_ref,
         row_count=total_rows,
         table_schema_dict=hogql_schema.to_hogql_types(),
         resource_name=companion_resource_name,
@@ -270,7 +266,7 @@ async def _seed_cdc_companion_from_snapshot(
 
 async def _run_delta_maintenance(
     schema: ExternalDataSchema,
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
@@ -281,7 +277,7 @@ async def _run_delta_maintenance(
         DeltaMaintenance,
     )
 
-    maintenance = DeltaMaintenance(delta_table_helper)
+    maintenance = DeltaMaintenance(delta_table_ref)
     if schema.is_cdc:
         # CDC finals land once per tick per changed schema, so unconditional compaction would run
         # near-continuously after mostly-tiny merges. Use threshold/cadence maintenance instead:
@@ -308,7 +304,7 @@ async def _run_delta_maintenance(
 async def _publish_queryable_files(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     resource_name: str,
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
@@ -342,7 +338,7 @@ async def _publish_queryable_files(
 
     # File URIs are listed after delta maintenance so the queryable folder serves the compacted
     # layout rather than the pre-compaction small files.
-    file_uris = await delta_table_helper.get_file_uris()
+    file_uris = await delta_table_ref.get_file_uris()
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
         return await prepare_s3_files_for_querying(
@@ -352,7 +348,7 @@ async def _publish_queryable_files(
             delete_existing=True,
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
-            refresh_file_uris=delta_table_helper.get_file_uris,
+            refresh_file_uris=delta_table_ref.get_file_uris,
         )
 
 
@@ -411,13 +407,14 @@ async def _run_cdc_post_load(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     source: "ExternalDataSource",
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     row_count: int,
     table_schema_dict: dict[str, str],
     resource_name: str,
     queryable_folder: str,
     cdc_write_mode: Optional[str],
     is_cdc_companion: bool,
+    is_initial_load: bool,
     logger: FilteringBoundLogger,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
@@ -442,13 +439,16 @@ async def _run_cdc_post_load(
         return
 
     # After the initial snapshot load for a CDC schema, seed the companion _cdc table
-    # with the snapshot rows as synthetic INSERT events.  Only fires when cdc_write_mode
-    # is None (initial non-CDC load), NOT on every CDC consolidated streaming batch.
-    should_seed = cdc_write_mode is None and schema.cdc_table_mode in ("cdc_only", "both")
+    # with the snapshot rows as synthetic INSERT events. Seeding resets the companion, so
+    # it must happen only on the initial load: a missing cdc_write_mode alone does not mean
+    # "initial" — a redelivered final batch reaches post-load without one, and re-seeding
+    # there throws away every SCD2 version the stream has accumulated since.
+    should_seed = is_initial_load and cdc_write_mode is None and schema.cdc_table_mode in ("cdc_only", "both")
     logger.info(
         "cdc_seed_check",
         should_seed=should_seed,
         cdc_write_mode=cdc_write_mode,
+        is_initial_load=is_initial_load,
         sync_type=schema.sync_type,
         cdc_table_mode=schema.cdc_table_mode,
     )
@@ -458,7 +458,7 @@ async def _run_cdc_post_load(
             schema=schema,
             job=job,
             source=source,
-            snapshot_delta_table_helper=delta_table_helper,
+            snapshot_delta_table_ref=delta_table_ref,
             logger=logger,
         )
         logger.info("Finished seeding CDC companion table from snapshot")
@@ -471,7 +471,7 @@ class PostLoadStep(Protocol):
         job: ExternalDataJob,
         schema: ExternalDataSchema,
         source: "ExternalDataSource",
-        delta_table_helper: "DeltaTableHelper",
+        delta_table_ref: "DeltaTableRef",
         is_cdc_companion: bool,
         logger: FilteringBoundLogger,
     ) -> None: ...
@@ -482,7 +482,7 @@ async def _notify_revenue_analytics_step(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     source: "ExternalDataSource",
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
@@ -495,7 +495,7 @@ async def _sync_revenue_analytics_views_step(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     source: "ExternalDataSource",
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
@@ -508,7 +508,7 @@ async def _sync_engineering_analytics_views_step(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     source: "ExternalDataSource",
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
@@ -521,7 +521,7 @@ async def _maybe_flag_repartition_step(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     source: "ExternalDataSource",
-    delta_table_helper: "DeltaTableHelper",
+    delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
@@ -535,7 +535,7 @@ async def _maybe_flag_repartition_step(
         maybe_flag_for_repartition,
     )
 
-    delta_table = await delta_table_helper.get_delta_table()
+    delta_table = await delta_table_ref.get_delta_table()
     if delta_table is not None:
         await maybe_flag_for_repartition(schema, source, job, delta_table, logger)
 
@@ -551,11 +551,46 @@ POST_LOAD_STEPS: tuple[PostLoadStep, ...] = (
 )
 
 
+def _repartitioned_during_job(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
+    """Whether a repartition rewrote the table earlier in this same job.
+
+    The swap clears `repartition_pending` and `repartition_swap` before extraction runs, so
+    those markers cannot tell post-load that the layout was just replaced and its files still
+    need publishing. An unparseable stamp publishes rather than skips.
+    """
+    stamped = schema.last_repartition_at
+    if not stamped:
+        return False
+    try:
+        return dt.datetime.fromisoformat(stamped) >= job.created_at
+    except (TypeError, ValueError):
+        return True
+
+
+async def _run_post_load_steps(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    source: "ExternalDataSource",
+    delta_table_ref: "DeltaTableRef",
+    is_cdc_companion: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    for step in POST_LOAD_STEPS:
+        await step(
+            job=job,
+            schema=schema,
+            source=source,
+            delta_table_ref=delta_table_ref,
+            is_cdc_companion=is_cdc_companion,
+            logger=logger,
+        )
+
+
 async def run_post_load_operations(
     job: ExternalDataJob,
     schema: ExternalDataSchema,
     source: "ExternalDataSource",
-    delta_table_helper: "Optional[DeltaTableHelper]",
+    delta_table_ref: "Optional[DeltaTableRef]",
     row_count: int,
     table_schema_dict: dict[str, str],
     resource_name: str,
@@ -563,6 +598,7 @@ async def run_post_load_operations(
     last_incremental_field_value: Any = None,
     resource: "Optional[SourceResponse]" = None,
     cdc_write_mode: Optional[str] = None,
+    allow_zero_row_skip: bool = False,
 ) -> Optional[str]:
     """
     Orchestrator that runs all post-load operations, in order:
@@ -575,8 +611,11 @@ async def run_post_load_operations(
            analytics views, repartition detection)
 
     Returns the queryable folder the table now serves from, or None when there is no delta table.
+
+    With `allow_zero_row_skip`, a steady-state non-CDC run that wrote zero rows skips steps
+    1, 2 and 4 and returns None.
     """
-    if delta_table_helper is None or await delta_table_helper.get_delta_table() is None:
+    if delta_table_ref is None or await delta_table_ref.get_delta_table() is None:
         logger.debug("No deltalake table, not continuing with post-run ops")
         return None
 
@@ -585,11 +624,36 @@ async def run_post_load_operations(
     # table independently, otherwise we overwrite the snapshot queryable_folder with the SCD2 path.
     is_cdc_companion = cdc_write_mode == "scd2_append"
     is_cdc_schema = schema.sync_type == ExternalDataSchema.SyncType.CDC
+    # Read before the bookkeeping below sets the flag, which would otherwise make every run
+    # look like a continuation.
+    is_initial_load = not schema.initial_sync_complete
 
-    await _run_delta_maintenance(schema, delta_table_helper, is_cdc_companion, logger)
+    # Zero rows means the Delta table is untouched: nothing to compact, and republishing
+    # would only orphan a fresh copy of every parquet file. Registration already no-ops at
+    # zero rows. Bookkeeping and POST_LOAD_STEPS still run below, because those repair
+    # managed views and watermarks rather than describing what this run wrote. Opt-in
+    # because only the v2 pipeline's row_count is ground truth for what the run wrote; the
+    # v3 consumer's can read 0 for a batch that did write data.
+    if (
+        allow_zero_row_skip
+        and row_count == 0
+        and not is_cdc_schema
+        and not is_cdc_companion
+        and schema.initial_sync_complete
+        and schema.repartition_pending is None
+        and schema.repartition_swap is None
+        and schema.delta_revive_required is None
+        and not _repartitioned_during_job(schema, job)
+    ):
+        logger.debug("Zero rows synced, skipping delta maintenance and S3 publish")
+        await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
+        await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
+        return None
+
+    await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
 
     queryable_folder = await _publish_queryable_files(
-        job, schema, delta_table_helper, resource_name, is_cdc_companion, logger
+        job, schema, delta_table_ref, resource_name, is_cdc_companion, logger
     )
 
     await _finalize_sync_bookkeeping(job, schema, resource, last_incremental_field_value, logger)
@@ -607,24 +671,17 @@ async def run_post_load_operations(
             job=job,
             schema=schema,
             source=source,
-            delta_table_helper=delta_table_helper,
+            delta_table_ref=delta_table_ref,
             row_count=row_count,
             table_schema_dict=table_schema_dict,
             resource_name=resource_name,
             queryable_folder=queryable_folder,
             cdc_write_mode=cdc_write_mode,
             is_cdc_companion=is_cdc_companion,
+            is_initial_load=is_initial_load,
             logger=logger,
         )
 
-    for step in POST_LOAD_STEPS:
-        await step(
-            job=job,
-            schema=schema,
-            source=source,
-            delta_table_helper=delta_table_helper,
-            is_cdc_companion=is_cdc_companion,
-            logger=logger,
-        )
+    await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
 
     return queryable_folder

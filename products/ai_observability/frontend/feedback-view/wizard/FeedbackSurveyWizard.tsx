@@ -5,10 +5,11 @@ import { IconArrowLeft, IconArrowRight, IconCheck, IconDocument } from '@posthog
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { dayjs } from 'lib/dayjs'
 import { ColorInput } from 'scenes/surveys/wizard/ColorInput'
 
-import { Survey, SurveyAppearance } from '~/types'
+import { AvailableFeature, Survey, SurveyAppearance } from '~/types'
 
 import { getManualCaptureExample, getReactExample } from './codeExamples'
 import { FeedbackPreviewMock } from './FeedbackPreviewMock'
@@ -138,6 +139,7 @@ function ConfigureStep(): JSX.Element {
     } = useValues(feedbackSurveyWizardLogic)
     const { setStep, setSurveyName, setFollowUpEnabled, setFollowUpQuestion, updateAppearance, createSurvey } =
         useActions(feedbackSurveyWizardLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const [thumbState, setThumbState] = useState<'none' | 'up' | 'down'>('down')
 
@@ -225,7 +227,15 @@ function ConfigureStep(): JSX.Element {
                                     <LemonCheckbox
                                         label="Hide PostHog branding"
                                         checked={appearance.whiteLabel}
-                                        onChange={(checked) => updateAppearance({ whiteLabel: checked })}
+                                        onChange={(checked) => {
+                                            if (checked) {
+                                                guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
+                                                    updateAppearance({ whiteLabel: checked })
+                                                )
+                                            } else {
+                                                updateAppearance({ whiteLabel: checked })
+                                            }
+                                        }}
                                         size="small"
                                     />
                                 </div>

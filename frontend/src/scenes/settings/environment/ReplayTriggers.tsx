@@ -4,6 +4,7 @@ import { LemonBanner, LemonCollapse, LemonDivider, LemonLabel, LemonTab, LemonTa
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { replayTriggersV2Logic } from 'lib/components/IngestionControls/triggers/triggerGroups/replayTriggersV2Logic'
 import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -272,44 +273,42 @@ function Sampling(): JSX.Element {
 }
 
 function MobileSampling(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const storedSampleRate = currentTeam?.session_recording_sample_rate
-    const sampleRate = toDisplaySampleRate(storedSampleRate)
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex flex-row items-center gap-2">
-                <LemonLabel className="text-base">
-                    Sample rate{' '}
-                    <Since
-                        android={{ version: '3.34.0' }}
-                        ios={{ version: '3.42.0' }}
-                        reactNative={{ version: '4.37.0' }}
+        <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-row justify-between items-center">
+                    <LemonLabel className="text-base">
+                        Sample rate{' '}
+                        <Since
+                            android={{ version: '3.34.0' }}
+                            ios={{ version: '3.42.0' }}
+                            reactNative={{ version: '4.37.0' }}
+                        />
+                        {storedSampleRate == null && <span className="text-muted font-normal"> (default)</span>}
+                    </LemonLabel>
+                    <IngestionControls.SamplingTrigger
+                        initialSampleRate={toDisplaySampleRate(storedSampleRate)}
+                        onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
                     />
-                </LemonLabel>
-                <Tooltip title="Sample rate is shared across web and mobile. Change it on the Web tab.">
-                    <span className="text-muted font-semibold">
-                        {sampleRate}%{storedSampleRate == null && <span className="font-normal"> (default)</span>}
-                    </span>
-                </Tooltip>
+                </div>
+                <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
             </div>
-            <p className="text-muted-alt">
-                Sample rate is shared across all platforms.{' '}
-                <span className="font-semibold">Change this setting on the Web tab.</span>
-            </p>
-        </div>
+        </PayGateMini>
     )
 }
 
 function MobileEventTriggers(): JSX.Element {
     const { eventTriggerConfig } = useValues(replayTriggersLogic)
-
-    const eventCount = eventTriggerConfig?.length ?? 0
+    const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-row items-center gap-2">
+            <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">
                     Event emitted{' '}
                     <Since
@@ -319,49 +318,51 @@ function MobileEventTriggers(): JSX.Element {
                         flutter={{ version: '5.25.0' }}
                     />
                 </LemonLabel>
-                <Tooltip title="Event triggers are shared across web and mobile. Change them on the Web tab.">
-                    <span className="text-muted font-semibold">
-                        {eventCount > 0 ? pluralize(eventCount, 'event') : 'Not configured'}
-                    </span>
-                </Tooltip>
+                <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
-            <p className="text-muted-alt">
-                Event triggers are shared across Web and Mobile.{' '}
-                <span className="font-semibold">Change this setting on the Web tab.</span>
-            </p>
+            <p>Start recording when a PostHog event is queued.</p>
+
+            <div className="flex gap-2 flex-wrap">
+                {eventTriggerConfig?.map((trigger) => (
+                    <IngestionControls.EventTrigger
+                        key={trigger}
+                        trigger={trigger}
+                        onClose={() => updateEventTriggerConfig(eventTriggerConfig?.filter((e) => e !== trigger))}
+                    />
+                ))}
+            </div>
         </div>
     )
 }
 
 function MobileMinimumDuration(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const minDurationMs = currentTeam?.session_recording_minimum_duration_milliseconds
-    const minDurationSeconds = (minDurationMs ?? 0) / 1000
-
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex flex-row items-center gap-2">
-                <LemonLabel className="text-base">
-                    Duration threshold{' '}
-                    <Since
-                        ios={{ version: '3.53.0' }}
-                        android={{ version: '3.44.0' }}
-                        reactNative={{ version: '4.52.0' }}
-                        flutter={{ version: '5.24.3' }}
+        <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
+            <div className="flex flex-col gap-2">
+                <div className="flex flex-row justify-between items-center">
+                    <LemonLabel className="text-base">
+                        Duration threshold{' '}
+                        <Since
+                            ios={{ version: '3.53.0' }}
+                            android={{ version: '3.44.0' }}
+                            reactNative={{ version: '4.52.0' }}
+                            flutter={{ version: '5.24.3' }}
+                        />
+                    </LemonLabel>
+                    <IngestionControls.MinDuration
+                        value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                        onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
                     />
-                </LemonLabel>
-                <Tooltip title="Minimum duration is shared across web and mobile. Change it on the Web tab.">
-                    <span className="text-muted font-semibold">
-                        {minDurationMs ? `${minDurationSeconds}s` : 'No minimum'}
-                    </span>
-                </Tooltip>
+                </div>
+                <p>
+                    Only collect sessions that last longer than this. This helps you avoid recording sessions that are
+                    too short to be useful.
+                </p>
             </div>
-            <p className="text-muted-alt">
-                Minimum duration is shared across Web and Mobile.{' '}
-                <span className="font-semibold">Change this setting on the Web tab.</span>
-            </p>
-        </div>
+        </PayGateMini>
     )
 }
 
@@ -506,7 +507,15 @@ function LegacyRecordingConditions(): JSX.Element {
 }
 
 function SdkCompatibilityBanner(): JSX.Element {
-    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk, outdatedWebTraffic } = useValues(replayTriggersLogic)
+    const {
+        shouldMinimizeLegacyConditions,
+        webTrafficIsRecent,
+        hasV2TriggerGroups,
+        hasOutdatedWebSdk,
+        outdatedWebTraffic,
+    } = useValues(replayTriggersLogic)
+    const { hasLegacyTriggers } = useValues(replayTriggersV2Logic)
+    const { showCreateFromLegacyModal, setIsAddingGroup } = useActions(replayTriggersV2Logic)
 
     if (shouldMinimizeLegacyConditions) {
         return (
@@ -514,6 +523,29 @@ function SdkCompatibilityBanner(): JSX.Element {
                 Your recent web SDK traffic is effectively all on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups
                 apply to essentially every session. The legacy recording conditions below are kept only as a fallback
                 for older SDKs.
+            </LemonBanner>
+        )
+    }
+
+    if (webTrafficIsRecent && !hasV2TriggerGroups) {
+        return (
+            <LemonBanner
+                type="info"
+                action={
+                    hasLegacyTriggers
+                        ? {
+                              children: 'Migrate legacy conditions',
+                              onClick: showCreateFromLegacyModal,
+                          }
+                        : {
+                              children: 'Add trigger group',
+                              onClick: () => setIsAddingGroup(true),
+                          }
+                }
+            >
+                Your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, but you haven't set up trigger
+                groups yet. Recording still uses the legacy conditions below. Newer SDKs fall back to them when no
+                trigger groups exist, so nothing changes until you migrate.
             </LemonBanner>
         )
     }
@@ -614,6 +646,10 @@ export function ReplayTriggers(): JSX.Element {
             label: 'Mobile',
             content: (
                 <div className="flex flex-col gap-y-2">
+                    <LemonBanner type="info">
+                        Trigger groups aren't available on mobile yet. Mobile recording uses the settings below, which
+                        are shared with web. Changing a setting here also changes it on web.
+                    </LemonBanner>
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}

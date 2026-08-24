@@ -72,10 +72,12 @@ _LAZY = {
     "reconcile_redshift_schemas": "redshift_helpers",
     "reproject_direct_redshift_table": "redshift_helpers",
     "schedule_managed_warehouse_tables_reconcile": "tasks.tasks",
+    "schedule_managed_warehouse_direct_source_ensure": "tasks.tasks",
     "schedule_soft_delete_managed_warehouse_sources": "tasks.tasks",
     "HogQLQueryFixerTool": "max_tools",
     "hide_direct_mysql_table": "direct_mysql",
     "upsert_direct_mysql_table": "direct_mysql",
+    "DIRECT_MOTHERDUCK_URL_PATTERN": "direct_motherduck",
     "DIRECT_POSTGRES_URL_PATTERN": "direct_postgres",
     "hide_direct_postgres_table": "direct_postgres",
     "upsert_direct_postgres_table": "direct_postgres",
@@ -96,6 +98,7 @@ _LAZY = {
     "ensure_bucket_exists": "s3",
     "get_s3_client": "s3",
     "get_size_of_folder": "s3",
+    "delta_proxy_storage_options": "s3_proxy",
 }
 
 __all__ = sorted(_LAZY)

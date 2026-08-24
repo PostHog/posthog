@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  computeEffectiveBulkIds,
+  computeBulkPinDirection,
   computeOrderedVisibleTaskIds,
   computePriorTaskIds,
   computeRangeSelection,
   dedupeTaskIds,
   formatArchiveResult,
+  formatBulkArchiveWarning,
+  formatBulkResult,
   pruneToVisible,
 } from "./selection";
 import type { TaskData } from "./sidebarData.types";
@@ -76,24 +78,6 @@ describe("pruneToVisible", () => {
   });
 });
 
-describe("computeEffectiveBulkIds", () => {
-  it("returns empty when nothing selected", () => {
-    expect(computeEffectiveBulkIds([], "t1")).toEqual([]);
-  });
-
-  it("returns selection unchanged when no active task", () => {
-    expect(computeEffectiveBulkIds(["t1", "t2"], null)).toEqual(["t1", "t2"]);
-  });
-
-  it("prepends active task when not already selected", () => {
-    expect(computeEffectiveBulkIds(["t2"], "t1")).toEqual(["t1", "t2"]);
-  });
-
-  it("leaves selection unchanged when active task already selected", () => {
-    expect(computeEffectiveBulkIds(["t1", "t2"], "t1")).toEqual(["t1", "t2"]);
-  });
-});
-
 describe("computeOrderedVisibleTaskIds", () => {
   it("uses flat order in chronological mode", () => {
     const ids = computeOrderedVisibleTaskIds(
@@ -126,32 +110,110 @@ describe("computeOrderedVisibleTaskIds", () => {
 });
 
 describe("computePriorTaskIds", () => {
-  it("returns ids created before the clicked task", () => {
+  it("returns ids last active before the clicked task", () => {
     const all = [
-      { id: "t1", createdAt: 100 },
-      { id: "t2", createdAt: 200 },
-      { id: "t3", createdAt: 300 },
+      { id: "t1", lastActivityAt: 100 },
+      { id: "t2", lastActivityAt: 200 },
+      { id: "t3", lastActivityAt: 300 },
     ];
     expect(computePriorTaskIds(all, "t2")).toEqual(["t1"]);
   });
 
   it("returns empty when clicked task not found", () => {
-    expect(computePriorTaskIds([{ id: "t1", createdAt: 1 }], "x")).toEqual([]);
+    expect(computePriorTaskIds([{ id: "t1", lastActivityAt: 1 }], "x")).toEqual(
+      [],
+    );
+  });
+});
+
+describe("computeBulkPinDirection", () => {
+  it.each([
+    { name: "nothing selected", selected: [], pinned: [], expected: "pin" },
+    {
+      name: "none pinned",
+      selected: ["t1", "t2"],
+      pinned: [],
+      expected: "pin",
+    },
+    {
+      name: "some pinned",
+      selected: ["t1", "t2"],
+      pinned: ["t1"],
+      expected: "pin",
+    },
+    {
+      name: "all pinned",
+      selected: ["t1", "t2"],
+      pinned: ["t1", "t2", "t3"],
+      expected: "unpin",
+    },
+  ])("returns $expected when $name", ({ selected, pinned, expected }) => {
+    expect(computeBulkPinDirection(selected, new Set(pinned))).toBe(expected);
+  });
+});
+
+describe("formatBulkResult", () => {
+  it.each([
+    { kind: "archived" as const, succeeded: 1, message: "1 session archived" },
+    { kind: "archived" as const, succeeded: 3, message: "3 sessions archived" },
+    { kind: "pinned" as const, succeeded: 4, message: "4 sessions pinned" },
+    { kind: "unpinned" as const, succeeded: 2, message: "2 sessions unpinned" },
+    { kind: "filed" as const, succeeded: 1, message: "1 session filed" },
+    {
+      kind: "added to Command Center" as const,
+      succeeded: 2,
+      message: "2 sessions added to Command Center",
+    },
+  ])("formats $succeeded $kind", ({ kind, succeeded, message }) => {
+    expect(formatBulkResult(kind, { succeeded, failed: 0 })).toEqual({
+      kind: "success",
+      message,
+    });
+  });
+
+  it("reports failures as an error", () => {
+    expect(formatBulkResult("pinned", { succeeded: 2, failed: 1 })).toEqual({
+      kind: "error",
+      message: "2 pinned, 1 failed",
+    });
+  });
+});
+
+describe("formatBulkArchiveWarning", () => {
+  it.each([
+    {
+      name: "nothing running",
+      counts: { running: 0, stopsCloudSandbox: false },
+      expected: "You can unarchive them later.",
+    },
+    {
+      name: "one running",
+      counts: { running: 1, stopsCloudSandbox: false },
+      expected:
+        "You can unarchive them later. 1 of them is still running and will be stopped.",
+    },
+    {
+      name: "several running",
+      counts: { running: 3, stopsCloudSandbox: false },
+      expected:
+        "You can unarchive them later. 3 of them are still running and will be stopped.",
+    },
+    {
+      name: "a cloud sandbox",
+      counts: { running: 2, stopsCloudSandbox: true },
+      expected:
+        "You can unarchive them later. 2 of them are still running and will be stopped. Any cloud sandbox in the selection shuts down too.",
+    },
+  ])("describes $name", ({ counts, expected }) => {
+    expect(formatBulkArchiveWarning(counts)).toBe(expected);
   });
 });
 
 describe("formatArchiveResult", () => {
-  it("formats success singular", () => {
-    expect(formatArchiveResult({ archived: 1, failed: 0 })).toEqual({
-      kind: "success",
-      message: "1 task archived",
-    });
-  });
-
-  it("formats success plural", () => {
+  it("formats success", () => {
     expect(formatArchiveResult({ archived: 3, failed: 0 })).toEqual({
       kind: "success",
-      message: "3 tasks archived",
+      message: "3 sessions archived",
     });
   });
 

@@ -20,8 +20,18 @@ from posthog.dags.deletes import (
     find_partitions_to_cleanup,
     monthly_old_events_cleanup_job,
 )
+from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+
+def surviving_flag_evaluations(client: Client) -> set[tuple[int, UUID, UUID]]:
+    # _row_exists = 1 filters out lightweight-deleted rows, which stay visible until a merge. Without
+    # it a swept row still reads back and the "survived the sweep" assertions pass on merge timing.
+    result = client.execute("SELECT team_id, person_id, uuid FROM flag_evaluations WHERE _row_exists = 1")
+    if not isinstance(result, list):
+        return set()
+    return {(row[0], row[1], row[2]) for row in result}
 
 
 @pytest.mark.django_db
@@ -44,6 +54,20 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
         )
 
     cluster.any_host(insert_events).result()
+
+    # Flag-evaluation rows for one person whose deletion lands inside the window and one whose
+    # deletion sits past the override watermark, mirroring the two event assertions below. The
+    # sweep reaches this table only because it is registered as a deletion target.
+    swept_person, retained_person = hour_delay + 2, hour_delay - 2
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [
+                (i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp - timedelta(hours=i))
+                for i in (swept_person, retained_person)
+            ],
+        )
+    ).result()
 
     def get_oldest_override_timestamp(client: Client) -> datetime:
         result = client.execute(f"SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}")
@@ -117,6 +141,14 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     deleted_uuid = UUID(int=hour_delay + 2)
     assert not any(deleted_uuid == uuid for _, uuid in final_events.keys()), (
         f"Expected UUID {deleted_uuid} to be deleted"
+    )
+
+    surviving = cluster.any_host(surviving_flag_evaluations).result()
+    assert (swept_person, UUID(int=swept_person), UUID(int=swept_person)) not in surviving, (
+        "flag_evaluations rows for a deleted person survived the sweep"
+    )
+    assert (retained_person, UUID(int=retained_person), UUID(int=retained_person)) in surviving, (
+        "the sweep deleted a flag_evaluations row it should not have"
     )
 
     # Verify that the deletions before oldest override timestamp have been marked verified
@@ -378,9 +410,21 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     cluster.any_host(insert_events).result()
     cluster.any_host(insert_adhoc_event_deletes).result()
 
+    # The queue holds (team_id, uuid) and the drain applies it to every personal-data table, so a
+    # flag-evaluation row sharing a queued uuid has to go with the event. This is the assumption
+    # the producer must honor: mirror the source event's uuid, or the two tables diverge here.
+    queued_uuid, unqueued_uuid = 5, delete_count + 5
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)],
+        )
+    ).result()
+
     # Check preconditions
     initial_events = cluster.any_host(partial(get_by_team_and_uuid, "writable_events")).result()
     assert len(initial_events) == event_count  # All events present initially
+    assert len(cluster.any_host(surviving_flag_evaluations).result()) == 2
 
     pending_deletes = cluster.any_host(get_pending_deletes).result()
     assert pending_deletes == delete_count
@@ -406,6 +450,14 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     assert all(
         (event[0], event[2]) in final_events.keys() for event in events if event[0] not in range(delete_count)
     ), f"There are non-requested deleted events that were deleted"
+
+    surviving = cluster.any_host(surviving_flag_evaluations).result()
+    assert (queued_uuid, UUID(int=queued_uuid), UUID(int=queued_uuid)) not in surviving, (
+        "a flag_evaluations row whose uuid was queued for deletion survived"
+    )
+    assert (unqueued_uuid, UUID(int=unqueued_uuid), UUID(int=unqueued_uuid)) in surviving, (
+        "the drain deleted a flag_evaluations row whose uuid was never queued"
+    )
     # Verify the temporary tables were cleaned up
     deletes_dict = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())

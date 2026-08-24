@@ -10,12 +10,17 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
     IntegrationAccountListingError,
@@ -37,8 +42,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     suggest_registered_site,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.settings import (
+    DEFAULT_SEARCH_TYPE,
+    PROPERTY_SCHEMAS,
     SEARCH_ANALYTICS_INCREMENTAL_FIELD,
     SEARCH_ANALYTICS_SCHEMAS,
+    SEARCH_TYPES,
+    SearchAnalyticsSchema,
+    qualified_schema_name,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -124,6 +134,33 @@ class GoogleSearchConsoleSource(
             for site in sites
         ]
 
+    @staticmethod
+    def effective_search_types(config: GoogleSearchConsoleSourceConfig) -> list[str]:
+        """Search types to build tables for, in `SEARCH_TYPES` order.
+
+        Falls back to web when unset, so sources created before this field existed keep
+        exactly the table set they already sync.
+        """
+        selected = set(config.search_types or [])
+        return [t for t in SEARCH_TYPES if t in selected] or [DEFAULT_SEARCH_TYPE]
+
+    @staticmethod
+    def _search_analytics_schema(base_name: str, schema: SearchAnalyticsSchema, search_type: str) -> SourceSchema:
+        is_default_type = search_type == DEFAULT_SEARCH_TYPE
+        description = schema["description"]
+        if not is_default_type and description is not None:
+            description = f"{description} Restricted to {search_type} search results."
+        return SourceSchema(
+            name=qualified_schema_name(base_name, search_type),
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[SEARCH_ANALYTICS_INCREMENTAL_FIELD],
+            description=description,
+            # Never default-on a non-web table: each one costs a full history backfill,
+            # and picking a search type shouldn't silently start one.
+            should_sync_default=schema["should_sync_default"] and is_default_type,
+        )
+
     def get_schemas(
         self,
         config: GoogleSearchConsoleSourceConfig,
@@ -134,15 +171,22 @@ class GoogleSearchConsoleSource(
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
+            self._search_analytics_schema(base_name, schema, search_type)
+            for search_type in self.effective_search_types(config)
+            for base_name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
+            if search_type == DEFAULT_SEARCH_TYPE or not schema.get("web_only")
+        ]
+        # Property metadata is a full snapshot each sync: both endpoints return the current
+        # state with no timestamp to filter on, so there is nothing to sync incrementally.
+        schemas += [
             SourceSchema(
                 name=name,
-                supports_incremental=True,
-                supports_append=True,
-                incremental_fields=[SEARCH_ANALYTICS_INCREMENTAL_FIELD],
-                description=schema["description"],
-                should_sync_default=schema["should_sync_default"],
+                supports_incremental=False,
+                supports_append=False,
+                description=property_schema["description"],
+                should_sync_default=property_schema["should_sync_default"],
             )
-            for name, schema in SEARCH_ANALYTICS_SCHEMAS.items()
+            for name, property_schema in PROPERTY_SCHEMAS.items()
         ]
 
         if names is not None:
@@ -150,6 +194,13 @@ class GoogleSearchConsoleSource(
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.canonical_descriptions import (
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_resumable_source_manager(
         self, inputs: SourceInputs
@@ -281,6 +332,25 @@ class GoogleSearchConsoleSource(
                             "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties."
                         ),
                         required=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="search_types",
+                        label="Search types",
+                        required=True,
+                        defaultValue=DEFAULT_SEARCH_TYPE,
+                        multiple=True,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Web", value="web"),
+                            SourceFieldSelectConfigOption(label="Image", value="image"),
+                            SourceFieldSelectConfigOption(label="Video", value="video"),
+                            SourceFieldSelectConfigOption(label="News", value="news"),
+                        ],
+                        caption=(
+                            "Which Search Console result types to sync. Web keeps the original table names. "
+                            "Every other type adds a copy of each table with the type as a suffix, such as "
+                            "search_analytics_by_page_image, and each copy costs a full set of API requests. "
+                            "Removing a type later stops its tables syncing, but keeps the data already imported."
+                        ),
                     ),
                 ],
             ),

@@ -211,11 +211,13 @@ async fn scan_persons_page(
             FROM posthog_persondistinctid pd
             WHERE pd.person_id = p.id
               AND pd.team_id = p.team_id
+              AND pd.is_deleted = false
             ORDER BY pd.id
             LIMIT 1
         ) d ON true
         WHERE p.team_id = $1
           AND p.id > $2
+          AND p.is_deleted = false
         ORDER BY p.id
         LIMIT $3
     "#;
@@ -228,7 +230,8 @@ async fn scan_persons_page(
         .await
         .map_err(|e| {
             warn!(team_id, cursor, "Batch eval person scan failed: {e}");
-            FlagError::Internal(format!("person scan query failed: {e}"))
+            let message = format!("person scan query failed: {e}");
+            FlagError::internal(anyhow::Error::new(e).context(message))
         })
 }
 
@@ -455,6 +458,7 @@ async fn handle_batch_flag_evaluation(
         )
         .with_cohort_membership_provider(state.cohort_membership_provider.clone())
         .with_realtime_cohort_evaluation(enable_realtime_cohort_evaluation)
+        .with_membership_stamp_policy(state.config.realtime_cohort_membership_stamp_policy)
         .with_rayon_dispatcher(state.rayon_dispatcher.clone())
         .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
         // Read-only: experience-continuity overrides are consulted but never written.

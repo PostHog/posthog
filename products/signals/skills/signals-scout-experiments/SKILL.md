@@ -88,7 +88,7 @@ Two caveats before trusting a clean p-value:
 - It tests against the **current** configured split. If variants were redistributed mid-run, post-edit balance can look clean while pre-edit data is contaminated — check the flag history (below) whenever `feature_flag.version` is high.
 - It says nothing about `$multiple` — read `bias_risk.multiple_variant_percentage` as its own check (below).
 
-When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Default exposure event:
+When the tool can't serve the experiment (legacy metrics) or you need to date an onset, fall back to the exposure SQL. Read the default exposure event off `experiment-get`'s `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved server-side, same properties either way):
 
 ```sql
 SELECT
@@ -96,14 +96,14 @@ SELECT
     count() AS exposures,
     count(DISTINCT person_id) AS persons
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event = '<resolved_exposure_event>'
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= toDateTime('<start_date>', 'UTC')
 GROUP BY variant
 ORDER BY exposures DESC
 ```
 
-If `exposure_criteria.exposure_event` is set, the experiment uses a custom exposure event — query that event name instead and read the variant from `properties.$feature/<flag-key>` (a different property; the default's `$feature_flag_response` won't exist there).
+If `exposure_criteria.exposure_config.event` is set, the experiment uses a custom exposure event — query that event name instead and read the variant from `properties.$feature/<flag-key>` (a different property; the default's `$feature_flag_response` won't exist there).
 
 Reading the output:
 
@@ -127,7 +127,7 @@ SELECT person_id,
        count(DISTINCT properties.$feature_flag_response) AS variants_seen,
        count(DISTINCT distinct_id) AS distinct_ids
 FROM events
-WHERE event = '$feature_flag_called'
+WHERE event = '<resolved_exposure_event>'
   AND properties.$feature_flag = '<flag-key>'
   AND properties.$feature_flag_response NOT IN ('$multiple', 'false', '')
   AND timestamp >= toDateTime('<start_date>', 'UTC')
@@ -147,12 +147,12 @@ Both are report-worthy: the team thinks they're collecting evidence and they are
 
 #### Exposure stall / dormant experiment
 
-A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `$feature_flag_called`, but if `exposure_criteria.exposure_event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the default query against a custom-exposure experiment returns zero rows and fakes a stall:
+A running experiment should accrue exposures continuously. Read the per-variant `exposures.timeseries` off `experiment-results-get` (cumulative daily counts — a flat tail is the stall shape), or by SQL. **Query the experiment's actual exposure event**: default experiments use `resolved_exposure_event` from `experiment-get` (`$feature_flag_called` or `$experiment_exposure`), but if `exposure_criteria.exposure_config.event` is set, query that event name instead (filtering on `properties.$feature/<flag-key>` rather than `$feature_flag`) — running the wrong event's query returns zero rows and fakes a stall:
 
 ```sql
 SELECT toDate(timestamp) AS day, count() AS exposures
 FROM events
-WHERE event = '$feature_flag_called'  -- or exposure_criteria.exposure_event
+WHERE event = '<resolved_exposure_event>'  -- or exposure_criteria.exposure_config.event
   AND properties.$feature_flag = '<flag-key>'
   AND timestamp >= toDateTime('<start_date>', 'UTC')
 GROUP BY day ORDER BY day
@@ -231,12 +231,12 @@ Direct calls (read-only):
 
 - `experiment-list` — cheap candidate discovery: id, name, status (draft / running / paused / stopped), dates, `feature_flag_key`. Filter by `status`; start here.
 - `experiment-results-get` — **the flagship detector**: exposure block (`total_exposures`, daily `timeseries`, native `sample_ratio_mismatch.p_value`, `bias_risk.multiple_variant_percentage`) plus per-metric `validation_failures` / `data: null`. Heavy response with many metrics — read the exposure + validation fields, skip the per-metric stats. New-engine experiments only; pass `refresh: false`.
-- `experiment-get` — full config for a candidate: `parameters.feature_flag_variants` (configured split), `parameters.rollout_percentage`, `recommended_sample_size`, `parameters.excluded_variants`, `exposure_criteria` (custom `exposure_event`, `multiple_variant_handling`, `filterTestAccounts`), `stats_config.method`, `holdout_id`, linked `feature_flag` (active, `version`, `bucketing_identifier`, `ensure_experience_continuity`, `filters.groups[].variant` overrides), `metrics` (each with `uuid` + fingerprint). Large response — candidates only.
+- `experiment-get` — full config for a candidate: `parameters.feature_flag_variants` (configured split), `parameters.rollout_percentage`, `recommended_sample_size`, `parameters.excluded_variants`, `exposure_criteria` (custom `exposure_config.event`, `multiple_variant_handling`, `filterTestAccounts`), `resolved_exposure_event` (the default exposure event to query), `stats_config.method`, `holdout_id`, linked `feature_flag` (active, `version`, `bucketing_identifier`, `ensure_experience_continuity`, `filters.groups[].variant` overrides), `metrics` (each with `uuid` + fingerprint). Large response — candidates only.
 - `experiment-stats` — project-wide velocity aggregate (launched / completed last 30d, active count). Cheap context for the hygiene pass.
 - `experiment-timeseries-results` — day-by-day per-variant results for one metric (`metric_uuid` + `fingerprint` from the metrics array). Use sparingly, for the zombie "decide now" check.
 - `feature-flag-get-definition` / `feature-flags-activity-retrieve` — flag state and edit-history diffs; the latter is how you date mid-run mutations.
 - `advanced-activity-logs-list` (`scopes: ["Experiment"]`) — experiment-level edit timeline.
-- `execute-sql` against `events` — exposure analysis. Properties: `$feature_flag` (flag key) + `$feature_flag_response` (variant, incl. `$multiple`) on `$feature_flag_called`; `$feature/<flag-key>` on custom exposure events.
+- `execute-sql` against `events` — exposure analysis. Properties: `$feature_flag` (flag key) + `$feature_flag_response` (variant, incl. `$multiple`) on the default exposure events (`$feature_flag_called` / `$experiment_exposure`); `$feature/<flag-key>` on custom exposure events.
 - `read-data-schema` — confirm a custom exposure event and its properties exist before aggregating over them.
 
 Inbox & reviewer routing:

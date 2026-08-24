@@ -14,6 +14,7 @@ import type {
 } from "@posthog/shared";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
+import { FILE_READ_CLIENT, type FileReadClient } from "../files/identifiers";
 import { extractFilePaths, xmlToContent } from "../message-editor/content";
 import { PI_RUNNER } from "../pi-runtime/identifiers";
 import type { PiRunner } from "../pi-runtime/piRunner";
@@ -50,6 +51,8 @@ export class TaskService {
     private readonly effects: TaskCreationEffects,
     @inject(PI_RUNNER)
     private readonly piRunner: PiRunner,
+    @inject(FILE_READ_CLIENT)
+    private readonly fileReadClient: FileReadClient,
     @inject(ROOT_LOGGER)
     rootLogger: RootLogger,
   ) {
@@ -156,6 +159,7 @@ export class TaskService {
         host: this.host,
         sessionService: this.sessionService,
         piRunner: this.piRunner,
+        fileReadClient: this.fileReadClient,
         track: (event, props) => this.host.track(event, props),
         onTaskReady,
       },
@@ -257,6 +261,7 @@ export class TaskService {
           await this.piRunner.resume({
             taskId,
             cwd: existingWorkspace.worktreePath ?? existingWorkspace.folderPath,
+            projectTrustPath: existingWorkspace.folderPath,
           });
         }
 
@@ -277,7 +282,7 @@ export class TaskService {
     if (runtime === "pi") {
       try {
         const cwd = await this.host.ensureScratchDir(taskId);
-        await this.piRunner.resume({ taskId, cwd });
+        await this.piRunner.resume({ taskId, cwd, projectTrustPath: cwd });
         return {
           success: true,
           data: { task, workspace: null },
@@ -300,6 +305,7 @@ export class TaskService {
         host: this.host,
         sessionService: this.sessionService,
         piRunner: this.piRunner,
+        fileReadClient: this.fileReadClient,
         track: (event, props) => this.host.track(event, props),
       },
       this.log,

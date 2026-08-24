@@ -47,6 +47,8 @@ const piRunner = {
   stop: vi.fn(async () => {}),
 };
 
+const fileReadClient = { readAbsoluteFile: vi.fn(async () => null) };
+
 const sessionService = {
   connectToTask: vi.fn(),
   disconnectFromTask: vi.fn(),
@@ -103,6 +105,7 @@ function makeSaga(
     host,
     sessionService,
     piRunner,
+    fileReadClient,
     track: vi.fn(),
     ...extra,
   });
@@ -263,6 +266,7 @@ describe("TaskCreationSaga", () => {
       host,
       sessionService,
       piRunner,
+      fileReadClient,
       track: vi.fn(),
     });
 
@@ -314,6 +318,7 @@ describe("TaskCreationSaga", () => {
       host,
       sessionService,
       piRunner,
+      fileReadClient,
       track: vi.fn(),
     });
 
@@ -353,6 +358,28 @@ describe("TaskCreationSaga", () => {
     );
   });
 
+  it("does not roll back task creation when the ready callback throws", async () => {
+    const createdTask = createTask({ repository: undefined });
+    const onTaskReady = vi.fn(() => {
+      throw new Error("renderer unmounted");
+    });
+    const deleteTask = vi.fn();
+    const saga = makeSaga(
+      { createTask: vi.fn().mockResolvedValue(createdTask), deleteTask },
+      { onTaskReady },
+    );
+
+    const result = await saga.run({
+      content: "Draft a launch email",
+      workspaceMode: "local",
+      allowNoRepo: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(onTaskReady).toHaveBeenCalledOnce();
+    expect(deleteTask).not.toHaveBeenCalled();
+  });
+
   it("starts a Pi session without creating an ACP session", async () => {
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
@@ -374,6 +401,7 @@ describe("TaskCreationSaga", () => {
     expect(piRunner.create).toHaveBeenCalledWith({
       taskId: "task-123",
       cwd: "/tmp/scratch/task-123",
+      projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
       thinkingLevel: "medium",

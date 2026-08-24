@@ -7,13 +7,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import botocore.exceptions
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
 )
 
 _UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
+
+
+def test_non_retryable_exception_is_non_reportable_error():
+    # Every NonRetryableException raise site (handle_non_retryable_error, custom-source config
+    # errors, CDC failure classification) already vetted the error as a known customer/upstream
+    # condition before raising it. Subclassing NonReportableError is what keeps that already-known
+    # condition out of error tracking; without it, the activity interceptor reports a fresh
+    # "bug" for every occurrence of an error a source already classified as non-retryable.
+    assert issubclass(NonRetryableException, NonReportableError)
 
 
 def _fake_s3(**kwargs):
@@ -137,6 +149,34 @@ class TestPrepareS3FilesForQuerying:
         assert cp_file.await_count == util_module._COPY_FILES_MAX_ATTEMPTS
         assert refresh_file_uris.await_count == util_module._COPY_FILES_MAX_ATTEMPTS - 1
 
+    async def test_retry_backoff_outlasts_documented_worst_case_compaction_time(self):
+        # A zombie compact+vacuum pass can keep deleting source files for as long as its own
+        # rewrite takes - documented up to ~45s for a pathological table in
+        # core/delta/maintenance.py. Regression for the retry budget silently falling back under
+        # that documented worst case (it did: 4 attempts only covered ~14s of backoff).
+        cp_file = AsyncMock(side_effect=FileNotFoundError("s3://bucket/job/my_table/part-0.parquet"))
+        s3 = _fake_s3(_cp_file=cp_file)
+        refresh_file_uris = AsyncMock(return_value=["s3://bucket/job/my_table/part-0.parquet"])
+        sleeps: list[float] = []
+
+        async def _record_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", side_effect=_record_sleep),
+        ):
+            with pytest.raises(FileNotFoundError):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="my_table",
+                    file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                    delete_existing=False,
+                    refresh_file_uris=refresh_file_uris,
+                )
+
+        assert sum(sleeps) > 45
+
     async def test_propagates_vanished_source_file_without_refresh_callback(self):
         # Callers that don't pass refresh_file_uris keep today's behavior: the race still
         # surfaces as an error instead of being retried blindly.
@@ -150,6 +190,62 @@ class TestPrepareS3FilesForQuerying:
                     file_uris=["s3://bucket/job/my_table/part-0.parquet"],
                     delete_existing=False,
                 )
+
+    async def test_retries_transient_s3_internal_error_during_copy(self):
+        # S3's CopyObject can return its own InternalError after boto's own request retries are
+        # already exhausted, which s3fs surfaces as a bare OSError. Regression for that surfacing
+        # straight through the activity instead of retrying the (idempotent) copy batch.
+        transient_error = OSError("[Errno 121] We encountered an internal error. Please try again.")
+        cp_file = AsyncMock(side_effect=[transient_error, None])
+        s3 = _fake_s3(_cp_file=cp_file)
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                delete_existing=False,
+            )
+
+        assert cp_file.await_count == 2
+
+    async def test_propagates_non_transient_os_error_without_retry(self):
+        # A genuine OSError that isn't a recognized transient S3 blip must surface immediately -
+        # otherwise a real bug would burn through the retry budget before being reported.
+        cp_file = AsyncMock(side_effect=OSError("Permission denied: bucket policy forbids this operation"))
+        s3 = _fake_s3(_cp_file=cp_file)
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            with pytest.raises(OSError):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="my_table",
+                    file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                    delete_existing=False,
+                )
+
+        assert cp_file.await_count == 1
+
+    async def test_tolerates_job_folder_missing_on_first_materialization(self):
+        # A brand new table/model has no prior content in S3, so listing the job folder to
+        # find old timestamped query folders to clean up raises FileNotFoundError (s3fs's
+        # `_ls` behavior for a prefix with zero objects under it). That's an expected first-run
+        # state, not a failure - regresses the crash this caused on first materialization.
+        s3 = _fake_s3(_ls=AsyncMock(side_effect=FileNotFoundError("job")))
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                delete_existing=True,
+                use_timestamped_folders=True,
+            )
+
+        s3._cp_file.assert_awaited_once()
 
 
 @parameterized.expand(

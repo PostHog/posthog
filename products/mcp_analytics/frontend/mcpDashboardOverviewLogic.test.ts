@@ -82,6 +82,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'opencode',
             'Kiro',
             'Desktop Commander',
+            'PostHog CLI',
         ]
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {

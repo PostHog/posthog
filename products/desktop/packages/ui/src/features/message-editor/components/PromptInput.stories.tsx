@@ -208,7 +208,7 @@ function PromptInputHarness({
           <ContextUsageIndicator usage={contextUsage} />
         ) : undefined
       }
-      attachmentsPrefix={
+      submitAdornment={
         channelContext ? (
           <ChannelContextChip channelName="engineering" onRemove={() => {}} />
         ) : undefined
@@ -340,6 +340,11 @@ export const AllChipTypes: Story = {
         type: "github_issue",
         id: "https://github.com/org/repo/issues/123",
         label: "#123 Fix the bug",
+      },
+      {
+        type: "github_pr",
+        id: "https://github.com/org/repo/pull/456",
+        label: "org/repo#456",
       },
       { type: "error", id: "error-1", label: "TypeError: undefined" },
       { type: "experiment", id: "exp-1", label: "new-checkout-flow" },

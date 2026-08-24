@@ -1,5 +1,6 @@
 import asyncio
 from typing import Literal
+from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -264,6 +265,19 @@ URL: {url}
 {text}
 """.strip()
 
+COMMUNITY_QUESTIONS_HOSTNAMES = frozenset({"posthog.com", "www.posthog.com"})
+COMMUNITY_QUESTIONS_PATH = "/questions"
+
+
+def is_community_question_url(url: str) -> bool:
+    """Community Questions are user-submitted and often outdated, so docs search must never surface them."""
+    parsed = urlparse(url)
+    if parsed.hostname not in COMMUNITY_QUESTIONS_HOSTNAMES:
+        return False
+    path = parsed.path.rstrip("/")
+    # `/docs/…/common-questions` pages are real docs, so match the path prefix rather than the substring
+    return path == COMMUNITY_QUESTIONS_PATH or path.startswith(f"{COMMUNITY_QUESTIONS_PATH}/")
+
 
 async def perform_inkeep_docs_search(query: str, *, include_system_reminder: bool = True) -> str:
     model = ChatOpenAI(
@@ -287,12 +301,16 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
 
     Shared between the LangChain `InkeepDocsSearchTool` (which uses ChatOpenAI) and the
     typed `MCPToolsViewSet.docs_search` endpoint (which uses the plain openai client).
+
+    Community Questions are dropped here so the results match what the tool prompts promise.
     """
     docs: list[str] = []
     if rag_context_raw and rag_context_raw.get("content"):
         rag_context = InkeepResponse.model_validate(rag_context_raw)
         for doc in rag_context.content:
             if doc.type != "document":
+                continue
+            if is_community_question_url(doc.url):
                 continue
             text = doc.source.content[0].text if doc.source.content else ""
             docs.append(DOC_ITEM_TEMPLATE.format(title=doc.title, url=doc.url, text=text))

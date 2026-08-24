@@ -85,11 +85,12 @@ export const FileMentionChip = memo(function FileMentionChip({
       <Text className="text-[13px]">
         <FileIcon filename={filename} size={12} />
         <span className="flex min-w-0 flex-1 items-baseline gap-1 overflow-hidden font-mono text-[13px] leading-none">
-          <span className="shrink-0 whitespace-nowrap font-semibold">
-            {filename}
-          </span>
+          {/* The lopsided shrink factor on the directory below makes it give way
+              first, so the filename only ellipsizes once there is no room for it
+              either. */}
+          <span className="min-w-0 truncate font-semibold">{filename}</span>
           {directory && (
-            <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-gray-9">
+            <span className="min-w-0 shrink-[9999] overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground/50">
               {directory}
             </span>
           )}

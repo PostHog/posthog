@@ -3,16 +3,20 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
 import dns.resolver
 
 from posthog.constants import AvailableFeature
+from posthog.dns_utils import dnssec_resolver
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -316,7 +320,16 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         errors = self._validate_identity_provider_config_organization()
         if errors:
             raise ValidationError(errors)
-        super().save(*args, **kwargs)
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.identity_provider_config_id is None:
+                return
+
+            LinkedIdentityProviderConfig.objects.get_or_create(
+                organization_domain=self,
+                identity_provider_config_id=self.identity_provider_config_id,
+            )
 
     @property
     def is_verified(self) -> bool:
@@ -367,9 +380,8 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         Performs a DNS verification for a specific domain.
         """
         try:
-            # TODO: Should we manually validate DNSSEC?
-            dns_response = dns.resolver.resolve(f"_posthog-challenge.{self.domain}", "TXT")
-        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            dns_response = dnssec_resolver().resolve(f"_posthog-challenge.{self.domain}", "TXT")
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
             pass
         else:
             for item in list(dns_response.response.answer[0]):
@@ -379,3 +391,15 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         self.last_verification_retry = timezone.now()
         self.save()
         return (self, False)
+
+
+@receiver(post_delete, sender=OrganizationDomain)
+def delete_orphaned_identity_provider_config(
+    sender: type[OrganizationDomain], instance: OrganizationDomain, **kwargs: Any
+) -> None:
+    """
+    Note: This is temporary. In the future IDP configs will be explicitly managed in the UI. However, they are currently implicitly
+    managed by their relationship to the org domains so we need to make sure they get cleaned up when all linked org domains are deleted
+    """
+    if instance.identity_provider_config_id is not None:
+        IdentityProviderConfig.objects.filter(pk=instance.identity_provider_config_id, domains__isnull=True).delete()

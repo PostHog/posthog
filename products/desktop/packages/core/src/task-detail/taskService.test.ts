@@ -18,6 +18,8 @@ const rootLogger = {
   scope: () => scopedLog,
 } as unknown as RootLogger;
 
+const fileReadClient = { readAbsoluteFile: vi.fn(async () => null) };
+
 function makeService(): TaskService {
   const host = {
     // The API client's createTask rejects so tests can observe that an input
@@ -51,10 +53,56 @@ function makeService(): TaskService {
     resume: vi.fn(),
     stop: vi.fn(),
   } as unknown as PiRunner;
-  return new TaskService(host, sessionService, effects, piRunner, rootLogger);
+  return new TaskService(
+    host,
+    sessionService,
+    effects,
+    piRunner,
+    fileReadClient,
+    rootLogger,
+  );
 }
 
 describe("TaskService.openTask", () => {
+  it("passes the main repository path when resuming Pi in a worktree", async () => {
+    const task = {
+      id: "task-1",
+      runtime: "pi",
+      latest_run: { id: "run-1", environment: "local", status: "running" },
+    };
+    const workspace = {
+      folderPath: "/repo",
+      worktreePath: "/worktrees/task-1",
+    };
+    const piRunner = {
+      create: vi.fn(),
+      resume: vi.fn(async () => {}),
+      stop: vi.fn(),
+    } as unknown as PiRunner;
+    const service = new TaskService(
+      {
+        getAuthenticatedClient: vi.fn(async () => ({
+          getTask: vi.fn(async () => task),
+        })),
+        getWorkspace: vi.fn(async () => workspace),
+      } as unknown as ITaskCreationHost,
+      {} as SessionService,
+      {} as TaskCreationEffects,
+      piRunner,
+      fileReadClient,
+      rootLogger,
+    );
+
+    await expect(service.openTask("task-1")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(piRunner.resume).toHaveBeenCalledWith({
+      taskId: "task-1",
+      cwd: "/worktrees/task-1",
+      projectTrustPath: "/repo",
+    });
+  });
+
   it("opens a completed cloud Pi run without resuming it", async () => {
     const completedRun = {
       id: "run-1",
@@ -85,6 +133,7 @@ describe("TaskService.openTask", () => {
       {} as SessionService,
       {} as TaskCreationEffects,
       piRunner,
+      fileReadClient,
       rootLogger,
     );
 
@@ -121,6 +170,7 @@ describe("TaskService.resumeCloudPiRun", () => {
       {} as SessionService,
       effects,
       {} as PiRunner,
+      fileReadClient,
       rootLogger,
     );
 

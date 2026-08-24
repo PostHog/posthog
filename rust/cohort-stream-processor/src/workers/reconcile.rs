@@ -22,12 +22,13 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, RECONCILE_BITS_FIXED_TOTAL,
     RECONCILE_JOBS_COMPLETED_TOTAL, RECONCILE_JOBS_DISCARDED_TOTAL,
-    RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_QUEUE_DEPTH, RECONCILE_ROWS_EMITTED_TOTAL,
-    RECONCILE_ROWS_SCANNED_TOTAL,
+    RECONCILE_MARKERS_EMITTED_TOTAL, RECONCILE_MARKER_PRODUCE_ERRORS, RECONCILE_QUEUE_DEPTH,
+    RECONCILE_ROWS_EMITTED_TOTAL, RECONCILE_ROWS_SCANNED_TOTAL,
 };
 use crate::partitions::offset_tracker::{DeferredOffset, MarkOutcome, OffsetTracker};
 use crate::producer::{
-    ChangeOrigin, CohortMembershipChange, MembershipSink, ReconcileCompleteMarker,
+    ChangeOrigin, CohortMembershipChange, MembershipSink, NoopReconcileMarkerSink,
+    ReconcileCompleteMarker, ReconcileMarkerSink,
 };
 use crate::stage2::Stage2State;
 use crate::store::{
@@ -85,11 +86,15 @@ impl ReconcileBacklog {
 }
 
 /// Runtime dependencies shared by every partition's reconcile queue.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ReconcileDeps {
     pub enabled: bool,
     pub scan_page: usize,
     pub backlog: Arc<ReconcileBacklog>,
+    /// Sink for `cohort_reconcile_markers`. With the reconcile gate off this is
+    /// [`NoopReconcileMarkerSink`], which fails every produce rather than acking a marker the seeder
+    /// would then wait for.
+    pub marker_sink: Arc<dyn ReconcileMarkerSink>,
 }
 
 impl Default for ReconcileDeps {
@@ -98,6 +103,7 @@ impl Default for ReconcileDeps {
             enabled: false,
             scan_page: DEFAULT_RECONCILE_SCAN_PAGE,
             backlog: Arc::new(ReconcileBacklog::default()),
+            marker_sink: Arc::new(NoopReconcileMarkerSink),
         }
     }
 }
@@ -450,7 +456,6 @@ pub(crate) async fn handle_reconcile_drain(
                 drain_marker(
                     partition_id,
                     handle,
-                    sink,
                     merge,
                     queue,
                     &tile,
@@ -711,11 +716,9 @@ async fn drain_dirty(
 
 /// Emit the per-partition completion marker once the dirty set is drained. A failed marker produce
 /// retries the marker only; work dirtied while the marker was pending is settled before the retry.
-#[allow(clippy::too_many_arguments)]
 async fn drain_marker(
     partition_id: u16,
     handle: &StoreHandle,
-    sink: &Arc<dyn MembershipSink>,
     merge: &MergeWorkerDeps,
     queue: &mut ReconcileQueue,
     tile: &ReconcileTile,
@@ -750,10 +753,12 @@ async fn drain_marker(
         tile.run_id(),
         last_updated.to_string(),
     );
-    let acks = sink.produce_markers(vec![marker]).await;
+    let acks = merge.reconcile.marker_sink.produce(vec![marker]).await;
+    let kind = tile.scope().kind().as_str();
     // Exactly one marker went in, so anything but a single successful ack is a produce failure.
     let failed_acks = acks.iter().filter(|ack| ack.is_err()).count();
     if acks.len() != 1 || failed_acks > 0 {
+        counter!(RECONCILE_MARKER_PRODUCE_ERRORS, "kind" => kind).increment(1);
         warn_job!(
             tile,
             partition_id,
@@ -764,7 +769,6 @@ async fn drain_marker(
         return DrainStep::Yield;
     }
 
-    let kind = tile.scope().kind().as_str();
     counter!(RECONCILE_MARKERS_EMITTED_TOTAL, "kind" => kind).increment(1);
     let completed = queue
         .finish_front()
@@ -968,11 +972,7 @@ fn complete_offset(
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
-
-    use async_trait::async_trait;
     use chrono_tz::UTC;
-    use common_kafka::kafka_producer::KafkaProduceError;
     use serde_json::{json, Value};
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -983,7 +983,9 @@ mod tests {
     use crate::filters::tree::{CohortTree, FilterNode};
     use crate::filters::{BoolOp, TeamFiltersBuilder};
     use crate::partitions::offset_tracker::OffsetTracker;
-    use crate::producer::{CaptureCascadeSink, CaptureSink, MembershipStatus};
+    use crate::producer::{
+        CaptureCascadeSink, CaptureReconcileMarkerSink, CaptureSink, MembershipStatus,
+    };
     use crate::stage1::person_record::{MatchedSet, PersonRecord};
     use crate::stage1::state::{AppliedOffsets, Stage1State, StatefulRecord};
     use crate::stage2::state::Stage2Ownership;
@@ -1094,6 +1096,7 @@ mod tests {
         handle: StoreHandle,
         catalog: CatalogHandle,
         sink: Arc<dyn MembershipSink>,
+        markers: CaptureReconcileMarkerSink,
         deps: MergeWorkerDeps,
         queue: ReconcileQueue,
         lsk: LeafStateKey,
@@ -1131,6 +1134,8 @@ mod tests {
             deps.reconcile.scan_page = scan_page;
             deps.cascade.enabled = true;
             deps.cascade_sink = Arc::new(cascade_sink);
+            let markers = CaptureReconcileMarkerSink::new();
+            deps.reconcile.marker_sink = Arc::new(markers.clone());
             let queue =
                 ReconcileQueue::new(PARTITION, deps.reconcile.backlog.clone(), handle.clone());
             Self {
@@ -1139,10 +1144,18 @@ mod tests {
                 handle,
                 catalog,
                 sink,
+                markers,
                 deps,
                 queue,
                 lsk,
             }
+        }
+
+        /// Re-arm the marker sink to fail its first produce, isolating the marker phase's retry from
+        /// the membership leg's.
+        fn fail_first_marker(&mut self) {
+            self.markers = CaptureReconcileMarkerSink::failing_first(1);
+            self.deps.reconcile.marker_sink = Arc::new(self.markers.clone());
         }
 
         fn write_current(&self, person: Uuid, behavioral: bool, person_match: bool, prior: bool) {
@@ -1500,7 +1513,7 @@ mod tests {
         assert!(shell.queue.front().is_none());
         assert!(shell.deps.reconcile.backlog.is_empty());
 
-        let markers = sink.markers();
+        let markers = shell.markers.markers();
         assert_eq!(
             markers.len(),
             1,
@@ -1672,7 +1685,7 @@ mod tests {
         shell.tick().await;
 
         assert_eq!(sink.changes().len(), 2, "one bounded page was emitted");
-        assert!(sink.markers().is_empty());
+        assert!(shell.markers.markers().is_empty());
         assert_eq!(shell.committable(), Some(5));
         assert!(matches!(
             shell.queue.front().map(|job| &job.phase),
@@ -1710,7 +1723,7 @@ mod tests {
         assert_eq!(cascade_messages[0].change.person_id, alice.to_string());
         assert_eq!(cascade_messages[1].change.person_id, bob.to_string());
         shell.tick().await;
-        assert_eq!(sink.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
         assert!(shell.queue.front().is_none());
         assert!(shell.deps.reconcile.backlog.is_empty());
         assert_eq!(shell.committable(), Some(6));
@@ -1734,7 +1747,9 @@ mod tests {
 
         // Both jobs lease the same Stage 2 prefix in turn; neither may release the other's capture.
         assert_eq!(
-            sink.markers()
+            shell
+                .markers
+                .markers()
                 .iter()
                 .map(ReconcileCompleteMarker::run_id)
                 .collect::<Vec<_>>(),
@@ -1771,8 +1786,11 @@ mod tests {
             ],
             "the snapshot is computed from person state, not a behavioral leaf",
         );
-        assert_eq!(sink.markers().len(), 1);
-        assert_eq!(sink.markers()[0].run_id(), RunId(Uuid::from_u128(21)));
+        assert_eq!(shell.markers.markers().len(), 1);
+        assert_eq!(
+            shell.markers.markers()[0].run_id(),
+            RunId(Uuid::from_u128(21))
+        );
         assert!(shell.queue.front().is_none());
     }
 
@@ -1830,7 +1848,7 @@ mod tests {
         shell.tick().await;
         assert_eq!(sink.changes().len(), 1);
         assert_eq!(sink.changes()[0].person_id, later_key.to_string());
-        assert!(sink.markers().is_empty());
+        assert!(shell.markers.markers().is_empty());
 
         shell.write_current(inserted_behind_cursor, true, false, true);
         shell.tick().await;
@@ -1848,7 +1866,7 @@ mod tests {
             vec![later_key.to_string(), inserted_behind_cursor.to_string(),],
             "the main cohort page is not rescanned because another person changed",
         );
-        assert_eq!(sink.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
         assert_eq!(shell.committable(), Some(6));
     }
 
@@ -1877,7 +1895,7 @@ mod tests {
         shell.tick().await;
         assert_eq!(sink.changes().last().unwrap().person_id, hot.to_string());
         assert_eq!(
-            sink.markers().len(),
+            shell.markers.markers().len(),
             1,
             "the job completes in the same tick that settles the full hot-person page",
         );
@@ -1919,7 +1937,7 @@ mod tests {
             "the tombstoned scan row is not evaluated or emitted from its dirty marker",
         );
         assert!(shell.store.get_stage2(&deleted_key).unwrap().is_none());
-        assert_eq!(sink.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
     }
 
     #[tokio::test]
@@ -1938,7 +1956,7 @@ mod tests {
         assert!(shell.stage2_bit(alice));
         assert!(cascades.messages().is_empty());
         shell.tick().await;
-        assert_eq!(sink.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
         assert_eq!(shell.committable(), Some(6));
     }
 
@@ -1953,7 +1971,7 @@ mod tests {
         shell.tick().await;
 
         assert!(sink.changes().is_empty());
-        let markers = sink.markers();
+        let markers = shell.markers.markers();
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(2)));
         assert!(shell.queue.front().is_none());
@@ -1972,7 +1990,7 @@ mod tests {
         shell.tick().await;
 
         assert!(sink.changes().is_empty());
-        assert!(sink.markers().is_empty());
+        assert!(shell.markers.markers().is_empty());
         assert!(!shell.stage2_bit(alice));
         assert!(matches!(
             shell.queue.front().map(|job| &job.phase),
@@ -1984,7 +2002,7 @@ mod tests {
         assert_eq!(sink.changes().len(), 1);
         assert!(shell.stage2_bit(alice));
         shell.tick().await;
-        assert_eq!(sink.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
         assert_eq!(shell.committable(), Some(6));
     }
 
@@ -2000,7 +2018,7 @@ mod tests {
         shell.tick().await;
 
         assert_eq!(sink.changes().len(), 1, "the membership leg acked");
-        assert!(sink.markers().is_empty());
+        assert!(shell.markers.markers().is_empty());
         assert!(!shell.stage2_bit(alice));
         assert!(matches!(
             shell.queue.front().map(|job| &job.phase),
@@ -2013,51 +2031,15 @@ mod tests {
         assert_eq!(cascades.messages().len(), 1);
         assert!(shell.stage2_bit(alice));
         shell.tick().await;
-        assert_eq!(sink.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
         assert_eq!(shell.committable(), Some(6));
-    }
-
-    struct FailFirstMarkerSink {
-        capture: CaptureSink,
-        fail_marker: AtomicBool,
-    }
-
-    impl FailFirstMarkerSink {
-        fn new() -> Self {
-            Self {
-                capture: CaptureSink::new(),
-                fail_marker: AtomicBool::new(true),
-            }
-        }
-    }
-
-    #[async_trait]
-    impl MembershipSink for FailFirstMarkerSink {
-        async fn produce(
-            &self,
-            changes: Vec<CohortMembershipChange>,
-        ) -> Vec<Result<(), KafkaProduceError>> {
-            self.capture.produce(changes).await
-        }
-
-        async fn produce_markers(
-            &self,
-            markers: Vec<ReconcileCompleteMarker>,
-        ) -> Vec<Result<(), KafkaProduceError>> {
-            if self.fail_marker.swap(false, Ordering::SeqCst) {
-                return markers
-                    .into_iter()
-                    .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
-                    .collect();
-            }
-            self.capture.produce_markers(markers).await
-        }
     }
 
     #[tokio::test]
     async fn marker_failure_retries_only_the_marker_phase() {
-        let sink = Arc::new(FailFirstMarkerSink::new());
-        let mut shell = DrainShell::new(true, sink.clone(), CaptureCascadeSink::new(), 8);
+        let sink = CaptureSink::new();
+        let mut shell = DrainShell::new(true, Arc::new(sink.clone()), CaptureCascadeSink::new(), 8);
+        shell.fail_first_marker();
         let alice = Uuid::from_u128(1);
         shell.write_current(alice, true, false, false);
         shell.enqueue(tile(TEAM, COHORT, 15), 5);
@@ -2065,8 +2047,8 @@ mod tests {
         shell.tick().await;
         shell.tick().await;
 
-        assert_eq!(sink.capture.changes().len(), 1);
-        assert!(sink.capture.markers().is_empty());
+        assert_eq!(sink.changes().len(), 1);
+        assert!(shell.markers.markers().is_empty());
         assert!(shell.stage2_bit(alice), "the page committed before marker");
         assert!(matches!(
             shell.queue.front().map(|job| &job.phase),
@@ -2076,20 +2058,17 @@ mod tests {
 
         shell.tick().await;
 
-        assert_eq!(
-            sink.capture.changes().len(),
-            1,
-            "the page was not rescanned"
-        );
-        assert_eq!(sink.capture.markers().len(), 1);
+        assert_eq!(sink.changes().len(), 1, "the page was not rescanned");
+        assert_eq!(shell.markers.markers().len(), 1);
         assert!(shell.queue.front().is_none());
         assert_eq!(shell.committable(), Some(6));
     }
 
     #[tokio::test]
     async fn marker_retry_drains_new_dirty_work_without_rescanning_clean_rows() {
-        let sink = Arc::new(FailFirstMarkerSink::new());
-        let mut shell = DrainShell::new(true, sink.clone(), CaptureCascadeSink::new(), 8);
+        let sink = CaptureSink::new();
+        let mut shell = DrainShell::new(true, Arc::new(sink.clone()), CaptureCascadeSink::new(), 8);
+        shell.fail_first_marker();
         let alice = Uuid::from_u128(2);
         let bob = Uuid::from_u128(1);
         shell.write_current(alice, true, false, true);
@@ -2097,8 +2076,8 @@ mod tests {
 
         shell.tick().await;
         shell.tick().await;
-        assert_eq!(sink.capture.changes().len(), 1);
-        assert!(sink.capture.markers().is_empty());
+        assert_eq!(sink.changes().len(), 1);
+        assert!(shell.markers.markers().is_empty());
         assert!(matches!(
             shell.queue.front().map(|job| &job.phase),
             Some(ScanPhase::MarkerReady),
@@ -2108,15 +2087,14 @@ mod tests {
         shell.tick().await;
 
         assert_eq!(
-            sink.capture
-                .changes()
+            sink.changes()
                 .iter()
                 .map(|change| change.person_id.clone())
                 .collect::<Vec<_>>(),
             vec![alice.to_string(), bob.to_string()],
             "a failed marker drains only the person that changed while the marker was pending",
         );
-        assert_eq!(sink.capture.markers().len(), 1);
+        assert_eq!(shell.markers.markers().len(), 1);
         assert_eq!(shell.committable(), Some(6));
     }
 }

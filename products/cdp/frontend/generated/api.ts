@@ -13,15 +13,22 @@ import type {
     AppMetricsTotalsResponseApi,
     HogFunctionApi,
     HogFunctionInvocationApi,
+    HogFunctionMaskedSecretApi,
+    HogFunctionPublishRequestApi,
+    HogFunctionPublishResponseApi,
+    HogFunctionRevisionApi,
+    HogFunctionRevisionRestoreRequestApi,
     HogFunctionTemplateApi,
     HogFunctionTemplatesListParams,
     HogFunctionsListParams,
     HogFunctionsLogsRetrieveParams,
     HogFunctionsMetricsRetrieveParams,
     HogFunctionsMetricsTotalsRetrieveParams,
+    HogFunctionsRevisionsListParams,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
     PaginatedHogFunctionMinimalListApi,
+    PaginatedHogFunctionRevisionBasicListApi,
     PaginatedHogFunctionTemplateListApi,
     PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
@@ -198,6 +205,21 @@ export const hogFunctionsDestroy = async (projectId: string, id: string, options
     })
 }
 
+export const getHogFunctionsDiscardDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/discard_draft/`
+}
+
+export const hogFunctionsDiscardDraftCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFunctionApi> => {
+    return apiMutator<HogFunctionApi>(getHogFunctionsDiscardDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getHogFunctionsEnableBackfillsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/enable_backfills/`
 }
@@ -223,7 +245,7 @@ export const getHogFunctionsInvocationsCreateUrl = (projectId: string, id: strin
 export const hogFunctionsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFunctionInvocationApi: NonReadonly<HogFunctionInvocationApi>,
+    hogFunctionInvocationApi?: NonReadonly<HogFunctionInvocationApi>,
     options?: RequestInit
 ): Promise<HogFunctionInvocationApi> => {
     return apiMutator<HogFunctionInvocationApi>(getHogFunctionsInvocationsCreateUrl(projectId, id), {
@@ -330,6 +352,24 @@ export const hogFunctionsMetricsTotalsRetrieve = async (
     })
 }
 
+export const getHogFunctionsPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/publish/`
+}
+
+export const hogFunctionsPublishCreate = async (
+    projectId: string,
+    id: string,
+    hogFunctionPublishRequestApi?: HogFunctionPublishRequestApi,
+    options?: RequestInit
+): Promise<HogFunctionPublishResponseApi> => {
+    return apiMutator<HogFunctionPublishResponseApi>(getHogFunctionsPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFunctionPublishRequestApi),
+    })
+}
+
 export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_functions/${id}/rerun/`
 }
@@ -349,7 +389,8 @@ export const getHogFunctionsRerunCreateUrl = (projectId: string, id: string) => 
  * transformations during ingestion, `site_*` transpiled to client-side
  * JS). A re-enqueued invocation of one of those would never drain and
  * wedges the partition, so a rerun of a non-rerunnable type is rejected
- * with a 400 here.
+ * with a 400 here. A disabled function is rejected the same way: the
+ * worker skips its invocations, so the rerun could never execute.
  *
  * Because rerun replays historical event/person/group data, it requires
  * `person:read` and `group:read` on top of `hog_function:write`.
@@ -365,6 +406,76 @@ export const hogFunctionsRerunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogInvocationRerunRequestApi),
+    })
+}
+
+export const getHogFunctionsRevisionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFunctionsRevisionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_functions/${id}/revisions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_functions/${id}/revisions/`
+}
+
+export const hogFunctionsRevisionsList = async (
+    projectId: string,
+    id: string,
+    params?: HogFunctionsRevisionsListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFunctionRevisionBasicListApi> => {
+    return apiMutator<PaginatedHogFunctionRevisionBasicListApi>(
+        getHogFunctionsRevisionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getHogFunctionsRevisionsRetrieveUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/revisions/${version}/`
+}
+
+export const hogFunctionsRevisionsRetrieve = async (
+    projectId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<HogFunctionRevisionApi> => {
+    return apiMutator<HogFunctionRevisionApi>(getHogFunctionsRevisionsRetrieveUrl(projectId, id, version), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFunctionsRevisionsRestoreCreateUrl = (projectId: string, id: string, version: number) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/revisions/${version}/restore/`
+}
+
+export const hogFunctionsRevisionsRestoreCreate = async (
+    projectId: string,
+    id: string,
+    version: number,
+    hogFunctionRevisionRestoreRequestApi?: HogFunctionRevisionRestoreRequestApi,
+    options?: RequestInit
+): Promise<HogFunctionApi> => {
+    return apiMutator<HogFunctionApi>(getHogFunctionsRevisionsRestoreCreateUrl(projectId, id, version), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFunctionRevisionRestoreRequestApi),
     })
 }
 
@@ -385,6 +496,26 @@ export const getHogFunctionsIconsRetrieveUrl = (projectId: string) => {
 
 export const hogFunctionsIconsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getHogFunctionsIconsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFunctionsMaskedSecretsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_functions/masked_secrets/`
+}
+
+/**
+ * Hog functions storing the secret mask in place of a real credential.
+ *
+ * Such a function authenticates against nothing and fails every send. The original value
+ * cannot be restored from our side, so each listed input has to be entered again.
+ */
+export const hogFunctionsMaskedSecretsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<HogFunctionMaskedSecretApi[]> => {
+    return apiMutator<HogFunctionMaskedSecretApi[]>(getHogFunctionsMaskedSecretsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

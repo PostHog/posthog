@@ -346,6 +346,19 @@ class WebAuthnSignupRegistrationThrottle(IPThrottle):
     rate = "10/minute"
 
 
+class LeakedKeyReportThrottle(IPThrottle):
+    """
+    Rate limit the public leaked-key revocation endpoint by IP address.
+
+    This isn't an authorization gate — guessing a valid high-entropy PostHog token
+    is computationally infeasible regardless of rate. It just bounds nuisance load
+    (hashing + DB lookups against garbage strings) from a single IP.
+    """
+
+    scope = "leaked_key_report"
+    rate = "10/minute"
+
+
 class SignupEmailPrecheckThrottle(IPThrottle):
     """
     Rate limit signup email precheck requests by IP.
@@ -353,6 +366,29 @@ class SignupEmailPrecheckThrottle(IPThrottle):
 
     scope = "signup_email_precheck"
     rate = "30/minute"
+
+
+class LoginPrecheckThrottle(IPThrottle):
+    """
+    Rate limit login precheck requests by IP.
+
+    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
+    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    different email on every request.
+    """
+
+    scope = "login_precheck"
+    rate = "30/minute"
+
+    def allow_request(self, request, view):
+        # The time-sensitive re-auth modal prechecks the logged-in user's *own* email, and that tells
+        # them nothing they don't already have — so exempt exactly that. The endpoint is `AllowAny`
+        # with no ownership check, so a broader exemption would let anyone with a throwaway account
+        # enumerate other people's sign-in methods for free.
+        email = request.data.get("email", "") if isinstance(request.data, dict) else ""
+        if request.user.is_authenticated and email and email.casefold() == (request.user.email or "").casefold():
+            return True
+        return super().allow_request(request, view)
 
 
 class SignupResendInviteThrottle(UserOrEmailRateThrottle):
@@ -533,6 +569,34 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
+# Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
+# session callers and prevent forced refreshes from consuming application workers without bound.
+class ErrorTrackingFingerprintProjectionBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_fingerprint_projection_sustained"
+    rate = "100/hour"
+
+
+# The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
+# request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
+# per call. A team-wide bucket caps the project's total spend regardless of how many users or
+# keys fire scans; repeats within a minute are served from the endpoint's short-TTL cache, so
+# a legitimate UI or agent session needs only a handful of cold scans per hour.
+class LogsAnomalyScanBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_anomaly_scan_burst"
+    rate = "6/minute"
+
+
+class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_anomaly_scan_sustained"
+    rate = "60/hour"
+
+
 # The experiment session-bucket endpoint scans every session in an experiment's recent run
 # window rather than a known id list, so one call is heavier than a session-context batch. Same
 # project-wide bucketing and same session-authenticated caller as those, at a lower rate: the UI
@@ -544,6 +608,33 @@ class SessionBucketsBurstRateThrottle(_TeamBucketRateThrottle):
 
 class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_buckets_sustained"
+    rate = "200/hour"
+
+
+# The experiment session-event-delta endpoint compares every event name in an experiment's recent
+# window, so unlike the bucket scan beside it there is no event-name predicate for ClickHouse to
+# prune on and one call is the heaviest in this family. Same project-wide bucketing and same
+# session-authenticated caller, at a lower rate again: the panel is opened deliberately rather than
+# loaded with the tab, and repeats hit a 15-minute server-side cache.
+class SessionEventDeltasBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_burst"
+    rate = "10/minute"
+
+
+class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_event_deltas_sustained"
+    rate = "100/hour"
+
+
+# The scanner volume estimate can run two ClickHouse queries per call, and its primary caller is
+# the session-authenticated editor, which the ClickHouse*RateThrottle pair does not cover.
+class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_burst"
+    rate = "20/minute"
+
+
+class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_estimate_sustained"
     rate = "200/hour"
 
 
@@ -1120,6 +1211,81 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
+class _SharedLinkAtomicThrottle(SimpleRateThrottle):
+    """
+    Rate limit requests to a shared link, counted atomically per link rather than per caller.
+
+    Deliberately not a PersonalApiKeyRateThrottle subclass: this must apply even when the
+    RATE_LIMIT_ENABLED instance setting is off. Keyed on the share link rather than the caller
+    so rotating source addresses doesn't hand out a fresh budget. Subclasses set `scope` and
+    `rate`; each gets its own counter since the cache key includes `scope`.
+    """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        # Only POSTs cost budget - every viewer of a link shares one bucket, so counting
+        # ordinary page loads would lock out a popular share.
+        if request.method != "POST":
+            return True
+
+        self.key = self.get_cache_key(request, view)
+
+        # A counter incremented in place, rather than SimpleRateThrottle's read-modify-write of a
+        # timestamp list: that reads the history, appends, and writes it back, so submissions
+        # arriving together each observe a below-limit history and overwrite one another. Guessing
+        # in parallel would then slip past the cap this throttle exists to enforce.
+        self.cache.add(self.key, 0, self.duration)
+        try:
+            count = self.cache.incr(self.key)
+        except ValueError:
+            # The window expired between the add and the incr, so this request starts the next one.
+            self.cache.set(self.key, 1, self.duration)
+            count = 1
+
+        return count <= self.num_requests
+
+    def wait(self) -> float:
+        # allow_request keeps a counter rather than the timestamp history SimpleRateThrottle.wait
+        # reads, so retry after the whole window instead.
+        return float(self.duration)
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        # File extensions ("<token>.json") address the same share, so they share a bucket
+        access_token = (view.kwargs.get("access_token") or "").split(".")[0]
+        ident = hashlib.sha256(access_token.encode()).hexdigest() if access_token else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class SharePasswordVolumeThrottle(_SharedLinkAtomicThrottle):
+    """
+    Caps total share-password POST volume per link, regardless of whether the password is right.
+
+    Runs automatically via throttle_classes, ahead of any password hashing, so a flood of
+    submissions can't burn unbounded CPU on password checks before SharePasswordThrottle -
+    which only meters wrong guesses - ever gets consulted. Sized loosely so a share handed to a
+    large group doesn't trip it under normal use.
+    """
+
+    scope = "share_password_volume"
+    rate = "60/minute"
+
+
+class SharePasswordThrottle(_SharedLinkAtomicThrottle):
+    """
+    Meters wrong share-password guesses per link.
+
+    Called manually from the view, and only charged on a wrong guess: a correct password always
+    succeeds, so one attacker flooding wrong guesses can't lock out every other viewer of the
+    same link. SharePasswordVolumeThrottle bounds the total POST rate this depends on.
+    """
+
+    scope = "share_password"
+    rate = "10/minute"
+
+
 class CodeInviteThrottle(UserRateThrottle):
     scope = "code_invite"
     rate = "20000/hour"
@@ -1364,6 +1530,11 @@ class EmailVerifyDomainThrottle(UserRateThrottle):
 
 class EmailSendTestThrottle(UserRateThrottle):
     scope = "email_send_test"
+    rate = "6/minute"
+
+
+class EmailForwardingChallengeThrottle(UserRateThrottle):
+    scope = "email_forwarding_challenge"
     rate = "6/minute"
 
 

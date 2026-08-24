@@ -53,8 +53,10 @@ const EARLY_ACCESS_FEATURE_RESULT = [
         },
         name: 'dddd',
         description: 'dedd',
-        stage: 'alpha',
+        stage: 'concept',
         documentation_url: '',
+        payload: { survey_id: '0187c22c-06d9-0000-34fe-daa2e2afb504' },
+        assignee: { type: 'user', id: 1 },
         created_at: '2023-04-27T10:04:37.977401Z',
         created_by: {
             id: 1,
@@ -125,20 +127,23 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/early-access-feature': {
+                '/api/projects/:team_id/early_access_feature': {
                     count: 2,
                     results: EARLY_ACCESS_FEATURE_RESULT as any[],
                     next: null,
                     previous: null,
                 },
-                '/api/projects/:team_id/early-access-feature/not-found/': [
+                '/api/projects/:team_id/early_access_feature/not-found/': [
                     404,
                     {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/early-access-feature/:flagId/':
+                '/api/projects/:team_id/early_access_feature/:flagId/':
                     EARLY_ACCESS_FEATURE_RESULT[0] as EarlyAccessFeatureType,
+                '/api/projects/:team_id/surveys/responses_count': {
+                    '0187c22c-06d9-0000-34fe-daa2e2afb504': 5,
+                },
             },
         }),
     ],

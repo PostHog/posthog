@@ -14,6 +14,7 @@ interface SettingsSchema {
   discordPresenceEnabled: boolean;
   discordPresenceShowTaskTitle: boolean;
   discordPresenceShowRepoName: boolean;
+  missionControlOverlayEnabled: boolean;
 }
 
 function getDefaultWorktreeLocation(): string {
@@ -99,6 +100,10 @@ const schema = {
     type: "boolean" as const,
     default: false,
   },
+  missionControlOverlayEnabled: {
+    type: "boolean" as const,
+    default: true,
+  },
 };
 
 export const settingsStore = new Store<SettingsSchema>({
@@ -114,6 +119,7 @@ export const settingsStore = new Store<SettingsSchema>({
     discordPresenceEnabled: false,
     discordPresenceShowTaskTitle: false,
     discordPresenceShowRepoName: false,
+    missionControlOverlayEnabled: true,
   },
 });
 
@@ -191,4 +197,12 @@ export function getPreventSleepWhileRunning(): boolean {
 
 export function setPreventSleepWhileRunning(value: boolean): void {
   settingsStore.set("preventSleepWhileRunning", value);
+}
+
+export function getMissionControlOverlayEnabled(): boolean {
+  return settingsStore.get("missionControlOverlayEnabled", true);
+}
+
+export function setMissionControlOverlayEnabled(value: boolean): void {
+  settingsStore.set("missionControlOverlayEnabled", value);
 }

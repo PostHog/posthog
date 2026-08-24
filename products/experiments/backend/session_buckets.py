@@ -2,36 +2,42 @@
 
 A recordings query carries a single AND/OR operator across its whole filter tree, so the tab
 can only ask "fired every one of these metrics". Three questions it cannot express client-side
-are answered here instead — "fired any of these", "fired none of them", and "entered the funnel
-but never completed it in this session" — by computing the matching session ids server-side and
-feeding them to the playlist as `RecordingsQuery.session_ids`.
+are answered here instead — "fired any of these", "fired none of them", and "was exposed but
+never completed the funnel in this session" — by computing the matching session ids server-side
+and feeding them to the playlist as `RecordingsQuery.session_ids`.
 
 Buckets are goal-free: they say what happened in the session, never whether it helped or hurt a
 metric. The analysis counts per person over the whole run window, while a recording is one
 session of one person, so copy built on this must stay session-scoped ("in this session") and
 must never claim the analysis counted or discounted anyone.
 
-The population is the same session-scoped exposure evidence the tab's own list is built from —
-an event matching the experiment's exposure criteria, carrying one of the flag's defined
-variants. Not the exposure query's `exposure_session_id`, which is the person's *first*
-exposure session only: the playlist ANDs these ids with its own exposure filter, so ids it
-would reject are wasted slots out of the cap, and the later sessions `exposure_session_id`
-omits are exactly where drop-off and conversion happen. `exposure_session_id` is the right
-source for a future person-scoped bucket, not for a session-scoped one.
+The population is session-scoped exposure evidence: an event matching the experiment's
+exposure criteria, carrying one of the flag's defined variants, inside the session. That is a
+deliberate choice, kept even though the tab's own list is person-scoped
+(`RecordingsQuery.experiment_exposure`): every bucket asks what happened *in the session*, and
+"fired none of these metrics" only means something over sessions that demonstrably saw the
+experiment, whereas over all of an exposed person's sessions it would surface their unrelated
+browsing. The playlist ANDs the returned ids with its person-scoped filter, so a bucket session
+whose person the analysis excludes (multiple variants, for example) drops out there rather than
+widening the shown set; ids spent on such sessions are wasted slots out of the cap, which is
+the price of staying session-scoped. The default exposure event goes through the same
+`resolve_default_exposure_event` rollout resolution the analysis queries apply, so an
+experiment whose results count `$experiment_exposure` is bucketed on it too.
 
 Whether an event can match sessions at all is decided here, from the same `EventProperty` fact
 the taxonomy `seen_together` endpoint serves the tab: an event never ingested with a
 `$session_id` (backend-fired exposure, server-side metrics) can only ever match zero sessions.
 For the default exposure event the population falls back to the stamped `$feature/<flag_key>`
-property — the same fallback the tab's list uses — flagged in the response as
-`used_exposure_fallback`. Custom criteria get no such stand-in: they assert that something
+property — the same fallback the per-variant "View recordings" links use — flagged in the
+response as `used_exposure_fallback`. Custom criteria get no such stand-in: they assert that something
 specific happened, which the stamped property doesn't imply, so a custom exposure event that
 can't be matched is refused with a reason rather than answered over a wider population.
 Metrics whose every source is such an event are excluded with a reason instead of silently
 matching nothing, which for `no_metric_activity` would otherwise inflate the bucket to the whole
-exposed population. Drop-off narrows that rule to the two steps it reads: a funnel stays
-matchable overall while its first or last step can't be seen in a recording, and counting an
-unobservable completion as zero would return everyone who entered.
+exposed population. Drop-off narrows that rule to the one step it reads, the funnel's last: an
+experiment funnel's first step is the exposure event, which every bucket already requires
+in-session, so a funnel stays matchable overall while its completion can't be seen in a
+recording, and counting an unobservable completion as zero would return every exposed session.
 """
 
 import json
@@ -42,8 +48,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional
 
-from django.db import models
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from posthog.schema import EventsNode
@@ -54,7 +58,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models import EventProperty
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -62,9 +65,6 @@ from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    DEFAULT_EXPOSURE_EVENT,
-    build_exposure_event_conditions,
-    get_exposure_event_and_property,
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
 )
@@ -78,6 +78,7 @@ from products.experiments.backend.metric_events import (
     resolve_metric_events,
 )
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 
 logger = logging.getLogger(__name__)
 
@@ -121,14 +122,15 @@ CUSTOM_EXPOSURE_UNLINKABLE_REASON = (
     "This experiment's exposure event has only ever been captured server-side, where there is no session to "
     "record, so no session can match it."
 )
-# Drop-off reads two of a funnel's steps, so its own boundary check is narrower than the
-# whole-metric one above: a funnel stays matchable on the steps between them.
-FUNNEL_SERVER_SIDE_BOUNDARY_REASON = (
-    "Drop-off reads this funnel's first and last step. One of them has only ever been captured server-side, "
+# Drop-off reads only a funnel's last step, because an experiment funnel's first step is the
+# exposure event, which every bucket already requires in-session. Its check is therefore
+# narrower than the whole-metric one above: a funnel stays matchable on its other steps.
+FUNNEL_SERVER_SIDE_COMPLETION_REASON = (
+    "Drop-off reads this funnel's last step. It has only ever been captured server-side, "
     "where there is no session to record, so it can never be matched to a recording."
 )
-FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON = (
-    "Drop-off reads this funnel's first and last step. One of them is measured in the data warehouse, "
+FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON = (
+    "Drop-off reads this funnel's last step. It is measured in the data warehouse, "
     "which has no session events to match recordings on."
 )
 
@@ -256,31 +258,36 @@ def get_experiment_session_bucket(
     limit = min(limit, MAX_SESSION_BUCKET_LIMIT)
 
     requested = _resolve_requested_metrics(experiment, metric_uuids)
-    exposure_event, _ = get_exposure_event_and_property(experiment.feature_flag.key, experiment.exposure_criteria)
-
-    # One EventProperty read covers both linkability decisions — whether the exposure event can
-    # match sessions at all, and which metrics can. The verdict must be the endpoint's own:
-    # callers other than the tab (the API, MCP tools) have no reason to know the lookup exists,
-    # and an empty bucket that's really an unlinkable event would read as "no sessions did this".
-    # An action-based exposure has no single event name to look up, so it fails open, the same
-    # posture action metric sources get.
-    # Collected per source, not per metric: `_source_event_names` is all-or-nothing, so a funnel
-    # with an action step among its named ones would contribute none of its event names and the
-    # boundary check below would pass on a name the lookup never asked about.
-    lookup_names: set[str] = {exposure_event} if exposure_event is not None else set()
+    # The same rollout resolution the analysis queries apply, so the bucket population is counted
+    # on the event the experiment's results actually read. The linkability verdict must be the
+    # endpoint's own: callers other than the tab (the API, MCP tools) have no reason to know the
+    # lookup exists, and an empty bucket that's really an unlinkable event would read as "no
+    # sessions did this".
+    #
+    # Event names collected per source, not per metric: `_source_event_names` is all-or-nothing, so
+    # a funnel with an action step among its named ones would contribute none of its event names and
+    # the boundary check below would pass on a name the lookup never asked about.
+    lookup_names: set[str] = set()
     for metric in requested:
         lookup_names |= _concrete_event_names(metric)
-    never_linked = _never_session_linked_events(team, lookup_names)
-    use_exposure_fallback = exposure_event == DEFAULT_EXPOSURE_EVENT and exposure_event in never_linked
-    if exposure_event in never_linked and not use_exposure_fallback:
-        # Only the default event has a stand-in. Custom criteria assert that something specific
-        # happened, which the stamped flag property doesn't imply, so falling back would answer
-        # over "the flag was active in this session" — a wider population than the criteria name.
+    exposure = resolve_session_exposure(team, experiment, event_names=frozenset(lookup_names))
+    if exposure.is_unmatchable:
         raise SessionBucketUnavailable(CUSTOM_EXPOSURE_UNLINKABLE_REASON)
 
-    considered, excluded = _partition_metrics(requested, bucket, never_linked)
+    considered, excluded = _partition_metrics(requested, bucket, exposure.never_linked)
 
-    cache_key = _cache_key(team, user, experiment, bucket, considered, variant, window_start, window_end, limit)
+    cache_key = _cache_key(
+        team,
+        user,
+        experiment,
+        bucket,
+        considered,
+        variant,
+        window_start,
+        window_end,
+        limit,
+        exposure.default_exposure_event,
+    )
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
@@ -295,7 +302,7 @@ def get_experiment_session_bucket(
         window_start=window_start,
         window_end=window_end,
         limit=limit,
-        use_exposure_fallback=use_exposure_fallback,
+        exposure=exposure,
     )
     result = SessionBucketScan(
         candidate_session_ids=candidate_session_ids,
@@ -308,7 +315,7 @@ def get_experiment_session_bucket(
         date_from=window_start,
         date_to=window_end,
         filter_test_accounts=filter_test_accounts,
-        used_exposure_fallback=use_exposure_fallback,
+        used_exposure_fallback=exposure.used_fallback,
     )
     safe_cache_set(cache_key, result, timeout=SESSION_BUCKET_CACHE_TTL)
     return result
@@ -324,9 +331,11 @@ def _cache_key(
     window_start: datetime,
     window_end: datetime,
     limit: int,
+    default_exposure_event: str,
 ) -> str:
-    # The version segment must be bumped whenever SessionBucketScan changes shape: entries are
-    # pickled, so a deploy would otherwise restore instances missing the new fields.
+    # The version segment must be bumped whenever SessionBucketScan changes shape (entries are
+    # pickled, so a deploy would otherwise restore instances missing the new fields) and whenever
+    # a bucket's semantics change, so a warm entry can't keep answering the old question.
     spec = json.dumps(
         [
             bucket.value,
@@ -339,13 +348,16 @@ def _cache_key(
             # Part of the key even though the cut happens on read: the scan over-fetches a
             # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
+            # The rollout flag can flip which event the default exposure reads mid-window, and a
+            # scan computed on the other event must not be served after the flip.
+            default_exposure_event,
             # Property restrictions are compiled into the SQL, so unlike recording access they
             # can't be re-filtered on read; a restriction change has to miss the cache instead.
             sorted(get_restricted_properties_for_team(user=user, team=team)),
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_v3_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_v4_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 def _resolve_requested_metrics(experiment: Experiment, metric_uuids: list[str]) -> list[MetricEventSource]:
@@ -360,7 +372,7 @@ def _resolve_requested_metrics(experiment: Experiment, metric_uuids: list[str]) 
 
 
 def _partition_metrics(
-    requested: list[MetricEventSource], bucket: SessionBucket, never_linked: set[str]
+    requested: list[MetricEventSource], bucket: SessionBucket, never_linked: frozenset[str]
 ) -> tuple[list[MetricEventSource], list[ExcludedBucketMetric]]:
     """Split the requested metrics into the ones the bucket is computed over and the ones that
     can't be matched to a recording at all, with the reason.
@@ -399,15 +411,15 @@ def _partition_metrics(
     if bucket == SessionBucket.FUNNEL_DROPOFF:
         if len(considered) != 1:
             raise SessionBucketUnavailable("The drop-off bucket takes exactly one funnel metric.")
-        boundary_reason = _funnel_boundary_reason(considered[0], never_linked)
-        if boundary_reason is not None:
+        completion_reason = _funnel_completion_reason(considered[0], never_linked)
+        if completion_reason is not None:
             # Raised rather than excluded: drop-off takes one metric, so excluding it would leave
             # the generic "none of these can be matched" message and lose the reason.
-            raise SessionBucketUnavailable(boundary_reason)
+            raise SessionBucketUnavailable(completion_reason)
     return considered, excluded
 
 
-def _exclusion_reason(metric: MetricEventSource, never_linked: set[str]) -> Optional[str]:
+def _exclusion_reason(metric: MetricEventSource, never_linked: frozenset[str]) -> Optional[str]:
     if not metric.session_linkable:
         return DATA_WAREHOUSE_EXCLUSION_REASON
     if any(
@@ -446,24 +458,6 @@ def _source_event_names(metric: MetricEventSource) -> Optional[set[str]]:
     return names
 
 
-def _never_session_linked_events(team: Team, event_names: set[str]) -> set[str]:
-    """Event names never ingested with a `$session_id` property — only ever captured
-    server-side, so no recordings filter on them can match. The same `EventProperty` fact the
-    taxonomy `seen_together` endpoint serves the tab, read directly so the verdict doesn't
-    depend on the caller knowing to check."""
-    if not event_names:
-        return set()
-    seen = (
-        EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(effective_project_id=team.project_id, event__in=sorted(event_names), property="$session_id")
-        .values_list("event", flat=True)
-        .distinct()
-    )
-    return event_names - set(seen)
-
-
 def _metric_condition(metric: MetricEventSource, team: Team) -> ast.Expr:
     """Match expression for "any of this metric's events" — the OR over its sources, built on the
     same matcher the analysis uses, so what counts as this metric's event can't diverge."""
@@ -471,54 +465,48 @@ def _metric_condition(metric: MetricEventSource, team: Team) -> ast.Expr:
     return ast.Or(exprs=conditions) if len(conditions) > 1 else conditions[0]
 
 
-def _funnel_boundary_steps(metric: MetricEventSource) -> tuple[MetricSource, MetricSource]:
-    """The two steps drop-off is computed from: the funnel's entry and its completion."""
+def _funnel_completion_step(metric: MetricEventSource) -> MetricSource:
+    """The one step drop-off is computed from: the funnel's completion. The funnel's implicit
+    first step is the exposure event, which the bucket query already requires in-session."""
     steps = [source for source in metric.sources if source.role == MetricSourceRole.STEP]
-    if len(steps) < 2:
+    if not steps:
         raise SessionBucketUnavailable(
-            "Drop-off needs a funnel with at least two steps that can be matched to recordings."
+            "Drop-off needs a funnel metric with at least one step that can be matched to recordings."
         )
-    return steps[0], steps[-1]
+    return steps[-1]
 
 
-def _funnel_boundary_reason(metric: MetricEventSource, never_linked: set[str]) -> Optional[str]:
+def _funnel_completion_reason(metric: MetricEventSource, never_linked: frozenset[str]) -> Optional[str]:
     """Why drop-off can't be asked of this funnel, or None when it can.
 
     The whole-metric check in `_exclusion_reason` is too coarse here. It clears a funnel as long
-    as one of its steps can be matched, while drop-off rests on two specific ones — so a funnel
-    whose completion is a server-side charge passes there and then counts that completion as
-    zero in every session, returning everyone who entered as not having finished.
+    as one of its steps can be matched, while drop-off rests on the last one specifically. A
+    funnel whose completion is a server-side charge passes there and would then count that
+    completion as zero in every session, returning every exposed session as not having finished.
     """
-    entry, completion = _funnel_boundary_steps(metric)
+    completion = _funnel_completion_step(metric)
     # Data-warehouse steps are dropped from `sources` while the survivors keep their real
-    # position, so a gap at either end means the boundary read landed on an inner step.
-    if entry.index != 0 or completion.index != completion.total - 1:
-        return FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON
-    boundary_events = {
-        step.node.event for step in (entry, completion) if isinstance(step.node, EventsNode) and step.node.event
-    }
-    if boundary_events & never_linked:
-        return FUNNEL_SERVER_SIDE_BOUNDARY_REASON
+    # position, so a gap at the end means the completion read landed on an inner step.
+    if completion.index != completion.total - 1:
+        return FUNNEL_DATA_WAREHOUSE_COMPLETION_REASON
+    if isinstance(completion.node, EventsNode) and completion.node.event and completion.node.event in never_linked:
+        return FUNNEL_SERVER_SIDE_COMPLETION_REASON
     return None
 
 
-def _funnel_step_conditions(metric: MetricEventSource, team: Team) -> tuple[ast.Expr, ast.Expr, int]:
-    """The funnel's entry condition, its completion condition, and how many times the completion
-    event must fire to count as completed.
+def _funnel_completion_condition(metric: MetricEventSource, team: Team) -> tuple[ast.Expr, int]:
+    """The funnel's completion condition, and how many times the completion event must fire to
+    count as completed.
 
-    A funnel can list one event as several steps (the "N-th occurrence" shape), where entry and
-    completion are the same condition and only the occurrence count tells them apart — the same
-    positional reading the per-source hits use.
+    A funnel can list one event as several steps (the "N-th occurrence" shape), where completing
+    means firing that event as many times as it appears in the series, the same positional
+    reading the per-source hits use.
     """
     steps = [source for source in metric.sources if source.role == MetricSourceRole.STEP]
-    entry_step, completion_step = _funnel_boundary_steps(metric)
+    completion_step = _funnel_completion_step(metric)
     completion_signature = node_signature(completion_step.node)
     completion_occurrences = sum(1 for step in steps if node_signature(step.node) == completion_signature)
-    return (
-        build_source_condition(entry_step.node, team),
-        build_source_condition(completion_step.node, team),
-        completion_occurrences,
-    )
+    return build_source_condition(completion_step.node, team), completion_occurrences
 
 
 def _query_bucket_sessions(
@@ -532,36 +520,10 @@ def _query_bucket_sessions(
     window_start: datetime,
     window_end: datetime,
     limit: int,
-    use_exposure_fallback: bool,
+    exposure: SessionExposure,
 ) -> tuple[list[str], bool]:
-    flag_key = experiment.feature_flag.key
-    _event, variant_property = get_exposure_event_and_property(flag_key, experiment.exposure_criteria)
-    if use_exposure_fallback:
-        variant_property = f"$feature/{flag_key}"
-
     def exposure_condition() -> ast.Expr:
-        # The exposure criteria resolved through the shared helpers — the single seam that keeps
-        # this surface in sync with the analysis and with the player's session context. Rebuilt
-        # per use site: the HogQL resolver annotates ast nodes in place, so one instance can't
-        # appear in both the WHERE and the HAVING.
-        variant_condition = ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", variant_property])]),
-            right=ast.Constant(value=variant_keys),
-        )
-        if use_exposure_fallback:
-            # The default exposure event has only ever been captured server-side, so it can't
-            # match any session. posthog-js stamps `$feature/<flag_key>` on every client event
-            # captured after flags load, so the stamped property stands in — the same fallback
-            # the tab's own list uses. It means "the flag was active in this session", not "the
-            # enrollment moment was captured": no event-name condition, and the variant is the
-            # flag's value on each event rather than the exposure response.
-            return variant_condition
-        conditions = [
-            *build_exposure_event_conditions(experiment.exposure_criteria, team, flag_key),
-            variant_condition,
-        ]
-        return ast.And(exprs=conditions) if len(conditions) > 1 else conditions[0]
+        return exposure.condition(variant_keys)
 
     def metric_conditions() -> list[ast.Expr]:
         return [_metric_condition(metric, team) for metric in considered]
@@ -582,17 +544,15 @@ def _query_bucket_sessions(
             op=ast.CompareOperationOp.Eq, left=count_if(any_metric_condition()), right=ast.Constant(value=0)
         )
     else:
-        entry, completion, completion_occurrences = _funnel_step_conditions(considered[0], team)
-        # Count-based on purpose: the filter promises "fired the last step's event", not funnel ordering.
-        bucket_predicate = ast.And(
-            exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=count_if(entry), right=ast.Constant(value=0)),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=count_if(completion),
-                    right=ast.Constant(value=completion_occurrences),
-                ),
-            ]
+        completion, completion_occurrences = _funnel_completion_condition(considered[0], team)
+        # The funnel's implicit first step is the exposure event, and the HAVING below already
+        # requires an in-session exposure for every bucket, so drop-off needs only the completion
+        # side. Count-based on purpose: the filter promises "fired the last step's event", not
+        # funnel ordering.
+        bucket_predicate = ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=count_if(completion),
+            right=ast.Constant(value=completion_occurrences),
         )
 
     # The WHERE keeps the OR of every condition the query can match on, so ClickHouse still prunes

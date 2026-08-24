@@ -290,6 +290,9 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
+                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
+                    )
+                    .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
             })
@@ -338,15 +341,45 @@ export const McpGatewayServiceAccountsPartialUpdateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Grant or revoke this agent's access to one gateway server.
+ * Share, or stop sharing, one gateway server with this agent.
+ *
+ * Sharing is personal. `enabled=true` delegates the caller's own
+ * connection, and the agent may use it only when acting for the caller,
+ * unless the caller sends `scope=team` to lend it to the project's agent
+ * runs generally. Scope only ever applies to the caller's own share: it is
+ * their credential to lend, so no admin permission is involved and no
+ * member can change someone else's share.
+ * `enabled=false` removes the caller's own share and leaves other members'
+ * shares, and the agent's tool policies, in place.
+ *
+ * Project admins can send `all=true` alongside `enabled=false` to remove
+ * every member's share of this server with this agent, along with the
+ * agent's tool policies for it.
  */
+export const mcpGatewayServiceAccountsAccessCreateBodyScopeDefault = `personal`
+export const mcpGatewayServiceAccountsAccessCreateBodyAllDefault = false
 export const mcpGatewayServiceAccountsAccessCreateBodyPoliciesItemToolNameMax = 200
 
 export const mcpGatewayServiceAccountsAccessCreateBodyPoliciesMax = 1000
 
 export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.object({
-    gateway_server_id: zod.uuid().describe('Gateway server to grant or revoke.'),
-    enabled: zod.boolean().describe('True grants access, false revokes it.'),
+    gateway_server_id: zod.uuid().describe('Gateway server to share or stop sharing.'),
+    enabled: zod
+        .boolean()
+        .describe("True shares the caller's own connection with the agent, false removes the caller's share."),
+    scope: zod
+        .enum(['personal', 'team'])
+        .describe('\* `personal` - Personal\n\* `team` - Team')
+        .default(mcpGatewayServiceAccountsAccessCreateBodyScopeDefault)
+        .describe(
+            "Applies to the caller's own share, and only alongside enabled=true. 'personal' lets the agent use the connection when it works for the caller. 'team' lets it use the connection for the whole project's agent runs, including runs nobody started. It never lets another person use the connection. Defaults to personal, so re-sharing without this field resets the caller's share to personal.\n\n\* `personal` - Personal\n\* `team` - Team"
+        ),
+    all: zod
+        .boolean()
+        .default(mcpGatewayServiceAccountsAccessCreateBodyAllDefault)
+        .describe(
+            "Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only."
+        ),
     policies: zod
         .array(
             zod.object({
@@ -356,6 +389,9 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
                     .describe('Tool to set the policy for, up to 200 characters.'),
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
+                    .describe(
+                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
+                    )
                     .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
@@ -394,6 +430,26 @@ export const McpServerInstallationsPartialUpdateBody = /* @__PURE__ */ zod.objec
     display_name: zod.string().optional(),
     description: zod.string().optional(),
     is_enabled: zod.boolean().optional(),
+})
+
+/**
+ * Invoke one tool on a connected MCP server.
+ *
+ * The request/response shape is plain REST rather than the JSON-RPC envelope
+ * `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+ * `exec`) that wants one tool result, not an MCP transport of its own.
+ */
+export const mcpServerInstallationsCallToolCreateBodyToolNameMax = 200
+
+export const McpServerInstallationsCallToolCreateBody = /* @__PURE__ */ zod.object({
+    tool_name: zod
+        .string()
+        .max(mcpServerInstallationsCallToolCreateBodyToolNameMax)
+        .describe('Name of the tool to invoke, exactly as the upstream server reports it.'),
+    arguments: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Arguments object passed straight to the tool, matching its input schema.'),
 })
 
 export const mcpServerInstallationsProxyCreateBodyDisplayNameMax = 200

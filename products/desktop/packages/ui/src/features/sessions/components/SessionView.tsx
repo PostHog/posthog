@@ -27,6 +27,7 @@ import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
@@ -34,14 +35,14 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
+import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
-import { SessionResourcesBar } from "@posthog/ui/features/sessions/components/SessionResourcesBar";
+import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -49,10 +50,7 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
-import {
-  CHAT_CONTENT_MAX_WIDTH,
-  CHAT_CONTENT_PADDING_INLINE,
-} from "@posthog/ui/features/sessions/constants";
+import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
@@ -125,63 +123,6 @@ interface SessionViewProps {
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
 
-/**
- * Centers composer-slot content at the chat width (or compact padding).
- *
- * The composer reserves the same horizontal room as the thread's scroll
- * content and caps at the same width, so the two columns are identical at
- * every panel width rather than only once the panel is wide enough for the
- * full column. Padding on the capped box instead of around it would eat into
- * `CHAT_CONTENT_MAX_WIDTH` and leave the composer narrower than the messages.
- */
-function ComposerWidth({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  if (compact) {
-    return <Box className="p-1">{children}</Box>;
-  }
-
-  return (
-    <Box style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}>
-      <Box
-        className="mx-auto pb-2"
-        style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-      >
-        {children}
-      </Box>
-    </Box>
-  );
-}
-
-/**
- * Input region replacing the composer: `shrink-0` keeps it from being
- * compressed by the scroller above, and `min-h-0 overflow-y-auto` lets tall
- * content scroll inside itself.
- */
-function ComposerSlot({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      className={
-        compact
-          ? "max-h-[50%] min-h-0 overflow-y-auto"
-          : "min-h-0 shrink-0 overflow-y-auto"
-      }
-    >
-      <ComposerWidth compact={compact}>{children}</ComposerWidth>
-    </Box>
-  );
-}
-
 export function SessionView({
   events,
   taskId,
@@ -234,11 +175,21 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
-  const useNewChatThread = useSettingsStore((s) => s.useNewChatThread);
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
+  const olderHistoryCursor = useSessionSelector(taskId, (session) =>
+    isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const isLoadingOlderHistory = useSessionSelector(
+    taskId,
+    (session) => session?.isLoadingOlderTranscript ?? false,
+  );
+  const handleLoadOlderHistory = useCallback(() => {
+    if (!taskId) return;
+    void sessionService.loadOlderCloudTranscript(taskId);
+  }, [sessionService, taskId]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -458,6 +409,7 @@ export function SessionView({
     (s) => !!s?.editingQueuedId,
   );
   const cancelQueuedEdit = useCancelQueuedMessageEdit(taskId);
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
@@ -562,10 +514,6 @@ export function SessionView({
       .catch(() => toast.error("Failed to attach files"));
   }, []);
 
-  const handlePaneClick = useCallback((event: React.MouseEvent) => {
-    focusComposerOnPaneClick(event, () => editorRef.current?.focus());
-  }, []);
-
   useAutoFocusOnTyping(editorRef, !isActiveSession);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -599,13 +547,16 @@ export function SessionView({
             direction="column"
             height="100%"
             className="relative bg-background"
-            onClick={handlePaneClick}
             onContextMenu={handleContextMenu}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
+            <div
+              id="fullscreen-portal"
+              className="pointer-events-none absolute inset-0 z-20"
+            />
             {isSuspended ? (
               <>
                 <ThreadView
@@ -706,9 +657,10 @@ export function SessionView({
                   compact={compact}
                   scrollX={false}
                   promptRecallRef={promptRecallRef}
+                  olderHistoryCursor={olderHistoryCursor}
+                  isLoadingOlderHistory={isLoadingOlderHistory}
+                  onLoadOlderHistory={handleLoadOlderHistory}
                 />
-
-                {!useNewChatThread && <SessionResourcesBar events={events} />}
 
                 <PlanStatusBar plan={latestPlan} />
 
@@ -756,14 +708,21 @@ export function SessionView({
                     </Flex>
                   </Flex>
                 ) : hideInput ? null : firstPendingPermission ? (
-                  <ComposerSlot compact={compact}>
+                  // Keyed on when the prompt arrived, not just which tool call
+                  // it belongs to, so a re-asked permission for the same call
+                  // arrives shown rather than inheriting the last one's hidden
+                  // state.
+                  <PermissionDock
+                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
+                    compact={compact}
+                  >
                     <PermissionSelector
                       toolCall={firstPendingPermission.toolCall}
                       options={firstPendingPermission.options}
                       onSelect={handlePermissionSelect}
                       onCancel={handlePermissionCancel}
                     />
-                  </ComposerSlot>
+                  </PermissionDock>
                 ) : (
                   <Box className="relative shrink-0">
                     <Box
@@ -783,11 +742,17 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
+                        {taskId && (
+                          <SideQuestionCard
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
                         {taskId && <QueuedMessagesDock taskId={taskId} />}
                         <PromptInput
                           ref={editorRef}
                           sessionId={sessionId}
-                          placeholder="Type a message... @ to mention files, ! for bash mode, / for skills"
+                          placeholder="Type a message... ! for bash mode, / for skills"
                           disabled={!isRunning && !handoffInProgress}
                           submitDisabledExternal={
                             handoffInProgress ||
@@ -836,7 +801,11 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <ContextUsageIndicator usage={contextUsage} />
+                            <ContextUsageIndicator
+                              usage={contextUsage}
+                              taskId={taskId}
+                              focused={isActiveSession !== false}
+                            />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

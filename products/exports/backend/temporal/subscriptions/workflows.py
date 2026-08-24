@@ -2,7 +2,6 @@ import json
 import uuid
 import asyncio
 import datetime as dt
-import dataclasses
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -28,7 +27,9 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -46,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
+    DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
@@ -54,7 +56,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
     SnapshotInsightsInputs,
-    SubscriptionInfo,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
@@ -63,7 +64,12 @@ from products.exports.backend.temporal.subscriptions.types import (
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
     return [
-        {"recipient": r.recipient, "status": r.status, **({"error": r.error} if r.error else {})}
+        {
+            "recipient": r.recipient,
+            "status": r.status,
+            **({"error": r.error} if r.error else {}),
+            **({"human_readable_error": r.human_readable_error} if r.human_readable_error else {}),
+        }
         for r in recipient_results
     ]
 
@@ -109,7 +115,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
         fetch_inputs = FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes)
-        subscription_infos: list[SubscriptionInfo] = await temporalio.workflow.execute_activity(
+        subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
             fetch_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -140,6 +146,14 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     team_id=sub.team_id,
                     resource_id=str(sub.subscription_id),
                     distinct_id=sub.distinct_id,
+                    start_properties={
+                        "resource_type": sub.resource_type,
+                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
+                    },
+                    completion_properties={
+                        "resource_type": sub.resource_type,
+                        "trigger_type": SubscriptionTriggerType.SCHEDULED,
+                    },
                 ),
             )
             # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
@@ -245,7 +259,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             if abort_info is not None:
                 # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient) → SKIPPED default.
                 if abort_info.failed_recipient is not None:
-                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    delivery_recipient_results = _to_recipient_dicts([abort_info.failed_recipient])
                     final_status = DeliveryStatus.FAILED
                 return
 
@@ -266,6 +280,14 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+            if inputs.slo:
+                inputs.slo.completion_properties.update(
+                    {
+                        "target_type": prepare_result.target_type,
+                        "selected_insight_count": prepare_result.selected_insight_count,
+                        "available_insight_count": prepare_result.available_insight_count,
+                    }
+                )
 
             if not prepare_result.exported_asset_ids:
                 if prepare_result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS:
@@ -372,8 +394,13 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
 
+            delivery_activity = (
+                deliver_subscription_v2
+                if temporalio.workflow.patched("subscription-delivery-campaign-v2")
+                else deliver_subscription
+            )
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
-                deliver_subscription,
+                delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=delivery_asset_ids,
@@ -387,6 +414,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
+                    delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
@@ -394,7 +422,12 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Capture per-recipient results for the delivery record
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = DeliveryStatus.COMPLETED
+            final_status = (
+                DeliveryStatus.FAILED
+                if delivery_recipient_results
+                and all(result["status"] == "failed" for result in delivery_recipient_results)
+                else DeliveryStatus.COMPLETED
+            )
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors
@@ -437,6 +470,28 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     )
                     if caught_error is None:
                         raise
+
+            delivery_failed_without_exception = bool(delivery_recipient_results) and all(
+                result["status"] == "failed" for result in delivery_recipient_results
+            )
+            if (
+                delivery_id is not None
+                and temporalio.workflow.patched("subscription-delivery-failure-notification-2026-08")
+                and (caught_error is not None or delivery_failed_without_exception)
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+            ):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        notify_subscription_delivery_failure,
+                        args=[inputs.subscription_id, str(delivery_id)],
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "process_subscription.failure_notification_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
 
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
@@ -522,7 +577,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 # Just-disabled → FAILED with reason. Already-disabled (no failed_recipient)
                 # → SKIPPED default (idempotency redispatch). Matches ProcessSubscriptionWorkflow.
                 if abort_info.failed_recipient is not None:
-                    delivery_recipient_results = [dataclasses.asdict(abort_info.failed_recipient)]
+                    delivery_recipient_results = _to_recipient_dicts([abort_info.failed_recipient])
                     final_status = DeliveryStatus.FAILED
                 return
 
@@ -539,6 +594,8 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+            if inputs.slo:
+                inputs.slo.completion_properties["target_type"] = generate_result.target_type
             if generate_result.aborted:
                 # Consent revoked or prompt invalid — generation already auto-disabled.
                 delivery_recipient_results = _to_recipient_dicts(generate_result.recipient_results)
@@ -553,8 +610,13 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 return
 
             # Phase 2: ship the persisted report.
+            delivery_activity = (
+                deliver_subscription_v2
+                if temporalio.workflow.patched("subscription-delivery-campaign-v2")
+                else deliver_subscription
+            )
             deliver_result = await temporalio.workflow.execute_activity(
-                deliver_subscription,
+                delivery_activity,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=[],
@@ -616,6 +678,25 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     if caught_error is None:
                         raise
 
+            if (
+                delivery_id is not None
+                and temporalio.workflow.patched("subscription-delivery-failure-notification-2026-08")
+                and caught_error is not None
+                and inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+            ):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        notify_subscription_delivery_failure,
+                        args=[inputs.subscription_id, str(delivery_id)],
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "process_ai_subscription.failure_notification_failed",
+                        extra={"subscription_id": inputs.subscription_id},
+                    )
+
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub
             # doesn't get a misleading future delivery date.
@@ -670,6 +751,14 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 resource_id=str(inputs.subscription_id),
                 distinct_id=inputs.distinct_id,
+                start_properties={
+                    "resource_type": inputs.resource_type,
+                    "trigger_type": inputs.trigger_type,
+                },
+                completion_properties={
+                    "resource_type": inputs.resource_type,
+                    "trigger_type": inputs.trigger_type,
+                },
             ),
         )
         # Route AI-prompt subs (test delivery / target change) to the AI workflow, same

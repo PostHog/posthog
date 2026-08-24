@@ -168,12 +168,14 @@ export interface RoleLookupResponseApi {
  * * `gitlab` - Gitlab
  * * `google-ads` - Google Ads
  * * `google-analytics` - Google Analytics
+ * * `google-calendar` - Google Calendar
  * * `google-cloud-service-account` - Google Cloud Service Account
  * * `google-cloud-storage` - Google Cloud Storage
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
  * * `hubspot` - Hubspot
+ * * `instagram` - Instagram
  * * `intercom` - Intercom
  * * `jira` - Jira
  * * `linear` - Linear
@@ -195,6 +197,7 @@ export interface RoleLookupResponseApi {
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
  * * `vercel` - Vercel
+ * * `youtube-analytics` - Youtube Analytics
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
@@ -216,12 +219,14 @@ export const IntegrationKindEnumApi = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
@@ -243,6 +248,18 @@ export const IntegrationKindEnumApi = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
+} as const
+
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
 } as const
 
 /**
@@ -256,6 +273,13 @@ export interface IntegrationConfigApi {
     readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status: InstallationStatusEnumApi | null
 }
 
 export interface PaginatedIntegrationConfigListApi {
@@ -305,6 +329,13 @@ export interface PatchedIntegrationConfigApi {
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+    /**
+     * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
+     * @nullable
+     */
+    readonly installation_shared?: boolean | null
+    /** GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise. */
+    readonly installation_status?: InstallationStatusEnumApi | null
 }
 
 export interface GitHubBranchesResponseApi {
@@ -344,11 +375,18 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
 }
 
 export interface GitHubTeamApi {
@@ -406,13 +444,18 @@ export interface GitHubAvailableInstallationApi {
      * @nullable
      */
     account_type: string | null
-    /** A project in the organization that already has this installation linked. */
-    source_team_id: number
+    /**
+     * A project in the organization that already has this installation linked. Null when the installation isn't linked to any project yet — it was found via the user's personal GitHub link and can be adopted by linking it here.
+     * @nullable
+     */
+    source_team_id: number | null
 }
 
 export interface GitHubAvailableInstallationsResponseApi {
-    /** Distinct GitHub installations in the organization available to link to this project. */
+    /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
     installations: GitHubAvailableInstallationApi[]
+    /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
+    personal_github_connected: boolean
 }
 
 export interface GitHubLinkExistingRequestApi {
@@ -477,12 +520,14 @@ export interface IntegrationAccessRequestApi {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -503,7 +548,8 @@ export interface IntegrationAccessRequestApi {
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
-     * * `vercel` - Vercel */
+     * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics */
     kind: IntegrationKindEnumApi
     /**
      * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
@@ -515,6 +561,73 @@ export interface IntegrationAccessRequestApi {
 export interface IntegrationAccessRequestResponseApi {
     /** Whether the access request was accepted and the project admins were notified. */
     success: boolean
+}
+
+/**
+ * Query parameters to send to the target.
+ */
+export type PostHogConnectionForwardApiQuery = { [key: string]: string }
+
+/**
+ * * `GET` - GET
+ * * `POST` - POST
+ * * `PUT` - PUT
+ * * `PATCH` - PATCH
+ * * `DELETE` - DELETE
+ */
+export type PostHogConnectionForwardMethodEnumApi =
+    (typeof PostHogConnectionForwardMethodEnumApi)[keyof typeof PostHogConnectionForwardMethodEnumApi]
+
+export const PostHogConnectionForwardMethodEnumApi = {
+    Get: 'GET',
+    Post: 'POST',
+    Put: 'PUT',
+    Patch: 'PATCH',
+    Delete: 'DELETE',
+} as const
+
+export interface PostHogConnectionForwardApi {
+    /** HTTP method to use against the target project's API.
+     *
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE */
+    method: PostHogConnectionForwardMethodEnumApi
+    /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+    path: string
+    /** Query parameters to send to the target. */
+    query?: PostHogConnectionForwardApiQuery
+    /** JSON request body for write methods. */
+    data?: unknown
+}
+
+export interface PostHogConnectionForwardResponseApi {
+    /** HTTP status the target project returned. */
+    status: number
+    /** The target project's response body, passed through. */
+    data: unknown
+}
+
+export interface PostHogConnectionTargetApi {
+    /** Project id to use in target API paths. It is the connected project's id, not this one's. */
+    project_id: number
+    /** Name of the connected project. */
+    project_name: string
+    /** Id of the organization the connected project belongs to. */
+    organization_id: string
+    /** Name of the organization the connected project belongs to. */
+    organization_name: string
+    /** Cloud region the connected project lives in, e.g. `US` or `EU`. */
+    region: string
+    /** Base URL requests through this connection are sent to. */
+    base_url: string
+}
+
+export interface PostHogConnectionTargetErrorApi {
+    /** Why the connected project's context could not be read. */
+    error: string
 }
 
 export type RoleExternalReferencesListParams = {
@@ -570,12 +683,14 @@ export type IntegrationsListParams = {
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
+     * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
      * * `hubspot` - Hubspot
+     * * `instagram` - Instagram
      * * `intercom` - Intercom
      * * `jira` - Jira
      * * `linear` - Linear
@@ -597,6 +712,7 @@ export type IntegrationsListParams = {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind
     /**
@@ -629,12 +745,14 @@ export const IntegrationsListKind = {
     Gitlab: 'gitlab',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
+    GoogleCalendar: 'google-calendar',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     Hubspot: 'hubspot',
+    Instagram: 'instagram',
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
@@ -656,6 +774,7 @@ export const IntegrationsListKind = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    YoutubeAnalytics: 'youtube-analytics',
 } as const
 
 export type IntegrationsChannelsRetrieveParams = {

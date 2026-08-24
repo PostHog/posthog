@@ -240,6 +240,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ScatterPlot]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.Metric]: ChartDisplayType.ActionsLineGraph,
 
     // cumulative time series
@@ -303,6 +304,9 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showMean: undefined,
             meanRetentionCalculation: undefined,
             yAxisScaleType: undefined,
+            yAxisStartAtZero: undefined,
+            yAxisMin: undefined,
+            yAxisMax: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,

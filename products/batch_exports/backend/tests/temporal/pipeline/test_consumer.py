@@ -8,7 +8,7 @@ from structlog.testing import capture_logs
 
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.transformer import Chunk
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 
 pytestmark = [pytest.mark.asyncio]
 

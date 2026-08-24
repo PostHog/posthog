@@ -22,6 +22,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag, expe
 
 from ee.hogai.context.experiment.context import ExperimentContext
 from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 
 CREATE_EXPERIMENT_TOOL_DESCRIPTION = dedent("""
     Use this tool to create A/B test experiments that measure the impact of changes.
@@ -248,6 +249,8 @@ class ExperimentSummaryTool(MaxTool):
             # Otherwise, fetch data via the data service (agent-initiated call)
             return await self._fetch_and_format(resolved_experiment_id)
 
+        except MaxToolAccessDeniedError:
+            raise
         except Exception as e:
             capture_exception(
                 e,
@@ -265,6 +268,8 @@ class ExperimentSummaryTool(MaxTool):
         experiment = await experiment_context.aget_experiment()
         if experiment is None:
             return f"Experiment {experiment_id} not found", {"error": "not_found"}
+
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
 
         try:
             primary_metrics = [MaxExperimentMetricResult(**m) for m in context.get("primary_metrics_results", [])]
@@ -293,17 +298,22 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
         """Fetch experiment data from query runners and format it."""
-        data_service = ExperimentSummaryDataService(self._team, self._user)
-
-        try:
-            summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)
-        except ValueError as e:
-            return str(e), {"error": "not_found"}
-
         experiment_context = ExperimentContext(team=self._team, experiment_id=experiment_id)
         experiment = await experiment_context.aget_experiment()
         if experiment is None:
             return f"Experiment {experiment_id} not found", {"error": "not_found"}
+
+        # Before the metric queries run, so a denied user costs no ClickHouse work
+        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+
+        data_service = ExperimentSummaryDataService(self._team, self._user)
+
+        try:
+            summary_data = await data_service.fetch_experiment_data(experiment_id)
+        except ValueError as e:
+            return str(e), {"error": "not_found"}
+
+        summary_context = summary_data.context
 
         formatted_data = await experiment_context.format_experiment_results_data(
             experiment,
@@ -312,8 +322,13 @@ class ExperimentSummaryTool(MaxTool):
             secondary_metrics_results=summary_context.secondary_metrics_results,
         )
 
-        if pending:
+        if summary_data.pending_calculation:
             formatted_data += "\n\n**Note:** Some metrics are still being calculated. Results may be incomplete."
+
+        if summary_data.omitted_metric_count:
+            formatted_data += (
+                f"\n\n**Note:** {summary_data.omitted_metric_count} metrics were omitted from this summary."
+            )
 
         return self._build_result(
             experiment,
@@ -428,6 +443,8 @@ class SessionReplaySummaryTool(MaxTool):
 
             experiment = await get_experiment()
 
+            await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+
             if experiment.is_draft:
                 output = SessionReplaySummaryOutput(
                     experiment_id=experiment_id,
@@ -463,9 +480,11 @@ class SessionReplaySummaryTool(MaxTool):
                         with tags_context(
                             product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id
                         ):
-                            recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
-                            # If has_more, there are 100+ recordings
-                            return len(recordings) if not has_more else 100
+                            listing_result = list_recordings_from_query(query=q, user=None, team=self._team)
+                            # If more recordings are available, there are 100+ recordings
+                            return (
+                                len(listing_result.recordings) if not listing_result.more_recordings_available else 100
+                            )
 
                     count = await count_recordings(query)
                     recording_counts[variant_key] = count
@@ -529,6 +548,8 @@ class SessionReplaySummaryTool(MaxTool):
 
             return user_message, output.model_dump()
 
+        except MaxToolAccessDeniedError:
+            raise
         except ValueError as e:
             return f"❌ {str(e)}", {"error": "validation_error", "details": str(e)}
         except Exception as e:

@@ -1,5 +1,6 @@
 import { UNTITLED_CANVAS_NAME } from "@posthog/core/canvas/canvasNaming";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasVersion,
   DashboardRecord,
@@ -130,6 +131,21 @@ export function useCanvasVersions(id: string | undefined): {
   return { versions: data ?? [], isLoading };
 }
 
+/** A canvas's staged drafts, newest first, each with its latest build status. */
+export function useCanvasDrafts(id: string | undefined): {
+  drafts: CanvasDraft[];
+  isLoading: boolean;
+} {
+  const trpc = useHostTRPC();
+  const { data, isLoading } = useQuery(
+    trpc.dashboards.drafts.queryOptions(
+      { id: id ?? "" },
+      { enabled: !!id, staleTime: 5_000 },
+    ),
+  );
+  return { drafts: data ?? [], isLoading };
+}
+
 /** Create + delete + metadata mutations, invalidating the list + record. */
 export function useDashboardMutations() {
   const trpc = useHostTRPC();
@@ -159,6 +175,16 @@ export function useDashboardMutations() {
       },
     }),
   );
+  const promoteDraft = useMutation(
+    trpc.dashboards.promoteDraft.mutationOptions({
+      // Promote makes a draft the head and queues (or adopts) its build, and
+      // the version leaves the drafts list for published history — refresh the
+      // whole lifecycle (which includes drafts) for that canvas.
+      onSuccess: (_data, variables) => {
+        void invalidateCanvasLifecycle(queryClient, trpc, variables.id);
+      },
+    }),
+  );
   const setGenerationTask = useMutation(
     trpc.dashboards.setGenerationTask.mutationOptions({
       onSuccess: invalidate,
@@ -170,10 +196,8 @@ export function useDashboardMutations() {
   const setPinned = useMutation(
     trpc.dashboards.setPinned.mutationOptions({ onSuccess: invalidate }),
   );
-  const ensureHome = useMutation(
-    trpc.dashboards.ensureHomeCanvas.mutationOptions({
-      onSuccess: invalidate,
-    }),
+  const file = useMutation(
+    trpc.dashboards.file.mutationOptions({ onSuccess: invalidate }),
   );
 
   return {
@@ -193,6 +217,12 @@ export function useDashboardMutations() {
       expectedCurrentVersionId: string | null,
     ) =>
       revertToVersion.mutateAsync({ id, versionId, expectedCurrentVersionId }),
+    // Make a staged draft the canvas's live head (and rebuild it if needed).
+    promoteDraft: (
+      id: string,
+      versionId: string,
+      expectedCurrentVersionId: string | null,
+    ) => promoteDraft.mutateAsync({ id, versionId, expectedCurrentVersionId }),
     // Record (or clear) the task generating this canvas. Shared on the canvas
     // row so every client polling the canvas sees the in-flight generation.
     setGenerationTask: (id: string, taskId: string | null) =>
@@ -205,63 +235,20 @@ export function useDashboardMutations() {
     // shows in the channel's Pinned menu for every member.
     setPinned: (id: string, pinned: boolean) =>
       setPinned.mutateAsync({ id, pinned }),
-    // Ensure a channel has its home canvas (creating + seeding it if absent).
-    // Idempotent server-side; returns the home canvas record.
-    ensureHomeCanvas: (channelId: string) =>
-      ensureHome.mutateAsync({ channelId }),
+    fileDashboard: (id: string, channelId: string) =>
+      file.mutateAsync({ id, channelId }),
     isCreating: create.isPending,
     isDeleting: remove.isPending,
     isSavingContext: saveContext.isPending,
     isReverting: revertToVersion.isPending,
+    isPromoting: promoteDraft.isPending,
   };
 }
 
 /**
- * Open a channel's home canvas in the main content pane. The home canvas is
- * resolved (and created on first open) by the dashboards service, which is
- * idempotent server-side.
- */
-export function useOpenHomeCanvas(): (channel: {
-  id: string;
-}) => Promise<void> {
-  const navigate = useNavigate();
-  const trpc = useHostTRPC();
-  const queryClient = useQueryClient();
-  const { ensureHomeCanvas } = useDashboardMutations();
-
-  return useCallback(
-    async (channel) => {
-      try {
-        // The channel's dashboards list is usually already cached; a seeded
-        // home canvas found there can be opened without a server round trip.
-        // Only when none exists (or it's unseeded) does the idempotent
-        // ensureHomeCanvas create/seed it.
-        const cachedHome = queryClient
-          .getQueryData<DashboardRecord[]>(
-            trpc.dashboards.list.queryKey({ channelId: channel.id }),
-          )
-          ?.find((d) => d.isHome && d.currentVersionId);
-        const dashboardId =
-          cachedHome?.id ?? (await ensureHomeCanvas(channel.id)).id;
-        await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
-          params: { channelId: channel.id, dashboardId },
-        });
-      } catch (error) {
-        log.error("Failed to open home canvas", { error });
-        toast.error("Couldn't open channel home", {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      }
-    },
-    [navigate, ensureHomeCanvas, queryClient, trpc],
-  );
-}
-
-/**
  * Create an empty canvas in a channel, enter edit mode, and navigate to it.
- * `opts.channelId` overrides the bound channel, for callers whose channel is
- * provisioned lazily and so has no id at render time (the "me" row).
+ * `opts.channelId` overrides the bound channel, for callers whose channel has no id at
+ * render time because the list has not loaded (the "me" row).
  */
 export function useCreateAndOpenDashboard(
   channelId: string | undefined,
@@ -284,7 +271,7 @@ export function useCreateAndOpenDashboard(
         const record = await createDashboard(targetChannelId, name, templateId);
         setEditing(record.id, true);
         await navigate({
-          to: "/website/$channelId/dashboards/$dashboardId",
+          to: "/spaces/$channelId/dashboards/$dashboardId",
           params: { channelId: targetChannelId, dashboardId: record.id },
         });
       } catch (error) {

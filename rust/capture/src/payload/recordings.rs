@@ -16,7 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
-    ingestion_warnings::SdkAttribution,
+    ingestion_warnings::replay::attribution_from_event,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -44,6 +44,7 @@ impl RecordingPayload {
 /// This is optimized to avoid the double serialization that would occur
 /// if we went through RawRequest -> Vec<RawEvent> -> process
 #[instrument(skip_all, fields(batch_size, params_compression))]
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_recording_payload(
     state: &State<router::State>,
     InsecureClientIp(ip): &InsecureClientIp,
@@ -51,6 +52,7 @@ pub async fn handle_recording_payload(
     headers: &HeaderMap,
     method: &Method,
     path: &MatchedPath,
+    wire_limit: Option<router::WireBodyLimit>,
     body: Body,
 ) -> Result<(ProcessingContext, Vec<RawRecording>), CaptureError> {
     let chatty_debug_enabled = headers.get("X-CAPTURE-DEBUG").is_some();
@@ -58,9 +60,14 @@ pub async fn handle_recording_payload(
     debug_or_info!(chatty_debug_enabled, headers=?headers, "entering handle_recording_payload");
 
     // Extract body with optional chunk timeout
+    // Wire limit governs the streamed body; event_payload_size_limit is the
+    // larger budget for what that body decompresses into.
+    let wire_limit = wire_limit
+        .map(|l| l.0)
+        .unwrap_or(state.event_payload_size_limit);
     let body = extract_body_with_timeout(
         body,
-        state.event_payload_size_limit,
+        wire_limit,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
         path.as_str(),
@@ -128,10 +135,8 @@ pub async fn handle_recording_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
-        // Replay emits no ingestion warnings yet. Snapshot events report `$lib`
-        // in their own envelope shape, so wiring this up is a real conversion,
-        // not a field copy — left for whoever adds replay warnings.
-        sdk_attribution: SdkAttribution::default(),
+        ai_max_event_bytes: 0,
+        sdk_attribution: attribution_from_event(&events[0], metadata.user_agent),
     };
 
     // Apply all billing limit quotas and drop partial or whole

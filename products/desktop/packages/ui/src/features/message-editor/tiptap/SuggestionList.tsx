@@ -4,6 +4,7 @@ import {
   ItemContent,
   ItemDescription,
   ItemMedia,
+  ItemMenuItem,
   ItemTitle,
   Kbd,
 } from "@posthog/quill";
@@ -30,8 +31,11 @@ export interface SuggestionListProps {
   loading?: boolean;
 }
 
+// The same surface quill's own menu popups draw (see `.quill-autocomplete__content`),
+// expressed in tokens rather than raw Radix vars so it tracks the design system.
+// tippy owns the positioning, so there is no anchor width to inherit.
 const CONTAINER_CLASS =
-  "flex w-max min-w-[300px] max-w-[440px] flex-col overflow-hidden rounded-md border border-[var(--gray-a6)] bg-[var(--color-panel-solid)] text-[13px] shadow-lg";
+  "flex w-max min-w-[300px] max-w-[440px] flex-col overflow-hidden rounded-md border border-border bg-card text-[13px] text-foreground shadow-md";
 
 function DefaultRow({ item }: { item: SuggestionItem }) {
   const isFolder = item.chipType === "folder";
@@ -46,7 +50,7 @@ function DefaultRow({ item }: { item: SuggestionItem }) {
           )}
         </ItemMedia>
       )}
-      <ItemContent variant="menuItem">
+      <ItemContent variant="menuItem" className="p-0">
         <ItemTitle className="truncate text-left">{item.label}</ItemTitle>
         {item.description && (
           <ItemDescription className="truncate text-left">
@@ -113,30 +117,31 @@ export const SuggestionList = forwardRef<
     <div className={CONTAINER_CLASS}>
       <div
         role="listbox"
-        className="max-h-60 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden"
+        className="scroll-mask-4 max-h-60 flex-1 scroll-py-8 overflow-y-auto p-1"
         onMouseMove={() => !hasMouseMoved && setHasMouseMoved(true)}
       >
-        {items.map((item, index) => {
-          const isSelected = index === selectedIndex;
-          return (
-            <button
-              type="button"
-              key={item.id}
-              ref={(el) => {
-                itemRefs.current[index] = el;
-              }}
-              onClick={() => command(item)}
-              onMouseEnter={() => hasMouseMoved && setSelectedIndex(index)}
-              className={`flex w-full border-none px-2 py-0.5 text-left ${
-                isSelected ? "bg-[var(--accent-a4)]" : ""
-              }`}
-            >
-              {renderItem ? renderItem(item) : <DefaultRow item={item} />}
-            </button>
-          );
-        })}
+        {items.map((item, index) => (
+          <ItemMenuItem
+            key={item.id}
+            ref={(el) => {
+              itemRefs.current[index] = el;
+            }}
+            size="xs"
+            // `option` inside the listbox above, not the `menuitem` this
+            // primitive defaults to. Selection is the plugin's, driven by the
+            // keys it forwards, so it rides on aria-selected rather than the
+            // focus these rows never take (the caret stays in the editor).
+            role="option"
+            aria-selected={index === selectedIndex}
+            onClick={() => command(item)}
+            onMouseEnter={() => hasMouseMoved && setSelectedIndex(index)}
+            className="w-full text-left aria-selected:bg-fill-selected"
+          >
+            {renderItem ? renderItem(item) : <DefaultRow item={item} />}
+          </ItemMenuItem>
+        ))}
       </div>
-      <div className="flex items-center gap-1 border-[var(--gray-a4)] border-t bg-[var(--gray-a2)] px-2 py-1 text-[11px] text-[var(--gray-10)]">
+      <div className="flex items-center gap-1 border-border border-t bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground">
         <Kbd>↑</Kbd>
         <Kbd>↓</Kbd>
         <span>navigate</span>

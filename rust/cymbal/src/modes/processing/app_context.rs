@@ -9,11 +9,13 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
 use uuid::Uuid;
 
+use crate::modes::processing::redis_heal::HealGate;
 use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
     stages::rate_limiting::RedisRateLimiter,
+    stages::resolution::event_release::ReleaseCache,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
@@ -42,6 +44,8 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    // Debounces heal-task spawns for the issue-buckets client (see redis_heal).
+    pub issue_buckets_heal_gate: HealGate,
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
     pub rate_limiter: Option<Arc<RedisRateLimiter>>,
@@ -53,6 +57,10 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
+    // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
+    // for apps that never bound one. Lives here so it survives across batches.
+    pub release_cache: ReleaseCache,
 }
 
 impl Drop for AppContext {
@@ -161,6 +169,11 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let release_cache = ReleaseCache::new(
+            config.release_cache_max_entries,
+            Duration::from_secs(config.release_cache_ttl_seconds),
+        );
+
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
 
@@ -178,9 +191,11 @@ impl AppContext {
             process_request_limiter,
             team_manager,
             issue_buckets_redis_client,
+            issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
             issue_cache,
+            release_cache,
             remote_resolution,
             remote_resolution_refresh_task,
         })

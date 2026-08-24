@@ -13,6 +13,9 @@ Column | Type | Description
 `type` | varchar(128) | `String`, `Number`, `Boolean`, `List`, or `Date`
 `default_value` | jsonb | Default value
 `values` | jsonb | Available values (List type only)
+`is_multi` | boolean | Whether a List variable accepts multiple selected values
+`values_query` | text | HogQL query whose first result column supplies List options
+`values_query_connection_id` | text | External data source connection `values_query` runs against (null for PostHog)
 
 ### Types
 
@@ -20,8 +23,8 @@ Type | Example `default_value`
 `String` | `"example"`
 `Number` | `42`
 `Boolean` | `true`
-`List` | `["$pageview", "$autocapture"]`
-`Date` | `"2024-01-01"`
+`List` | `"$pageview"` or `["$pageview", "$autocapture"]` when `is_multi` is enabled
+`Date` | `"2024-01-01"` or a rolling value such as `"-7d"`
 
 ### Usage
 
@@ -34,7 +37,14 @@ WHERE (coalesce({variables.org}, '') = '' OR properties.org = {variables.org})
 
 -- Optional nullable (null check)
 WHERE ({variables.browser} IS NULL OR properties.$browser = {variables.browser})
+
+-- Multiselect List variable
+WHERE event IN {variables.event_names}
 ```
+
+List options can be entered manually or loaded from a HogQL query. For query-backed options, the first result column becomes the option values, and an optional second column supplies their display labels. Queries without a `LIMIT` return at most 100 rows, and the UI keeps at most 1000 options. The query can run against an external data source connection via `values_query_connection_id`.
+
+Relative Date defaults resolve each time a query runs. For example, `-7d` means seven days before the current time.
 
 ### code_name Generation
 

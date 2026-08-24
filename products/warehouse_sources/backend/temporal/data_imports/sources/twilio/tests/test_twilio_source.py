@@ -1,22 +1,20 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import (
     TwilioAuthMethodConfig,
     TwilioSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source import TwilioSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import TwilioResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio import (
+    TWILIO_MAIN_KEY_REQUIRED_REASON,
+)
 
 ACCOUNT_SID = "AC00000000000000000000000000000000"
+TWILIO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.twilio.twilio.make_tracked_session"
+)
 
 
 def _api_key_config():
@@ -39,38 +37,6 @@ class TestTwilioSource:
         self.team_id = 123
         self.config = _api_key_config()
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.TWILIO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Twilio"
-        assert config.label == "Twilio"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        assert config.iconPath == "/static/services/twilio.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["account_sid", "auth_method"]
-
-    def test_auth_method_offers_both_credential_types(self):
-        config = self.source.get_source_config
-        auth_field = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig))
-        assert {o.value for o in auth_field.options} == {"api_key", "auth_token"}
-
-    def test_secret_fields_are_passwords(self):
-        config = self.source.get_source_config
-        secrets = {
-            f.name
-            for option_field in config.fields
-            if isinstance(option_field, SourceFieldSelectConfig)
-            for o in option_field.options
-            for f in (o.fields or [])
-            if isinstance(f, SourceFieldInputConfig) and f.type == SourceFieldInputConfigType.PASSWORD
-        }
-        assert secrets == {"api_key_secret", "auth_token"}
-
     @pytest.mark.parametrize(
         "observed_error",
         [
@@ -91,21 +57,13 @@ class TestTwilioSource:
     def test_non_retryable_errors_ignore_unrelated(self, other_error):
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        incremental = {s.name for s in schemas if s.supports_incremental}
-        assert incremental == {"messages", "calls", "recordings", "conferences"}
-
-    def test_incremental_schemas_advertise_their_fields(self):
+    def test_main_key_only_tables_default_off(self):
+        # One-shot setup builds its schema list straight from get_schemas and never calls
+        # get_endpoint_permissions, so without this the `keys` table is enabled for a Standard API
+        # key and its first sync fails non-retryably.
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["messages"].incremental_fields == INCREMENTAL_FIELDS["messages"]
-        assert schemas["addresses"].incremental_fields == []
-        assert schemas["addresses"].supports_append is False
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
-        assert [s.name for s in schemas] == ["calls"]
+        assert schemas["keys"].should_sync_default is False
+        assert all(s.should_sync_default for name, s in schemas.items() if name != "keys")
 
     @pytest.mark.parametrize(
         "config_factory, expected_auth",
@@ -139,10 +97,39 @@ class TestTwilioSource:
         assert error is None
         mock_validate.assert_called_once_with(("SK123", "secret"), ACCOUNT_SID, "messages")
 
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TwilioResumeConfig
+    @pytest.mark.parametrize(
+        "status_code, expected_keys_reason",
+        [
+            (401, TWILIO_MAIN_KEY_REQUIRED_REASON),
+            (403, TWILIO_MAIN_KEY_REQUIRED_REASON),
+            (200, None),
+            # A throttle or a server error must not hide a table the credential can actually read.
+            (429, None),
+            (500, None),
+        ],
+    )
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_get_endpoint_permissions_gates_only_the_keys_table(self, mock_session, status_code, expected_keys_reason):
+        getter = mock_session.return_value.get
+        getter.return_value = mock.MagicMock(status_code=status_code)
+
+        result = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
+
+        assert result["keys"] == expected_keys_reason
+        assert {name: reason for name, reason in result.items() if name != "keys"} == dict.fromkeys(
+            name for name in ENDPOINTS if name != "keys"
+        )
+        # Probing every table would add a round-trip per table to an interactive request.
+        assert getter.call_count == 1
+
+    @mock.patch(TWILIO_SESSION_PATCH)
+    def test_get_endpoint_permissions_survives_missing_secrets(self, mock_session):
+        config = TwilioSourceConfig(account_sid=ACCOUNT_SID, auth_method=TwilioAuthMethodConfig(selection="api_key"))
+
+        result = self.source.get_endpoint_permissions(config, self.team_id, list(ENDPOINTS))
+
+        assert result == dict.fromkeys(ENDPOINTS)
+        mock_session.assert_not_called()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.twilio.source.twilio_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_twilio_source):

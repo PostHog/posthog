@@ -16,6 +16,7 @@ use crate::blur::{blank_image_data_uri, blur_image_data_uri, pixelate_raw_rgba};
 use crate::collect::{collectable_data_uri_bytes, CollectedImage, ImageCollection, ImageCollector};
 use crate::images::{ImageFallback, ImagePolicy, ImageQueue};
 use crate::timings::PhaseTimings;
+use crate::url_collect::{CollectedUrl, UrlCollection, UrlCollector};
 
 /// Cumulative decompressed-bytes budget across all cv payloads in one message: the per-payload
 /// `compression::MAX_DECOMPRESSED_BYTES` cap bounds each field, this bounds their sum so many high-ratio
@@ -36,6 +37,8 @@ pub struct Ctx<'a> {
     images: ImageQueue,
     // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
     collector: Option<RefCell<ImageCollector>>,
+    // `Some` routes remote image URLs to the fetch lane and emits refs beside the media placeholder.
+    url_collector: Option<RefCell<UrlCollector>>,
     // Whether a well-formed ref already present in the *input* is left alone. Off unless the
     // caller vouches for the input's provenance; see `preserving_image_refs`.
     preserve_image_refs: bool,
@@ -73,12 +76,12 @@ impl<'a> Ctx<'a> {
             image_policy,
             images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
+            url_collector: None,
             preserve_image_refs: false,
         }
     }
 
-    /// Leave well-formed `image:<pseudo_team>:<hash>` refs already present in the input alone
-    /// instead of scrubbing them.
+    /// Leave well-formed image refs already present in the input alone instead of scrubbing them.
     ///
     /// Off by default, and it must stay off for anything scrubbing untrusted capture input: the
     /// ref format is not a secret, so a page could set a media attribute to a forged one and have
@@ -140,6 +143,44 @@ impl<'a> Ctx<'a> {
         match self.timings {
             Some(t) => t.time_op(op, f),
             None => f(),
+        }
+    }
+
+    /// Route remote image URLs to the fetch lane. Off unless set, exactly like image collection.
+    /// The media source keeps its placeholder either way.
+    pub fn collecting_urls(mut self, url_collection: Option<UrlCollection>) -> Self {
+        self.url_collector = url_collection.map(|c| RefCell::new(UrlCollector::new(c)));
+        self
+    }
+
+    /// The fetch lane's ref for a remote image URL.
+    ///
+    /// `None` when collection is off, when the URL is not fetchable, or when the per-message cap
+    /// is reached. The caller writes the placeholder regardless and stashes a returned ref beside
+    /// it.
+    pub(crate) fn collect_url(&self, original: &str) -> Option<String> {
+        let collector = self.url_collector.as_ref()?;
+        collector.borrow_mut().collect(original)
+    }
+
+    /// Drain the collected URLs (hash-sorted). Empty when URL collection was off.
+    ///
+    /// Takes the collector rather than `self`, because the caller drains the images afterwards and
+    /// that call consumes the context. A second call therefore returns nothing, which is why this
+    /// is not named `into_`.
+    /// Counts by reason for the URLs the collector refused. Read before [`Self::take_collected_urls`],
+    /// which takes the collector.
+    pub fn take_url_declines(&self) -> Vec<(String, u32)> {
+        match self.url_collector.as_ref() {
+            Some(collector) => collector.borrow().into_declines(),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn take_collected_urls(&mut self) -> Vec<CollectedUrl> {
+        match self.url_collector.take() {
+            Some(collector) => collector.into_inner().into_urls(),
+            None => Vec::new(),
         }
     }
 

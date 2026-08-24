@@ -1,10 +1,13 @@
 import io
+import os
 import json
 import math
 import tarfile
 import datetime
+import tempfile
 import threading
 import urllib.error
+import email.message
 import urllib.request
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
@@ -14,6 +17,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -28,6 +32,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -43,6 +48,7 @@ from products.notebooks.backend.sandbox.kernel.data_plane import (
 )
 from products.notebooks.backend.sql_v2 import (
     RESULT_CACHE_ROWS,
+    DataPlaneClaims,
     SQLV2KernelNotRunning,
     SQLV2PageError,
     build_callback_url,
@@ -58,7 +64,12 @@ from products.notebooks.backend.sql_v2 import (
 )
 from products.notebooks.backend.sql_v2_callback import MAX_ENVELOPE_BYTES
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
-from products.notebooks.backend.sql_v2_direct import apply_page_bounds, notebook_direct_query_id, sync_direct_run
+from products.notebooks.backend.sql_v2_direct import (
+    apply_page_bounds,
+    apply_raw_page_bounds,
+    notebook_direct_query_id,
+    sync_direct_run,
+)
 from products.notebooks.backend.temporal.sql_v2 import (
     SQLV2RunInput,
     dispatch_sql_v2_run_activity,
@@ -149,6 +160,52 @@ class TestSQLV2ApplyPageBounds(SimpleTestCase):
         assert parsed.select_from is not None
         assert isinstance(parsed.select_from.table, ast.SelectQuery | ast.SelectSetQuery)
         assert isinstance(parsed.limit, ast.Constant) and parsed.limit.value == limit
+
+    @parameterized.expand(
+        [
+            ("plain", "select * from credit.billing_credits"),
+            ("trailing_semicolon", "select * from credit.billing_credits;"),
+        ]
+    )
+    def test_raw_bounding_wraps_with_an_alias(self, _name: str, query: str) -> None:
+        # Raw SQL is the connection's dialect, so it can't be parsed to find a pushdown spot —
+        # it is always wrapped. The derived table needs an alias or Postgres and MySQL reject it,
+        # and a trailing ';' would end the statement before the bound.
+        out = apply_raw_page_bounds(query, limit=301, offset=0)
+        assert (
+            out == "select * from (select * from credit.billing_credits\n) as posthog_notebook_page limit 301 offset 0"
+        )
+
+    @parameterized.expand(
+        [
+            ("explain", "explain select 1"),
+            ("uppercase", "EXPLAIN ANALYZE select 1"),
+            ("show", "show search_path"),
+            ("behind_a_comment", "-- why is this slow\nexplain select 1"),
+        ]
+    )
+    def test_raw_bounding_leaves_unnestable_statements_alone(self, _name: str, query: str) -> None:
+        # Postgres admits EXPLAIN/SHOW in raw mode (only MySQL restricts raw SQL to SELECT), and
+        # neither is valid inside a derived table. Wrapping them turns a query that works in the
+        # SQL editor into a syntax error, so they reach the engine as written.
+        assert apply_raw_page_bounds(query, limit=301, offset=0) == query
+
+    def test_raw_bounding_still_wraps_a_select_behind_a_comment(self) -> None:
+        # The leading-keyword check skips comments, so it must not mistake a commented SELECT
+        # for something unnestable and ship an unbounded scan into the result store.
+        out = apply_raw_page_bounds("-- daily totals\nselect * from users", limit=301, offset=0)
+        assert out.startswith("select * from (-- daily totals\nselect * from users")
+        assert out.endswith(") as posthog_notebook_page limit 301 offset 0")
+
+    def test_terminator_is_stripped_even_behind_a_trailing_comment(self) -> None:
+        # `select 1; -- note` is a single statement to sqlparse, so it passes the engine's
+        # single-statement guard and lands here with the ';' mid-string. Wrapping that as a
+        # derived table is a hard syntax error on Postgres and MySQL. The comment stays put.
+        out = apply_raw_page_bounds("select * from users; -- daily totals", limit=301, offset=0)
+        assert ";" not in out.split(") as posthog_notebook_page")[0]
+        assert (
+            out == "select * from (select * from users -- daily totals\n) as posthog_notebook_page limit 301 offset 0"
+        )
 
 
 class TestSQLV2Callback(APIBaseTest):
@@ -514,12 +571,22 @@ class TestSQLV2Run(APIBaseTest):
         self.assertIn("new_col", run.code)
         self.assertNotIn("old_col", run.code)
 
+    @parameterized.expand(
+        [
+            ("sql_consumer", "hogql", "select * from sql_df", NotebookNodeRun.NodeType.DUCKDB),
+            ("python_consumer", "python", "print(sql_df)", NotebookNodeRun.NodeType.PYTHON),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_hogql_ref_whose_latest_run_was_duckdb_is_treated_as_not_run(self, _mock_enabled, mock_start):
-        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming
-        # kernel frames, so inlining it as a CTE would ship it to ClickHouse. The stale older
-        # hogql run must not be used either — the node's latest result is a local frame.
+    def test_ref_whose_latest_run_was_duckdb_reads_it_as_a_kernel_frame(
+        self, _name, consumer_node_type, code, expected_node_type, _mock_enabled, mock_start
+    ):
+        # A SQL node's runs can alternate engines; a duckdb run's code is raw SQL naming kernel
+        # frames, so inlining it as a CTE would ship it to ClickHouse, and the stale older hogql
+        # run must not be used either. But the run did happen: a duckdb run binds its result into
+        # the kernel namespace under its dataframe name, so downstream cells read it as a local
+        # frame instead of being told the node never ran.
         with freeze_time("2026-07-04T00:00:00Z"):
             self._record_done_run("node-c", "select id from events")
         with freeze_time("2026-07-04T00:01:00Z"):
@@ -534,12 +601,20 @@ class TestSQLV2Run(APIBaseTest):
                 )
         response = self.client.post(
             self.run_url,
-            data={"node_id": "d", "code": "select * from sql_df", "refs": {"sql_df": {"node_id": "node-c"}}},
+            data={
+                "node_id": "d",
+                "code": code,
+                "node_type": consumer_node_type,
+                "refs": {"sql_df": {"node_id": "node-c"}},
+            },
             format="json",
         )
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("has not been run", response.json()["detail"])
-        mock_start.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(run.node_type, expected_node_type)
+        self.assertEqual(run.code, code)  # never CTE-rewritten: the upstream result is a frame
+        dispatched = mock_start.call_args.args[0]
+        self.assertEqual([(i["name"], i["kind"]) for i in dispatched.inputs], [("sql_df", "local")])
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
@@ -650,18 +725,230 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
 
-class _RecordingSandbox:
-    """Stands in for the docker/Modal sandbox: records control-plane calls."""
+@patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+class TestSQLV2RunOnAConnection(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbconn1")
+        self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
+        self.source_id = UUIDT()
+        # The source is another product's model, which this one may not import (tach). Notebooks
+        # only ever reaches it through core's resolver, so stub that seam: what this suite owns is
+        # whether notebooks calls it with the right arguments and honors its verdict. The
+        # resolver's own RBAC behavior is covered by the direct-connection tests in core.
+        patcher = patch(
+            "products.notebooks.backend.presentation.views.notebook.get_direct_connection_source",
+            return_value=SimpleNamespace(id=self.source_id),
+        )
+        self.mock_resolve_source = patcher.start()
+        self.addCleanup(patcher.stop)
 
-    def __init__(self):
+    def _post(self, **data: Any):
+        return self.client.post(self.run_url, data={"node_id": "n1", **data}, format="json")
+
+    def _record_done_run(self, node_id: str, code: str, connection_id: str | None = None) -> None:
+        with team_scope(self.team.id):
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id=node_id,
+                code=code,
+                connection_id=connection_id,
+                status=NotebookNodeRun.Status.DONE,
+            )
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    def test_connection_reaches_the_enqueued_query(self, mock_enqueue, _mock_enabled):
+        # The bug: the cell's connection was dropped at dispatch, so a warehouse query ran
+        # against ClickHouse and failed with "Unknown table". The id has to ride the query.
+        response = self._post(code="select * from public.users", connection_id=str(self.source_id))
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertEqual(str(run.connection_id), str(self.source_id))
+        self.assertFalse(run.send_raw_query)
+        query_json = mock_enqueue.call_args.kwargs["query_json"]
+        self.assertEqual(query_json["connectionId"], str(self.source_id))
+        self.assertNotIn("sendRawQuery", query_json)
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    def test_raw_mode_ships_engine_sql_untouched(self, mock_enqueue, _mock_enabled):
+        # Raw SQL never reaches the HogQL parser: `::text` and friends would fail to parse, and
+        # a query the parser did accept must still arrive verbatim inside the row bound.
+        response = self._post(
+            code="select id::text from credit.billing_credits",
+            connection_id=str(self.source_id),
+            send_raw_query=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertTrue(run.send_raw_query)
+        self.assertEqual(run.code, "select id::text from credit.billing_credits")
+        query_json = mock_enqueue.call_args.kwargs["query_json"]
+        self.assertTrue(query_json["sendRawQuery"])
+        self.assertIn("select id::text from credit.billing_credits", query_json["query"])
+        # Raw mode reads whatever the connection exposes, so it must be gated on a pure-direct
+        # source and on this user — a resolver call that dropped either would silently widen access.
+        resolve_kwargs = self.mock_resolve_source.call_args.kwargs
+        self.assertEqual(resolve_kwargs["user"], self.user)
+        self.assertTrue(resolve_kwargs["require_pure_direct"])
+
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_unknown_connection_fails_the_dispatch(self, mock_enqueue, _mock_enabled):
+        # Fail here rather than stranding a run that can only report an opaque error later.
+        self.mock_resolve_source.return_value = None
+        response = self._post(code="select 1", connection_id=str(UUIDT()))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("connectionId", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+        self.assertFalse(NotebookNodeRun.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand(
+        [
+            ("connection_cell_reading_a_posthog_cell", True),
+            ("posthog_cell_reading_a_connection_cell", False),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_cross_engine_reference_is_rejected(self, _name, run_on_connection, mock_enqueue, _mock_enabled):
+        # Both directions: a cell's stored SQL only means anything on the engine that ran it, so
+        # inlining it as a CTE elsewhere would silently ship the wrong query.
+        self._record_done_run(
+            "node-df1", "select id from events", connection_id=None if run_on_connection else str(self.source_id)
+        )
+        response = self._post(
+            code="select * from df1",
+            refs={"df1": {"node_id": "node-df1"}},
+            connection_id=str(self.source_id) if run_on_connection else None,
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("last ran on a different connection", response.json()["detail"])
+        mock_enqueue.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    def test_python_reading_a_connection_cell_says_what_to_do(self, mock_start, _mock_enabled):
+        # A Python cell materializes upstream results through the data plane, which only reaches
+        # PostHog — so it must say that, not tell the user to move a Python cell onto a warehouse.
+        self._record_done_run("node-wh", "select * from public.users", connection_id=str(self.source_id))
+        response = self._post(
+            code="print(wh_df.head())",
+            node_type="python",
+            refs={"wh_df": {"node_id": "node-wh"}},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Python cells can only read PostHog results", response.json()["detail"])
+        mock_start.assert_not_called()
+
+    @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
+    def test_same_connection_reference_still_inlines(self, mock_enqueue, _mock_enabled):
+        # The rejection above must not swallow the ordinary case: two cells on one connection
+        # still compose, so the guard can't just refuse every ref once a connection is set.
+        self._record_done_run("node-df1", "select id from events", connection_id=str(self.source_id))
+        response = self._post(
+            code="select * from df1",
+            refs={"df1": {"node_id": "node-df1"}},
+            connection_id=str(self.source_id),
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
+        mock_enqueue.assert_called_once()
+
+    def test_reading_a_connection_run_needs_source_access(self, _mock_enabled):
+        # Dispatch gated the source, but the run row outlives that check and this endpoint serves
+        # its rows to anyone with notebook + query access. Without a re-check a member denied
+        # viewer on the warehouse could poll a colleague's run and read what it pulled.
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select * from public.users",
+                connection_id=self.source_id,
+                envelope={"status": "ok", "columns": ["id"], "first_page": [[1]]},
+                status=NotebookNodeRun.Status.DONE,
+            )
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["result"]["first_page"], [[1]])
+        # The read must be resolved for the caller, not for whoever ran the cell.
+        self.assertEqual(self.mock_resolve_source.call_args.kwargs["user"], self.user)
+
+        self.mock_resolve_source.return_value = None
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_losing_source_access_mid_run_still_lets_the_run_reach_a_terminal_state(self, _mock_enabled):
+        # This poll is the only thing that advances a direct run, and the only place its expiry
+        # watchdog fires. Gating before that would strand the run RUNNING forever once access
+        # went away — so the row must still finish even though the caller is refused its rows.
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                code="select * from public.users",
+                connection_id=self.source_id,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        self.mock_resolve_source.return_value = None
+
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run.id}/"
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
+
+    @parameterized.expand([("python_frame", False), ("duckdb_node_frame", True)])
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
+    def test_a_local_frame_never_reroutes_a_connection_run_to_the_sandbox(
+        self, _name, from_duckdb_run, mock_enqueue, mock_start, _mock_enabled
+    ):
+        # Without the guard this takes Journey 5's DuckDB reroute, where the sandbox would run the
+        # query against a kernel frame instead of the warehouse the user picked. A SQL node whose
+        # last run was duckdb left its result in that same namespace, so it takes the same guard.
+        if from_duckdb_run:
+            with team_scope(self.team.id):
+                NotebookNodeRun.objects.create(
+                    team=self.team,
+                    notebook=self.notebook,
+                    node_id="node-duck",
+                    code="select * from new_events",
+                    node_type=NotebookNodeRun.NodeType.DUCKDB,
+                    status=NotebookNodeRun.Status.DONE,
+                )
+            refs = {"sql_df": {"node_id": "node-duck"}}
+            code = "select * from sql_df"
+        else:
+            refs = {"new_events": {"node_id": "node-py", "kind": "local"}}
+            code = "select * from new_events"
+        response = self._post(code=code, refs=refs, connection_id=str(self.source_id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("local dataframe", response.json()["detail"])
+        mock_start.assert_not_called()
+        mock_enqueue.assert_not_called()
+
+
+class _RecordingSandbox:
+    """Stands in for the docker/Modal sandbox: records control-plane calls.
+
+    `baked_version` stands in for the stamp the image carries. It defaults to None,
+    which is an image with no baked package at all, so the probe reports nothing and
+    the deploy falls back to the tarball.
+    """
+
+    def __init__(self, baked_version: str | None = None):
         self.files: dict[str, bytes] = {}
         self.commands: list[str] = []
+        self.baked_version = baked_version
 
     def write_file(self, path: str, payload: bytes) -> None:
         self.files[path] = payload
 
-    def execute(self, command: str, timeout_seconds: int | None = None) -> None:
+    def execute(self, command: str, timeout_seconds: int | None = None):
         self.commands.append(command)
+        launched_baked = self.baked_version is not None and f'= "{self.baked_version}"' in command
+        return SimpleNamespace(stdout="nb_kernel_baked_ok\n" if launched_baked else "", exit_code=0)
 
     def get_connect_credentials(self):
         return SimpleNamespace(url="http://localhost:45678", token="connect-tok")
@@ -709,21 +996,46 @@ class TestSQLV2EnsureServer(APIBaseTest):
         package, _version = kernel_package_bytes_and_hash()
         self.assertEqual(self.sandbox.files["/tmp/nb_kernel.tar.gz"], package)
         self.assertEqual(self.sandbox.files["/tmp/nb_sql_v2_secret"], kernel_server_secret(str(runtime.id)).encode())
-        self.assertEqual(len(self.sandbox.commands), 1)
         self.assertEqual(result.server_url, "http://localhost:45678")
         self.assertEqual(result.server_connect_token, "connect-tok")
 
-    def test_launch_command_shape_regressions(self):
+    def test_image_without_the_current_package_still_gets_a_server(self):
+        # The baked probe stops the old server before it reads the stamp, so a miss that
+        # skipped the tarball would leave the sandbox with no server running at all.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = "an-older-image"
+        self._ensure(reported_version="some-old-version")
+        self.assertIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertIn("PYTHONPATH=/tmp/nb_kernel_pkg", self.sandbox.commands[-1])
+
+    def test_matching_image_launches_in_place_without_the_tarball(self):
+        # The upload and the tar extract are what baking the package removes. Losing the
+        # short-circuit costs a control-plane round trip on every cold start, and nothing
+        # at runtime shows it: both paths start an identical server.
+        self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = kernel_package_bytes_and_hash()[1]
+        self._ensure(reported_version="some-old-version")
+        self.assertNotIn("/tmp/nb_kernel.tar.gz", self.sandbox.files)
+        self.assertEqual(len(self.sandbox.commands), 1)
+        launch = self.sandbox.commands[0]
+        self.assertIn("PYTHONPATH=/opt/nb_kernel_pkg", launch)
+        self.assertNotIn("tar -xzf", launch)
+
+    @parameterized.expand([("baked", kernel_package_bytes_and_hash()[1]), ("tarball", None)])
+    def test_launch_command_shape_regressions(self, _name: str, baked_version: str | None):
         # Two bugs shipped from this one string: pkill -f of our own module name matches
         # the launch command's shell and kills the deploy; and backgrounding a compound
         # command records a wrapper subshell PID so later redeploys kill nothing.
         self._create_runtime(server_url="http://localhost:1")
+        self.sandbox.baked_version = baked_version
         self._ensure(reported_version="some-old-version")
-        launch = self.sandbox.commands[0]
+        launch = self.sandbox.commands[-1]
         self.assertNotRegex(launch, r"pkill[^;&]*[^\[]nb_kernel")
         self.assertIn("echo $! > /tmp/nb_kernel_server.pid", launch)
         # The backgrounded segment must be a single simple command (no cd &&-chain).
-        backgrounded = launch.rsplit(";", 1)[-1].split("&")[0]
+        nohup_segments = [segment for segment in launch.split(";") if "nohup" in segment]
+        self.assertEqual(len(nohup_segments), 1)
+        backgrounded = nohup_segments[0].split("&")[0]
         self.assertNotIn("&&", backgrounded)
         self.assertIn("nb_kernel.server", backgrounded)
 
@@ -1305,8 +1617,8 @@ class TestSQLV2Activities(APIBaseTest):
         # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
         self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
-        short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
-        self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
+        claims = verify_data_plane_token(payload["data_plane_token"])
+        self.assertEqual((claims.notebook_short_id, claims.team_id), (self.notebook.short_id, self.team.id))
         self.assertIn("/internal/notebooks/data_plane/query/", payload["data_plane_url"])
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.RUNNING)
 
@@ -1340,7 +1652,9 @@ class TestSQLV2CommandToken(SimpleTestCase):
 class TestSQLV2DataPlaneToken(SimpleTestCase):
     def test_round_trip(self):
         token = mint_data_plane_token("nb123", 7, 42)
-        self.assertEqual(verify_data_plane_token(token), ("nb123", 7, 42))
+        self.assertEqual(
+            verify_data_plane_token(token), DataPlaneClaims(notebook_short_id="nb123", team_id=7, user_id=42)
+        )
 
     @parameterized.expand(
         [
@@ -1354,12 +1668,37 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
             verify_data_plane_token(make_token())
 
 
+class TestFrameStoreFlagResolution(SimpleTestCase):
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_frame_store_flag_is_its_own_flag(self, _name, flag_value):
+        # Every other frame-store test patches is_frame_store_enabled, so this is the only
+        # place the flag key is checked. It shares _flag_enabled_for with is_sql_v2_enabled,
+        # and a refactor that collapsed the two would put every revamped-notebooks user on
+        # object storage — in production only, with the rest of the suite still green.
+        from products.notebooks.backend.sql_v2 import NOTEBOOKS_FRAME_STORE_FLAG, is_frame_store_enabled
+
+        # A structural stub, not a User row: the helper only reads distinct_id and
+        # organization, so this keeps the case off the database.
+        user: Any = SimpleNamespace(distinct_id="user-distinct-id", organization=None)
+        with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
+            feature_enabled.return_value = flag_value
+            self.assertEqual(is_frame_store_enabled(user), flag_value)
+        self.assertEqual(feature_enabled.call_args.args[0], NOTEBOOKS_FRAME_STORE_FLAG)
+        self.assertEqual(NOTEBOOKS_FRAME_STORE_FLAG, "notebooks-frame-store")
+
+
 class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     URL = "/internal/notebooks/data_plane/query/"
 
     def setUp(self):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbdp001")
+        # Object delivery needs the deployment setting and a per-user rollout flag. These
+        # cases exercise the transport, so put the user in the rollout; the fallback case
+        # below overrides this to cover the other side.
+        rollout = patch("products.notebooks.backend.sql_v2_data_plane.is_frame_store_enabled", return_value=True)
+        rollout.start()
+        self.addCleanup(rollout.stop)
 
     def _post(self, body: dict, token: str | None = None):
         kwargs: dict[str, Any] = {"data": json.dumps(body), "content_type": "application/json"}
@@ -1426,7 +1765,12 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
 
         frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        # Presign against the endpoint this process writes through, dropping the cached storage
+        # client so the override applies — see test_frame_store.py for why both halves matter.
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_PUBLIC_ENDPOINT=settings.OBJECT_STORAGE_ENDPOINT),
+            patch.object(object_storage, "_client", object_storage.UnavailableStorage()),
+        ):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
                 {
@@ -1447,14 +1791,33 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.assertEqual(columns, ["number", "uid"])
         self.assertEqual(rows[0][1], frame_uuid)  # a string, not 16 bytes
 
-    def test_object_delivery_falls_back_to_inline_when_frame_store_disabled(self):
-        # Degraded mode: object storage off must not hard-fail the cell — the inline
-        # (Redis) path still serves the frame, clamped at the async ceiling.
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=False):
-            response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
-        self.assertEqual(response.status_code, 200, response.content)
-        _columns, rows, _types = decode_arrow_stream(response.content)
-        self.assertEqual(len(rows), 3)
+    @parameterized.expand(
+        [
+            ("object_storage_unconfigured", False, True),
+            ("user_not_in_rollout", True, False),
+        ]
+    )
+    def test_object_delivery_falls_back_to_inline(self, _name, object_storage_enabled, in_rollout):
+        # Either gate failing must degrade to the inline (Redis) path rather than hard-fail
+        # the cell, and must write no object. The rollout case is the one that matters for
+        # the flag: dropping that check would put every user's frames on object storage.
+        from posthog.storage import object_storage
+
+        from products.notebooks.backend import frame_store
+
+        with self.settings(OBJECT_STORAGE_ENABLED=object_storage_enabled):
+            with patch(
+                "products.notebooks.backend.sql_v2_data_plane.is_frame_store_enabled",
+                return_value=in_rollout,
+            ):
+                response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
+            self.assertEqual(response.status_code, 200, response.content)
+            _columns, rows, _types = decode_arrow_stream(response.content)
+            self.assertEqual(len(rows), 3)
+        # Checked with storage back on: the unconfigured client returns None for any prefix,
+        # so asserting inside the block above would pass even if a frame had been written.
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            self.assertIsNone(object_storage.list_objects(frame_store.team_prefix(self.team.id)))
 
     def test_object_delivery_failure_surfaces_error_and_stores_no_object(self):
         # An upload failure must reach the kernel as an error status, and no (partial or
@@ -1464,7 +1827,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
         from products.notebooks.backend.temporal import frame_materialize
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             with patch.object(frame_materialize.frame_store, "write_stream", side_effect=Exception("upload torn")):
                 response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
             self.assertEqual(response.status_code, 400, response.content)
@@ -1476,7 +1839,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         # job instead of stacking a second ClickHouse execution.
         from products.notebooks.backend.temporal import frame_materialize
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             # Leave the job "running": the materialize body never executes, so the status
             # stays incomplete and the cache-key mapping stays registered.
             with patch.object(frame_materialize, "materialize_frame"):
@@ -2051,10 +2414,10 @@ class TestSQLV2KernelPackage(SimpleTestCase):
                 patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
                 patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
             ):
-                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
+                materialized = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "secret-token", "select 1", dest, limit=1000
                 )
-            self.assertEqual(rows, 2)
+            self.assertEqual(materialized.row_count, 2)
             self.assertEqual(pa.ipc.open_file(pa.memory_map(dest)).read_all().num_rows, 2)
 
         (download,) = download_requests
@@ -2062,8 +2425,57 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertFalse(download.has_header("Authorization"))
         # The surfaced source is a bearer secret truncated to a host-only preview: it must
         # never carry the signature query parameters.
-        self.assertEqual(fetched_from, presigned_url[:30])
-        self.assertNotIn("X-Amz-Signature", fetched_from or "")
+        self.assertEqual(materialized.source, presigned_url[:30])
+        self.assertNotIn("X-Amz-Signature", materialized.source or "")
+
+    def test_a_failure_after_the_accept_keeps_the_transport_it_was_served_by(self):
+        # The transport is only known from the accept body, and everything below the poll
+        # raises without it. If the failure path drops it, every failed run is recorded as
+        # delivery="none" and the per-transport failure ratio only ever counts successes.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, content_type: str, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": content_type}
+
+            def __exit__(self, *args):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            return _FakeResponse("application/json", b'{"query_id": "q1", "delivery": "object_relay"}')
+
+        def fake_poll_open(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 500, "Boom", email.message.Message(), None)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaises(kernel_data_plane.DataPlaneError) as caught:
+                kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", os.path.join(directory, "df.arrow"), limit=1000
+                )
+        self.assertEqual(caught.exception.delivery, "object_relay")
+
+    def test_a_failure_before_the_accept_has_no_transport_to_report(self):
+        # Nothing chose a transport yet, so the run belongs in the unlabeled bucket rather
+        # than being attributed to whichever transport it would have used.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 400, "Bad query", email.message.Message(), None)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaises(kernel_data_plane.DataPlaneError) as caught:
+                kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", os.path.join(directory, "df.arrow"), limit=1000
+                )
+        self.assertIsNone(caught.exception.delivery)
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()
@@ -2102,11 +2514,11 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
                 "urlopen",
                 side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
             ):
-                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
+                materialized = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "t", "select 1", dest, limit=1000
                 )
-            self.assertEqual(rows, 2)
-            self.assertIsNone(fetched_from)  # inline body — no presigned source to surface
+            self.assertEqual(materialized.row_count, 2)
+            self.assertIsNone(materialized.source)  # inline body — no presigned source to surface
             table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
             self.assertEqual(table.num_rows, 2)
             self.assertEqual(table.column_names, ["id", "v"])
@@ -2224,7 +2636,8 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
     def test_callback_reports_the_run_with_its_outcome(self, envelope_status, expected_outcome, mock_report):
         run = self._create_run()
         token = mint_callback_token(str(run.id), self.team.id)
-        before = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        labels = {"node_type": "hogql", "outcome": expected_outcome, "delivery": "object_relay"}
+        before = self._histogram_count(labels)
         response = self.client.post(
             f"/internal/notebooks/runs/{run.id}/result/",
             data=json.dumps(
@@ -2232,6 +2645,7 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
                     "envelope": {
                         "status": envelope_status,
                         "row_count": 3,
+                        "delivery": "object_relay",
                         "timings": {"input_wait_s": 1.5, "exec_s": 0.4, "sandbox_total_s": 2.0},
                     }
                 }
@@ -2247,13 +2661,14 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(properties["notebook_short_id"], "nbmet01")
         self.assertEqual(properties["node_type"], "hogql")
         self.assertEqual(properties["row_count"], 3)
+        self.assertEqual(properties["delivery"], "object_relay")
         self.assertEqual(properties["input_wait_seconds"], 1.5)
         self.assertEqual(properties["exec_seconds"], 0.4)
         self.assertEqual(properties["sandbox_total_seconds"], 2.0)
         self.assertGreaterEqual(properties["duration_seconds"], 0)
         # $groups must come from the run's own team, not the user's currently active project.
         self.assertEqual(mock_report.call_args.kwargs["team"].id, self.team.id)
-        after = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        after = self._histogram_count(labels)
         self.assertEqual(after, before + 1)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
@@ -2384,6 +2799,30 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.DONE)
         properties = mock_report.call_args[0][1]
         self.assertNotIn("exec_seconds", properties)
+
+    @parameterized.expand(
+        [
+            ("forged_string", "'; drop--"),
+            ("unknown_mode", "object_something_new"),
+            ("not_a_string", 17),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_an_unrecognized_delivery_never_becomes_a_metric_label(self, _name, delivery, mock_report):
+        # The envelope is built inside the sandbox, where user code can forge it, and
+        # `delivery` becomes a Prometheus label. Anything outside the known transports must
+        # collapse to "none" rather than minting a new time series per forged value.
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "delivery": delivery}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_report.call_args[0][1]["delivery"], "none")
+        self.assertEqual(self._histogram_count({"node_type": "hogql", "outcome": "done", "delivery": delivery}), 0.0)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
     def test_completed_event_survives_a_hard_deleted_user(self, mock_report):

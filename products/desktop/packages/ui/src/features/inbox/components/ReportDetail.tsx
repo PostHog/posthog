@@ -27,7 +27,7 @@ export function ReportDetail({
     <InboxReportDetailGate
       reportId={reportId}
       cachedReport={cachedReport}
-      backTo="/code/inbox/reports"
+      backTo="/inbox/reports"
       backLabel="Back to reports"
       missingCopy="This report couldn't be found. It may have been deleted."
     >
@@ -40,7 +40,7 @@ function ReportDetailContent({ report }: { report: SignalReport }) {
   return (
     <InboxDetailFrame
       report={report}
-      backTo="/code/inbox/reports"
+      backTo="/inbox/reports"
       backLabel="Back to reports"
       fallbackTitle="Untitled report"
       primaryAction={
@@ -58,12 +58,12 @@ function ReportDetailContent({ report }: { report: SignalReport }) {
         </>
       }
       summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+      belowSummary={<ReportFeedbackFooter report={report} />}
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+      aboveEvidence={<SuggestedReviewersSection report={report} />}
     >
       <ReportTasksSection report={report} />
-      <SuggestedReviewersSection report={report} />
       <ReportActivitySection reportId={report.id} />
-      <ReportFeedbackFooter report={report} />
     </InboxDetailFrame>
   );
 }

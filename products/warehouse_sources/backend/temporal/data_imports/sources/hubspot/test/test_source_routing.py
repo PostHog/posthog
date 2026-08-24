@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -6,9 +7,11 @@ from unittest.mock import MagicMock, patch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
+    ENDPOINTS,
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_V3,
     HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
     apply_crm_api_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import (
@@ -46,14 +49,14 @@ def _make_inputs(
 
 
 class TestGetSchemas:
-    def test_declares_incremental_for_all_endpoints(self) -> None:
+    def test_declares_incremental_for_all_crm_endpoints(self) -> None:
         src = HubspotSource()
         schemas = src.get_schemas(MagicMock(), team_id=1)
 
         by_name = {s.name: s for s in schemas}
-        # Every endpoint currently has a cursor property, so all should support incremental.
-        assert set(by_name.keys()) == set(HUBSPOT_ENDPOINTS.keys())
-        for name, schema in by_name.items():
+        assert set(by_name.keys()) == set(ENDPOINTS)
+        for name in HUBSPOT_ENDPOINTS:
+            schema = by_name[name]
             endpoint_config = HUBSPOT_ENDPOINTS[name]
             assert schema.supports_incremental is bool(endpoint_config.cursor_filter_property_field)
             assert schema.supports_append is schema.supports_incremental
@@ -63,14 +66,34 @@ class TestGetSchemas:
                 assert schema.incremental_fields
                 assert schema.incremental_fields[0]["field"] == expected_field
 
-    def test_leads_is_default_disabled_others_default_enabled(self) -> None:
-        # Leads needs the crm.objects.leads.read scope existing connections lack, so it must start
-        # off; flipping it on by default would 403 every existing customer's sync.
+    def test_lookup_tables_are_full_refresh_only(self) -> None:
+        # Pipelines, stages, property definitions and owners have no server-side timestamp filter,
+        # so advertising them as incremental would checkpoint a watermark nothing can filter on.
         src = HubspotSource()
         by_name = {s.name: s for s in src.get_schemas(MagicMock(), team_id=1)}
 
-        assert by_name["leads"].should_sync_default is False
-        assert all(s.should_sync_default for name, s in by_name.items() if name != "leads")
+        for name in HUBSPOT_METADATA_ENDPOINTS:
+            assert by_name[name].supports_incremental is False
+            assert by_name[name].supports_append is False
+            assert by_name[name].incremental_fields == []
+
+    def test_tables_needing_an_ungranted_scope_are_default_disabled(self) -> None:
+        # Each of these reads under an OAuth scope existing connections were never granted, so they
+        # must start off; flipping one on by default would 403 an existing customer's sync.
+        src = HubspotSource()
+        by_name = {s.name: s for s in src.get_schemas(MagicMock(), team_id=1)}
+
+        expected_disabled = {
+            "leads",
+            "owners",
+            "line_items",
+            "products",
+            "invoices",
+            "orders",
+            "subscriptions",
+            "commerce_payments",
+        }
+        assert {name for name, s in by_name.items() if not s.should_sync_default} == expected_disabled
 
     def test_filters_by_names(self) -> None:
         src = HubspotSource()
@@ -101,12 +124,9 @@ class TestShouldUseSearchPath:
     def test_false_when_endpoint_has_no_cursor(self) -> None:
         src = HubspotSource()
         inputs = _make_inputs(schema_name="deals")
-        original = HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field
-        HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = None
-        try:
+        no_cursor = replace(HUBSPOT_ENDPOINTS["deals"], cursor_filter_property_field=None)
+        with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}):
             assert src._should_use_search_path(inputs) is False
-        finally:
-            HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
 
     def test_false_when_initial_sync_not_complete(self) -> None:
         src = HubspotSource()
@@ -223,6 +243,19 @@ class TestSourceForPipelineRouting:
 
 
 class TestSettingsShape:
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_endpoint_resolves_to_exactly_one_config(self, endpoint: str) -> None:
+        # An endpoint in neither dict raises KeyError mid-sync; one in both would take whichever
+        # branch happens to be checked first.
+        assert (endpoint in HUBSPOT_ENDPOINTS) is not (endpoint in HUBSPOT_METADATA_ENDPOINTS)
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_endpoint_has_canonical_descriptions(self, endpoint: str) -> None:
+        # Curated descriptions are what the AI agent sees; a table missing from here falls back to
+        # paying an LLM to re-derive a fixed schema for every team that syncs it.
+        descriptions = HubspotSource().get_canonical_descriptions()
+        assert descriptions[endpoint]["description"]
+
     @pytest.mark.parametrize("endpoint", list(HUBSPOT_ENDPOINTS.keys()))
     def test_cursor_property_is_in_default_props(self, endpoint: str) -> None:
         config = HUBSPOT_ENDPOINTS[endpoint]
@@ -278,6 +311,8 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
         "Hubspot v4 associations malformed JSON response (retryable): "
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        # auth.hubspot_refresh_access_token, exhausted after tenacity's 5 in-process attempts
+        "You have reached your rate limit.",
     ],
 )
 def test_transient_http_error_is_retryable(error_msg: str) -> None:
@@ -318,6 +353,11 @@ class TestApiVersion:
                 HUBSPOT_API_VERSION_2026_03,
                 "/crm/associations/2026-03/contacts/deals/batch/read",
             ),
+            ("/crm/v3/pipelines/deals", HUBSPOT_API_VERSION_2026_03, "/crm/pipelines/2026-03/deals"),
+            # Resource-only path: nothing follows the resource name, so a rewrite that requires a
+            # trailing separator would leave owners calling the legacy endpoint under a date pin.
+            ("/crm/v3/owners", HUBSPOT_API_VERSION_2026_03, "/crm/owners/2026-03"),
+            ("/crm/v3/owners", HUBSPOT_API_VERSION_V3, "/crm/v3/owners"),
         ],
     )
     def test_apply_crm_api_version(self, path: str, api_version: str, expected: str) -> None:

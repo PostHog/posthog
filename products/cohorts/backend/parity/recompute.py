@@ -41,6 +41,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
+from posthog.dataclasses import frozen
+
 from products.cohorts.backend.models.leaf_shape import BehavioralLeafKey, behavioral_leaf_key
 from products.cohorts.backend.parity.classifier import VERDICT_FAIL, VERDICT_PASS, VERDICT_SKIP
 from products.cohorts.backend.parity.eligibility import explain_unsupported_window, resolve_behavioral_window
@@ -448,13 +450,26 @@ def _person_day_totals(matches: Sequence[DayMatch]) -> dict[tuple[date, str], in
     return totals
 
 
+@frozen
+class DomainCounts:
+    grace: int
+    seed: int
+    boundary: int
+    unseeded: int
+    post: int
+
+    @property
+    def total(self) -> int:
+        return self.grace + self.seed + self.boundary + self.unseeded + self.post
+
+
 def _domain_counts(
     matches: Sequence[DayMatch],
     *,
     window: frozenset[date],
     ctx: RunContext,
-) -> tuple[int, int, int, int, int]:
-    """(grace, seed, boundary, unseeded, post) in-window match counts for one person.
+) -> DomainCounts:
+    """Per-domain in-window match counts for one person.
 
     ``seed`` / ``boundary`` / ``unseeded`` partition the pre-boundary window days: boundary-day first
     (the seed/live handoff day, even if a chunk exists for it), then confirmed-seed days, then the
@@ -476,7 +491,7 @@ def _domain_counts(
             seed += count
         else:
             unseeded += count
-    return grace, seed, boundary, unseeded, post
+    return DomainCounts(grace=grace, seed=seed, boundary=boundary, unseeded=unseeded, post=post)
 
 
 def _classify_missing_person(
@@ -491,19 +506,19 @@ def _classify_missing_person(
     post: the highest-precedence domain whose cumulative count crosses the membership threshold. The
     classes are exhaustive — the final fall-through implies ``post > 0``, since the three preceding
     sums were all below the threshold the total clears."""
-    grace, seed, boundary, unseeded, post = _domain_counts(matches, window=window, ctx=ctx)
-    if grace + seed + boundary + unseeded + post == 0:
+    counts = _domain_counts(matches, window=window, ctx=ctx)
+    if counts.total == 0:
         # The member-set read put this person in the oracle, so the day read over the same event and
         # window has to find their matches. Zero means the two reads disagree — override/merge drift
         # between them, or a dropped chunk — which is not the ingestion lag `grace` stands for.
         return "missing_unattributed"
-    if seed + boundary + unseeded + post < min_count:
+    if counts.seed + counts.boundary + counts.unseeded + counts.post < min_count:
         return "missing_grace"  # crossing depends on the last grace-minutes — lag noise
-    if seed >= min_count:
+    if counts.seed >= min_count:
         return "missing_seed_domain"  # confirmed seed days alone qualify — unexpected, gates FAIL
-    if seed + boundary >= min_count:
+    if counts.seed + counts.boundary >= min_count:
         return "missing_boundary_day"  # needs boundary-day pre-boundary events — decaying gap
-    if seed + boundary + unseeded >= min_count:
+    if counts.seed + counts.boundary + counts.unseeded >= min_count:
         return "missing_unseeded_day"  # needs an unseeded pre-boundary window day — gates FAIL
     return "missing_post_boundary"  # needs post-boundary events the live path owns — gates FAIL
 

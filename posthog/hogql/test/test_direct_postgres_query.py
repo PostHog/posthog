@@ -9,18 +9,21 @@ from django.test import override_settings
 
 import psycopg
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
-from posthog.hogql.direct_sql.postgres_adapter import (
+from posthog.hogql.direct_sql.pgwire import (
     LenientDirectPostgresDateLoader,
-    direct_postgres_session_setup_sql,
-    get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
+)
+from posthog.hogql.direct_sql.postgres_adapter import (
+    direct_postgres_session_setup_sql,
+    get_runtime_direct_postgres_connection_metadata,
 )
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
@@ -1052,11 +1055,8 @@ class TestDirectPostgresQuery(APIBaseTest):
             f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_executes_raw_query_and_preserves_hogql_when_printable(
-        self, mock_connect, mock_capture_exception
-    ):
+    def test_send_raw_query_executes_raw_query_without_hogql_preparation(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1091,21 +1091,21 @@ class TestDirectPostgresQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        response = executor.execute()
+        with patch.object(HogQLQueryExecutor, "_prepare_execution") as mock_prepare_execution:
+            response = executor.execute()
 
         self.assertEqual(response.results, [(1,)])
         self.assertEqual(response.clickhouse, "SELECT 1 AS value")
         self.assertEqual(response.columns, ["value"])
-        self.assertIsNotNone(response.hogql)
+        self.assertIsNone(response.hogql)
+        mock_prepare_execution.assert_not_called()
         mocked_connection.execute.assert_called_once_with(
             f"SET search_path TO {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_captures_parse_failures_after_success(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_unsupported_by_hogql_succeeds_without_hogql(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1147,11 +1147,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.columns, ["value"])
         self.assertIsNone(response.hogql)
         mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
-        mock_capture_exception.assert_called_once()
 
-    @patch("posthog.hogql.query.capture_exception")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect, mock_capture_exception):
+    def test_send_raw_query_uses_catalog_for_duckdb_without_schema(self, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1192,7 +1190,6 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("USE ducklake")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
-        mock_capture_exception.assert_not_called()
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_skips_session_setup_when_schema_is_blank(self, mock_connect):
@@ -1235,6 +1232,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
+        timing_keys = {timing.k for timing in response.timings or []}
+        self.assertTrue(any(key.endswith("/postgres_connection_metadata") for key in timing_keys))
+        self.assertFalse(any(key.endswith("/postgres_session_setup") for key in timing_keys))
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_handles_statements_without_result_set(self, mock_connect):
@@ -1616,7 +1616,24 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in response.timings or []))
+        timing_keys = {timing.k for timing in response.timings or []}
+        for timing_suffix in (
+            "/postgres_source_validation",
+            "/postgres_source_helpers_import",
+            "/postgres_source_config",
+            "/postgres_source_capability",
+            "/postgres_source_registry",
+            "/postgres_source_parse_config",
+            "/postgres_ssh_validation",
+            "/postgres_host_validation",
+            "/postgres_execute",
+            "/postgres_tunnel_open",
+            "/postgres_connect",
+            "/postgres_session_setup",
+            "/postgres_query_execute",
+            "/postgres_query_fetch",
+        ):
+            self.assertTrue(any(key.endswith(timing_suffix) for key in timing_keys))
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_reraises_unexpected_errors(self, mock_connect):
@@ -1767,6 +1784,54 @@ class TestDirectPostgresQuery(APIBaseTest):
         executor.execute()
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
+
+    @override_settings(DEBUG=False, TEST=False)
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_direct_postgres_ssh_tunnel_failure_raises_exposed_error(self, mock_connect, mock_tunnel_cls):
+        mock_tunnel_cls.return_value.__enter__.side_effect = BaseSSHTunnelForwarderError(
+            "Could not establish session to SSH gateway"
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+                **self._SSH_TUNNEL_CONFIG,
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
+        mock_connect.assert_not_called()
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")

@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -12,8 +13,9 @@ from .acp_log import ParsedLog, parse_log
 from .config import AgentArtifacts, BaseEvalCase, SandboxedEvalCase
 from .engines.base import EvalEngine
 from .engines.types import CaseHooks, CaseSpec, ExperimentResult, ExperimentSpec, SpanKind
+from .harness.kernel_sandboxes import reclaim_kernels
 from .log_sink import append_case_scores, build_case_dir, write_case_logs
-from .runner import EvalCaseResult, run_eval_case
+from .runner import AgentNeverRanError, EvalCaseResult, agent_never_ran, run_eval_case
 from .scorers import ExitCodeZero, wrap_scorers
 from .trace_events import emit_evaluation_events, emit_trace_events, emit_trace_root
 
@@ -366,6 +368,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
                 sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
+                if original_case is not None and original_case.interaction_origin:
+                    sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
                 if original_case is not None and original_case.setup is not None:
                     try:
                         seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)
@@ -374,10 +378,20 @@ class _SandboxedEvalRun(_BaseEvalRun):
                         raise
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
-            result = await asyncio.wait_for(
-                run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
-                timeout=ctx.per_case_timeout_seconds,
-            )
+            try:
+                result = await asyncio.wait_for(
+                    run_eval_case(eval_case, sandbox_context, provider=self._provider_strategy),
+                    timeout=ctx.per_case_timeout_seconds,
+                )
+            finally:
+                # Still inside the slot: a notebook python or duckdb cell provisions a
+                # kernel sandbox of its own, and nothing else reclaims it. A timed-out
+                # case is exactly the one most likely to have left one running. One
+                # indexed query for every case that never touched a notebook.
+                await reclaim_kernels(
+                    sandbox_context.team_id,
+                    keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
+                )
         return result, seed_result
 
     async def _post_process(
@@ -439,6 +453,12 @@ class _SandboxedEvalRun(_BaseEvalRun):
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
+
+        # After the logs are on disk, so a failed run is still there to read.
+        if agent_never_ran(result.artifacts):
+            raise AgentNeverRanError(
+                f"Eval case '{eval_case.name}' failed before doing any work: {result.artifacts.stderr}"
+            )
 
         return result.artifacts.model_dump() | {
             "last_message": last_message,

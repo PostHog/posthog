@@ -7,7 +7,7 @@ from posthog.exceptions_capture import capture_exception
 from .filter_to_query import filter_to_query
 
 if TYPE_CHECKING:
-    from products.product_analytics.backend.models.insight import Insight
+    from products.product_analytics.backend.facade.models import Insight
 
 
 @contextmanager

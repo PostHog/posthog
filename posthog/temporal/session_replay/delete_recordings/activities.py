@@ -13,6 +13,7 @@ from posthog.models import Team
 from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
@@ -207,9 +208,7 @@ async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsRes
 
     url = f"{recording_api_url}/api/projects/{input.team_id}/recordings/delete"
 
-    headers: dict[str, str] = {}
-    if settings.INTERNAL_API_SECRET:
-        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
+    headers = recording_api_auth_headers(input.team_id, "delete")
 
     async with internal_httpx_async_client(timeout=60.0, headers=headers) as client:
         response = await client.post(url, json={"session_ids": input.session_ids, "deleted_by": input.deleted_by})

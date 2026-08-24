@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconAI } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
@@ -96,7 +96,11 @@ function useExperimentSummaryMaxTool(): ReturnType<typeof useMaxTool> {
     return maxToolResult
 }
 
-export function SummarizeExperimentButton({ disabledReason }: { disabledReason?: string }): JSX.Element | null {
+/**
+ * Icon-only spark affordance that opens PostHog AI to summarize experiment results.
+ * Styled after the MaxTool corner button.
+ */
+export function SummarizeExperimentButton(): JSX.Element | null {
     const { openMax } = useExperimentSummaryMaxTool()
     const { experiment } = useValues(experimentLogic)
     const { reportExperimentAiSummaryRequested } = useActions(experimentLogic)
@@ -105,17 +109,19 @@ export function SummarizeExperimentButton({ disabledReason }: { disabledReason?:
     }
 
     return (
-        <LemonButton
-            size="small"
-            onClick={() => {
-                reportExperimentAiSummaryRequested(experiment)
-                openMax()
-            }}
-            type="secondary"
-            icon={<IconAI />}
-            disabledReason={disabledReason}
-        >
-            Summarize results
-        </LemonButton>
+        <Tooltip title="Summarize results with PostHog AI" placement="top-end" delayMs={0}>
+            <button
+                type="button"
+                aria-label="Summarize results with PostHog AI"
+                data-attr="experiment-summarize-results"
+                className="size-6 shrink-0 cursor-pointer rounded-md border border-dashed border-ai bg-ai/08 backdrop-blur-[2px] transition duration-50 hover:scale-110 dark:bg-ai/20"
+                onClick={() => {
+                    reportExperimentAiSummaryRequested(experiment)
+                    openMax()
+                }}
+            >
+                <IconSparkles className="relative size-full p-1 text-ai dark:text-white" />
+            </button>
+        </Tooltip>
     )
 }

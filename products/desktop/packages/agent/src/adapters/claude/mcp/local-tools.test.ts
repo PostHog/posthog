@@ -44,12 +44,28 @@ describe("createLocalToolsMcpServer", () => {
     await client.close();
   });
 
-  it("registers no server on a desktop run with narration off (no tools pass their gate)", () => {
+  it("still exposes show_actions on a desktop run with no gate meta at all", async () => {
     const server = createLocalToolsMcpServer(
       { cwd: "/repo", token: "ghs_x" },
       undefined,
     );
-    expect(server).toBeUndefined();
+    if (!server) {
+      throw new Error("expected the local-tools server to be registered");
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.instance.connect(serverTransport);
+    const client = new Client({ name: "test", version: "1.0.0" });
+    await client.connect(clientTransport);
+
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("show_actions");
+    expect(names).not.toContain("speak");
+    expect(names).not.toContain("git_signed_commit");
+
+    await client.close();
   });
 
   it("exposes git_signed_commit over MCP in a cloud run with a token", async () => {
@@ -76,6 +92,29 @@ describe("createLocalToolsMcpServer", () => {
     // The adapter resolves spokenNarration before building the server; without
     // an explicit true here the speak tool stays gated off.
     expect(names).not.toContain("speak");
+
+    await client.close();
+  });
+
+  it("exposes lazy repository tools in a repository-less cloud run", async () => {
+    const server = createLocalToolsMcpServer(
+      { cwd: "/tmp/workspace", token: "ghs_x" },
+      { environment: "cloud", channelMode: true },
+    );
+    if (!server) {
+      throw new Error("expected the local-tools server to be registered");
+    }
+
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    await server.instance.connect(serverTransport);
+    const client = new Client({ name: "test", version: "1.0.0" });
+    await client.connect(clientTransport);
+
+    const { tools } = await client.listTools();
+    const names = tools.map((tool) => tool.name);
+    expect(names).toContain("list_repos");
+    expect(names).toContain("clone_repo");
 
     await client.close();
   });

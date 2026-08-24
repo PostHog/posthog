@@ -25,6 +25,7 @@
 pub mod ai;
 pub mod legacy;
 pub mod otel;
+pub mod replay;
 
 use std::collections::HashSet;
 
@@ -34,6 +35,7 @@ use common_ingestion_warnings::{
 };
 use common_types::{EventWithLibraryInfo, RawEvent};
 use serde_json::{json, Map};
+use uuid::Uuid;
 
 /// Max accepted length of a client-supplied `$lib` or `$lib_version`, matching
 /// the bound v1 puts on the `PostHog-Sdk-Info` header (real values are ~20
@@ -138,6 +140,42 @@ pub fn emit_rate_limit_warning(
         WarningType::HighVolumeDistinctId,
         details,
         limited_event_count,
+    );
+}
+
+/// Emit the `distinct_id_truncated` warning for one batch's events whose
+/// distinct_id was cut down to the 200-char cap at extraction. The events were
+/// ingested (modified, not dropped), which is why v1 has no counterpart: it
+/// rejects oversized ids outright as `distinct_id_too_large`. Shared by the
+/// legacy analytics and replay pipelines, which differ only in their
+/// [`WarningSource`], so that the payload cannot drift between them.
+///
+/// Identifier details are included only when the batch had exactly one
+/// truncated event; with several they would be an arbitrary pick, and `count`
+/// already carries the volume. The truncated value is at most 200 chars, so
+/// it needs no bounding of its own; `distinctIdLength` is the original char
+/// count, telling the customer how far over the cap they were.
+pub fn emit_distinct_id_truncated_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    request: &WarningRequestContext,
+    source: WarningSource,
+    sample: Option<(String, usize, Uuid)>,
+    count: u64,
+) {
+    let mut details = Map::new();
+    if let Some((distinct_id, original_chars, event_uuid)) = sample {
+        details.insert("distinctId".to_string(), json!(distinct_id));
+        details.insert("distinctIdLength".to_string(), json!(original_chars));
+        details.insert("eventUuid".to_string(), json!(event_uuid));
+    }
+
+    emit_request_warning(
+        emitter,
+        request,
+        source,
+        WarningType::DistinctIdTruncated,
+        details,
+        count,
     );
 }
 

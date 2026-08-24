@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, TypedDict
 
+from django.db.models import QuerySet
+
 import structlog
 
 from posthog.hogql.database.database import Database
@@ -162,6 +164,7 @@ def sync_saved_query_to_dag(
     dag: DAG | None = None,
     allow_managed: bool = False,
     reconcile: bool = True,
+    database: Database | None = None,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -179,6 +182,7 @@ def sync_saved_query_to_dag(
         allow_managed: Whether placement into a system-managed DAG is permitted. Only the
             internal managed-viewset sync passes this; user-initiated callers must not, so a
             same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
+        database: An optional prebuilt database to reuse for dependency resolution.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
@@ -208,14 +212,15 @@ def sync_saved_query_to_dag(
 
     # Internal DAG sync (no user); bypass warehouse HogQL access control so dependency resolution
     # sees every referenced table/view.
-    database = Database.create_for(team=team, bypass_warehouse_access_control=True)
+    if database is None:
+        database = Database.create_for(team=team, bypass_warehouse_access_control=True)
     # clear previous incoming edges, dependencies may have changed
     Edge.objects.filter(team=team, target=target).delete()
 
     # parse query to extract dependencies and create edges
     try:
         model_name = saved_query.name
-        dependencies = get_parents_from_model_query(team, model_name, model_query)
+        dependencies = get_parents_from_model_query(team, model_name, model_query, database=database)
         for dependency_name in dependencies:
             source = resolve_dependency_to_node(dependency_name, team, database, dag)
             Edge.objects.create(
@@ -248,6 +253,17 @@ def sync_saved_query_to_dag(
 
 class HasDependentsError(Exception):
     """Raised when attempting to delete a saved query that has dependents."""
+
+    pass
+
+
+class MissingDagNodeError(Exception):
+    """Raised when a saved query on a v2 team has no node to schedule through.
+
+    On v2 the node is the unit of execution: the DAG run materializes nodes, so a saved query
+    with no node is not reachable by any schedule. Without this the query would be left claiming
+    to be materialized while nothing refreshes it.
+    """
 
     pass
 
@@ -293,3 +309,36 @@ def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> 
     nodes.update(type=type)
     for dag in dags:
         maybe_reconcile_dag(dag)
+
+
+def _promote_view_nodes(nodes: QuerySet[Node]) -> int:
+    """Retype the nodes in `nodes` that a table backs but the graph still calls ephemeral views.
+
+    `get_dag_structure` calls every VIEW node ephemeral, so a scheduled run reports success for one
+    without materializing it and without writing a job row — it just stops updating, silently. A
+    node ends up in that state because `revert_materialization` types it VIEW and, until the callers
+    below existed, only the `materialize` action ever typed it back.
+
+    Only VIEW nodes are touched: ENDPOINT nodes are a materializing type already and must keep
+    theirs. Views with no backing table are left alone, being genuinely ephemeral. No reconcile
+    follows, because tier membership keys off the node's frequency target, not its type.
+    """
+    return (
+        nodes.filter(type=NodeType.VIEW, saved_query__table_id__isnull=False)
+        .exclude(saved_query__deleted=True)
+        .update(type=NodeType.MAT_VIEW)
+    )
+
+
+def promote_view_nodes_to_matview(saved_query: "DataWarehouseSavedQuery") -> int:
+    """Repair one saved query's nodes, for the path that just linked its table."""
+    return _promote_view_nodes(Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query))
+
+
+def promote_dag_view_nodes_to_matview(dag: DAG) -> int:
+    """Repair a whole DAG's nodes, for the tier conversion that is about to sweep its v1 schedules.
+
+    v1 materializes a saved query whatever its node type, so a stranded node keeps running right up
+    until that sweep and only goes dark afterwards.
+    """
+    return _promote_view_nodes(Node.objects.filter(dag=dag))

@@ -6,8 +6,10 @@ import {
   type GatewayModel,
   getClaudeModelRecency,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
+  isDeepseekModelId,
   isModalModel,
   isModalModelId,
   normalizeGatewayModelsResponse,
@@ -34,6 +36,11 @@ describe("formatGatewayModelName", () => {
     [model("openai/gpt-5.6-sol", "openai"), "GPT-5.6 Sol"],
     [model("moonshotai/kimi-k3", "modal"), "Kimi K3"],
     [model("@cf/zai-org/glm-5.2", "cloudflare"), "GLM-5.2"],
+    [model("zai-org/glm-5.3", "baseten"), "GLM-5.3"],
+    [
+      model("deepseek-ai/deepseek-v4-flash-0731", "baseten"),
+      "DeepSeek V4 Flash",
+    ],
     [
       model("@cf/meta/llama-3.1-8b-instruct", "cloudflare"),
       "llama-3.1-8b-instruct",
@@ -44,12 +51,20 @@ describe("formatGatewayModelName", () => {
 });
 
 describe("normalizeGatewayModelsResponse", () => {
-  it("corrects stale GLM 5.2 context-window metadata", () => {
+  it("passes through the gateway's advertised context window for GLM 5.2 unmodified", () => {
     const models = normalizeGatewayModelsResponse([
       model("@cf/zai-org/glm-5.2", "cloudflare"),
     ]);
 
-    expect(models[0]?.context_window).toBe(1_000_000);
+    expect(models[0]?.context_window).toBe(128000);
+  });
+
+  it("does not override any model's context window", () => {
+    const models = normalizeGatewayModelsResponse([
+      { ...model("@cf/zai-org/glm-5.2", "cloudflare"), context_window: 256000 },
+    ]);
+
+    expect(models[0]?.context_window).toBe(256000);
   });
 });
 
@@ -122,6 +137,14 @@ describe("model classification", () => {
     const gatewayModel = model("moonshotai/kimi-k3", "modal");
     expect(isModalModel(gatewayModel)).toBe(true);
     expect(isModalModelId(gatewayModel.id)).toBe(true);
+  });
+
+  it("recognizes Baseten models by owner and id", () => {
+    const gatewayModel = model("deepseek-ai/deepseek-v4-flash-0731", "baseten");
+    expect(isBasetenModel(gatewayModel)).toBe(true);
+    expect(isDeepseekModelId(gatewayModel.id)).toBe(true);
+    expect(isAnthropicModel(gatewayModel)).toBe(false);
+    expect(isBasetenModel(model("claude-opus-4-8"))).toBe(false);
   });
 });
 
@@ -228,5 +251,27 @@ describe("buildCloudTaskConfigOptions", () => {
         name: "Kimi K3",
       }),
     ]);
+  });
+
+  it("offers Baseten models to Claude sessions but not Codex", () => {
+    const models = [model("deepseek-ai/deepseek-v4-flash-0731", "baseten")];
+
+    const claudeModelOptions = buildCloudTaskConfigOptions(
+      models,
+      "claude",
+    ).find((option) => option.id === "model")?.options;
+    expect(claudeModelOptions).toEqual([
+      expect.objectContaining({
+        value: "deepseek-ai/deepseek-v4-flash-0731",
+        name: "DeepSeek V4 Flash",
+      }),
+    ]);
+
+    const codexModelOptions = buildCloudTaskConfigOptions(models, "codex").find(
+      (option) => option.id === "model",
+    )?.options;
+    expect(codexModelOptions).not.toContainEqual(
+      expect.objectContaining({ value: "deepseek-ai/deepseek-v4-flash-0731" }),
+    );
   });
 });

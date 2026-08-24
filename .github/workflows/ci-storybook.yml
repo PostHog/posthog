@@ -1,10 +1,10 @@
 name: Storybook
 on:
     pull_request:
-        # Draft PRs run a narrowed visual-regression matrix when the Storybook module
-        # graph can safely identify affected stories. Ready PRs run the full chromium
-        # matrix as the merge gate. To force the full matrix on a draft, add the
-        # `run-ci-frontend` label. The `no-ci` label does the opposite: it silences
+        # PRs outside the merge queue run a narrowed visual-regression matrix when the
+        # Storybook module graph can safely identify affected stories. Merge-queue runs
+        # use the full matrix. To force the full matrix earlier, add the `run-ci-frontend`
+        # label. The `no-ci` label does the opposite: it silences
         # this workflow on a draft entirely (prototypes).
         # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
         # so every unrelated label re-ran the full chromium matrix against a commit CI
@@ -59,6 +59,16 @@ jobs:
                         && steps.baseline_push.outputs.result != 'true')
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
+            # Trunk's merge queue opens its PR from trunk-merge/**. Scoped to same-repo
+            # heads because github.head_ref is author-controlled: without the scope, any
+            # contributor could opt out of the visual gates below by naming their branch
+            # trunk-merge/**. Only write access can push such a branch here.
+            merge_queue: >-
+                ${{
+                    github.event_name == 'pull_request'
+                    && github.event.pull_request.head.repo.full_name == github.repository
+                    && startsWith(github.head_ref, 'trunk-merge/')
+                }}
         steps:
             # Needed by the "Derive Node-only product workspace exclusions" step (reads
             # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
@@ -150,7 +160,7 @@ jobs:
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # On PRs, only run chromium shards — no story currently opts into webkit snapshots
+            # On PRs, only run chromium shards — no story opts into webkit snapshots
             # (see common/storybook/.storybook/test-runner.ts), so webkit shards consume CI
             # minutes without producing snapshot diffs. WebKit render-error coverage is
             # preserved on master pushes.
@@ -239,8 +249,8 @@ jobs:
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             # Vite's dependency optimization cache (node_modules/.vite) is the most
-            # expensive part of the build — without it, Vite re-bundles 15k+ modules
-            # from scratch (~14 min on degraded runners vs <1 min with cache). The
+            # expensive part of the build — without it, Vite re-bundles every module
+            # from scratch, which dwarfs the rest of the build. The
             # pnpm lockfile hash ensures the cache is invalidated when deps change.
             - name: Restore Vite build cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -288,8 +298,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
-        # A status function is required because select-stories is skipped on ready PRs
-        # and master pushes, and GitHub would otherwise cascade that skip to this job.
+        # A status function is required because select-stories is skipped on forced-full
+        # PRs and master pushes, and GitHub would otherwise cascade that skip to this job.
         # !cancelled() rather than always() so a superseded run stops here instead of
         # creating a Visual Review run that its cancelled matrix will never complete.
         if: |
@@ -355,7 +365,11 @@ jobs:
                   VR_PR: ${{ github.event.pull_request.number }}
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
-                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
+                  # trunk-merge/** is observe for the same reason: the queue's PR is ephemeral, so a
+                  # diff there has no reviewer and no approval path. Master baseline drift would
+                  # otherwise block every PR behind it on a diff none of their authors can resolve.
+                  # The run is still created, so merge-time drift stays visible in Visual Review.
+                  VR_PURPOSE: ${{ (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
                   # Selective storybook runs only render a subset of stories. Without --partial,
                   # VR would flag every untouched baseline identifier as removed.
                   VR_PARTIAL: ${{ needs.select-stories.outputs.mode == 'selective' && '--partial' || '' }}
@@ -378,8 +392,8 @@ jobs:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
-        # A status function is required because select-stories is skipped on ready PRs
-        # and master pushes. !cancelled() rather than always() so a superseded run's
+        # A status function is required because select-stories is skipped on forced-full
+        # PRs and master pushes. !cancelled() rather than always() so a superseded run's
         # browser shards stop promptly instead of running the full 30-minute matrix.
         if: >-
             !cancelled()
@@ -389,14 +403,14 @@ jobs:
         # Healthy shards finish well under 15 minutes; the cap exists so a wedged shard fails fast.
         timeout-minutes: 30
         container:
-            image: ghcr.io/posthog/playwright:v1.60.0
+            image: ghcr.io/posthog/playwright:v1.60.0@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9
         strategy:
             fail-fast: false
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
-            # Draft PRs may use chromium shards running only affected story files.
-            # Ready PRs fall back to changes.outputs.matrix (full chromium), while
-            # master pushes run chromium + webkit.
+            # PRs may use chromium shards running only affected story files.
+            # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
+            # while master pushes run chromium + webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -578,10 +592,15 @@ jobs:
         name: Storybook flake verification
         runs-on: ubuntu-latest
         needs: [changes, build-storybook]
-        if: needs.changes.outputs.frontend == 'true' && github.event_name == 'pull_request'
+        # Skipped on trunk-merge/**: the job diffs against base.sha to find changed stories,
+        # which on a queue branch is the same set the PR's own run already re-ran three times.
+        if: |
+            needs.changes.outputs.frontend == 'true'
+            && github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
         timeout-minutes: 45
         container:
-            image: ghcr.io/posthog/playwright:v1.60.0
+            image: ghcr.io/posthog/playwright:v1.60.0@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9
         env:
             NODE_OPTIONS: --max-old-space-size=16384
             OPT_OUT_CAPTURE: 1
@@ -663,7 +682,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [changes, build-storybook, visual-regression, vr-setup, vr-complete]
+        needs: [changes, build-storybook, select-stories, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -690,6 +709,11 @@ jobs:
                     exit 1
                   fi
 
+                  if [[ "${{ needs.select-stories.result }}" != "success" && "${{ needs.select-stories.result }}" != "skipped" ]]; then
+                    echo "Story selection did not succeed (result: ${{ needs.select-stories.result }}) — visual regression is uncovered."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
@@ -711,7 +735,7 @@ jobs:
         name: Complete Visual Review run
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        needs: [visual-regression, vr-setup]
+        needs: [changes, visual-regression, vr-setup]
         # Intentional always(), not !cancelled(): this job finalizes external state,
         # so a run cancelled after the matrix succeeded must still complete the VR
         # run rather than leave its commit status stuck pending. It also stops the
@@ -765,19 +789,26 @@ jobs:
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
 
             - name: Complete Visual Review run
-              # On master pushes the run was created with --purpose observe (tracking-only),
-              # but `vr run complete` still exits 1 whenever visual changes are detected.
-              # That makes the Storybook check fail on master even though observe runs are
-              # not gating by design. Treat exit 1 as informational on push events; PRs
-              # still gate as before.
-              continue-on-error: ${{ github.event_name == 'push' }}
+              # Pass the same --purpose vr-setup created the run with. The backend reports zero
+              # unresolved on an observe run however many snapshots drifted, so without the flag
+              # the CLI cannot tell a clean tracking run from a drifting one and reports neither.
+              # With it, drift becomes a warning annotation naming the identifiers and the command
+              # still exits 0, so the run stays non-gating without the finding being dropped.
+              # That signal matters because an identifier drifting on master without being approved
+              # or quarantined reds the next PR that renders it.
+              #
+              # No exit-code branching: an observe run cannot exit 1, so every non-zero exit here
+              # is a real failure (exit 1 unresolved on a review run, exit 2 CLI error) and reds CI.
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
+                  RUN_ID: ${{ needs.vr-setup.outputs.run_id }}
+                  VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
               run: |
-                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete \
-                    --run-id "${{ needs.vr-setup.outputs.run_id }}" \
-                    --baseline frontend/snapshots.yml \
-                    --token "$VR_TOKEN"
+                  args=(--run-id "$RUN_ID" --baseline frontend/snapshots.yml --token "$VR_TOKEN")
+                  if [ "$VR_OBSERVE" = 'true' ]; then
+                      args+=(--purpose observe)
+                  fi
+                  node vr-cli/products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
 
     calculate-running-time:
         name: Calculate running time
@@ -825,8 +856,8 @@ jobs:
         needs: [select-stories]
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # select-stories only runs on internal draft PRs; fire only when it produced a
-        # decision. DevEx project only; continue-on-error so telemetry never reds CI.
+        # select-stories skips merge-queue and forced-full runs. Fire only when it
+        # produced a decision. DevEx project only; continue-on-error so telemetry never reds CI.
         if: |
             !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
@@ -856,23 +887,19 @@ jobs:
                         "run_id": ${{ toJSON(github.run_id) }}
                       }
 
-    # Pick a narrowed visual-regression matrix for draft PRs based on which stories
-    # the Vite module graph says are affected by the diff. Ready PRs and drafts with
-    # the run-ci-frontend label skip this job and use the full chromium matrix.
-    # Selector uncertainty skips draft visual regression because the ready run is
-    # still the merge gate.
+    # Pick a narrowed visual-regression matrix for PRs based on which stories the Vite
+    # module graph says are affected by the diff. Merge-queue runs and PRs with the
+    # run-ci-frontend label skip this job and use the full chromium matrix. Selector
+    # uncertainty also falls back to the full matrix.
     select-stories:
         name: Story selection
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
-        # Trunk's merge-queue branches open as draft PRs, but their run IS the
-        # merge gate, so they must never get the narrowed selection.
         if: |
             !cancelled() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
-            && github.event.pull_request.draft == true
-            && !startsWith(github.head_ref, 'trunk-merge/')
+            && needs.changes.outputs.merge_queue != 'true'
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -893,6 +920,17 @@ jobs:
                   fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+            - name: Check out trusted story selector
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  filter: blob:none
+                  fetch-depth: 1
+                  path: story-selector
+                  ref: ${{ github.event.pull_request.base.ref }}
+                  repository: ${{ github.event.pull_request.base.repo.full_name }}
+                  sparse-checkout: bin/find-affected-stories
+                  sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -922,18 +960,18 @@ jobs:
               continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  BASE_REPO: ${{ github.event.pull_request.base.repo.full_name }}
               run: |
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha —
-                  # base.sha is captured at webhook time and goes stale if the branch later
-                  # merges a newer master, which makes `base.sha...HEAD` balloon to include
-                  # every merged-in master change.
-                  git fetch --no-tags origin "$BASE_REF"
+                  BASE_SHA=$(git -C story-selector rev-parse HEAD)
+                  git fetch --no-tags --depth=500 --filter=blob:none \
+                      "${{ github.server_url }}/$BASE_REPO.git" \
+                      "$BASE_SHA:refs/remotes/base/$BASE_REF"
                   echo "### Changed files" >&2
-                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
+                  git diff --name-only "base/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(bin/find-affected-stories \
+                  RESULT=$(story-selector/bin/find-affected-stories \
                       --graph /tmp/storybook-graph/module-graph.json \
-                      --base-ref "origin/$BASE_REF")
+                      --base-ref "base/$BASE_REF")
                   echo "$RESULT" > /tmp/selection-result.json
                   # Stash compact form in step output (single line) for the summary step.
                   COMPACT=$(node -e 'const d = JSON.parse(require("fs").readFileSync("/tmp/selection-result.json", "utf8")); delete d.affected_stories; delete d.unresolved_changed_files; process.stdout.write(JSON.stringify(d))')
@@ -965,24 +1003,23 @@ jobs:
                       } >> "$GITHUB_OUTPUT"
                   }
 
-                  fall_back_to_skip() {
-                      echo "mode=skip" >> "$GITHUB_OUTPUT"
-                      echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
-                      echo "should_run=false" >> "$GITHUB_OUTPUT"
+                  fall_back_to_full() {
+                      echo "mode=full" >> "$GITHUB_OUTPUT"
+                      echo "should_run=true" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                       emit_metrics false "$1"
                   }
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection-result.json ]]; then
-                      echo "::warning::story selector did not produce output; skipping draft visual regression"
-                      fall_back_to_skip selector_error
+                      echo "::warning::story selector did not produce output; running the full visual regression matrix"
+                      fall_back_to_full selector_error
                       exit 0
                   fi
 
                   MODE=$(jq -r '.mode' /tmp/selection-result.json)
                   if [[ "$MODE" != "selective" ]]; then
-                      echo "Selector declined to narrow (mode=$MODE); skipping draft visual regression"
-                      fall_back_to_skip "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
+                      echo "Selector declined to narrow (mode=$MODE); running the full visual regression matrix"
+                      fall_back_to_full "$(jq -r '.reason // "full_requested"' /tmp/selection-result.json)"
                       exit 0
                   fi
 
@@ -993,7 +1030,7 @@ jobs:
                       echo "should_run=false" >> "$GITHUB_OUTPUT"
                       echo "affected_files_json=[]" >> "$GITHUB_OUTPUT"
                       emit_metrics true no_affected_stories
-                      echo "Selective mode: 0 affected stories, skipping draft visual regression"
+                      echo "Selective mode: 0 affected stories, skipping visual regression"
                       exit 0
                   fi
 

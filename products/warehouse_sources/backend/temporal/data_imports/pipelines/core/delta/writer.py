@@ -14,9 +14,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MISSING_PRIMARY_KEYS_ERROR,
+    MissingPrimaryKeysException,
     align_incoming_decimals_to_delta,
     first_per_pk_table,
     normalize_column_name,
+    raise_on_nullability_drift,
     realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -25,11 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     delta_merge_spill_kwargs,
     execute_with_conflict_retry,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 
 def _write_deltalake(
@@ -118,14 +120,14 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
 class DeltaWriter:
     """The core write/merge path for one schema's Delta table, plus commit-metadata idempotency.
 
-    Stateless over a `DeltaTableHelper`, which holds the cached table handle and the first-sync
+    Stateless over a `DeltaTableRef`, which holds the cached table handle and the first-sync
     flag — construct one at the call site. Tagging commits with `commit_metadata` and reading the
     tags back (`has_batch_been_committed`) live together because they are two halves of one
     contract: only the terminal commit of a multi-commit write may carry the tag, or a redelivery
     after a mid-write crash would treat the batch as done and lose data.
     """
 
-    def __init__(self, table: "DeltaTableHelper") -> None:
+    def __init__(self, table: "DeltaTableRef") -> None:
         self._table = table
         self._logger = table.logger
 
@@ -192,6 +194,9 @@ class DeltaWriter:
         try:
             import deltalite
 
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+                get_governor,
+            )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
                 DELTALITE_WRITE_DURATION_SECONDS,
                 DELTALITE_WRITE_TOTAL,
@@ -200,19 +205,32 @@ class DeltaWriter:
             uri = await self._table.get_table_uri()
             storage_options = self._table.get_storage_options()
             partition_key = PARTITION_KEY if use_partitioning else None
+            n_partitions = (
+                pc.count_distinct(data[PARTITION_KEY]).as_py()
+                if use_partitioning and PARTITION_KEY in data.column_names
+                else None
+            )
 
-            def _upsert() -> Any:
-                table = deltalite.DeltaLiteTable.open(uri, storage_options)
-                return table.upsert(
-                    data,
-                    list(normalized_primary_keys),
-                    partition_key,
-                    commit_metadata=commit_metadata,
-                )
+            # Capacity planning: size this upsert's knobs to a fixed per-upsert slice of pod memory,
+            # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
+            # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
+            # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
+            # mpp=1 (governor logs a capacity_exceeded ops signal).
+            async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
 
-            started = time.perf_counter()
-            stats = await asyncio.to_thread(_upsert)
-            duration_s = time.perf_counter() - started
+                def _upsert(upsert_kwargs: dict[str, int] = adm.upsert_kwargs) -> Any:
+                    table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                    return table.upsert(
+                        data,
+                        list(normalized_primary_keys),
+                        partition_key,
+                        commit_metadata=commit_metadata,
+                        **upsert_kwargs,
+                    )
+
+                started = time.perf_counter()
+                stats = await asyncio.to_thread(_upsert)
+                duration_s = time.perf_counter() - started
         except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
             await self._logger.awarning(
                 f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
@@ -238,6 +256,12 @@ class DeltaWriter:
             await self._logger.ainfo(
                 "deltalite write: committed",
                 duration_ms=round(duration_s * 1000),
+                governor_mode=adm.mode,
+                governor_predicted_peak_mb=adm.predicted_peak_mb,
+                governor_observed_delta_mb=adm.observed_delta_mb,
+                governor_budget_mb=adm.budget_mb,
+                governor_capacity_exceeded=adm.capacity_exceeded,
+                governor_mpp=adm.planned_mpp,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
@@ -256,6 +280,15 @@ class DeltaWriter:
         progress_callback: Callable[[], None] | None = None,
         commit_metadata: dict[str, str] | None = None,
     ) -> deltalake.DeltaTable:
+        # `.nbytes` rather than the slice-accurate accounting: tables reaching the writer are
+        # materialised chunks, not zero-copy slices, and the merge working set scales with the full
+        # buffers delta-rs will read anyway. This reports the merge *input* only — the decompressed
+        # target-partition working set lives inside delta-rs/DataFusion where we can't observe it,
+        # and under deltalite the memory governor bounds it; the input batch is the per-activity
+        # share we can actually attribute.
+        report_phase("merge")
+        report_buffer_bytes(data.nbytes)
+
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
         # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
         # freshly allocated by pyarrow and so inherit safe alignment.
@@ -300,7 +333,7 @@ class DeltaWriter:
 
         if write_type == "incremental" and delta_table is not None and not is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
-                raise Exception("Primary key required for incremental syncs")
+                raise MissingPrimaryKeysException()
 
             # The merge casts every source column to its stored column type; a scale-heavy decimal
             # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
@@ -319,6 +352,18 @@ class DeltaWriter:
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
 
+            if not normalized_primary_keys:
+                # None of the configured primary key columns survived into this batch (e.g. a stale
+                # persisted key name that no longer matches the source's columns). Left unguarded, the
+                # unpartitioned path below joins an empty predicate_ops into "" and hands delta-rs an
+                # empty predicate, which its SQL parser rejects with an opaque "Expected: an expression,
+                # found: EOF" — and the partitioned path would merge on partition alone, matching rows
+                # that were never actually the same record. Fail clearly instead of either.
+                raise MissingPrimaryKeysException(
+                    f"{MISSING_PRIMARY_KEYS_ERROR}: none of {list(primary_keys)!r} were found in the "
+                    f"synced data (columns: {py_table_column_names!r})"
+                )
+
             predicate_ops = _merge_predicate_ops(normalized_primary_keys)
 
             # Phase 2 canary: try deltalite for the real merge. On success the delta-rs MERGE (and the
@@ -331,6 +376,13 @@ class DeltaWriter:
                 use_partitioning=use_partitioning,
                 commit_metadata=commit_metadata,
             )
+
+            if not deltalite_wrote:
+                # A batch with nulls in a column the table declares non-nullable: deltalite relaxes
+                # the column to nullable in the table metadata and writes, but the delta-rs MERGE
+                # cannot relax in place and would silently write the nulls under a schema that
+                # denies them. Guard only the fallback path with the reset signal.
+                raise_on_nullability_drift(data, delta_table.schema())
 
             if not deltalite_wrote and use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
@@ -427,47 +479,72 @@ class DeltaWriter:
             if delta_table is None:
                 storage_options = self._table.get_storage_options()
                 delta_uri = await self._table.get_table_uri()
+                # mode="ignore": a zombie Temporal attempt (heartbeat-timed-out but still running
+                # while its retry starts — see this package's README) or a stale get_delta_table()
+                # check can race another writer that already created this table. "ignore" opens
+                # the winner's table instead of erroring; the write below then applies our data on
+                # top of it, so the race can only change who created the table, never the outcome.
                 delta_table = await asyncio.to_thread(
                     deltalake.DeltaTable.create,
                     table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="ignore",
                 )
 
+            if mode == "append":
+                # Each batch of a full_refresh (or first incremental sync) infers its own decimal
+                # types independently, same as the incremental-merge and append-continuation paths
+                # above. Without reconciling to the table's already-established type here, a later
+                # batch whose inferred scale is wider than an earlier one hits delta-rs's
+                # merge-schema SchemaMismatchError, since schema_mode="merge" can't widen a stored
+                # column's type in place.
+                data = align_incoming_decimals_to_delta(data, delta_table.schema())
+
             try:
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await execute_with_conflict_retry(
                     delta_table,
-                    data,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode=mode,
-                    schema_mode=schema_mode,
-                    commit_properties=commit_properties,
+                    lambda: _write_deltalake(
+                        delta_table,
+                        data,
+                        partition_by=PARTITION_KEY if use_partitioning else None,
+                        mode=mode,
+                        schema_mode=schema_mode,
+                        commit_properties=commit_properties,
+                    ),
+                    "write: overwrite",
+                    self._logger,
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await execute_with_conflict_retry(
                     delta_table,
-                    data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode="overwrite",
-                    commit_properties=commit_properties,
+                    lambda: _write_deltalake(
+                        delta_table,
+                        data,
+                        partition_by=None,
+                        mode=mode,
+                        schema_mode="overwrite",
+                        commit_properties=commit_properties,
+                    ),
+                    "write: overwrite (schema retry)",
+                    self._logger,
                 )
         elif write_type == "append":
             if delta_table is None:
                 storage_options = self._table.get_storage_options()
                 delta_uri = await self._table.get_table_uri()
+                # See the full_refresh branch above for why mode="ignore" is required here.
                 delta_table = await asyncio.to_thread(
                     deltalake.DeltaTable.create,
                     table_uri=delta_uri,
                     schema=data.schema,
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="ignore",
                 )
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
@@ -479,14 +556,18 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
-            await asyncio.to_thread(
-                _write_deltalake,
+            await execute_with_conflict_retry(
                 delta_table,
-                data,
-                partition_by=PARTITION_KEY if use_partitioning else None,
-                mode="append",
-                schema_mode="merge",
-                commit_properties=commit_properties,
+                lambda: _write_deltalake(
+                    delta_table,
+                    data,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="append",
+                    schema_mode="merge",
+                    commit_properties=commit_properties,
+                ),
+                "write: append",
+                self._logger,
             )
 
         delta_table = await self._table.get_delta_table()

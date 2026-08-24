@@ -309,9 +309,9 @@ fn deserialize_schema_version<'de, D: Deserializer<'de>>(deserializer: D) -> Res
 pub(super) const RECONCILE_COMPLETE_KIND: &str = "reconcile_complete";
 
 /// A completion certificate emitted after one partition's reconcile snapshot is durable. Produced by
-/// the stream processor onto the membership topic and folded by the seeder's marker watcher, so it
-/// lives here — the shared seed contract — rather than in either crate. Field order is the wire order;
-/// the golden test below pins the exact bytes both ends depend on.
+/// the stream processor onto the dedicated reconcile-marker topic and folded by the seeder's marker
+/// watcher, so it lives here — the shared seed contract — rather than in either crate. Field order is
+/// the wire order; the golden test below pins the exact bytes both ends depend on.
 ///
 /// Deliberately carries no dispatch epoch. A marker is a run-scoped durable fact: that partition's
 /// snapshot drained under this run's pinned filters. If a re-dispatch's watcher folds a late marker

@@ -2,9 +2,13 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
+import type { TaskRunArtifact } from "../../../types";
 import { defineLocalTool, type LocalToolResult } from "../registry";
-
-const MAX_ARTIFACT_UPLOAD_BYTES = 30 * 1024 * 1024;
+import {
+  type ArtifactUpload,
+  MAX_ARTIFACT_UPLOAD_BYTES,
+  uploadRunArtifact,
+} from "./artifact-upload";
 
 export const uploadArtifactTool = defineLocalTool({
   name: "upload_artifact",
@@ -12,6 +16,8 @@ export const uploadArtifactTool = defineLocalTool({
     "Deliver a file you created to the user as a downloadable task artifact. " +
     "Call this for every non-code deliverable (reports, images, archives, data files, and similar output) " +
     "before your final response. The file must be inside the session workspace. Repository changes belong in git and should not be uploaded. " +
+    "To revise a file you already delivered, read its current latest version first because the user may have edited it, " +
+    "then upload your revision under the same name. The app shows the newest version and keeps the earlier ones available. " +
     "On success the result includes a download URL for the uploaded file, which you can reference in your final response.",
   schema: {
     path: z
@@ -65,72 +71,25 @@ export const uploadArtifactTool = defineLocalTool({
         );
       }
 
-      const name = args.name ?? path.basename(artifactPath);
-      const contentType = args.contentType ?? "application/octet-stream";
-      const prepared = await client.prepareTaskArtifactUploads(
+      const upload: ArtifactUpload = {
+        name: args.name ?? path.basename(artifactPath),
+        contentType: args.contentType ?? "application/octet-stream",
+        content: await readFile(artifactPath),
+        type: "output",
+        source: "agent_output",
+      };
+      const entry = await uploadRunArtifact(
+        client,
         ctx.taskId,
         ctx.taskRunId,
-        [
-          {
-            name,
-            type: "output",
-            source: "agent_output",
-            size: fileStat.size,
-            content_type: contentType,
-          },
-        ],
+        upload,
       );
-      const upload = prepared[0];
-      if (!upload) {
-        return errorResult("PostHog did not prepare the artifact upload.");
-      }
 
-      const form = new FormData();
-      for (const [key, value] of Object.entries(upload.presigned_post.fields)) {
-        form.append(key, value);
-      }
-      form.append(
-        "file",
-        new Blob([await readFile(artifactPath)], { type: contentType }),
-        name,
-      );
-      const response = await fetch(upload.presigned_post.url, {
-        method: "POST",
-        body: form,
-      });
-      if (!response.ok) {
-        return errorResult(
-          `Artifact storage upload failed (${response.status}).`,
-        );
-      }
-
-      const finalized = await client.finalizeTaskArtifactUploads(
-        ctx.taskId,
-        ctx.taskRunId,
-        [
-          {
-            id: upload.id,
-            name,
-            type: "output",
-            source: "agent_output",
-            storage_path: upload.storage_path,
-            content_type: contentType,
-          },
-        ],
-      );
-      const finalizedEntry = finalized.find(
-        (artifact) => artifact.storage_path === upload.storage_path,
-      );
-      if (!finalizedEntry) {
-        return errorResult("PostHog did not confirm the artifact upload.");
-      }
-
-      // The finalize endpoint returns a presigned download URL on each artifact.
-      // Read it defensively: the field rides in on TaskRunArtifact once the
-      // api-client is regenerated against the updated OpenAPI spec, and older
-      // backends simply omit it.
-      const downloadUrl = (finalizedEntry as { url?: string }).url;
-      const linkText = downloadUrl ? ` Download URL: ${downloadUrl}` : "";
+      const { name } = upload;
+      const referenceUrl = getArtifactReferenceUrl(readDownloadUrl(entry));
+      const linkText = referenceUrl
+        ? ` Reference it as a markdown link: [${escapeMarkdownLinkLabel(name)}](<${referenceUrl}>)`
+        : "";
 
       return {
         content: [
@@ -147,6 +106,35 @@ export const uploadArtifactTool = defineLocalTool({
     }
   },
 });
+
+// Read the download URL defensively: the field rides in on TaskRunArtifact once the
+// api-client is regenerated against the updated OpenAPI spec, and older backends simply
+// omit it.
+function readDownloadUrl(artifact: TaskRunArtifact): string | undefined {
+  return (artifact as { url?: string }).url;
+}
+
+function getArtifactReferenceUrl(
+  downloadUrl: string | undefined,
+): string | null {
+  if (!downloadUrl) return null;
+
+  try {
+    const referenceUrl = new URL(downloadUrl);
+    // Legacy backends return bearer credentials in the query string; stable API URLs do not.
+    referenceUrl.search = "";
+    referenceUrl.hash = "";
+    referenceUrl.username = "";
+    referenceUrl.password = "";
+    return referenceUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+  return label.replace(/([\\[\]])/g, "\\$1");
+}
 
 function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };

@@ -13,18 +13,21 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { BranchSelector } from "@posthog/ui/features/git-interaction/components/BranchSelector";
 import { CloudGitInteractionHeader } from "@posthog/ui/features/git-interaction/components/CloudGitInteractionHeader";
 import { TaskActionsMenu } from "@posthog/ui/features/git-interaction/components/TaskActionsMenu";
+import { useReviewInRightPanel } from "@posthog/ui/features/navigation/useReviewInRightPanel";
 import { HandoffConfirmDialog } from "@posthog/ui/features/sessions/components/HandoffConfirmDialog";
 import { StopCloudRunButton } from "@posthog/ui/features/sessions/components/StopCloudRunButton";
 import { useHandoffDialogStore } from "@posthog/ui/features/sessions/handoffDialogStore";
 import { useSessionCallbacks } from "@posthog/ui/features/sessions/hooks/useSessionCallbacks";
 import { useSessionForTask } from "@posthog/ui/features/sessions/useSession";
 import {
+  useIsCloudTask,
   useWorkspace,
   useWorkspaceLoaded,
 } from "@posthog/ui/features/workspace/useWorkspace";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Flex } from "@radix-ui/themes";
 import { useState } from "react";
+import { TaskAnalysisButton } from "./TaskAnalysisButton";
 
 const CLOUD_HANDOFF_FLAG = "phc-cloud-handoff";
 
@@ -72,7 +75,6 @@ function LocalHandoffButton({ taskId, task }: { taskId: string; task: Task }) {
     <>
       <div className="no-drag flex items-center">
         <QuillButton
-          variant="outline"
           size="sm"
           disabled={inProgress}
           onClick={() =>
@@ -130,7 +132,10 @@ function TaskDiffStatsBadge({ task }: { task: Task }) {
 export function TaskHeaderActions({ task }: { task: Task }) {
   const workspace = useWorkspace(task.id);
   const workspaceLoaded = useWorkspaceLoaded();
-  const isCloudTask = workspace?.mode === "cloud";
+  const isCloudTask = useIsCloudTask(task);
+  // The badge is this row's way into the review, so it comes off where the
+  // right panel's switcher already offers one.
+  const showDiffBadge = !useReviewInRightPanel();
 
   return (
     <Flex
@@ -144,6 +149,9 @@ export function TaskHeaderActions({ task }: { task: Task }) {
       <div className="no-drag">
         <AutoresearchHeaderButton taskId={task.id} />
       </div>
+      <div className="no-drag">
+        <TaskAnalysisButton task={task} />
+      </div>
       {workspace && (workspace.branchName || workspace.baseBranch) && (
         <div className="no-drag flex h-full min-w-0 items-center">
           <BranchSelector
@@ -153,14 +161,16 @@ export function TaskHeaderActions({ task }: { task: Task }) {
           />
         </div>
       )}
-      <TaskDiffStatsBadge task={task} />
+      {showDiffBadge && <TaskDiffStatsBadge task={task} />}
 
       {workspaceLoaded && (
         <>
           {isCloudTask ? (
             <>
-              <StopCloudRunButton taskId={task.id} />
+              {/* Stopping the run comes after the handoff: it ends the session,
+                  and the last thing in a row reads as the last resort. */}
               <CloudGitInteractionHeader taskId={task.id} task={task} />
+              <StopCloudRunButton taskId={task.id} />
             </>
           ) : (
             <LocalHandoffButton taskId={task.id} task={task} />

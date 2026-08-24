@@ -1,7 +1,6 @@
 import type { AssistantMessage, UserMessage } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { PiRpcClient } from "./rpc-client";
+import type { PiRpcClient, PiRpcEvent } from "./rpc-client";
 import { PiRuntime } from "./runtime";
 
 function assistant(text: string): AssistantMessage {
@@ -25,7 +24,7 @@ function assistant(text: string): AssistantMessage {
 }
 
 function createClient() {
-  let listener: (event: AgentSessionEvent) => void = () => {};
+  let listener: (event: PiRpcEvent) => void = () => {};
   const send = vi.fn();
   const client = {
     onEvent: vi.fn((nextListener) => {
@@ -39,7 +38,7 @@ function createClient() {
 
   return {
     client,
-    emit: (event: AgentSessionEvent) => listener(event),
+    emit: (event: PiRpcEvent) => listener(event),
     send,
   };
 }
@@ -242,6 +241,31 @@ describe("PiRuntime", () => {
       steering: ["fix this"],
       followUp: ["then summarize"],
     });
+  });
+
+  it("routes extension UI and errors outside the conversation stream", () => {
+    const { client, emit } = createClient();
+    const runtime = new PiRuntime(client);
+    const extensionListener = vi.fn();
+    const conversationListener = vi.fn();
+    runtime.onExtensionEvent(extensionListener);
+    runtime.onConversationEvent(conversationListener);
+
+    emit({
+      type: "extension_ui_request",
+      id: "extension-1",
+      method: "notify",
+      message: "Done",
+    });
+    emit({
+      type: "extension_error",
+      extensionPath: "/extensions/example.ts",
+      event: "tool_call",
+      error: "boom",
+    });
+
+    expect(extensionListener).toHaveBeenCalledTimes(2);
+    expect(conversationListener).not.toHaveBeenCalled();
   });
 
   it("normalizes live Pi events before forwarding them", () => {

@@ -96,6 +96,10 @@ export interface _DayBreakdownRowApi {
     event_count: number
     /** Total cost in USD on this day for the scoped product. */
     cost_usd: number
+    /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` on this day for the scoped product. */
+    output_tokens: number
 }
 
 export interface _DayBreakdownApi {
@@ -103,6 +107,24 @@ export interface _DayBreakdownApi {
     items: _DayBreakdownRowApi[]
     /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
     truncated: boolean
+}
+
+export interface _DayModelBreakdownRowApi {
+    /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+    day: string
+    /**
+     * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+     * @nullable
+     */
+    model: string | null
+    /** Total cost in USD for this model on this day. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model on this day. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model on this day. */
+    output_tokens: number
+    /** Number of $ai_generation + $ai_embedding events for this model on this day. */
+    generation_count: number
 }
 
 export interface _BucketBreakdownRowApi {
@@ -177,6 +199,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
+    /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
+    by_day_model: _DayModelBreakdownRowApi[]
     /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
     by_bucket?: _BucketBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
@@ -261,10 +285,10 @@ export interface DatasetItemReadApi {
     /** Dataset that owns the item. */
     readonly dataset: string
     /**
-     * Optional caller-owned stable key.
+     * Optional caller-owned stable key that cannot be changed.
      * @nullable
      */
-    readonly external_id: string | null
+    readonly client_item_id: string | null
     readonly version: number
     /** ID of this immutable item version. */
     readonly version_id: string
@@ -320,11 +344,11 @@ export interface DatasetItemCreateApi {
     /** Dataset that will own the item. */
     dataset: string
     /**
-     * Optional case-sensitive stable key used for idempotent creates.
+     * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
      * @maxLength 255
      * @nullable
      */
-    external_id?: string | null
+    client_item_id?: string | null
     /** Input supplied to the system under test. Any non-null JSON value is accepted. */
     input: DatasetJSONValueApi
     /** Optional user-authored expected output. */
@@ -357,7 +381,8 @@ export interface DatasetItemCreateApi {
  * * `dataset_name_conflict` - dataset_name_conflict
  * * `dataset_item_archived` - dataset_item_archived
  * * `dataset_item_active` - dataset_item_active
- * * `external_id_conflict` - external_id_conflict
+ * * `client_item_id_conflict` - client_item_id_conflict
+ * * `limit_reached` - limit_reached
  * * `stale_version` - stale_version
  */
 export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
@@ -367,8 +392,22 @@ export const CodeEnumApi = {
     DatasetNameConflict: 'dataset_name_conflict',
     DatasetItemArchived: 'dataset_item_archived',
     DatasetItemActive: 'dataset_item_active',
-    ExternalIdConflict: 'external_id_conflict',
+    ClientItemIdConflict: 'client_item_id_conflict',
+    LimitReached: 'limit_reached',
     StaleVersion: 'stale_version',
+} as const
+
+/**
+ * * `datasets` - datasets
+ * * `dataset_items` - dataset_items
+ * * `dataset_item_versions` - dataset_item_versions
+ */
+export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+
+export const ResourceEnumApi = {
+    Datasets: 'datasets',
+    DatasetItems: 'dataset_items',
+    DatasetItemVersions: 'dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -378,7 +417,8 @@ export interface DatasetConflictResponseApi {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version */
     code: CodeEnumApi
     /** Explanation of how to resolve the conflict. */
@@ -389,10 +429,20 @@ export interface DatasetConflictResponseApi {
      */
     current_version?: number | null
     /**
-     * Existing item ID when the conflict concerns an external ID.
+     * Existing item ID when the conflict concerns a client item ID.
      * @nullable
      */
     current_item_id?: string | null
+    /** Resource whose configured limit was reached.
+     *
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions */
+    resource?: ResourceEnumApi
+    /** Number of resources that already exist. */
+    current_count?: number
+    /** Maximum number of resources allowed. */
+    limit?: number
 }
 
 export interface DatasetItemArchiveApi {
@@ -422,6 +472,9 @@ export interface DatasetItemRestoreApi {
  */
 export type DatasetReadApiMetadata = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DatasetReadApi {
     readonly id: string
     readonly name: string
@@ -445,6 +498,11 @@ export interface DatasetReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the dataset. */
     readonly team_id: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDatasetReadListApi {
@@ -496,6 +554,48 @@ export interface PatchedDatasetUpdateApi {
     metadata?: PatchedDatasetUpdateApiMetadata
 }
 
+export interface DatasetExportCreateApi {
+    /**
+     * Dataset revision to export. Defaults to the latest revision when the export is created.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export type DatasetExportReadStatusEnumApi =
+    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
+
+export const DatasetExportReadStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
+
+export interface DatasetExportReadApi {
+    /** Export ID used to check status and download the file. */
+    readonly id: number
+    /** Current export state: pending, complete, or failed. */
+    readonly status: DatasetExportReadStatusEnumApi
+    /** Immutable dataset revision included in the export. */
+    readonly dataset_revision: number
+    /** Generated JSONL filename. */
+    readonly filename: string
+    /** When the export was requested. */
+    readonly created_at: string
+    /** When the generated file expires. */
+    readonly expires_after: string
+    /**
+     * Reason the export failed, or null while it is pending or complete.
+     * @nullable
+     */
+    readonly exception: string | null
+}
+
+export interface DatasetExportErrorApi {
+    /** Why the export cannot be created or downloaded yet. */
+    detail: string
+}
+
 export interface DatasetRevisionReadApi {
     readonly id: string
     /** Dataset this revision belongs to. */
@@ -514,6 +614,38 @@ export interface PaginatedDatasetRevisionReadListApi {
     /** @nullable */
     previous?: string | null
     results: DatasetRevisionReadApi[]
+}
+
+export interface EvaluationDirectoryApi {
+    readonly id: string
+    /**
+     * Directory name shown in the online evals list.
+     * @maxLength 400
+     */
+    name: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created the directory. */
+    readonly created_by: UserBasicApi | null
+    /** Number of active evaluations in the directory. */
+    readonly evaluation_count: number
+}
+
+export interface PatchedEvaluationDirectoryApi {
+    readonly id?: string
+    /**
+     * Directory name shown in the online evals list.
+     * @maxLength 400
+     */
+    name?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** User who created the directory. */
+    readonly created_by?: UserBasicApi | null
+    /** Number of active evaluations in the directory. */
+    readonly evaluation_count?: number
 }
 
 export interface EvaluationRunRequestApi {
@@ -618,12 +750,14 @@ export interface EvaluationConditionApi {
 /**
  * * `generation` - Generation
  * * `trace` - Trace
+ * * `session` - Session
  */
 export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
 
 export const EvaluationTargetEnumApi = {
     Generation: 'generation',
     Trace: 'trace',
+    Session: 'session',
 } as const
 
 /**
@@ -686,7 +820,7 @@ export type EvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -699,36 +833,39 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
  */
 export type EvaluationApiTargetConfig =
     | {
           /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy?: 'fixed_window'
+          strategy: 'fixed_window'
           /**
-           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 7200
+           * @maximum 604800
            */
           window_seconds?: number
       }
     | {
-          /** Evaluate once the trace has had no new activity for the quiet period. */
+          /** Evaluate once the unit has had no new activity for the quiet period. */
           strategy: 'inactivity'
           /**
-           * Seconds without new trace activity before the trace counts as settled.
+           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 1800
+           * @maximum 86400
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 60
-           * @maximum 7200
+           * @maximum 604800
            */
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface EvaluationApi {
     readonly id: string
     /**
@@ -738,6 +875,11 @@ export interface EvaluationApi {
     name: string
     /** Optional description of what this evaluation checks. */
     description?: string
+    /**
+     * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+     * @nullable
+     */
+    directory_id?: string | null
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
@@ -747,7 +889,7 @@ export interface EvaluationApi {
      * @nullable
      */
     readonly status_reason_detail: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -764,20 +906,27 @@ export interface EvaluationApi {
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedEvaluationListApi {
@@ -808,7 +957,7 @@ export type PatchedEvaluationApiEvaluationConfig =
           source: string
       }
     | {
-          /** Classify sentiment from user messages in the generation input. */
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
           source?: 'user_messages'
       }
 
@@ -821,36 +970,39 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'.
  */
 export type PatchedEvaluationApiTargetConfig =
     | {
           /** Wait a fixed window after the first matching generation, then evaluate. */
-          strategy?: 'fixed_window'
+          strategy: 'fixed_window'
           /**
-           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 7200
+           * @maximum 604800
            */
           window_seconds?: number
       }
     | {
-          /** Evaluate once the trace has had no new activity for the quiet period. */
+          /** Evaluate once the unit has had no new activity for the quiet period. */
           strategy: 'inactivity'
           /**
-           * Seconds without new trace activity before the trace counts as settled.
+           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 10
-           * @maximum 1800
+           * @maximum 86400
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text.
            * @minimum 60
-           * @maximum 7200
+           * @maximum 604800
            */
           max_age_seconds?: number
       }
 
+/**
+ * An evaluation that scores LLM generations, traces, or sessions.
+ */
 export interface PatchedEvaluationApi {
     readonly id?: string
     /**
@@ -860,6 +1012,11 @@ export interface PatchedEvaluationApi {
     name?: string
     /** Optional description of what this evaluation checks. */
     description?: string
+    /**
+     * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+     * @nullable
+     */
+    directory_id?: string | null
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
@@ -869,7 +1026,7 @@ export interface PatchedEvaluationApi {
      * @nullable
      */
     readonly status_reason_detail?: string | null
-    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+    /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
      *
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
@@ -886,20 +1043,27 @@ export interface PatchedEvaluationApi {
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, using per-target defaults, and the accepted bounds also depend on `target`. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly created_by?: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
@@ -911,6 +1075,12 @@ export interface TestHogTargetConfigApi {
      * @maximum 7200
      */
     window_seconds?: number
+    /**
+     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
 }
 
 export interface TestHogRequestApi {
@@ -929,25 +1099,27 @@ export interface TestHogRequestApi {
     allows_na?: boolean
     /** Optional trigger conditions to filter which events are sampled. */
     conditions?: TestHogRequestApiConditionsItem[]
-    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
     /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
     target_config?: TestHogTargetConfigApi
 }
 
 export interface TestHogResultItemApi {
-    /** Stable identifier for the sampled generation or trace. */
+    /** Stable identifier for the sampled generation, trace, or session. */
     sample_id: string
-    /** Type of sampled unit: generation or trace.
+    /** Type of sampled unit: generation, trace, or session.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     sample_type: EvaluationTargetEnumApi
     /**
-     * UUID of the sampled $ai_generation event, or null for a trace sample.
+     * UUID of the sampled $ai_generation event, or null for a trace or session sample.
      * @nullable
      */
     event_uuid: string | null
@@ -1286,6 +1458,13 @@ export interface EvaluationReportApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1355,6 +1534,13 @@ export interface EvaluationReportUpdateApi {
     readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1415,6 +1601,13 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
+    /** Number of reports generated from this evaluation report config. */
+    readonly generated_report_count?: number
+    /**
+     * When the most recent report was generated, or null if no reports have been generated.
+     * @nullable
+     */
+    readonly last_generated_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
@@ -1453,6 +1646,8 @@ export interface EvaluationReportCitationApi {
     generation_id?: string
     /** Identifier of the trace cited by this report. */
     trace_id?: string
+    /** Optional session identifier for session-target report citations. */
+    session_id?: string
     /** Short explanation of why this example is cited. */
     reason?: string
 }
@@ -1534,7 +1729,8 @@ export interface EvaluationReportRunContentApi {
     /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     evaluation_target?: EvaluationTargetEnumApi
     /** Agent-generated report headline. */
     title?: string
@@ -1604,88 +1800,27 @@ export interface PaginatedEvaluationReportRunListApi {
     results: EvaluationReportRunApi[]
 }
 
-/**
- * * `all` - all
- * * `pass` - pass
- * * `fail` - fail
- * * `na` - na
- */
-export type FilterEnumApi = (typeof FilterEnumApi)[keyof typeof FilterEnumApi]
-
-export const FilterEnumApi = {
-    All: 'all',
-    Pass: 'pass',
-    Fail: 'fail',
-    Na: 'na',
-} as const
-
-/**
- * Request serializer for evaluation summary - accepts IDs only, fetches data server-side.
- */
-export interface EvaluationSummaryRequestApi {
-    /** UUID of the evaluation config to summarize */
-    evaluation_id: string
-    /** Filter type to apply ('all', 'pass', 'fail', or 'na')
-     *
-     * * `all` - all
-     * * `pass` - pass
-     * * `fail` - fail
-     * * `na` - na */
-    filter?: FilterEnumApi
-    /**
-     * Optional: specific generation IDs to include in summary (max 250)
-     * @maxItems 250
-     */
-    generation_ids?: string[]
-    /** If true, bypass cache and generate a fresh summary */
-    force_refresh?: boolean
-}
-
-export interface EvaluationPatternApi {
-    title: string
-    description: string
-    frequency: string
-    example_generation_ids: string[]
-}
-
-export interface EvaluationSummaryStatisticsApi {
-    total_analyzed: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-}
-
-export interface EvaluationSummaryResponseApi {
-    overall_assessment: string
-    pass_patterns: EvaluationPatternApi[]
-    fail_patterns: EvaluationPatternApi[]
-    na_patterns: EvaluationPatternApi[]
-    recommendations: string[]
-    statistics: EvaluationSummaryStatisticsApi
-}
-
-export interface EvaluationSummaryThrottleResponseApi {
-    /** Error category */
-    type: string
-    /** Machine-readable error code */
-    code: string
-    /** Why the request was throttled */
-    detail: string
-    /**
-     * Related request field, when applicable
-     * @nullable
-     */
-    attr: string | null
-}
-
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
+    /** Provider this model belongs to. Pass this value together with `id` when configuring an llm_judge evaluation. */
+    provider: string
+}
+
+export interface LLMProviderModelsSummaryApi {
+    /** Supported provider value, exactly as the `provider` param accepts it. */
+    provider: string
+    /** How many of this provider's models appear in `models`. */
+    model_count: number
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys. PostHog funds no models for it, so `model_count` is 0 until a key is supplied. */
+    requires_provider_key: boolean
 }
 
 export interface LLMModelsListResponseApi {
-    /** Models supported for the requested provider. */
+    /** Models supported for the requested provider, or for every supported provider when `provider` is omitted. */
     models: LLMModelInfoApi[]
+    /** One entry per provider covered by this response. Read it to tell an unsupported provider apart from a provider whose models need a team key before they can be listed. */
+    providers: LLMProviderModelsSummaryApi[]
 }
 
 export interface OfflineExperimentItemsRequestApi {
@@ -2932,6 +3067,14 @@ export type DatasetItemsListParams = {
     revision?: number
 }
 
+export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
+     * @minimum 1
+     */
+    revision?: number
+}
+
 /**
  * Replacement input. Omit to keep the current value.
  */
@@ -3029,6 +3172,14 @@ export type EvaluationRunsCreate200 = { [key: string]: unknown }
 
 export type EvaluationsListParams = {
     /**
+     * Filter evaluations by directory UUID.
+     */
+    directory_id?: string
+    /**
+     * Filter evaluations by whether they are at the top level.
+     */
+    directory_id__isnull?: boolean
+    /**
      * Filter by enabled status
      */
     enabled?: boolean
@@ -3115,23 +3266,15 @@ export type LlmAnalyticsEvaluationReportsRunsListParams = {
     offset?: number
 }
 
-export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
-
-export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
-
 export type LlmAnalyticsModelsRetrieveParams = {
     /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). A key belongs to exactly one provider, so `provider` may be omitted alongside it; when both are given they must agree.
      */
     key_id?: string
     /**
-     * LLM provider to list models for. Must be one of the supported providers.
+     * LLM provider to list models for. Omit it to list every supported provider and its models in one call.
      */
-    provider: LlmAnalyticsModelsRetrieveProvider
+    provider?: LlmAnalyticsModelsRetrieveProvider
 }
 
 export type LlmAnalyticsModelsRetrieveProvider =
