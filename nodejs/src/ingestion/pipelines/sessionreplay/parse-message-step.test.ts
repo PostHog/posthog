@@ -612,8 +612,9 @@ describe('createParseMessageStep', () => {
             const warning = detectClockSkew(messageTimestamp, eventEnd, 'session-1')
             expect(warning).not.toBeNull()
             expect(warning?.type).toBe('replay_message_clock_skew')
-            expect(warning?.key).toBe('session-1')
-            expect(warning?.details).toMatchObject({ direction, skewMs })
+            // No per-session rate-limit key: the warning is bounded per (team, type), not per session.
+            expect(warning?.key).toBeUndefined()
+            expect(warning?.details).toMatchObject({ direction, skewMs, sessionId: 'session-1' })
         })
 
         it('does not warn when the gap stays under the threshold', () => {
@@ -636,7 +637,7 @@ describe('createParseMessageStep', () => {
             expect(result.type).toBe(PipelineResultType.OK)
             expect(result.warnings).toHaveLength(1)
             expect(result.warnings[0].type).toBe('replay_message_clock_skew')
-            expect(result.warnings[0].key).toBe('session-1')
+            expect(result.warnings[0].key).toBeUndefined()
         })
     })
 

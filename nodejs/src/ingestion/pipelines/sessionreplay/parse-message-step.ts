@@ -145,10 +145,10 @@ export function detectClockSkew(
         details: {
             skewMs,
             direction,
+            sessionId,
             messageTimestamp: messageTimestampMs,
             eventEndTimestamp: endDateTime.toMillis(),
         },
-        key: sessionId,
     }
 }
 
