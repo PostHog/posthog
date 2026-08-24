@@ -54,8 +54,8 @@ export function parseSpendAmount(raw: string): number | null {
 
 /**
  * The gap between tick marks on a spend track. Anchored to a reference figure
- * so a tick means something in that scope's terms — roughly a day's average on
- * a daily track, a month's pace on a monthly one — then rounded to a 1/2/5
+ * so a tick means something in that scope's terms (roughly a day's average on
+ * a daily track, a month's pace on a monthly one), then rounded to a 1/2/5
  * step and adjusted until the track carries between 6 and 12 of them: with
  * fewer, the knobs sit on top of most of the ticks.
  */
@@ -68,7 +68,7 @@ export function spendTickIncrement(
     referenceUsd !== null && referenceUsd > 0 ? referenceUsd : scale / 8;
   let increment = niceRound(seed);
   if (increment <= 0) return 0;
-  // Too few ticks to read as a ruler, or so many they turn into a line.
+  // Under 6 ticks does not read as a scale, over 12 crowds into a solid line.
   while (scale / increment > 12) increment *= 2;
   while (scale / increment < 6) increment /= 2;
   return increment;

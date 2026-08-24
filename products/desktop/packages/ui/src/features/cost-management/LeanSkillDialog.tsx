@@ -26,8 +26,8 @@ interface LeanSkillDialogProps {
 
 /**
  * One skill, with one thing to look at first: the figure a trial measured,
- * inside a quote that names the trial. Everything under it is smaller on
- * purpose, so the card has a reading order instead of five equal blocks.
+ * inside a quote that names the trial. Everything under it is smaller, so the
+ * card has a reading order.
  */
 export function LeanSkillDialog({
   skill,
@@ -125,7 +125,7 @@ function TrialQuote({ trial }: { trial: NonNullable<LeanSkill["trial"]> }) {
   );
 }
 
-/** A small dark label over quieter content, so the eye has a landmark. */
+/** A small dark label heading a block of quieter content. */
 function Block({ label, children }: { label: string; children: JSX.Element }) {
   return (
     <div className="flex flex-col gap-2">

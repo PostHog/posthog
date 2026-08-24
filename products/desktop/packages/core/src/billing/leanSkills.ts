@@ -1,17 +1,16 @@
 /**
  * Skills that reduce what a run costs, ranked.
  *
- * Everything here installs and uninstalls in one click, so there is no
- * half-listed entry carrying instructions instead of a button. A measurement
- * is only shown with whose measurement it is, never the project's own figure
- * where an independent trial failed to reproduce it. What each one does is
- * described from its own SKILL.md, so the description is the skill's behavior
- * rather than a paraphrase of its pitch.
+ * Everything here installs and uninstalls in one click, so no entry has to
+ * carry setup instructions instead of a button. Every measurement is shown with
+ * the name of whoever measured it, and where an independent trial failed to
+ * reproduce a project's own figure, the trial's number is the one shown. Each
+ * description comes from the skill's own SKILL.md rather than its pitch.
  *
  * Deliberately absent: JetBrains/benjamin-plus-skill. Its ruleset measured
  * -17.9% cost, the best of any of these, but it only works injected into the
- * system prompt — its authors measured the same text as a skill folder at
- * -0.5% — so no one-click install can deliver it. Adopting it means shipping
+ * system prompt. Its authors measured the same text as a skill folder at
+ * -0.5%, so no one-click install can deliver it. Adopting it means shipping
  * the rules in the prompt every harness appends, which is its own change.
  */
 

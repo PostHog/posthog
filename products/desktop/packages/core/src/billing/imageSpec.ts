@@ -90,7 +90,7 @@ function runCommandsFor(tools: readonly ImagePresetTool[]): string[] {
 /**
  * The mise release the bootstrap installs. Pinned to a tag with its published
  * sha256, because the image scanner rejects an unpinned download-and-execute
- * step — and a moving installer would change what a rebuild produces.
+ * step, and a moving installer would change what a rebuild produces.
  */
 const MISE_VERSION = "v2026.8.10";
 /** Published sha256 per architecture, from the release's SHASUMS256.txt. */

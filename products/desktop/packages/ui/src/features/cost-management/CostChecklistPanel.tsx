@@ -38,7 +38,7 @@ export function CostChecklistPanel({
       <div className="rounded-(--radius-3) border border-(--gray-5) border-dashed px-4 py-3.5">
         <Text className="text-(--gray-11) text-[12.5px]">
           Nothing to change right now. New suggestions show up here when your
-          setup gives one something to say.
+          setup has something worth changing.
         </Text>
       </div>
     );
@@ -70,7 +70,7 @@ export function CostChecklistPanel({
       </div>
       {allDone && (
         <Text className="px-1 text-(--gray-10) text-[11.5px]">
-          All checked. Your setup looks lean.
+          Everything here is checked off.
         </Text>
       )}
     </div>

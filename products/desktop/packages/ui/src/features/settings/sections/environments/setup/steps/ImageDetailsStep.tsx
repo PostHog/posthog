@@ -16,7 +16,7 @@ interface ImageDetailsStepProps {
 
 /**
  * The image on its own: what it is called and which repository it is built for.
- * No environment is created here — an image is reused by any environment that
+ * No environment is created here. An image is reused by any environment that
  * picks it as its base.
  */
 export function ImageDetailsStep({ plan, onChange }: ImageDetailsStepProps) {

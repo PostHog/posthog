@@ -4,10 +4,9 @@ import { modelNotchSuggestion } from "./costRecommendations";
  * The Cost management checklist.
  *
  * An item exists because there is a change to make, and its button makes it.
- * Whether it reads as a suggestion or as a check comes from the setup itself,
- * never from a record of having once clicked the button. Acting is the only
- * way an item leaves the active list, after which it stays as a checked
- * record at the bottom.
+ * Whether it reads as a suggestion or as a check is derived from the current
+ * setup, not from a stored record of the button having been clicked. Acting on
+ * an item moves it out of the active list and into the checked records below.
  */
 
 export type CostChecklistItemKind =
@@ -42,8 +41,7 @@ export interface CostChecklistInput {
 
 /**
  * Builds the list in reading order: what to do now, then what was done. An
- * item appears when its trigger fires or when it was completed, never
- * otherwise.
+ * item appears only when its trigger fires or when it was completed.
  */
 export function buildCostChecklist({
   defaultModelId,
@@ -55,8 +53,8 @@ export function buildCostChecklist({
   const active: CostChecklistItem[] = [];
   const finished: CostChecklistItem[] = [];
 
-  // A completed item keeps its row even though its trigger has gone quiet —
-  // switching the default is precisely what stops the suggestion firing.
+  // A completed item keeps its row even though its trigger has gone quiet.
+  // Switching the default is precisely what stops the suggestion firing.
   if (isDone("model-notch")) {
     if (defaultModelId) {
       finished.push({

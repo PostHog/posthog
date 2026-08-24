@@ -78,8 +78,8 @@ interface SpendLimitSliderProps {
 /**
  * The lines as a draggable control: spend so far fills the track and each
  * set line is a handle that can be dragged (or arrow-keyed) to a new
- * amount. Quiet at rest — the inputs below carry the values — and a value
- * bubble follows the handle only while it moves.
+ * amount. The track carries no labels at rest, since the inputs below hold the
+ * values, and a value bubble follows the handle only while it moves.
  */
 export function SpendLimitSlider({
   warnUsd,

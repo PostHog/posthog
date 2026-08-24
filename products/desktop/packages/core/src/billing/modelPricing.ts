@@ -60,7 +60,7 @@ export function formatPerMtok(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-/** "Input $2 · Output $10 per 1M tokens" — the exact rates behind a chip. */
+/** "Input $2 · Output $10 per 1M tokens": the exact rates behind a chip. */
 export function formatModelRates(price: ModelListPrice): string {
   return `Input ${formatPerMtok(price.inputPerMtok)} · Output ${formatPerMtok(price.outputPerMtok)} per 1M tokens`;
 }

@@ -4,8 +4,7 @@
  *
  * Every entry is a tool an agent commonly reaches for, chosen because it either
  * returns less text than the default it replaces or removes a per-run install.
- * Nothing here claims a savings figure: the reasons state what a tool does, not
- * what it saves.
+ * Each reason states what the tool does. None of them claims a savings figure.
  *
  * `aptPackages` is how the tool gets onto the image. A tool apt carries (plus
  * at most a symlink) can be written straight into a spec and built. The rest

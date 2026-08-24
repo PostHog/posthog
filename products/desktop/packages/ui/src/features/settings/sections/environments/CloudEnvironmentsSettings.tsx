@@ -16,8 +16,8 @@ import { type ReactNode, useEffect, useState } from "react";
 
 /**
  * Cloud environments and the images they start from. Each of the four things
- * you can be doing here — setting an environment up, editing one, building an
- * image, working on one — is its own page, so the list stays a list.
+ * you can be doing here (setting an environment up, editing one, building an
+ * image, working on one) is its own page, so this stays a plain list.
  */
 export function CloudEnvironmentsSettings() {
   const { environments, isLoading } = useSandboxEnvironments();

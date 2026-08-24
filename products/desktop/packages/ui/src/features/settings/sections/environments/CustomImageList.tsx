@@ -26,7 +26,7 @@ interface CustomImageListProps {
 
 /**
  * The image library. One row per image with a single way in: everything an
- * image needs — its spec, its build log, its name — lives on its own page.
+ * image needs (its spec, its build log, its name) lives on its own page.
  */
 export function CustomImageList({
   images,

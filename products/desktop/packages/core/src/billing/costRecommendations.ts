@@ -22,8 +22,8 @@ function adapterForModel(modelId: string): Adapter {
  * The next capability notch down from the user's default model: the most
  * capable model on the adapter's ladder with a strictly lower per-token
  * multiplier. Null when the default is unset, unpriced, already below the
- * trigger, or nothing on the ladder is cheaper — a suggestion is never
- * hardcoded and never sideways.
+ * trigger, or nothing on the ladder is cheaper, so the suggestion is always
+ * derived from the ladder and always strictly cheaper.
  */
 export function modelNotchSuggestion(
   defaultModelId: string | null,
