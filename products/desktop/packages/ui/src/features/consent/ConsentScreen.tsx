@@ -66,7 +66,11 @@ export function ConsentScreen({
           {consent.status === "error" ? (
             <ConsentErrorContent onRetry={consent.retry} />
           ) : consent.status === "resolved" ? (
-            <ConsentPanel consent={consent} isAdmin={isAdmin === true} />
+            <ConsentPanel
+              consent={consent}
+              isAdmin={isAdmin === true}
+              onRefresh={consent.retry}
+            />
           ) : null}
         </div>
       </FullScreenLayout>

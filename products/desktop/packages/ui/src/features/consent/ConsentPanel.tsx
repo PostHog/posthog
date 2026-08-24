@@ -24,6 +24,7 @@ interface ConsentPanelProps {
     needsBetaTerms: boolean;
   };
   isAdmin: boolean;
+  onRefresh?: () => Promise<void>;
   onSubmittingChange?: (isSubmitting: boolean) => void;
 }
 
@@ -31,6 +32,7 @@ export function ConsentPanel({
   consent,
   requirements,
   isAdmin,
+  onRefresh,
   onSubmittingChange,
 }: ConsentPanelProps) {
   const client = useAuthenticatedClient();
@@ -40,6 +42,7 @@ export function ConsentPanel({
     refetchOnWindowFocus: "always",
   });
   const [submitting, setSubmitting] = useState<"ai" | "beta" | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const organization = currentUser?.organization;
   const showAiConsent = requirements?.needsAiConsent ?? consent.needsAiConsent;
@@ -74,6 +77,16 @@ export function ConsentPanel({
     } finally {
       setSubmitting(null);
       onSubmittingChange?.(false);
+    }
+  };
+
+  const refresh = async (): Promise<void> => {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -179,6 +192,19 @@ export function ConsentPanel({
         >
           {error}
         </div>
+      )}
+
+      {!isAdmin && (showAiConsent || showBetaTerms) && onRefresh && (
+        <Button
+          variant="outline"
+          size="lg"
+          className="w-fit"
+          loading={refreshing}
+          disabled={submitting !== null}
+          onClick={() => void refresh()}
+        >
+          I've asked an admin — check again
+        </Button>
       )}
     </div>
   );

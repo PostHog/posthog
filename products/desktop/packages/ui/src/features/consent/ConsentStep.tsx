@@ -54,6 +54,7 @@ export function ConsentStep({
                     consent={consent}
                     requirements={requirements}
                     isAdmin={isAdmin === true}
+                    onRefresh={consent.retry}
                     onSubmittingChange={(submitting) => {
                       setIsSubmitting(submitting);
                       onSubmittingChange?.(submitting);

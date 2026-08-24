@@ -34,6 +34,7 @@ function renderPanel(
     needsAiConsent: boolean;
     needsBetaTerms: boolean;
   },
+  onRefresh?: () => Promise<void>,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -50,6 +51,7 @@ function renderPanel(
         }}
         requirements={requirements}
         isAdmin={isAdmin}
+        onRefresh={onRefresh}
       />
     </QueryClientProvider>,
   );
@@ -120,8 +122,23 @@ describe("ConsentPanel", () => {
   });
 
   it("asks members to contact an admin without rendering an accept button", () => {
-    renderPanel(true, true, false);
+    renderPanel(true, true, false, undefined, async () => undefined);
 
     expect(screen.queryByText("Accept beta terms")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "I've asked an admin — check again" }),
+    ).toBeInTheDocument();
+  });
+
+  it("lets members refresh consent after an admin accepts", async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderPanel(true, true, false, undefined, onRefresh);
+
+    await user.click(
+      screen.getByRole("button", { name: "I've asked an admin — check again" }),
+    );
+
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledExactlyOnceWith());
   });
 });

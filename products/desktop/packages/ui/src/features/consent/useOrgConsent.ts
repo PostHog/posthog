@@ -9,7 +9,7 @@ import { useCallback } from "react";
 
 export type OrgConsent =
   | { status: "loading"; organizationId?: string }
-  | { status: "error"; organizationId?: string; retry: () => void }
+  | { status: "error"; organizationId?: string; retry: () => Promise<void> }
   | {
       status: "resolved";
       organizationId: string;
@@ -53,7 +53,7 @@ export function useOrgConsent(enabled = true): OrgConsent {
   const betaTermsQuery = useDesktopBetaTerms(organization?.id, enabled);
   const queryClient = useQueryClient();
   const retry = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["auth"] });
+    return queryClient.invalidateQueries({ queryKey: ["auth"] });
   }, [queryClient]);
 
   const reportableError = [currentUserQuery.error, betaTermsQuery.error].some(
