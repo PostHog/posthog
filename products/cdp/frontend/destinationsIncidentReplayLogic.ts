@@ -77,10 +77,24 @@ export interface destinationsIncidentReplayLogicActions {
         errorObject?: any
     }
     loadAffectedDestinationsSuccess: (
-        affectedDestinations: AffectedDestination[],
+        affectedDestinations: {
+            enabled: boolean
+            failedCount: number
+            id: string
+            name: string
+            needsCredentials: boolean
+            type: HogFunctionTypeType | null
+        }[],
         payload?: any
     ) => {
-        affectedDestinations: AffectedDestination[]
+        affectedDestinations: {
+            enabled: boolean
+            failedCount: number
+            id: string
+            name: string
+            needsCredentials: boolean
+            type: HogFunctionTypeType | null
+        }[]
         payload?: any
     }
     replayDestination: (id: string) => {
