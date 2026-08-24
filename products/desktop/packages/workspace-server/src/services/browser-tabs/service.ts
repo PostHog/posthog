@@ -33,7 +33,6 @@ export interface IBrowserTabsService {
         channelId: string | null;
         channelSection?: string | null;
         appView?: string | null;
-        activate?: boolean;
         tabId?: string;
       },
   ): TabsSnapshot;
