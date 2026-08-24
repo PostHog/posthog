@@ -1,6 +1,18 @@
 from rest_framework import serializers
 
 
+class LlmsTxtFetchRequestSerializer(serializers.Serializer):
+    url = serializers.URLField(
+        max_length=2048,
+        help_text="Public HTTP or HTTPS URL of the llms.txt file to load.",
+    )
+
+
+class LlmsTxtFetchResponseSerializer(serializers.Serializer):
+    content = serializers.CharField(help_text="UTF-8 contents of the fetched llms.txt file.")
+    url = serializers.URLField(help_text="Final public URL after redirects.")
+
+
 class WoWChangeSerializer(serializers.Serializer):
     percent = serializers.IntegerField(help_text="Absolute percentage change, rounded to nearest integer.")
     direction = serializers.ChoiceField(
