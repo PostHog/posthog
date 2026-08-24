@@ -1804,6 +1804,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         except QueryRetrievalError:
             # A Redis read failure here means the async status is unknown, not that the request failed.
             # The cached response is already valid, so return it with no status rather than raising.
+            # Log the failure so a Redis outage behind these reads stays measurable instead of silent.
+            logger.warning(
+                "get_async_query_status_redis_read_failed",
+                team_id=self.team.pk,
+                query_id=self.query_id or cache_key,
+                exc_info=True,
+            )
             return None
 
     def handle_cache_and_async_logic(
