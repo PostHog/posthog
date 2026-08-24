@@ -11,6 +11,7 @@ surface is intentionally small and grows as consumers migrate to data reads.
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
@@ -43,3 +44,16 @@ class SavedQuerySummary:
     team_id: int
     name: str
     last_run_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ManagedWarehouseSavedQueryRecord:
+    id: UUID
+    team_id: int
+    name: str
+    status: str | None
+    last_run_at: datetime | None
+    latest_error: str | None
+    table_id: UUID | None
+    row_count: int | None
+    deleted: bool

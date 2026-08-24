@@ -6,6 +6,7 @@ import datetime as dt
 from datetime import timedelta
 
 from django.db import close_old_connections, transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import psycopg
@@ -20,6 +21,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
+from products.data_modeling.backend.facade import api as data_modeling
 from products.managed_warehouse.backend.common import (
     default_bucket_region,
     ducklake_data_modeling_schema_team_id,
@@ -41,6 +43,12 @@ from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.warehouse_sources.backend.facade.constants import S3_DELETE_TIME_BUFFER
 
 LOGGER = get_logger(__name__)
+
+
+def _publication_queryset(team_id: int, publication_id: str) -> QuerySet[ManagedWarehousePublishedTable]:
+    return ManagedWarehousePublishedTable.objects.for_team(team_id).filter(
+        Q(saved_query_id=publication_id) | Q(id=publication_id)
+    )
 
 
 @frozen
@@ -94,9 +102,7 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(publication_id=inputs.publication_id)
     close_old_connections()
-    publication = ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).get(
-        id=inputs.publication_id, deleted=False
-    )
+    publication = _publication_queryset(inputs.team_id, inputs.publication_id).get(deleted=False)
     source_team_id = ducklake_data_modeling_schema_team_id(publication.source_schema_name)
     source_team = Team.objects.only("id", "parent_team_id").filter(id=source_team_id).first()
     source_project_id = source_team.parent_team_id or source_team.id if source_team is not None else None
@@ -105,8 +111,14 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
     validate_duckgres_identifier(publication.source_schema_name)
     validate_duckgres_identifier(publication.source_table_name)
 
+    if publication.saved_query_id is not None:
+        publication.active_job_id = data_modeling.start_managed_warehouse_saved_query_publish(
+            inputs.team_id,
+            publication.saved_query_id,
+            f"duckgres-publish-{publication.id}",
+        )
     publication.status = ManagedWarehousePublishedTable.Status.PUBLISHING
-    publication.save(update_fields=["status", "updated_at"])
+    publication.save(update_fields=["active_job_id", "status", "updated_at"])
 
     team = Team.objects.only("organization_id").get(id=inputs.team_id)
     organization_id = str(team.organization_id)
@@ -161,16 +173,19 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> str | None
     alive for one more prune cycle.
     """
     close_old_connections()
-    publication = ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).get(
-        id=inputs.publication_id, deleted=False
+    publication = _publication_queryset(inputs.team_id, inputs.publication_id).get(deleted=False)
+    saved_query = (
+        data_modeling.get_managed_warehouse_saved_query(inputs.team_id, publication.saved_query_id)
+        if publication.saved_query_id is not None
+        else None
     )
     folder = publish_folder(inputs.team_id, publication.id.hex)
     url_pattern = publish_url_pattern(inputs.bucket, inputs.bucket_region, folder, inputs.folder_version)
 
     registration = warehouse_sources.prepare_published_table_registration(
         team_id=inputs.team_id,
-        table_id=publication.table_id,
-        name=publication.name,
+        table_id=saved_query.table_id if saved_query is not None else publication.table_id,
+        name=saved_query.name if saved_query is not None else publication.name,
         url_pattern=url_pattern,
     )
     size_in_s3_mib = sum_publish_version_size_bytes(inputs.bucket, folder, inputs.folder_version) / (1024 * 1024)
@@ -183,12 +198,21 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> str | None
             size_in_s3_mib=size_in_s3_mib,
         )
 
+        if publication.saved_query_id is not None:
+            data_modeling.complete_managed_warehouse_saved_query_publish(
+                team_id=inputs.team_id,
+                saved_query_id=publication.saved_query_id,
+                table_id=table.id,
+                job_id=publication.active_job_id,
+            )
+
         publication.table_id = table.id
         publication.status = ManagedWarehousePublishedTable.Status.COMPLETED
         publication.folder_version = inputs.folder_version
         publication.row_count = inputs.row_count
         publication.last_published_at = timezone.now()
         publication.last_error = None
+        publication.active_job_id = None
         publication.save(
             update_fields=[
                 "table_id",
@@ -197,6 +221,7 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> str | None
                 "row_count",
                 "last_published_at",
                 "last_error",
+                "active_job_id",
                 "updated_at",
             ]
         )
@@ -214,9 +239,7 @@ def prune_published_snapshot_activity(inputs: PrunePublishedSnapshotInputs) -> N
     from the delete API path, where no copy result exists.
     """
     close_old_connections()
-    publication = (
-        ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).filter(id=inputs.publication_id).first()
-    )
+    publication = _publication_queryset(inputs.team_id, inputs.publication_id).first()
     if publication is None:
         return
 
@@ -236,16 +259,30 @@ def prune_published_snapshot_activity(inputs: PrunePublishedSnapshotInputs) -> N
         }
         min_age_seconds = S3_DELETE_TIME_BUFFER
     delete_stale_publish_versions(
-        bucket, publish_folder(inputs.team_id, publication.id.hex), keep_versions, min_age_seconds=min_age_seconds
+        bucket,
+        publish_folder(inputs.team_id, publication.id.hex),
+        keep_versions,
+        min_age_seconds=min_age_seconds,
     )
 
 
 @temporalio.activity.defn
 def publish_table_mark_failed_activity(inputs: PublishMarkFailedInputs) -> None:
     close_old_connections()
-    ManagedWarehousePublishedTable.objects.for_team(inputs.team_id).filter(id=inputs.publication_id).update(
+    publication = _publication_queryset(inputs.team_id, inputs.publication_id).first()
+    if publication is None:
+        return
+    if publication.saved_query_id is not None:
+        data_modeling.fail_managed_warehouse_saved_query_publish(
+            team_id=inputs.team_id,
+            saved_query_id=publication.saved_query_id,
+            error=inputs.error[:512],
+            job_id=publication.active_job_id,
+        )
+    _publication_queryset(inputs.team_id, inputs.publication_id).update(
         status=ManagedWarehousePublishedTable.Status.FAILED,
         last_error=inputs.error[:512],
+        active_job_id=None,
         updated_at=timezone.now(),
     )
 

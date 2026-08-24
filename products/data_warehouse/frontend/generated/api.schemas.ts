@@ -515,8 +515,13 @@ export const PublishedTableStatusEnumApi = {
 } as const
 
 export interface PublishedTableApi {
-    /** Publication ID. */
+    /** Publication ID used for publish actions. */
     id: string
+    /**
+     * Canonical saved query ID, or null for a publication created before saved-query integration.
+     * @nullable
+     */
+    saved_query_id: string | null
     /** Warehouse table name in PostHog. */
     name: string
     /** Duckgres schema of the source modeled table. */
@@ -547,19 +552,19 @@ export interface PublishedTableApi {
     row_count: number | null
 }
 
+export interface PublishedTableConflictApi {
+    /** Why the publication could not be started. */
+    detail: string
+}
+
 export interface PublishedTablesResponseApi {
     /** Published tables and their current status. */
     results: PublishedTableApi[]
 }
 
 export interface PublishedTableIdApi {
-    /** Publication ID. */
+    /** Publication ID for the published table. */
     id: string
-}
-
-export interface PublishedTableConflictApi {
-    /** Why the publication could not be started. */
-    detail: string
 }
 
 /**
@@ -1241,6 +1246,7 @@ export const SavedQueryStatusEnumApi = {
 /**
  * * `data_warehouse` - Data Warehouse
  * * `endpoint` - Endpoint
+ * * `managed_warehouse` - Managed Warehouse
  * * `managed_viewset` - Managed Viewset
  */
 export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
@@ -1248,6 +1254,7 @@ export type OriginEnumApi = (typeof OriginEnumApi)[keyof typeof OriginEnumApi]
 export const OriginEnumApi = {
     DataWarehouse: 'data_warehouse',
     Endpoint: 'endpoint',
+    ManagedWarehouse: 'managed_warehouse',
     ManagedViewset: 'managed_viewset',
 } as const
 
@@ -1296,6 +1303,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
      *
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
+     * * `managed_warehouse` - Managed Warehouse
      * * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
@@ -1321,20 +1329,19 @@ export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
     results: DataWarehouseSavedQueryMinimalApi[]
 }
 
-export type DataWarehouseSavedQueryApiQueryKind =
-    (typeof DataWarehouseSavedQueryApiQueryKind)[keyof typeof DataWarehouseSavedQueryApiQueryKind]
-
-export const DataWarehouseSavedQueryApiQueryKind = {
-    HogQLQuery: 'HogQLQuery',
-} as const
-
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
+ * Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition.
  */
-export type DataWarehouseSavedQueryApiQuery = {
-    kind?: DataWarehouseSavedQueryApiQueryKind
-    query: string
-}
+export type DataWarehouseSavedQueryApiQuery =
+    | {
+          kind?: 'HogQLQuery'
+          query: string
+      }
+    | {
+          kind: 'ManagedWarehouseSource'
+          source_schema_name: string
+          source_table_name: string
+      }
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
@@ -1561,7 +1568,7 @@ export interface DataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
+    /** Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition. */
     query: DataWarehouseSavedQueryApiQuery
     /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
     incremental?: IncrementalConfigApi | null
@@ -1638,6 +1645,7 @@ export interface DataWarehouseSavedQueryApi {
      *
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
+     * * `managed_warehouse` - Managed Warehouse
      * * `managed_viewset` - Managed Viewset */
     readonly origin: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
@@ -1656,20 +1664,19 @@ export interface DataWarehouseSavedQueryApi {
     readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
-export type PatchedDataWarehouseSavedQueryApiQueryKind =
-    (typeof PatchedDataWarehouseSavedQueryApiQueryKind)[keyof typeof PatchedDataWarehouseSavedQueryApiQueryKind]
-
-export const PatchedDataWarehouseSavedQueryApiQueryKind = {
-    HogQLQuery: 'HogQLQuery',
-} as const
-
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
+ * Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition.
  */
-export type PatchedDataWarehouseSavedQueryApiQuery = {
-    kind?: PatchedDataWarehouseSavedQueryApiQueryKind
-    query: string
-}
+export type PatchedDataWarehouseSavedQueryApiQuery =
+    | {
+          kind?: 'HogQLQuery'
+          query: string
+      }
+    | {
+          kind: 'ManagedWarehouseSource'
+          source_schema_name: string
+          source_table_name: string
+      }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
@@ -1692,7 +1699,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name?: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
+    /** Query definition. User-created views use {"kind": "HogQLQuery", "query": "..."}. Published tables use a read-only managed warehouse source definition. */
     query?: PatchedDataWarehouseSavedQueryApiQuery
     /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
     incremental?: IncrementalConfigApi | null
@@ -1769,6 +1776,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      *
      * * `data_warehouse` - Data Warehouse
      * * `endpoint` - Endpoint
+     * * `managed_warehouse` - Managed Warehouse
      * * `managed_viewset` - Managed Viewset */
     readonly origin?: OriginEnumApi | null
     /** Whether this view is for testing only and will auto-expire. */
@@ -5082,7 +5090,7 @@ export const DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveWindow = {
 
 export type DataWarehouseManagedWarehousePublishedTableDestroyParams = {
     /**
-     * Publication ID.
+     * Publication ID for the published table.
      */
     id: string
 }
