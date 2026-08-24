@@ -1,12 +1,13 @@
 import os
 from collections.abc import Callable
-from typing import Optional, TypeVar
+from typing import Literal, Optional, TypeVar
 
 from django.conf import settings
 
 import structlog
 from anthropic.types import Message, MessageParam
 
+from posthog.dataclasses import frozen
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.llm.gateway_client import (
     build_async_anthropic_client,
@@ -20,16 +21,49 @@ logger = structlog.get_logger(__name__)
 
 MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-4-5")
 
-# Models that support Anthropic extended thinking. Keep in sync with the models we actually use.
-ANTHROPIC_THINKING_MODELS = {
-    "claude-haiku-4-5",
-    "claude-sonnet-4-5",
-    "claude-opus-4-5",
-    "claude-opus-4-1",
-    "claude-sonnet-4-0",
-    "claude-opus-4-0",
-    "claude-3-7-sonnet-latest",
+
+@frozen
+class ModelCapabilities:
+    """Which request features a model accepts, so swapping models stays a config change.
+
+    The three fields are the ones the Claude 5 generation dropped: assistant prefill,
+    per-request temperature, and budget-based extended thinking. Sending any of them to a
+    model that no longer takes it is a 400 on every call, not a degraded response.
+    """
+
+    prefill: bool
+    temperature: bool
+    thinking: Literal["budget", "adaptive", "none"]
+
+
+_LEGACY = ModelCapabilities(prefill=True, temperature=True, thinking="budget")
+_MODERN = ModelCapabilities(prefill=False, temperature=False, thinking="adaptive")
+
+# Verified against the Messages API rather than inferred from version numbers, because 4-6 sits
+# between the two generations: it takes temperature but refuses prefill. An unlisted model gets the
+# modern contract, on the assumption that a new id is newer than this table.
+MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
+    "claude-3-7-sonnet-latest": _LEGACY,
+    "claude-haiku-4-5": _LEGACY,
+    "claude-sonnet-4-0": _LEGACY,
+    "claude-sonnet-4-5": _LEGACY,
+    "claude-opus-4-0": _LEGACY,
+    "claude-opus-4-1": _LEGACY,
+    "claude-opus-4-5": _LEGACY,
+    "claude-sonnet-4-6": ModelCapabilities(prefill=False, temperature=True, thinking="adaptive"),
+    "claude-opus-4-8": _MODERN,
+    "claude-sonnet-5": _MODERN,
+    "claude-opus-5": _MODERN,
 }
+
+# Effort replaces the explicit token budget on adaptive-thinking models.
+ADAPTIVE_THINKING_EFFORT = "high"
+
+
+def get_model_capabilities(model: str) -> ModelCapabilities:
+    return MODEL_CAPABILITIES.get(model, _MODERN)
+
+
 MAX_RETRIES = 3
 MAX_RESPONSE_TOKENS = 4096
 MAX_QUERY_TOKENS = 2048
@@ -96,7 +130,11 @@ async def call_llm(
     ai_product: Optional[str] = None,
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
-    thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
+    capabilities = get_model_capabilities(MATCHING_MODEL)
+    thinking = thinking and capabilities.thinking != "none"
+    # Prefill is what keeps non-thinking responses free of markdown fences; without it we lean on
+    # the fence stripper the thinking path already uses.
+    prefill = capabilities.prefill and not thinking
     # A call site opts onto the Go ai-gateway by passing ai_product, which both routes it through
     # the gateway-capable client and tags the generation. Without it the call stays on the Python
     # gateway, so each product is switched (and reverted) independently.
@@ -117,7 +155,7 @@ async def call_llm(
 
     # For non-thinking calls, pre-fill the assistant response with `{` to prevent markdown fences. Pre-filling seems to work
     # well, but isn't supported for thinking modes.
-    if not thinking:
+    if prefill:
         messages.append({"role": "assistant", "content": "{"})
 
     create_kwargs: dict = {
@@ -125,9 +163,10 @@ async def call_llm(
         "system": system_prompt,
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
-        "temperature": temperature,
         "timeout": TIMEOUT,
     }
+    if capabilities.temperature:
+        create_kwargs["temperature"] = temperature
     if team_id is not None:
         create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
     # The per-key ai_stage header is what the Python gateway reads. Send it whenever the request
@@ -141,8 +180,13 @@ async def call_llm(
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
     if thinking:
         create_kwargs["max_tokens"] = MAX_RESPONSE_TOKENS * 3
-        create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": MAX_RESPONSE_TOKENS * 2}
-        create_kwargs["temperature"] = 1  # Required for thinking
+        if capabilities.thinking == "budget":
+            create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": MAX_RESPONSE_TOKENS * 2}
+            create_kwargs["temperature"] = 1  # Required for thinking
+        else:
+            create_kwargs["thinking"] = {"type": "adaptive"}
+            create_kwargs["output_config"] = {"effort": ADAPTIVE_THINKING_EFFORT}
+            create_kwargs.pop("temperature", None)
 
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
@@ -156,7 +200,7 @@ async def call_llm(
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
         text_content = _strip_markdown_json_fences(text_content)
-        if not thinking:
+        if prefill:
             # Prepend the `{` we pre-filled
             text_content = "{" + text_content
         try:
@@ -182,7 +226,7 @@ async def call_llm(
             )
             # Re-add assistant pre-fill for non-thinking calls so the LLM
             # continues from `{` on the next attempt (matching the prepend above).
-            if not thinking:
+            if prefill:
                 messages.append({"role": "assistant", "content": "{"})
             last_exception = e
             continue
