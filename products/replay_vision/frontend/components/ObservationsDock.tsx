@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconNotebook } from '@posthog/icons'
+import { IconChevronDown, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -63,8 +63,18 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
         })),
         {
             key: 'built-in',
-            label: 'Quick summary',
-            tooltip: 'Uses a built-in prompt instead of one of your scanners.',
+            // Every other row is a scanner the team owns and can open. This one is PostHog's, so it
+            // carries the logomark and says so, rather than reading as a scanner they cannot find.
+            label: (
+                <span className="flex items-center justify-between gap-2 w-full">
+                    <span className="truncate">Quick summary</span>
+                    <span className="flex items-center gap-1.5 text-xs shrink-0">
+                        <IconLogomark className="text-base text-primary" />
+                        <span className="text-muted">Built in</span>
+                    </span>
+                </span>
+            ),
+            tooltip: 'Uses a built-in prompt. Nothing is saved to your scanners, so there is nothing to open or edit.',
             active: !defaultSummarizer,
             disabledReason: builtInDisabledReason,
             onClick: () => summarizeWith(null),
