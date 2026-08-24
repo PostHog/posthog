@@ -46,7 +46,7 @@ function asErrorEventType(event: unknown): ErrorEventType {
 export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[1000px] h-[700px]">
-            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
                 <OpenTimelineTab>
                     <ExceptionCard
                         issueId="issue-id"
@@ -233,7 +233,7 @@ function ExceptionCardSessionTimelineStory({
 }): JSX.Element {
     return (
         <div className={containerClassName}>
-            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
                 <OpenTimelineTab>
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
                 </OpenTimelineTab>
@@ -548,7 +548,7 @@ function buildSessionTimelineEvent(
 }
 
 function OpenTimelineTab({ children }: { children: JSX.Element }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id' }))
+    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id', loading: false }))
 
     useEffect(() => {
         setCurrentTab('timeline')
