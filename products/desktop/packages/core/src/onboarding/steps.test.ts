@@ -12,17 +12,14 @@ import {
 } from "./steps";
 
 const allSteps = {
-  hasImportableConfig: true,
   hasGithubIntegration: undefined,
   projectCount: 2,
   consentRequired: true,
 };
 
 describe("computeActiveSteps", () => {
-  it("drops import-config when there is no importable config", () => {
-    expect(
-      computeActiveSteps({ ...allSteps, hasImportableConfig: false }),
-    ).not.toContain("import-config");
+  it("keeps every step while no gate has resolved against it", () => {
+    expect(computeActiveSteps(allSteps)).toEqual(ONBOARDING_STEPS);
   });
 
   it("drops project-select only when there is exactly one project", () => {
@@ -65,22 +62,21 @@ describe("computeActiveSteps", () => {
 
 describe("nearestActiveStep", () => {
   const withoutConditionals = computeActiveSteps({
-    hasImportableConfig: false,
-    hasGithubIntegration: undefined,
+    hasGithubIntegration: true,
     projectCount: 2,
     consentRequired: true,
   });
 
   it("returns the step itself while it is still active", () => {
-    expect(nearestActiveStep(ONBOARDING_STEPS, "import-config")).toBe(
-      "import-config",
+    expect(nearestActiveStep(ONBOARDING_STEPS, "install-cli")).toBe(
+      "install-cli",
     );
   });
 
   it.each<{ removed: OnboardingStep; expected: OnboardingStep }>([
-    // import-config vanished under the user: continue forward to select-repo,
-    // not back to welcome (the regression that reset onboarding mid-flow).
-    { removed: "import-config", expected: "select-repo" },
+    // install-cli vanished under the user: continue forward to select-repo,
+    // not back to the start (the regression that reset onboarding mid-flow).
+    { removed: "install-cli", expected: "select-repo" },
   ])(
     "moves forward to $expected when $removed drops out",
     ({ removed, expected }) => {
@@ -89,20 +85,17 @@ describe("nearestActiveStep", () => {
   );
 
   it("falls back to the closest earlier step when nothing follows", () => {
-    const onlyEarlySteps: OnboardingStep[] = ["welcome", "project-select"];
-    expect(nearestActiveStep(onlyEarlySteps, "import-config")).toBe(
-      "project-select",
-    );
+    const onlyEarlySteps: OnboardingStep[] = ["project-select", "consent"];
+    expect(nearestActiveStep(onlyEarlySteps, "select-repo")).toBe("consent");
   });
 
   it("returns the step itself when no steps are active", () => {
-    expect(nearestActiveStep([], "import-config")).toBe("import-config");
+    expect(nearestActiveStep([], "select-repo")).toBe("select-repo");
   });
 });
 
 describe("step navigation", () => {
   const steps = computeActiveSteps({
-    hasImportableConfig: true,
     hasGithubIntegration: undefined,
     projectCount: 2,
     consentRequired: true,

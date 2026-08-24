@@ -25,10 +25,8 @@ import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTa
 import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
-import { ImportConfigStep } from "@posthog/ui/features/onboarding/components/ImportConfigStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
 import { StepIndicator } from "@posthog/ui/features/onboarding/components/StepIndicator";
-import { WelcomeScreen } from "@posthog/ui/features/onboarding/components/WelcomeScreen";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -231,6 +229,10 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     back();
   };
 
+  // The first active step has nowhere to go back to, and which step that is
+  // shifts as the conditional steps resolve.
+  const onBack = currentIndex <= 0 ? undefined : handleBack;
+
   useHotkeys("right", () => handleNext(), { enableOnFormTags: false }, [
     handleNext,
   ]);
@@ -329,21 +331,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
       <LayoutGroup>
         <AnimatePresence mode="wait" custom={direction}>
-          {currentStep === "welcome" && (
-            <motion.div
-              key="welcome"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <WelcomeScreen onNext={handleNext} />
-            </motion.div>
-          )}
-
           {currentStep === "project-select" && (
             <motion.div
               key="project-select"
@@ -355,7 +342,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
               transition={{ duration: 0.3 }}
               className="min-h-0 w-full flex-1"
             >
-              <ProjectSelectStep onNext={handleNext} onBack={handleBack} />
+              <ProjectSelectStep onNext={handleNext} onBack={onBack} />
             </motion.div>
           )}
 
@@ -372,7 +359,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
             >
               <ConsentStep
                 onNext={handleNext}
-                onBack={handleBack}
+                onBack={onBack}
                 requirements={consentRequirement}
                 onSubmittingChange={setConsentSubmitting}
               />
@@ -390,7 +377,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
               transition={{ duration: 0.3 }}
               className="min-h-0 w-full flex-1"
             >
-              <ConnectGitHubStep onNext={handleNext} onBack={handleBack} />
+              <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
             </motion.div>
           )}
 
@@ -406,21 +393,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
               className="min-h-0 w-full flex-1"
             >
               <InstallCliStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
-
-          {currentStep === "import-config" && (
-            <motion.div
-              key="import-config"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ImportConfigStep onNext={handleNext} onBack={handleBack} />
             </motion.div>
           )}
 
