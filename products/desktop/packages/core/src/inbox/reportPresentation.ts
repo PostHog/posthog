@@ -194,6 +194,20 @@ export function displayConventionalCommitTitle(
   return trimmed ? trimmed : fallback;
 }
 
+/**
+ * The human display title: conventional-commit prefixes stripped and the first
+ * letter capitalized, so "fix(oauth): validate scopes" reads "Validate scopes".
+ * Reports present as briefs, not commits — the commit-shaped title still lives
+ * on the PR itself.
+ */
+export function humanizeReportTitle(
+  title: string | null | undefined,
+  fallback: string,
+): string {
+  const display = displayConventionalCommitTitle(title, fallback);
+  return display.charAt(0).toUpperCase() + display.slice(1);
+}
+
 export interface ParsedPrUrl {
   owner: string;
   repo: string;
@@ -204,6 +218,12 @@ export interface ParsedPrUrl {
 export function parsePrUrl(prUrl: string): ParsedPrUrl | null {
   try {
     const url = new URL(prUrl);
+    // Only a real GitHub PR URL may drive "Open in GitHub" affordances —
+    // implementation_pr_url flows in from task-run output, so an arbitrary
+    // host here would let a task point reviewers at an attacker's site.
+    if (url.protocol !== "https:" || url.hostname !== "github.com") {
+      return null;
+    }
     const match = url.pathname.match(
       /^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:$|[/?#])/,
     );
