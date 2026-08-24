@@ -961,6 +961,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if save:
             self.save(skip_activity_log=True)
 
+    def clear_xmin_state(self, save: bool = True) -> None:
+        # Drops the cursor so the next run takes the backfill path and re-reads the whole table,
+        # upserting by primary key. Use it to repair a schema whose backfill missed rows.
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
+
+        if save:
+            self.save(skip_activity_log=True)
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = timezone.now()
@@ -1196,6 +1206,31 @@ def update_sync_type_config_keys(
         return config
 
 
+def save_repartition_checkpoint_if_claimed(
+    schema: ExternalDataSchema, *, claim_token: str, checkpoint: dict[str, Any]
+) -> bool:
+    """Write a rewrite checkpoint only while `claim_token` still owns the schema. Returns whether it did.
+
+    Checking the claim before calling `set_repartition_rewrite` is not enough: that saves the whole
+    `sync_type_config` column from an in-memory copy, so a worker superseded between the check and the
+    save writes back its own stale `repartition_claim` and un-fences itself. Re-reading the claim under
+    the row lock, in the same transaction as the write, closes that window — the same reason
+    `update_sync_type_config_keys` exists.
+    """
+    claimed = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal claimed
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        config["repartition_rewrite"] = checkpoint
+        claimed = True
+
+    update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return claimed
+
+
 def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
     """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
 
@@ -1366,7 +1401,10 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
-            if s.table_id is None:
+            # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
+            # disabled, because soft-deleting it would silently discard the user's selection (e.g.
+            # a scope-gated table the source stopped offering before its first successful sync).
+            if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:

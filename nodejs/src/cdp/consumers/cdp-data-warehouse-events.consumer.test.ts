@@ -28,11 +28,13 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     const createDataWarehouseEvent = (
         teamId: number,
         properties: Record<string, any> = {},
-        tableName?: string
+        tableName?: string,
+        tableType?: 'source' | 'view'
     ): CdpDataWarehouseEvent => {
         return {
             team_id: teamId,
             table_name: tableName,
+            table_type: tableType,
             event_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
             properties: {
                 column1: 'value1',
@@ -220,6 +222,36 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(invocations).toHaveLength(1)
             expect(invocations[0].teamId).toBe(fnWithDataWarehouseFilter.team_id)
         })
+
+        it("should only invoke destinations subscribed to the row's table", async () => {
+            const fnForOrders = await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                filters: {
+                    source: 'data-warehouse-table',
+                    bytecode: ['_h', 29],
+                    data_warehouse: [{ table_name: 'postgres.orders' }],
+                },
+            })
+
+            await insertHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                filters: {
+                    source: 'data-warehouse-table',
+                    bytecode: ['_h', 29],
+                    data_warehouse: [{ table_name: 'stripe.charge' }],
+                },
+            })
+
+            const messages = [createKafkaMessage(createDataWarehouseEvent(team.id, {}, 'postgres.orders'))]
+            const globals = await processor._parseKafkaBatch(messages)
+
+            const { invocations } = await processor.processBatch(globals)
+
+            expect(invocations).toHaveLength(1)
+            expect((invocations[0] as any).hogFunction.id).toBe(fnForOrders.id)
+        })
     })
 
     describe('processBatch', () => {
@@ -374,12 +406,16 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     })
 
     describe('hog flow invocations', () => {
-        const buildDataWarehouseHogFlow = (teamId: number, tableName: string): HogFlow =>
+        const buildDataWarehouseHogFlow = (
+            teamId: number,
+            tableName: string,
+            triggerType: 'data-warehouse-table' | 'data-warehouse-view' = 'data-warehouse-table'
+        ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(teamId)
                 .withSimpleWorkflow({
                     trigger: {
-                        type: 'data-warehouse-table',
+                        type: triggerType,
                         table_name: tableName,
                         // Always-true bytecode (return true)
                         filters: { properties: [], bytecode: ['_h', 29] } as any,
@@ -426,6 +462,39 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(globals[0].event?.event).toBe('$warehouse_source_row')
             expect(globals[0].event?.properties?.$source_table).toBe('postgres.table_1')
         })
+
+        it('should build a hog flow invocation for a materialized view row', async () => {
+            const hogFlow = await insertHogFlow(
+                buildDataWarehouseHogFlow(team.id, 'daily_revenue', 'data-warehouse-view')
+            )
+
+            const event = createDataWarehouseEvent(team.id, {}, 'daily_revenue', 'view')
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+            expect(globals[0].event?.event).toBe('$warehouse_view_row')
+
+            const { invocations } = await processor.processBatch(globals)
+
+            const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
+            expect(hogFlowInvocations).toHaveLength(1)
+            expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
+        })
+
+        it.each([
+            ['view', 'data-warehouse-table'],
+            ['source', 'data-warehouse-view'],
+        ] as const)(
+            'should not invoke a %s row against a %s trigger of the same name',
+            async (tableType, triggerType) => {
+                await insertHogFlow(buildDataWarehouseHogFlow(team.id, 'same_name', triggerType))
+
+                const event = createDataWarehouseEvent(team.id, {}, 'same_name', tableType)
+                const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
+
+                const { invocations } = await processor.processBatch(globals)
+
+                expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(0)
+            }
+        )
     })
 
     describe('quota limiting', () => {

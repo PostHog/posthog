@@ -1,3 +1,5 @@
+import { buildContextWikiInstructions } from "../../../context-wiki";
+
 const BRANCH_NAMING = `
 # Branch Naming
 
@@ -79,8 +81,11 @@ const BASE_INSTRUCTIONS =
 
 export function buildAppendedInstructions(opts: {
   spokenNarration: boolean;
+  contextWikiPath?: string;
 }): string {
-  return opts.spokenNarration
-    ? BASE_INSTRUCTIONS + SPOKEN_NARRATION
-    : BASE_INSTRUCTIONS;
+  let instructions = BASE_INSTRUCTIONS;
+  if (opts.contextWikiPath) {
+    instructions += buildContextWikiInstructions(opts.contextWikiPath);
+  }
+  return opts.spokenNarration ? instructions + SPOKEN_NARRATION : instructions;
 }

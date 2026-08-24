@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -52,7 +53,7 @@ export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueId, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
+    const { issue, issueId, issueIdValid, lastSeen, initialEventTimestamp, selectedEvent, mobileDetailOpen } =
         useValues(errorTrackingIssueSceneLogic)
     const { updateAssignee, updateStatus, updateName, setMobileDetailOpen } = useActions(errorTrackingIssueSceneLogic)
     const { isWindowLessThan } = useWindowSize()
@@ -61,16 +62,23 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
 
     useAttachedContext(
-        issueId ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
+        issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
     )
 
     useEffect(() => {
+        if (!issueIdValid) {
+            return
+        }
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
         posthog.capture('error_tracking_issue_viewed', {
             issue_id: issueId,
             ...(utmSource ? { utm_source: utmSource } : {}),
         })
-    }, [issueId])
+    }, [issueId, issueIdValid])
+
+    if (!issueIdValid) {
+        return <NotFound object="issue" />
+    }
 
     return (
         <StyleVariables>

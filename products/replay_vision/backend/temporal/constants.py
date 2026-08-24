@@ -84,6 +84,12 @@ DEEP_SPEND_WINDOW_DAYS = 8
 # would double the per-scanner ceiling this throttling exists to hold.
 DEEP_SWEEP_READ_BUDGET_BYTES_PER_DAY = 100 * 1024**3
 
+# One-off priming pass for a scanner that has never been swept: a few recent recordings scanned on
+# the first sweep tick, so the scanner has observations to show without waiting for new sessions.
+PRIMING_LOOKBACK = dt.timedelta(hours=24)
+PRIMING_SCAN_SESSIONS = 3
+PRIMING_MAX_EXECUTION_SECONDS = 30
+
 # Rolling 24h ClickHouse read budget per scanner. Above it, sweeps stretch their effective cadence
 # proportionally (skipped ticks batch into the next executed one, so no sessions are missed).
 # Sized an order of magnitude above the healthy post-optimization p95 so only pathological
@@ -96,12 +102,9 @@ READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
 READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
 READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
 READ_METER_INTERVAL = dt.timedelta(hours=1)
-# Must cover the metering activity's retries plus the auto-materialize pass, or a slow metering run
-# eats the day's only acting window. Overlap policy is SKIP, so a long run absorbs the next tick.
+# Must cover the metering activity's retries. Overlap policy is SKIP, so a long run absorbs the next tick.
 READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
-# Covers the ON CLUSTER ADD COLUMN round when the auto-materializer acts; candidate scans are seconds.
-AUTO_MATERIALIZE_TIMEOUT = dt.timedelta(minutes=4)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.

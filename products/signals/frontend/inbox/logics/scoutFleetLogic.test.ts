@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,6 +19,7 @@ import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/a
 import { SignalScoutRunSummary } from '../types'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
+jest.mock('posthog-js')
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
@@ -52,6 +54,8 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
+    source_product: null,
+    source_id: null,
     created_at: '2026-07-22T00:00:00Z',
 }
 
@@ -140,9 +144,8 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
-    // The roster is the only consumer of the tag filter, so assert through the buckets it renders.
-    const rosterConfigIds = (): string[] =>
-        logic.values.rosterBuckets.flatMap((bucket) => bucket.configs.map((config) => config.id))
+    // The roster is the only consumer of the tag filter, so assert through the rows it renders.
+    const rosterConfigIds = (): string[] => logic.values.rosterScouts.map((row) => row.config.id)
 
     it('filters scouts by any selected tag and stops applying tags that are no longer in use', () => {
         const revenueScout = { ...BASE_CONFIG, tags: ['revenue'] }
@@ -173,7 +176,7 @@ describe('scoutFleetLogic', () => {
         expect(rosterConfigIds()).toHaveLength(3)
     })
 
-    it('groups the roster by lifecycle, leading with the scouts that are producing', () => {
+    it('lists the whole roster A→Z and tags each row with its lifecycle group', () => {
         logic.actions.loadScoutConfigsSuccess([
             { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
             { ...BASE_CONFIG, id: 'busy', skill_name: 'signals-scout-busy' },
@@ -196,48 +199,15 @@ describe('scoutFleetLogic', () => {
         // `busy` filed a report in the window, which is what separates Working from Watching.
         logic.actions.loadScoutRunsSuccess([makeRun({ skill_name: 'signals-scout-busy', emitted_report_ids: ['r-1'] })])
 
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual([
-            'working',
-            'needs_you',
-            'watching',
-            'off',
+        // One flat list ordered by name, not split across lifecycle sections.
+        expect(logic.values.rosterScouts.map((row) => [row.config.id, row.group])).toEqual([
+            ['broken', 'needs_you'],
+            ['busy', 'working'],
+            ['off', 'off'],
+            ['quiet', 'watching'],
         ])
+        // The header still tallies the fleet by group, unnarrowed by search.
         expect(logic.values.rosterGroupCounts).toMatchObject({ working: 1, needs_you: 1, watching: 1, off: 1 })
-    })
-
-    it('leaves a row where it is when its switch is flipped, instead of relocating it mid-click', async () => {
-        logic.actions.loadScoutConfigsSuccess([
-            { ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' },
-            { ...BASE_CONFIG, id: 'other', skill_name: 'signals-scout-other' },
-        ])
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
-
-        // The optimistic half of a toggle: the switch reads off immediately...
-        logic.actions.patchScoutConfigLocally('quiet', { enabled: false })
-
-        // ...but the row stays in the group it was rendered in, rather than jumping to Off.
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['watching'])
-        expect(rosterConfigIds()).toEqual(['other', 'quiet'])
-        expect(logic.values.scoutConfigs?.find((config) => config.id === 'quiet')?.enabled).toBe(false)
-    })
-
-    it('re-places rows once server data lands', async () => {
-        logic.actions.loadScoutConfigsSuccess([{ ...BASE_CONFIG, id: 'quiet', skill_name: 'signals-scout-quiet' }])
-        await expectLogic(logic).toFinishAllListeners()
-
-        logic.actions.loadScoutConfigsSuccess([
-            {
-                ...BASE_CONFIG,
-                id: 'quiet',
-                skill_name: 'signals-scout-quiet',
-                enabled: false,
-                status: 'paused_by_user',
-            },
-        ])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.rosterBuckets.map((bucket) => bucket.key)).toEqual(['off'])
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -314,6 +284,36 @@ describe('scoutFleetLogic', () => {
         // The endpoint enforces no consent check of its own, so dropping the guard here would
         // start an agent sandbox for an organization that declined AI data processing.
         expect(mockSignalsScoutChatTasksCreate).not.toHaveBeenCalled()
+    })
+
+    it('reports roster filtering without leaking the search term', async () => {
+        jest.useFakeTimers()
+        try {
+            const capture = posthog.capture as jest.Mock
+            capture.mockClear()
+            logic.actions.loadScoutConfigsSuccess([
+                BASE_CONFIG,
+                { ...BASE_CONFIG, id: 'config-2', skill_name: 'signals-scout-revenue', enabled: false },
+            ])
+
+            logic.actions.setScoutEnabledFilter('disabled')
+            logic.actions.setScoutSearch('rev')
+            logic.actions.setScoutSearch('reve')
+            await jest.advanceTimersByTimeAsync(600)
+            logic.actions.setScoutSearch('')
+            await jest.advanceTimersByTimeAsync(600)
+
+            const scoutActions = capture.mock.calls
+                .filter(([event]) => event === 'Scout action')
+                .map(([, properties]) => properties)
+            expect(scoutActions).toEqual([
+                expect.objectContaining({ action_type: 'filter_enabled', filter: 'disabled', filter_match_count: 1 }),
+                expect.objectContaining({ action_type: 'search_scouts', search_length: 4, filter_match_count: 1 }),
+            ])
+            expect(JSON.stringify(scoutActions)).not.toContain('reve')
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('resets the in-flight chat type when the kickoff fails', async () => {

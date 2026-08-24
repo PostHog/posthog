@@ -16,12 +16,16 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
+  type TaskRowBulkMenu,
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
@@ -39,6 +43,7 @@ import {
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import {
   type DragEvent,
   type ReactNode,
@@ -54,6 +59,8 @@ import {
 export interface ChannelItemActions {
   open: (item: ChannelItemModel) => void;
   togglePin: (item: ChannelItemModel) => void;
+  /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
+  setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
@@ -168,6 +175,7 @@ function ChannelItemDot({
 export function ChannelItemRowView({
   item,
   status,
+  subtitle,
   isActive,
   isSelected = false,
   showPinBadge = true,
@@ -178,6 +186,8 @@ export function ChannelItemRowView({
 }: {
   item: ChannelItemModel;
   status: TaskStatusInput | null;
+  /** The metadata row under the title, when the appearance settings ask for one. */
+  subtitle?: ReactNode;
   isActive: boolean;
   isSelected?: boolean;
   showPinBadge?: boolean;
@@ -189,10 +199,15 @@ export function ChannelItemRowView({
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
+      // The space's lists follow web conventions — every clickable row shows a
+      // pointer, like the feed and activity rows — unlike the Code sidebar,
+      // which keeps SidebarItem's native cursor-default.
+      className="cursor-pointer"
       depth={0}
       icon={<ChannelItemDot item={item} status={status} />}
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       // Lets a drag-selection find the row and its session; canvases are not
@@ -244,6 +259,8 @@ export function ChannelItemRow({
   onEditCancel,
   onDragStart,
   onDragEnd,
+  bulk,
+  onContextMenuOpenChange,
 }: {
   item: ChannelItemModel;
   /** The space this row is listed under, ticked in the menu's "File to…". */
@@ -266,12 +283,31 @@ export function ChannelItemRow({
   /** Only the space sidebar passes these; they drive its pin/unpin drag. */
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
+  /**
+   * Present when this row is inside a multi-session selection, which its
+   * right-click menu then acts on instead of the row alone. The confirm behind
+   * `onArchive` belongs to the list, which owns the selection.
+   */
+  bulk?: TaskRowBulkMenu | null;
+  onContextMenuOpenChange?: (open: boolean) => void;
 }) {
   const status = useChannelTaskStatus(item);
+  const subtitle = useChannelItemMetadata(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const currentUser = useCurrentUser();
+  const canHandoff =
+    item.kind === "task" &&
+    item.task != null &&
+    item.authorUser?.id != null &&
+    currentUser.data?.id === item.authorUser.id;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
-      if (item.kind !== "task") return;
+      if (item.kind === "canvas") {
+        writeCanvasDragData(event.dataTransfer, item.id);
+        event.dataTransfer.effectAllowed = "copy";
+        return;
+      }
 
       writeTaskDragData(event.dataTransfer, item.id);
       // Both, always. Command Center tiles ask for `copy` and the pinned run
@@ -283,9 +319,8 @@ export function ChannelItemRow({
     [item.id, item.kind, onDragStart],
   );
 
-  // A canvas gets the same menu with the items it actually has: pin, and delete
-  // instead of archive. Filing and command-centre cells are task-shaped, and the
-  // menu drops them rather than showing them dead.
+  // A canvas gets the same menu with the items it actually has: command-centre
+  // placement, pin, and delete instead of archive. Filing remains task-only.
   //
   // Memoized because it travels to the shared preview card as the trigger's
   // payload, which is written to the card's store whenever its identity changes.
@@ -298,6 +333,7 @@ export function ChannelItemRow({
             title: item.title,
             isPinned: item.pinned,
             onTogglePin: () => actions.togglePin(item),
+            onAddToCommandCenter,
             // Confirm first, like the canvas menus in the artifacts grid and
             // the canvas header: the canvas and its history go for everyone.
             onDelete: () => setConfirmDeleteOpen(true),
@@ -312,8 +348,11 @@ export function ChannelItemRow({
             onRename,
             onTogglePin: () => actions.togglePin(item),
             onArchive: () => actions.archive(item),
+            ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },
-    [item, channelId, actions, onAddToCommandCenter, onRename],
+    // canHandoff rides on the currentUser query, so it belongs in deps for a
+    // sign-in refresh to re-evaluate.
+    [item, channelId, actions, onAddToCommandCenter, onRename, canHandoff],
   );
 
   if (isEditing) {
@@ -336,10 +375,11 @@ export function ChannelItemRow({
       <ChannelItemRowView
         item={item}
         status={status}
+        subtitle={subtitle}
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}
-        draggable={item.kind === "task"}
+        draggable
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
         onClick={(e) => (onClick ? onClick(e) : actions.open(item))}
@@ -352,7 +392,13 @@ export function ChannelItemRow({
   // definition, so the two can't drift.
   return (
     <>
-      <TaskRowContextMenu menu={menu}>{tipped}</TaskRowContextMenu>
+      <TaskRowContextMenu
+        menu={menu}
+        bulk={bulk}
+        onOpenChange={onContextMenuOpenChange}
+      >
+        {tipped}
+      </TaskRowContextMenu>
       {/* The same confirm the artifacts grid and the canvas header show: a
           canvas goes for everyone in the space, so it isn't a one-click action
           however small the row is. The undo window still follows. */}
@@ -387,6 +433,13 @@ export function ChannelItemRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {canHandoff && item.task ? (
+        <HandoffTaskDialog
+          task={item.task}
+          open={handoffOpen}
+          onOpenChange={setHandoffOpen}
+        />
+      ) : null}
     </>
   );
 }

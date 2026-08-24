@@ -429,3 +429,19 @@ def test_build_environment_variables_omits_otel_env_when_flag_disabled(_api, _jw
         env = _build_environment_variables(ctx, MagicMock(), "", "access-token")
 
     assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
+
+
+def test_build_environment_variables_forwards_run_context_to_token_minting():
+    """The fresh-provisioning path must forward team, origin, stage, and internal
+    into token minting; a dropped kwarg silently degrades every fresh run to the
+    Python gateway."""
+    ctx = _context(origin_product="signals_scout", state={"ai_stage": "scout:logs"})
+    task = MagicMock()
+    task.internal = True
+    with patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.run_gateway_env_vars",
+        return_value={"AI_GATEWAY_TOKEN": "phe"},
+    ) as env:
+        out = _build_environment_variables(ctx, task, "", "access-token")
+    env.assert_called_once_with(ctx, task)
+    assert out["AI_GATEWAY_TOKEN"] == "phe"
