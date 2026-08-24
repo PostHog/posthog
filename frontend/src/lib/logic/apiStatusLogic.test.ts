@@ -80,6 +80,65 @@ describe('apiStatusLogic', () => {
         })
     })
 
+    describe('internet connection issue', () => {
+        const failure = { message: 'Failed to fetch' }
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            initKeaTests()
+            logic = apiStatusLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        // Each failure passes through a breakpoint(50) debounce, so advance past it to record.
+        async function reportFailure(): Promise<void> {
+            logic.actions.onApiResponse(undefined, failure)
+            await jest.advanceTimersByTimeAsync(100)
+        }
+
+        // Report failures until the warning appears; return how many events it took.
+        async function reportFailuresUntilWarned(max = 10): Promise<number> {
+            let events = 0
+            while (!logic.values.internetConnectionIssue && events < max) {
+                await reportFailure()
+                events++
+            }
+            return events
+        }
+
+        it('does not warn on a single failed fetch', async () => {
+            await reportFailure()
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('warns only after several failures cluster together', async () => {
+            const events = await reportFailuresUntilWarned()
+            expect(logic.values.internetConnectionIssue).toBe(true)
+            expect(events).toBeGreaterThanOrEqual(3)
+        })
+
+        it('clears the warning on the next successful response', async () => {
+            await reportFailuresUntilWarned()
+            expect(logic.values.internetConnectionIssue).toBe(true)
+
+            logic.actions.onApiResponse({ status: 200, ok: true } as Response)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('clears itself if no successful response arrives', async () => {
+            logic.actions.setInternetConnectionIssue(true)
+            expect(logic.values.internetConnectionIssue).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(30_000)
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+    })
+
     describe('read-only impersonation 403 handling', () => {
         const READ_ONLY_DETAIL = 'This action is not allowed during read-only user impersonation.'
 

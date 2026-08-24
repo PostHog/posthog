@@ -39,6 +39,13 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+// A single failed fetch is almost always a transient blip, not a real outage.
+// Only warn once several failures cluster in a short window.
+const CONNECTION_FAILURE_THRESHOLD = 3
+const CONNECTION_FAILURE_WINDOW_MS = 15_000
+// Safety net so the warning never latches on an idle page that no longer fails.
+const CONNECTION_ISSUE_AUTO_CLEAR_MS = 30_000
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -86,17 +93,42 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
     }),
     listeners(({ cache, actions, values }) => ({
+        setInternetConnectionIssue: ({ issue }) => {
+            if (issue) {
+                // Clear the warning on its own if no successful response arrives to clear it.
+                cache.disposables.add(() => {
+                    const timer = setTimeout(() => {
+                        actions.setInternetConnectionIssue(false)
+                    }, CONNECTION_ISSUE_AUTO_CLEAR_MS)
+                    return () => clearTimeout(timer)
+                }, 'connection-issue-auto-clear')
+            } else {
+                cache.connectionFailures = []
+                cache.disposables.dispose('connection-issue-auto-clear')
+            }
+        },
         onApiResponse: async ({ response, error }, breakpoint) => {
             if (error || !response?.status) {
                 await breakpoint(50)
                 // Likely CORS headers errors (i.e. request failing without reaching Django))
                 if (error?.message === 'Failed to fetch') {
-                    actions.setInternetConnectionIssue(true)
+                    const now = Date.now()
+                    const recentFailures = [...(cache.connectionFailures ?? []), now].filter(
+                        (at: number) => now - at < CONNECTION_FAILURE_WINDOW_MS
+                    )
+                    cache.connectionFailures = recentFailures
+                    if (recentFailures.length >= CONNECTION_FAILURE_THRESHOLD) {
+                        actions.setInternetConnectionIssue(true)
+                    }
                 }
             }
 
-            if (response?.ok && values.internetConnectionIssue) {
-                actions.setInternetConnectionIssue(false)
+            // Any successful response proves we are connected, so forget past failures.
+            if (response?.ok) {
+                cache.connectionFailures = []
+                if (values.internetConnectionIssue) {
+                    actions.setInternetConnectionIssue(false)
+                }
             }
 
             try {

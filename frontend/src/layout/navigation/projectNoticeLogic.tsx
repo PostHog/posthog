@@ -641,6 +641,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                 onClick: () => window.location.reload(),
                                 children: 'Reload page',
                             },
+                            onClose: () => apiStatusLogic.actions.setInternetConnectionIssue(false),
                         }
                     case 'event_ingestion_restriction':
                         return {
