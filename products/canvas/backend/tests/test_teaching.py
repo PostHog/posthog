@@ -3,6 +3,7 @@ from django.test import SimpleTestCase, TestCase
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.canvas.backend import teaching
@@ -39,6 +40,8 @@ class TestSeedTeachingCanvas(TestCase):
         self.organization = Organization.objects.create(name="Northwind")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="ada@northwind.example", distinct_id="ada-distinct")
+        # Seeding runs inside the channels viewset, so give it the same ambient scope.
+        self.enterContext(team_scope(self.team.id))
         self.channel = Channel.objects.create(
             team=self.team,
             name=Channel.GENERAL_CHANNEL_NAME,
