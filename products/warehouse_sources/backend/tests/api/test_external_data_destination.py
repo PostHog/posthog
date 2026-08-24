@@ -27,7 +27,7 @@ class DestinationAPITestBase(APIBaseTest):
         )
         self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
 
-    def _integration(self, kind: str = Integration.IntegrationKind.AWS_REDSHIFT) -> Integration:
+    def _integration(self, kind: str = Integration.IntegrationKind.POSTGRESQL) -> Integration:
         self._integration_seq = getattr(self, "_integration_seq", 0) + 1
         return Integration.objects.create(
             team=self.team, kind=kind, integration_id=f"{kind}-{self._integration_seq}", config={}
@@ -35,8 +35,8 @@ class DestinationAPITestBase(APIBaseTest):
 
     def _create_destination(self, **overrides) -> ExternalDataDestination:
         payload = {
-            "type": ExternalDataDestination.Type.REDSHIFT,
-            "name": "analytics redshift",
+            "type": ExternalDataDestination.Type.POSTGRES,
+            "name": "analytics postgres",
             "integration": self._integration().pk,
             **overrides,
         }
@@ -55,19 +55,19 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert listing["results"][0]["is_posthog_warehouse"] is False
 
     def test_a_destination_needs_an_integration(self) -> None:
-        response = self.client.post(self.base, {"type": ExternalDataDestination.Type.REDSHIFT, "name": "no creds"})
+        response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTGRES, "name": "no creds"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "integration" in response.json()["attr"]
 
     def test_the_integration_must_match_the_destination_type(self) -> None:
-        # Redshift is backed by the aws-redshift kind, not a Snowflake one.
+        # Postgres needs a postgresql integration, not a Snowflake one.
         snowflake_integration = self._integration(Integration.IntegrationKind.SNOWFLAKE)
 
         response = self.client.post(
             self.base,
             {
-                "type": ExternalDataDestination.Type.REDSHIFT,
+                "type": ExternalDataDestination.Type.POSTGRES,
                 "name": "mismatched",
                 "integration": snowflake_integration.pk,
             },
