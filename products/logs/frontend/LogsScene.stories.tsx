@@ -16,6 +16,7 @@ import { LogMessage, LogSeverityLevel } from '~/queries/schema/schema-general'
 import { PropertyFilterType } from '~/types'
 
 import {
+    FacetFilterTarget,
     FacetSelection,
     SERVICE_NAME_FILTER,
     SEVERITY_LEVEL_FILTER,
@@ -337,10 +338,19 @@ const facetValuesMock: MockSignature = async ({ request }) => {
     const body = (await request.json()) as Record<string, any>
     const facetField = body.query?.facetField
     const resourceAttribute = body.query?.facetResourceAttribute
-    const own = facetField === 'service_name' ? SERVICE_NAME_FILTER : SEVERITY_LEVEL_FILTER
-    const { logs } = await getLogs({
-        query: { ...body.query, filterGroup: setFacetSelection(body.query?.filterGroup, own, EMPTY_SELECTION) },
-    })
+    // Strip the filter belonging to the facet being queried, whichever facet that is. Picking the
+    // wrong one inverts the contract: the facet would zero out its own selected value and keep
+    // counting rows another facet has filtered away.
+    const own: FacetFilterTarget | null =
+        facetField === 'service_name'
+            ? SERVICE_NAME_FILTER
+            : facetField === 'severity_text'
+              ? SEVERITY_LEVEL_FILTER
+              : resourceAttribute
+                ? { key: resourceAttribute, type: PropertyFilterType.LogResourceAttribute }
+                : null
+    const scopedGroup = own ? setFacetSelection(body.query?.filterGroup, own, EMPTY_SELECTION) : body.query?.filterGroup
+    const { logs } = await getLogs({ query: { ...body.query, filterGroup: scopedGroup } })
 
     const counts = new Map<string, number>()
     for (const log of logs) {
