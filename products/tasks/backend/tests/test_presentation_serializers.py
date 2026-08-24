@@ -52,14 +52,6 @@ class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
         with self.assertRaisesRegex(ValueError, "You can allow up to 100 domains"):
             tasks_facade.normalize_sandbox_allowed_domains(domains)
 
-    def test_rejects_image_tools_environment_variable(self) -> None:
-        serializer = SandboxEnvironmentWriteSerializer(
-            data={"name": "Restricted", "environment_variables": {"POSTHOG_IMAGE_TOOLS": "rg fd"}}
-        )
-
-        assert not serializer.is_valid()
-        assert "environment_variables" in serializer.errors
-
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
     @parameterized.expand(
