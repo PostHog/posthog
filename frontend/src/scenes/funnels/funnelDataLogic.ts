@@ -193,8 +193,10 @@ function isFunnelsQueryOrLegacyFilter(
 
 /**
  * Cached results carry the step names from the run that produced them, so a step renamed since then
- * renders under its old label. Only `custom_name` is taken from the query: `name` stays backend-owned
- * (actions resolve theirs live), and unordered funnels label steps by position, not by series.
+ * renders under its old label. Mirrors `_apply_funnels_custom_names` in `query_runner.py`, which the
+ * stored-result path bypasses: the query wins in both directions, and a cleared name blanks the label.
+ * Only `custom_name` is taken from the query — `name` stays backend-owned, since actions resolve theirs
+ * live. Unordered funnels are exempt because they label steps by position rather than by series.
  */
 function applyQueryStepCustomNames(
     steps: FunnelStepWithNestedBreakdown[],
@@ -206,13 +208,24 @@ function applyQueryStepCustomNames(
 
     let changed = false
     const renamed = steps.map((step) => {
-        // Nested breakdown rows are skipped: their `order` is the breakdown-value rank, not a series index.
-        const customName = querySource.series[step.order]?.custom_name?.trim()
-        if (!customName || customName === step.custom_name) {
+        const node = querySource.series[step.order]
+        if (!node) {
             return step
         }
+
+        const customName = node.custom_name?.trim() || null
+        // Nested rows are breakdown or compare variants of the same step, so they take the parent's
+        // name. Their own `order` can hold a breakdown rank, which is not a series index.
+        const nested = step.nested_breakdown?.map((row) =>
+            row.custom_name === customName ? row : { ...row, custom_name: customName }
+        )
+        const nestedChanged = nested?.some((row, i) => row !== step.nested_breakdown?.[i])
+        if (customName === step.custom_name && !nestedChanged) {
+            return step
+        }
+
         changed = true
-        return { ...step, custom_name: customName }
+        return { ...step, custom_name: customName, ...(nested ? { nested_breakdown: nested } : {}) }
     })
     return changed ? renamed : steps
 }

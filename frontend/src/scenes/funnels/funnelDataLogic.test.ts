@@ -11,6 +11,7 @@ import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 import {
     FunnelConversionWindowTimeUnit,
+    FunnelStep,
     FunnelVizType,
     InsightLogicProps,
     InsightModel,
@@ -257,6 +258,60 @@ describe('funnelDataLogic', () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     results: funnelResult.result,
+                })
+            })
+
+            it('clears a custom name removed from the saved query', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: '$pageview' },
+                    ],
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result: (funnelResult.result as FunnelStep[]).map((step) => ({
+                        ...step,
+                        custom_name: 'Removed name',
+                    })),
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: [
+                        expect.objectContaining({ custom_name: null }),
+                        expect.objectContaining({ custom_name: null }),
+                    ],
+                })
+            })
+
+            it('gives breakdown rows their parent step custom name', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Visited pricing' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', custom_name: 'Started checkout' },
+                    ],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: { insight: InsightType.FUNNELS },
+                    result: funnelResultWithBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    steps: ['Visited pricing', 'Started checkout'].map((custom_name) =>
+                        expect.objectContaining({
+                            custom_name,
+                            nested_breakdown: expect.arrayContaining([expect.objectContaining({ custom_name })]),
+                        })
+                    ),
                 })
             })
 
