@@ -51,7 +51,6 @@
 1 posthog/persons_seed.py
 1 posthog/session/backfill.py
 1 posthog/storage/auth_token_cache_verifier.py
-1 posthog/storage/hypercache_manager.py
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py

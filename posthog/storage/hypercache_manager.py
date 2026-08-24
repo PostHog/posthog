@@ -13,7 +13,6 @@ Operations include:
 import random
 import statistics
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -26,6 +25,7 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Gauge
 
+from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -171,7 +171,7 @@ class UpdateFn(Protocol):
     def __call__(self, team: Team | int, ttl: int | None = None) -> bool: ...
 
 
-@dataclass
+@frozen
 class HyperCacheManagementConfig:
     """
     Configuration for batch HyperCache management operations.
