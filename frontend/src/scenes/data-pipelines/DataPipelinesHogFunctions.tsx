@@ -48,8 +48,13 @@ export function DataPipelinesHogFunctions({
         hogFunctionsListLogic({ logicKey, type: kind, additionalTypes: additionalKinds })
     )
 
-    const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
-        useValues(nonHogFunctionsLogic)
+    const {
+        hogFunctionPluginsDestinations,
+        hogFunctionPluginsDestinationsLoading,
+        hogFunctionBatchExports,
+        hogFunctionBatchExportsLoading,
+        hogFunctionPluginsSiteApps,
+    } = useValues(nonHogFunctionsLogic)
     const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
         useActions(nonHogFunctionsLogic)
 
@@ -68,6 +73,16 @@ export function DataPipelinesHogFunctions({
 
     const productInfoMapping = MAPPING[kind]
 
+    // The list also renders plugin destinations and batch exports, so the empty state
+    // must count them too. Otherwise a project with only batch exports reads as empty.
+    const manualFunctionsCount =
+        kind === 'destination'
+            ? (hogFunctionPluginsDestinations?.length ?? 0) + (hogFunctionBatchExports?.length ?? 0)
+            : 0
+    const manualFunctionsLoading =
+        kind === 'destination' ? hogFunctionPluginsDestinationsLoading || hogFunctionBatchExportsLoading : false
+    const isEmpty = hogFunctions.length === 0 && manualFunctionsCount === 0 && !loading && !manualFunctionsLoading
+
     return (
         <SceneContent>
             {productInfoMapping ? (
@@ -78,7 +93,7 @@ export function DataPipelinesHogFunctions({
                     description={productInfoMapping.description}
                     docsURL="https://posthog.com/docs/cdp"
                     actionElementOverride={action}
-                    isEmpty={hogFunctions.length === 0 && !loading}
+                    isEmpty={isEmpty}
                 />
             ) : null}
             <SceneSection>
