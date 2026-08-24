@@ -1883,28 +1883,23 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.setQuestion('')
         }
 
-        it('hides every command that has no sandbox implementation', () => {
-            setRuntime('sandbox')
+        it.each([
+            ['an existing sandbox conversation', (): void => setRuntime('sandbox')],
+            [
+                'a new conversation with the sandbox toggle on',
+                (): void => {
+                    logic.actions.setIsSandboxMode(true)
+                    maxLogicInstance.actions.setQuestion('')
+                    // Pins the case: with a row present the toggle would no longer be the only signal
+                    expect(logic.values.conversation).toBeNull()
+                },
+            ],
+        ])('hides every command that has no sandbox implementation, given %s', (_label, enterSandbox) => {
+            enterSandbox()
             // Eligible for support, so /ticket's absence is down to the runtime rather than entitlement
             organizationLogic.actions.loadCurrentOrganizationSuccess({
                 created_at: dayjs().toISOString(),
             } as OrganizationType)
-            const names = logic.values.filteredCommands.map((c) => c.name)
-            expect(names).not.toContain(SlashCommandName.SlashInit)
-            expect(names).not.toContain(SlashCommandName.SlashRemember)
-            expect(names).not.toContain(SlashCommandName.SlashUsage)
-            expect(names).not.toContain(SlashCommandName.SlashFeedback)
-            expect(names).not.toContain(SlashCommandName.SlashTicket)
-        })
-
-        it('hides every command for a new conversation with the sandbox toggle on', () => {
-            // No conversation row yet, so `agent_runtime` is unknown — the toggle is the only runtime signal.
-            logic.actions.setIsSandboxMode(true)
-            maxLogicInstance.actions.setQuestion('')
-            organizationLogic.actions.loadCurrentOrganizationSuccess({
-                created_at: dayjs().toISOString(),
-            } as OrganizationType)
-            expect(logic.values.conversation).toBeNull()
             const names = logic.values.filteredCommands.map((c) => c.name)
             expect(names).not.toContain(SlashCommandName.SlashInit)
             expect(names).not.toContain(SlashCommandName.SlashRemember)

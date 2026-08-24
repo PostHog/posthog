@@ -698,7 +698,8 @@ export interface maxThreadLogicMeta {
             featureFlags: FeatureFlagsSet,
             threadLoading: boolean,
             conversation: Conversation | null,
-            canCreateTicket: boolean
+            canCreateTicket: boolean,
+            isSandboxMode: boolean
         ) => SlashCommand[]
         showDeepResearchModeToggle: (conversation: Conversation | null, featureFlags: FeatureFlagsSet) => boolean
         showContextUI: (conversation: Conversation | null, featureFlags: FeatureFlagsSet) => boolean
@@ -2871,9 +2872,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 canCreateTicket: boolean,
                 isSandboxMode: boolean
             ): SlashCommand[] => {
-                // Sandbox runtime drops core-memory commands; LangGraph keeps the full set. A brand-new
-                // conversation has no `agent_runtime` yet, so also honor the sandbox toggle — otherwise
-                // the commands stay visible until the first message stamps the runtime.
+                // A conversation that doesn't exist yet has no `agent_runtime`, so before the first
+                // message the toggle is the only signal that this turn goes to the sandbox runtime.
                 const isSandboxRuntime = conversation?.agent_runtime === 'sandbox' || isSandboxMode
 
                 return MAX_SLASH_COMMANDS.filter(
