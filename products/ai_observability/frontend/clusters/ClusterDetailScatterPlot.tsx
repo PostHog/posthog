@@ -11,7 +11,6 @@ import { clusterDetailLogic } from './clusterDetailLogic'
 import { clusterItemFooter, clusterItemLabel, navigateToClusterItem } from './clusterScatter'
 import type { ClusterScatterMeta } from './clusterScatter'
 
-/** Falls back to a shortened id when the trace/eval summary hasn't loaded yet. */
 function fallbackItemLabel(meta: ClusterScatterMeta, clusteringLevel: string): string | undefined {
     if (!meta.traceId) {
         return undefined

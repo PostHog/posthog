@@ -844,8 +844,6 @@ export const clustersLogic = kea<clustersLogicType>([
                             x: itemInfo.x,
                             y: itemInfo.y,
                             meta: {
-                                // Use explicit trace_id/generation_id from backend if available;
-                                // fall back to itemKey for backwards compatibility.
                                 traceId: itemInfo.trace_id || itemKey,
                                 generationId: itemInfo.generation_id,
                                 timestamp: itemInfo.timestamp,
