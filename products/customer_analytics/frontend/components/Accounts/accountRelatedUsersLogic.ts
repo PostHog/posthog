@@ -7,12 +7,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { OrganizationMemberType } from '~/types'
+import { OrganizationMemberType, Region } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 
 // The account org-members endpoint returns a slim member shape — only id + user are serialized.
-export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user'>
+export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user'> & {
+    region: Region.US | Region.EU
+}
 
 export const PAGE_SIZE = 5
 
@@ -59,6 +61,7 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
                 email: (row[3] as string | null) ?? '',
                 distinct_id: (row[4] as string | null) ?? '',
             } as AccountOrganizationMember['user'],
+            region: Region.EU,
         }))
     } catch (error) {
         if (!isExpectedMissingViewError(error)) {
@@ -92,10 +95,10 @@ export interface accountRelatedUsersLogicActions {
         errorObject?: any
     }
     loadMembersSuccess: (
-        membersResponse: CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>,
+        membersResponse: CountedPaginatedResponse<AccountOrganizationMember>,
         payload?: any
     ) => {
-        membersResponse: CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>
+        membersResponse: CountedPaginatedResponse<AccountOrganizationMember>
         payload?: any
     }
     setPage: (page: number) => {
@@ -146,7 +149,10 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                         })
                         breakpoint()
                         if (response.count > 0) {
-                            return response
+                            return {
+                                ...response,
+                                results: response.results.map((member) => ({ ...member, region: Region.US })),
+                            }
                         }
                         const euMembers = await fetchEuMembers(props.externalId)
                         breakpoint()
@@ -154,7 +160,7 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                             cache.euMembers = euMembers
                             return paginateMembers(euMembers, values.page)
                         }
-                        return response
+                        return { ...response, results: [] }
                     } catch (error) {
                         if (!isBreakpoint(error as Error)) {
                             posthog.captureException(error as Error, {

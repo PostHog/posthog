@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
@@ -12,6 +14,7 @@ import { AccountsEvents } from './constants'
 export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
     const { membersResponse, membersResponseLoading, page } = useValues(logic)
+    const { user } = useValues(userLogic)
     const { setPage } = useActions(logic)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
@@ -39,6 +42,32 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             render: (_, member) => <span className="text-sm text-muted">{member.user.email}</span>,
         },
     ]
+
+    if (user?.is_staff) {
+        columns.push({
+            title: 'Actions',
+            key: 'actions',
+            render: (_, member) => {
+                const adminUrl = `https://${CLOUD_HOSTNAMES[member.region]}/admin/posthog/user/?q=${encodeURIComponent(member.user.email)}`
+
+                return (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        to={adminUrl}
+                        targetBlank
+                        tooltip={`Open this user in ${member.region} admin, where you can log in as them.`}
+                        data-attr="customer-analytics-account-user-admin-link"
+                        onClick={() =>
+                            posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })
+                        }
+                    >
+                        Log in as
+                    </LemonButton>
+                )
+            },
+        })
+    }
 
     return (
         <LemonTable<AccountOrganizationMember>
