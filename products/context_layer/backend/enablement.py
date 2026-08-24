@@ -24,13 +24,7 @@ from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.models.rbac.access_control import AccessControl
-
 logger = structlog.get_logger(__name__)
-
-
-class RestrictedProjectsError(store.ContextLayerStoreError):
-    """The organization has private projects; enabling waits for per-project partitioning."""
 
 
 def enable_context_layer(
@@ -39,16 +33,6 @@ def enable_context_layer(
     created_by_id: int | None = None,
 ) -> ContextLayerConfig:
     """Idempotent: re-enabling scaffolds nothing and re-imports only missing pages."""
-    # Context extracted with one project's credentials must not become readable
-    # through another, so orgs with private projects cannot enable until the
-    # wiki is partitioned per project.
-    private_names = private_project_names(organization_id)
-    if private_names:
-        joined = ", ".join(private_names)
-        raise RestrictedProjectsError(
-            f"This organization has private projects ({joined}). The context layer does not "
-            "support them yet. Remove those projects' access restrictions to enable it."
-        )
     config = store.initialize_repo(organization_id, created_by_id=created_by_id)
     import_channel_context(organization_id)
     # The import lands its own commit, so the row read before it is already a
@@ -65,44 +49,6 @@ def _trigger_bootstrap_dream(organization_id: str) -> None:
     )
 
     trigger_bootstrap_dream(organization_id)
-
-
-def organization_has_private_projects(organization_id: uuid.UUID | str) -> bool:
-    """Private projects exist in two representations: the deprecated
-    `Team.access_control` flag (orgs not yet RBAC-migrated) and a project-level
-    `AccessControl` row with `access_level="none"`. Enablement must respect
-    both, and cares about the row existing rather than whether access control
-    is currently entitled, so it does not gate on the feature."""
-    if Team.objects.filter(organization_id=organization_id, access_control=True).exists():
-        return True
-    # Any project-level "none" row counts — the org-wide default row
-    # (organization_member/role null) marks a private project, and a member- or
-    # role-specific denial means at least one person must not see that
-    # project's context either way.
-    return AccessControl.objects.filter(
-        team__organization_id=organization_id,
-        resource="project",
-        resource_id__isnull=False,
-        access_level="none",
-    ).exists()
-
-
-def private_project_names(organization_id: uuid.UUID | str) -> list[str]:
-    """Names of the projects blocking enablement, for the error an org admin
-    acts on. Same two representations as `organization_has_private_projects`."""
-    names = set(
-        Team.objects.filter(organization_id=organization_id, access_control=True).values_list("name", flat=True)
-    )
-    restricted_ids = AccessControl.objects.filter(
-        team__organization_id=organization_id,
-        resource="project",
-        resource_id__isnull=False,
-        access_level="none",
-    ).values_list("resource_id", flat=True)
-    names.update(
-        Team.objects.filter(organization_id=organization_id, id__in=list(restricted_ids)).values_list("name", flat=True)
-    )
-    return sorted(names)
 
 
 def import_channel_context(organization_id: uuid.UUID | str) -> list[str]:
