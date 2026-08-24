@@ -70,6 +70,11 @@ export interface SandboxComputePricingApi {
     history: ComputeRateCardApi[]
 }
 
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
+}
+
 export interface LoopRepositoryEntryDTOApi {
     github_integration_id: number
     full_name: string

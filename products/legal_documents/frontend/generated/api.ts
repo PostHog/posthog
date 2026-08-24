@@ -10,39 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CreateLegalDocumentApi,
-    DesktopBetaTermsAcceptanceApi,
     LegalDocumentDTOApi,
     LegalDocumentsListParams,
     PaginatedLegalDocumentDTOListApi,
 } from './api.schemas'
-
-export const getDesktopBetaTermsListUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/desktop_beta_terms/`
-}
-
-export const desktopBetaTermsList = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<DesktopBetaTermsAcceptanceApi[]> => {
-    return apiMutator<DesktopBetaTermsAcceptanceApi[]>(getDesktopBetaTermsListUrl(organizationId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDesktopBetaTermsCreateUrl = (organizationId: string) => {
-    return `/api/organizations/${organizationId}/desktop_beta_terms/`
-}
-
-export const desktopBetaTermsCreate = async (
-    organizationId: string,
-    options?: RequestInit
-): Promise<DesktopBetaTermsAcceptanceApi> => {
-    return apiMutator<DesktopBetaTermsAcceptanceApi>(getDesktopBetaTermsCreateUrl(organizationId), {
-        ...options,
-        method: 'POST',
-    })
-}
 
 export const getLegalDocumentsListUrl = (organizationId: string, params?: LegalDocumentsListParams) => {
     const normalizedParams = new URLSearchParams()

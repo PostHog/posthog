@@ -56,14 +56,3 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
                 name="unique_legal_document_per_org_and_type",
             ),
         ]
-
-
-class DesktopBetaTermsAcceptance(models.Model):
-    organization = models.OneToOneField(
-        "posthog.Organization",
-        on_delete=models.CASCADE,
-        primary_key=True,
-        db_constraint=False,
-    )
-    accepted_by_user_id = models.BigIntegerField()
-    accepted_at = models.DateTimeField(auto_now_add=True)

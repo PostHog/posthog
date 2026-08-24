@@ -12,11 +12,10 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.permissions import OrganizationAdminWritePermissions
 
 from ..facade import api, contracts
 from .permissions import IsCloudOrDevDeployment, IsOrganizationAdminOrOwner
-from .serializers import CreateLegalDocumentSerializer, DesktopBetaTermsAcceptanceSerializer, LegalDocumentSerializer
+from .serializers import CreateLegalDocumentSerializer, LegalDocumentSerializer
 
 
 class _PandaDocUnavailable(exceptions.APIException):
@@ -27,26 +26,6 @@ class _PandaDocUnavailable(exceptions.APIException):
         "Couldn't cancel the PandaDoc envelope. Please try again, or contact PostHog support if this keeps happening."
     )
     default_code = "legal_document_void_failed"
-
-
-class DesktopBetaTermsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "desktop_beta_terms"
-    permission_classes = [OrganizationAdminWritePermissions]
-    pagination_class = None
-
-    @extend_schema(responses={200: DesktopBetaTermsAcceptanceSerializer})
-    def list(self, request: Request, **kwargs) -> Response:
-        return Response(
-            DesktopBetaTermsAcceptanceSerializer(
-                {"is_desktop_beta_terms_accepted": api.are_desktop_beta_terms_accepted(self.organization.id)}
-            ).data
-        )
-
-    @extend_schema(request=None, responses={200: DesktopBetaTermsAcceptanceSerializer})
-    def create(self, request: Request, **kwargs) -> Response:
-        user = cast(User, request.user)
-        api.accept_desktop_beta_terms(self.organization.id, user.id)
-        return Response(DesktopBetaTermsAcceptanceSerializer({"is_desktop_beta_terms_accepted": True}).data)
 
 
 class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

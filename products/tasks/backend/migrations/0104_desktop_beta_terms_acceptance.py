@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("legal_documents", "0006_backfill_signed_pdf_stored"),
+        ("tasks", "0103_callable_choices"),
     ]
 
     operations = [

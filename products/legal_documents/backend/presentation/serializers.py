@@ -18,13 +18,6 @@ class LegalDocumentSerializer(DataclassSerializer):
         dataclass = LegalDocumentDTO
 
 
-class DesktopBetaTermsAcceptanceSerializer(serializers.Serializer):
-    is_desktop_beta_terms_accepted = serializers.BooleanField(
-        read_only=True,
-        help_text="Whether the organization has accepted the PostHog Desktop beta terms.",
-    )
-
-
 class CreateLegalDocumentSerializer(serializers.Serializer):
     """
     Input serializer for POST. Mirrors the submittable fields on the model plus
