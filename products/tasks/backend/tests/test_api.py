@@ -13488,7 +13488,12 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(response.json()["created"])
-        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
+        analysis_task = Task.objects.get(id=response.json()["analysis_task_id"])
+        self.assertEqual(analysis_task.created_by_id, teammate.id)
+
+        self.client.force_authenticate(teammate)
+        detail_response = self.client.get(f"/api/projects/@current/tasks/{analysis_task.id}/")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
 
     def test_analyze_is_idempotent_per_run(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()

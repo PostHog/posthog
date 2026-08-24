@@ -206,6 +206,10 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
     if attempt >= MAX_ANALYSES_PER_TARGET_RUN:
         raise TaskAnalysisError("This run has been analyzed as many times as allowed.")
 
+    # Keep the analysis in the target task owner's personal space. A teammate may start an
+    # analysis for a public task, but the resulting task must remain visible to its owner.
+    analysis_user_id = target_task.created_by_id or user_id
+
     log_keys = _analysis_log_sources(target_run)
     if not log_keys:
         raise TaskAnalysisError("The run has no log to analyze yet.")
@@ -232,7 +236,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
                 title=f"Task analysis: {target_task.title[:120]}",
                 description=prompt,
                 origin_product=Task.OriginProduct.TASK_ANALYSIS,
-                user_id=user_id,
+                user_id=analysis_user_id,
                 repository=None,
                 create_pr=False,
                 mode="background",
@@ -277,7 +281,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
     enqueue_or_start_workflow(
         run,
         options=WorkflowDispatchOptions(
-            user_id=user_id,
+            user_id=analysis_user_id,
             create_pr=False,
             slack_thread_context=None,
             posthog_mcp_scopes="read_only",
