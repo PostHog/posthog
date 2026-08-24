@@ -753,14 +753,12 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
 
 def get_replay_listing_throttle_error(request, view) -> str | None:
     """Return a client-facing error when replay listing throttles would block this request."""
-    auth_type = _request_auth_type(request)
     for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
         throttle = throttle_cls()
         if throttle.allow_request(request, view):
             continue
+        # allow_request already counted and captured this rejection, so don't count it again here.
         wait = throttle.wait()
-        scope = throttle.scope or "listing"
-        _count_session_recording_throttled(location=scope, auth_type=auth_type)
         if wait:
             return f"Rate limit exceeded. Expected available in {wait} seconds."
         return "Rate limit exceeded. Try again later."
