@@ -163,6 +163,8 @@ export interface InsightCardProps extends Resizeable {
     apiErrored?: boolean
     /** Might contain more information on the error that occurred on the server. */
     apiError?: Error
+    /** Query ID associated with the error, when available from the insight response. */
+    queryId?: string
     /** Whether the card should be highlighted with a blue border. */
     highlighted?: boolean
     /** Whether loading timed out. */
@@ -227,6 +229,7 @@ function InsightCardInternal(
         loading,
         apiError,
         apiErrored,
+        queryId,
         timedOut,
         highlighted,
         showResizeHandles,
@@ -373,7 +376,7 @@ function InsightCardInternal(
                 return (
                     <InsightErrorState
                         title={apiError.detail}
-                        queryId={apiError.data?.queryId}
+                        queryId={queryId ?? apiError.data?.queryId}
                         query={insight.query}
                         onRetry={refresh}
                     />
