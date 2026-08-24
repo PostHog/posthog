@@ -56,7 +56,6 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
-  fileCanvas: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -463,7 +462,7 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("lets a canvas be filed to another space", async () => {
+  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
@@ -488,8 +487,10 @@ describe("ChannelItemRow", () => {
     expect(
       screen.getByRole("button", { name: "Add to Command Center…" }),
     ).not.toBeNull();
-    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    // A canvas can't be archived or filed to another space.
+    for (const absent of ["Archive", "File to…"]) {
+      expect(screen.queryByRole("button", { name: absent })).toBeNull();
+    }
   });
 
   it("confirms before deleting a canvas — it goes for the whole space", async () => {
