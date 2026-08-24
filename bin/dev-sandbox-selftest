@@ -187,6 +187,13 @@ check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
 if [[ -d "$HOME/.cargo/bin" ]]; then
     check_write_blocked "$HOME/.cargo/bin/.dev_sandbox_selftest_probe" "cargo bin"
 fi
+# Homebrew's bin/sbin/Cellar: developer-owned and on PATH, same execute-later route
+# as cargo bin above — no git-config indirection needed to reach it.
+for hb_bin in /opt/homebrew/bin /usr/local/bin; do
+    if [[ -d "$hb_bin" ]]; then
+        check_write_blocked "$hb_bin/.dev_sandbox_selftest_probe" "Homebrew bin ($hb_bin)"
+    fi
+done
 # For files that really exist and must not be damaged by the probe: opens for
 # append and writes nothing, so Seatbelt still has to decide on write access while
 # a missing deny cannot corrupt the file.
@@ -368,6 +375,27 @@ if [[ ":$child_path:" == *":$marker:"* ]]; then
     pass "passthrough restores the caller's PATH"
 else
     die "passthrough PATH left pinned to system dirs (got: $child_path)"
+fi
+
+# 15. The shebang resolves a fixed interpreter, not one found by searching the
+#     caller's PATH. `env bash` would let a bash planted by a prior sandboxed run
+#     (e.g. in node_modules/.bin or .flox/cache/venv/bin, both repo-writable) run
+#     BEFORE this script's own PATH pin — or any other line — has a chance to stop
+#     it. Plant a fake bash ahead of the real one and confirm it never runs.
+fake_bin="$(cd "$(mktemp -d)" && pwd -P)"
+_tmpdirs+=("$fake_bin")
+marker="$fake_bin/ran"
+cat >"$fake_bin/bash" <<SCRIPT
+#!/bin/sh
+touch "$marker"
+exec /bin/bash "\$@"
+SCRIPT
+chmod +x "$fake_bin/bash"
+PATH="$fake_bin:$PATH" $SANDBOX 'true' >/dev/null 2>&1
+if [[ -f "$marker" ]]; then
+    die "planted bash ahead on PATH ran via shebang resolution"
+else
+    pass "shebang ignores a PATH-planted bash"
 fi
 
 echo

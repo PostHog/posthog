@@ -169,6 +169,15 @@
     ;; same as the .git node denies above.
     (literal "/opt/homebrew/etc")
     (literal "/usr/local/etc")
+    ;; The rest of the Homebrew prefix: developer-owned like the gitconfig above, and
+    ;; on PATH ahead of the system dirs — no git indirection needed, a planted
+    ;; git/node/rg here just runs on the developer's next shell command.
+    (subpath "/opt/homebrew/bin")
+    (subpath "/opt/homebrew/sbin")
+    (subpath "/opt/homebrew/Cellar")
+    (subpath "/usr/local/bin")
+    (subpath "/usr/local/sbin")
+    (subpath "/usr/local/Cellar")
     (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH
 
 ;; husky's installer writes .husky/_/ (a gitignored husky.sh plus a .gitignore) on

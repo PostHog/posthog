@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Run a dev-stack command inside a macOS Seatbelt sandbox (see bin/dev-sandbox.sb).
 #
 # Usage: bin/dev-sandbox '<shell command>'
@@ -19,6 +19,12 @@
 #   - non-macOS / sandbox-exec missing / profile missing / render fails -> passthrough
 #   - sandbox-exec cannot initialize the profile -> fail OPEN, loud warning
 #     (a working sandbox that merely *denies* a path is left to surface normally)
+#
+# The shebang is a fixed /bin/bash, not `/usr/bin/env bash`: the kernel resolves it
+# before any line of this script runs, by searching the PATH of whoever invokes this
+# file directly — the developer's inherited PATH, which keeps repo-writable dirs (see
+# below). `env bash` would let a bash planted by a prior sandboxed run in one of those
+# dirs execute as the developer, with nothing here yet in a position to stop it.
 
 set -euo pipefail
 
