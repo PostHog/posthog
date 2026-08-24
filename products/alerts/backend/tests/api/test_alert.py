@@ -408,6 +408,31 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "message": "Email delivery is unavailable.",
         }
 
+    def test_retrieve_check_hides_internal_error_message(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "internal error test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        AlertCheck.objects.create(
+            alert_configuration=alert_obj,
+            calculated_value=None,
+            state=AlertState.ERRORED,
+            error={"message": "ClickHouse failed to connect to internal.example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks"][0]["error"] == {
+            "message": "This alert encountered an error. Check the alert configuration and try again."
+        }
+
     @parameterized.expand(
         [
             ("returns_newest_slice_first", 3, 0, [7.0, 6.0, 5.0]),

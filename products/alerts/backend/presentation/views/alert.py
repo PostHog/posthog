@@ -296,10 +296,9 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         message = instance.error.get("message")
         if not isinstance(message, str):
             return None
-        error = {"message": message}
         if instance.error.get("code") == "email_unavailable":
-            error["code"] = "email_unavailable"
-        return error
+            return {"code": "email_unavailable", "message": message}
+        return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
