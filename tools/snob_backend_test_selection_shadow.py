@@ -613,7 +613,8 @@ _CORE_IGNORED_PREFIXES = ("posthog/dags/", "common/hogvm/python/test/", "posthog
 def segments_for_test_file(path: str) -> frozenset[str]:
     """Which Django matrix segments run a given test file. Mirrors the Core/POE/Temporal
     partition in ci-backend.yml's select-tests `classify` step — POE files run in both the
-    Core matrix and the person-on-events matrix, so they belong to both segments. An empty
+    Core matrix and the legacy-mode safeguard matrix (the allowlist that keeps the joined
+    person mode covered), so they belong to both segments. An empty
     result means no narrowable matrix runs the file (a product/turbo test, or an explicitly
     ignored path). Compat is not a segment here: it re-runs POE-scope files against older
     ClickHouse servers, so it adds no files to the universe this partitions."""
