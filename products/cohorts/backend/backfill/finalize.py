@@ -129,8 +129,8 @@ def finalize_backfill_runs() -> FinalizerPass:
     """One finalizer pass. Returns a summary so callers/tests can assert without scraping logs."""
     result = FinalizerPass()
     if not settings.BEHAVIORAL_BACKFILL_FINALIZER_ENABLED:
-        # Reset rather than leave the gauge frozen at its last value: multiprocess_mode="max" keeps
-        # a stale reading alive fleet-wide until the process recycles.
+        # Reset rather than leave the gauge frozen at its last value: a reason left unwritten while
+        # the finalizer is off keeps reporting whatever the last enabled pass observed.
         _publish_held_runs(result)
         return result
 
