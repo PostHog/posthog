@@ -30,6 +30,7 @@ from posthog.tasks.remote_config import (
     refresh_expiring_remote_config_cache_entries,
     sync_all_remote_configs,
 )
+from posthog.tasks.stripe_marketplace_token_audit import audit_stripe_marketplace_tokens_task
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -496,6 +497,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         reap_stale_prewarm_heatmaps.s(),
         name="reap stale prewarm heatmap screenshots",
         expires_seconds=10 * 60,
+    )
+
+    # Stripe marketplace token audit - daily at 03:25 UTC
+    # Counts live single-team credentials on the orchestrator OAuth application for teams with a
+    # Stripe integration. Steady state is 0. A non-zero value is a silent session-takeover
+    # exposure, which emits no errors on its own because the tokens work.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="25"),
+        audit_stripe_marketplace_tokens_task.s(),
+        name="audit stripe marketplace tokens on the orchestrator oauth application",
     )
 
     # Auth token cache verification - every 6 hours at minute 40
