@@ -71,6 +71,19 @@ export const columnsFromResponse = (response: AnyResponseType | null): Column[] 
     })
 }
 
+// The axes a chart ends up with once the editor has finished setting it up. Same as the mount-time
+// defaults, plus the promotion the editor applies when every column is numeric and so nothing is
+// left to label the x axis.
+export const deriveChartAxes = (columns: Column[]): { xAxis: string | null; yAxis: string[] } => {
+    const defaults = deriveDefaultAxes(columns)
+    if (defaults.xAxis || columns.length < 2 || !columns.every((column) => column.type.isNumerical)) {
+        return defaults
+    }
+
+    const [first, ...rest] = columns
+    return { xAxis: first.name, yAxis: rest.map((column) => column.name) }
+}
+
 // Which columns a chart plots when nothing has been picked yet: every numeric column on the y axis,
 // and a date column on the x axis, falling back to the first column no y series claimed.
 export const deriveDefaultAxes = (columns: Column[]): { xAxis: string | null; yAxis: string[] } => {

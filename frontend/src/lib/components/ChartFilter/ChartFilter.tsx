@@ -24,9 +24,20 @@ interface ChartFilterProps {
     /** Set on surfaces that stack their controls in a column, such as a dashboard card's menu. */
     fullWidth?: boolean
     className?: string
+    /** Dashboard filters make an insight refuse edits, because what is on screen is not what is
+     * saved. The chart type is the exception: it is read off the insight, not off the filtered
+     * result, so a surface that only changes it can opt out. */
+    allowEditingWithOverrides?: boolean
+    /** Defaults to the editor's value. Override it so a surface can be told apart in analytics. */
+    dataAttr?: string
 }
 
-export function ChartFilter({ fullWidth, className }: ChartFilterProps = {}): JSX.Element {
+export function ChartFilter({
+    fullWidth,
+    className,
+    allowEditingWithOverrides,
+    dataAttr = 'chart-filter',
+}: ChartFilterProps = {}): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -238,10 +249,10 @@ export function ChartFilter({ fullWidth, className }: ChartFilterProps = {}): JS
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
-            data-attr="chart-filter"
+            data-attr={dataAttr}
             options={options}
             size="small"
-            disabledReason={editingDisabledReason}
+            disabledReason={allowEditingWithOverrides ? undefined : editingDisabledReason}
         />
     )
 }

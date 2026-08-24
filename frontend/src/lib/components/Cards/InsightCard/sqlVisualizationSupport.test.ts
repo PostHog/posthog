@@ -3,7 +3,7 @@ import { getTableDisplayOptions } from '~/queries/nodes/DataVisualization/Compon
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { AXIS_PLOTTING_TYPES, cardVisualizationDisabledReason, withAxes } from './SqlVisualizationPicker'
+import { cardVisualizationDisabledReason, withAxes } from './SqlVisualizationPicker'
 
 describe('SqlVisualizationPicker support rules', () => {
     const responses = {
@@ -27,7 +27,7 @@ describe('SqlVisualizationPicker support rules', () => {
             ],
             result: [['NL', 'Firefox', 3]],
         },
-        'all numeric, so no column is left for the x axis': {
+        'all numeric, which the editor plots by promoting the first column to the x axis': {
             columns: ['users', 'events'],
             types: [
                 ['users', 'UInt64'],
@@ -55,9 +55,9 @@ describe('SqlVisualizationPicker support rules', () => {
         source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
     } as DataVisualizationNode
 
-    // The guard that stops this class of bug recurring: a card only offers what it can finish. If an
-    // enabled type ends up saved without the axes it draws from, the tile renders blank and the
-    // dashboard has no control to repair it.
+    // The guard that stops this class of bug recurring: a card only offers what it can finish. Every
+    // option is checked, so a chart type added later without a support classification fails here
+    // rather than saving a query the tile has no settings to draw.
     it.each(Object.entries(responses))(
         'every type the card leaves enabled saves a query it can draw — %s',
         (_label, response) => {
@@ -66,7 +66,7 @@ describe('SqlVisualizationPicker support rules', () => {
             const numericalColumns = columns.filter((column) => column.type.isNumerical)
 
             const options = getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, (displayType) =>
-                cardVisualizationDisabledReason(displayType, columns, autoVisualizationType)
+                cardVisualizationDisabledReason(displayType, baseQuery, columns, autoVisualizationType)
             )
 
             const enabled = options
@@ -78,24 +78,17 @@ describe('SqlVisualizationPicker support rules', () => {
 
             for (const displayType of enabled) {
                 const saved = withAxes({ ...baseQuery, display: displayType }, columns, autoVisualizationType)
-                const drawnAs =
+                const resolved =
                     displayType === ChartDisplayType.Auto ? autoVisualizationType : (displayType as ChartDisplayType)
 
-                if (!AXIS_PLOTTING_TYPES.includes(drawnAs)) {
+                // A table and a big number draw without axes. Everything else the card offers must
+                // come out with both, or the tile renders blank with no way to repair it.
+                const needsAxes = ![ChartDisplayType.ActionsTable, ChartDisplayType.BoldNumber].includes(resolved)
+                if (!needsAxes) {
                     continue
                 }
 
-                // An enabled axis-plotting type must come out with both axes filled. Anything less
-                // draws a blank tile the dashboard cannot repair.
-                expect({
-                    displayType,
-                    drawnAs,
-                    xAxis: saved.chartSettings?.xAxis?.column,
-                    yAxisCount: saved.chartSettings?.yAxis?.length ?? 0,
-                }).toMatchObject({
-                    xAxis: expect.any(String),
-                    yAxisCount: expect.any(Number),
-                })
+                expect(saved.chartSettings?.xAxis?.column).toEqual(expect.any(String))
                 expect(saved.chartSettings?.yAxis?.length ?? 0).toBeGreaterThan(0)
             }
         }
@@ -107,19 +100,51 @@ describe('SqlVisualizationPicker support rules', () => {
         const autoVisualizationType = getAutoVisualizationType(columns, response)
 
         expect(autoVisualizationType).toEqual(ChartDisplayType.TwoDimensionalHeatmap)
-        expect(cardVisualizationDisabledReason(ChartDisplayType.Auto, columns, autoVisualizationType)).toContain(
-            'Open the insight'
-        )
+        expect(
+            cardVisualizationDisabledReason(ChartDisplayType.Auto, baseQuery, columns, autoVisualizationType)
+        ).toContain('Open the insight')
     })
 
-    it('does not offer a bar chart when no column can fill the x axis', () => {
-        const response = responses['all numeric, so no column is left for the x axis']
+    // The editor promotes the first numeric column to the x axis for an all-numeric result, so the
+    // card has to offer what the editor can draw rather than refusing it.
+    it('offers a line chart for an all-numeric result, as the editor does', () => {
+        const response = responses['all numeric, which the editor plots by promoting the first column to the x axis']
         const columns = columnsFromResponse(response)
         const autoVisualizationType = getAutoVisualizationType(columns, response)
 
-        expect(cardVisualizationDisabledReason(ChartDisplayType.ActionsBar, columns, autoVisualizationType)).toEqual(
-            'This insight has no numeric column to plot'
+        expect(
+            cardVisualizationDisabledReason(
+                ChartDisplayType.ActionsLineGraph,
+                baseQuery,
+                columns,
+                autoVisualizationType
+            )
+        ).toBeUndefined()
+
+        const saved = withAxes(
+            { ...baseQuery, display: ChartDisplayType.ActionsLineGraph },
+            columns,
+            autoVisualizationType
         )
+        expect(saved.chartSettings?.xAxis?.column).toEqual('users')
+        expect(saved.chartSettings?.yAxis).toEqual([{ column: 'events' }])
+    })
+
+    it('offers a chart type the insight already has axes for, even when the columns alone would not', () => {
+        const response = responses['all string, so nothing is left to plot']
+        const columns = columnsFromResponse(response)
+        const autoVisualizationType = getAutoVisualizationType(columns, response)
+        const alreadyAxed = {
+            ...baseQuery,
+            chartSettings: { xAxis: { column: 'country' }, yAxis: [{ column: 'browser' }] },
+        } as DataVisualizationNode
+
+        expect(
+            cardVisualizationDisabledReason(ChartDisplayType.ActionsBar, baseQuery, columns, autoVisualizationType)
+        ).toEqual('This insight has no numeric column to plot')
+        expect(
+            cardVisualizationDisabledReason(ChartDisplayType.ActionsBar, alreadyAxed, columns, autoVisualizationType)
+        ).toBeUndefined()
     })
 
     it('leaves the table and the big number available whatever the columns are', () => {
@@ -128,10 +153,10 @@ describe('SqlVisualizationPicker support rules', () => {
         const autoVisualizationType = getAutoVisualizationType(columns, response)
 
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.ActionsTable, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(ChartDisplayType.ActionsTable, baseQuery, columns, autoVisualizationType)
         ).toBeUndefined()
         expect(
-            cardVisualizationDisabledReason(ChartDisplayType.BoldNumber, columns, autoVisualizationType)
+            cardVisualizationDisabledReason(ChartDisplayType.BoldNumber, baseQuery, columns, autoVisualizationType)
         ).toBeUndefined()
     })
 })

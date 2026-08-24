@@ -4,7 +4,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import {
     columnsFromResponse,
-    deriveDefaultAxes,
+    deriveChartAxes,
     getAutoVisualizationType,
 } from '~/queries/nodes/DataVisualization/columnUtils'
 import {
@@ -18,58 +18,49 @@ import { ChartDisplayType } from '~/types'
 export interface SqlVisualizationPickerProps {
     query: DataVisualizationNode
     /** Taken apart rather than passed whole: the response object is rebuilt on every refresh tick,
-     * while these arrays keep their identity, which is what stops the menu remounting. */
+     * while these keep their identity, which is what stops the menu remounting. */
     columns?: string[] | null
     types?: string[][] | null
-    result?: unknown
+    /** Row count, not the rows. Auto picks a time series only when there is more than one. */
+    rowCount?: number
+    disabledReason?: string | null
     persistDisplayOptions: (node: Node) => void
 }
 
-// These plot columns against axes, so a card can only offer them when it can derive both.
-export const AXIS_PLOTTING_TYPES = [
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsAreaGraph,
-    ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsStackedBar,
-    ChartDisplayType.ActionsPie,
-]
+/** `axes` needs columns on an x and a y. `manual` needs columns assigned to named roles that no rule
+ * can guess, so a card cannot offer it at all. `none` draws without axes. */
+type CardSupport = 'none' | 'axes' | 'manual'
 
-// These need columns assigned to named roles that no rule can guess, and a card has no control for it.
-const NEEDS_MANUAL_SETUP = [ChartDisplayType.ScatterPlot, ChartDisplayType.TwoDimensionalHeatmap]
+// Exhaustive on purpose: adding a chart type is a type error here, so a new one cannot reach a card
+// unclassified and save a query the tile has no settings to draw.
+const CARD_SUPPORT: Record<ChartDisplayType, CardSupport> = {
+    [ChartDisplayType.Auto]: 'none',
+    [ChartDisplayType.ActionsTable]: 'none',
+    [ChartDisplayType.BoldNumber]: 'none',
+    [ChartDisplayType.ActionsLineGraph]: 'axes',
+    [ChartDisplayType.ActionsAreaGraph]: 'axes',
+    [ChartDisplayType.ActionsBar]: 'axes',
+    [ChartDisplayType.ActionsStackedBar]: 'axes',
+    [ChartDisplayType.ActionsUnstackedBar]: 'axes',
+    [ChartDisplayType.ActionsPie]: 'axes',
+    [ChartDisplayType.ActionsLineGraphCumulative]: 'axes',
+    [ChartDisplayType.ScatterPlot]: 'manual',
+    [ChartDisplayType.TwoDimensionalHeatmap]: 'manual',
+    // Not offered by the SQL list, but the map has to cover the enum.
+    [ChartDisplayType.ActionsBarValue]: 'manual',
+    [ChartDisplayType.Metric]: 'manual',
+    [ChartDisplayType.WorldMap]: 'manual',
+    [ChartDisplayType.CalendarHeatmap]: 'manual',
+    [ChartDisplayType.BoxPlot]: 'manual',
+    [ChartDisplayType.SlopeGraph]: 'manual',
+}
 
 const MANUAL_SETUP_REASON = 'Open the insight to pick which column goes on each axis'
-const NO_PLOTTABLE_COLUMNS_REASON = 'This insight has no numeric column to plot'
+const NO_NUMERIC_COLUMN_REASON = 'This insight has no numeric column to plot'
+const NO_X_AXIS_COLUMN_REASON = 'This insight has no column left to label the x axis'
 
 function resolveDisplayType(displayType: ChartDisplayType, autoVisualizationType: ChartDisplayType): ChartDisplayType {
     return displayType === ChartDisplayType.Auto ? autoVisualizationType : displayType
-}
-
-// The one rule for what a card can switch a SQL insight to. Both the option list and the query it
-// saves answer to this, so an offered type is always one the card can complete.
-export function cardVisualizationDisabledReason(
-    displayType: ChartDisplayType,
-    columns: Column[],
-    autoVisualizationType: ChartDisplayType
-): string | undefined {
-    const drawnAs = resolveDisplayType(displayType, autoVisualizationType)
-
-    if (NEEDS_MANUAL_SETUP.includes(drawnAs)) {
-        // Auto resolves from the columns, so the reason has to name that rather than the pick.
-        return displayType === ChartDisplayType.Auto
-            ? `This insight defaults to a chart that needs its axes picked. ${MANUAL_SETUP_REASON}`
-            : MANUAL_SETUP_REASON
-    }
-
-    if (AXIS_PLOTTING_TYPES.includes(drawnAs) && !hasDerivableAxes(columns)) {
-        return NO_PLOTTABLE_COLUMNS_REASON
-    }
-
-    return undefined
-}
-
-function hasDerivableAxes(columns: Column[]): boolean {
-    const { xAxis, yAxis } = deriveDefaultAxes(columns)
-    return !!xAxis && yAxis.length > 0
 }
 
 // A chart reads its columns out of chartSettings, and loading the saved query resets the axes to
@@ -79,12 +70,11 @@ export function withAxes(
     columns: Column[],
     autoVisualizationType: ChartDisplayType
 ): DataVisualizationNode {
-    const drawnAs = query.display ? resolveDisplayType(query.display, autoVisualizationType) : undefined
-    if (!drawnAs || !AXIS_PLOTTING_TYPES.includes(drawnAs)) {
+    if (!query.display || CARD_SUPPORT[resolveDisplayType(query.display, autoVisualizationType)] !== 'axes') {
         return query
     }
 
-    const { xAxis, yAxis } = deriveDefaultAxes(columns)
+    const { xAxis, yAxis } = deriveChartAxes(columns)
     // Fill only the side the query is missing, so axes the user chose stay untouched.
     const nextXAxis = query.chartSettings?.xAxis ?? (xAxis ? { column: xAxis } : undefined)
     const nextYAxis = query.chartSettings?.yAxis?.length
@@ -98,26 +88,61 @@ export function withAxes(
     return { ...query, chartSettings: { ...query.chartSettings, xAxis: nextXAxis, yAxis: nextYAxis } }
 }
 
+// The one rule for what a card can switch a SQL insight to. It answers by running the save it would
+// perform, so an offered type is always one the card can complete.
+export function cardVisualizationDisabledReason(
+    displayType: ChartDisplayType,
+    query: DataVisualizationNode,
+    columns: Column[],
+    autoVisualizationType: ChartDisplayType
+): string | undefined {
+    const drawnAs = resolveDisplayType(displayType, autoVisualizationType)
+
+    if (CARD_SUPPORT[drawnAs] === 'manual') {
+        return displayType === ChartDisplayType.Auto
+            ? `Auto picks a chart here that needs its axes set. ${MANUAL_SETUP_REASON}.`
+            : MANUAL_SETUP_REASON
+    }
+
+    if (CARD_SUPPORT[drawnAs] !== 'axes') {
+        return undefined
+    }
+
+    const saved = withAxes({ ...query, display: displayType }, columns, autoVisualizationType)
+    if (saved.chartSettings?.xAxis && saved.chartSettings.yAxis?.length) {
+        return undefined
+    }
+
+    return deriveChartAxes(columns).yAxis.length === 0 ? NO_NUMERIC_COLUMN_REASON : NO_X_AXIS_COLUMN_REASON
+}
+
 // A dashboard card renders its query read-only, which drops the setQuery that dataVisualizationLogic
 // persists through. So save the picked type straight onto the insight instead.
 export function SqlVisualizationPicker({
     query,
     columns: responseColumns,
     types,
-    result,
+    rowCount,
+    disabledReason,
     persistDisplayOptions,
 }: SqlVisualizationPickerProps): JSX.Element {
     const response = useMemo(
-        () => ({ columns: responseColumns ?? [], types: types ?? [], result }),
-        [responseColumns, types, result]
+        () => ({
+            columns: responseColumns ?? [],
+            types: types ?? [],
+            // getAutoVisualizationType only reads the row count, so a stand-in of that length is enough.
+            result: new Array(rowCount ?? 0),
+        }),
+        [responseColumns, types, rowCount]
     )
     const columns = useMemo(() => columnsFromResponse(response), [response])
     const numericalColumns = useMemo(() => columns.filter((column) => column.type.isNumerical), [columns])
     const autoVisualizationType = useMemo(() => getAutoVisualizationType(columns, response), [columns, response])
 
     const disabledReasonFor = useCallback(
-        (displayType: ChartDisplayType) => cardVisualizationDisabledReason(displayType, columns, autoVisualizationType),
-        [columns, autoVisualizationType]
+        (displayType: ChartDisplayType) =>
+            cardVisualizationDisabledReason(displayType, query, columns, autoVisualizationType),
+        [query, columns, autoVisualizationType]
     )
     const options = useMemo(
         () => getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, disabledReasonFor),
@@ -138,7 +163,7 @@ export function SqlVisualizationPicker({
             className="pb-2 px-2"
             fullWidth
             size="small"
-            disabledReason={columns.length ? undefined : 'This insight has no columns to visualize yet'}
+            disabledReason={disabledReason ?? (columns.length ? undefined : 'This insight has no results to visualize')}
             value={visualizationType}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             onChange={(value) => {

@@ -21,10 +21,7 @@ describe('SqlVisualizationPicker', () => {
             ['day', 'DateTime'],
             ['total', 'UInt64'],
         ],
-        result: [
-            ['2026-01-01', 1],
-            ['2026-01-02', 2],
-        ],
+        rowCount: 2,
     }
 
     const openPicker = async (container: HTMLElement): Promise<void> => {

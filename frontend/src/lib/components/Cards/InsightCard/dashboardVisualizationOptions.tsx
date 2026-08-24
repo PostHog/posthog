@@ -14,7 +14,21 @@ import { SqlVisualizationPicker } from './SqlVisualizationPicker'
 // LemonMenu renders a function label as a component type, so a fresh closure on each render remounts
 // the picker and closes its dropdown mid-interaction. This one is defined once.
 const TRENDS_SECTION: LemonMenuItems = [
-    { title: 'Visualization', items: [{ label: () => <ChartFilter fullWidth className="pb-2 px-2" /> }] },
+    {
+        title: 'Chart type',
+        items: [
+            {
+                label: () => (
+                    <ChartFilter
+                        fullWidth
+                        allowEditingWithOverrides
+                        className="pb-2 px-2"
+                        dataAttr="dashboard-insight-visualization-picker"
+                    />
+                ),
+            },
+        ],
+    },
 ]
 
 // Only insight types whose chart type is a single dropdown get a picker. Funnels, retention and paths
@@ -45,7 +59,7 @@ export function useDashboardVisualizationOptions({
     insightData: Record<string, any>
     persistDisplayOptions?: (node: Node) => void
 }): LemonMenuItems {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { supportsDisplay } = useValues(insightVizDataLogic(insightProps))
 
     const kind = resolveVisualizationPicker(query, supportsDisplay, !!persistDisplayOptions)
@@ -54,7 +68,7 @@ export function useDashboardVisualizationOptions({
     // refresh tick, and a new label identity would remount the picker and close its open dropdown.
     const columns = insightData?.columns
     const types = insightData?.types
-    const result = insightData?.result
+    const rowCount = Array.isArray(insightData?.result) ? insightData.result.length : 0
 
     const sqlSection = useMemo<LemonMenuItems>(() => {
         if (kind !== 'sql' || !persistDisplayOptions || !query || !isDataVisualizationNode(query)) {
@@ -62,7 +76,7 @@ export function useDashboardVisualizationOptions({
         }
         return [
             {
-                title: 'Visualization',
+                title: 'Chart type',
                 items: [
                     {
                         label: () => (
@@ -70,7 +84,10 @@ export function useDashboardVisualizationOptions({
                                 query={query}
                                 columns={columns}
                                 types={types}
-                                result={result}
+                                rowCount={rowCount}
+                                // The axes it saves come from the filtered result, so an override
+                                // would write one viewer's view onto the shared insight.
+                                disabledReason={editingDisabledReason}
                                 persistDisplayOptions={persistDisplayOptions}
                             />
                         ),
@@ -78,7 +95,7 @@ export function useDashboardVisualizationOptions({
                 ],
             },
         ]
-    }, [kind, query, columns, types, result, persistDisplayOptions])
+    }, [kind, query, columns, types, rowCount, editingDisabledReason, persistDisplayOptions])
 
     if (kind === 'sql') {
         return sqlSection
