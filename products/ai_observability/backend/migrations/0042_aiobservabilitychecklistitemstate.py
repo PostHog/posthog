@@ -31,9 +31,7 @@ class Migration(migrations.Migration):
                 ("scope", models.CharField(blank=True, max_length=200, null=True)),
                 (
                     "status",
-                    models.CharField(
-                        choices=[("dismissed", "Dismissed")], max_length=32
-                    ),
+                    models.CharField(choices=[("dismissed", "Dismissed")], max_length=32),
                 ),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
