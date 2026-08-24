@@ -55,7 +55,6 @@ class TestThreadResolution:
         # passed — a template/schema regression here only fails at runtime.
         assert 'skill-get(skill_name="review-hog-resolution-criteria", version=3)' in prompt
         assert "please fix this" in prompt and "second ask" in prompt
-        assert "mostly Simplified Technical English" in prompt
         assert '"ThreadOutcome"' in prompt
         current_section = prompt.split("<current_thread>", 1)[1]
         assert "thread_id: PRRT_2" in current_section

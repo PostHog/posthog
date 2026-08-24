@@ -238,6 +238,8 @@ For any text a person reads (UI labels, tooltips, empty/error states, notificati
 
 ## Agent automation
 
+Write agent comments, replies, summaries, and status updates in mostly Simplified Technical English. Use active voice, simple tenses, one idea per sentence, and consistent terms. Invoke `/writing-simplified-technical-english` for long or high-stakes prose.
+
 When automating a convention, try these in order — only fall back to the next if the previous isn't suitable:
 
 1. **Linters** (ruff, oxlint, semgrep) — code pattern enforcement, always paired with CI
