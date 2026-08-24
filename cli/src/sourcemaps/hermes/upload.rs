@@ -55,8 +55,8 @@ pub fn upload(args: &Args) -> Result<()> {
     if conflict.skip_on_conflict_ignored(*release_mode) {
         warn!(
             "--skip-on-conflict is ignored with --release-mode=event. Skipping a conflict would \
-             leave the previously uploaded map, and the release bound to it, in place. \
-             Overwriting instead."
+             keep the previously uploaded map, so the build that changes release mode would \
+             fail to replace it. Overwriting instead."
         );
     }
 
@@ -147,10 +147,9 @@ pub fn upload(args: &Args) -> Result<()> {
         ],
     );
 
-    // The release id lives in the map's own bytes. The first upload after a project changes
-    // release mode therefore finds the stored symbol set with different content. To skip that
-    // conflict would keep the old release-bound map, and every exception would keep reporting
-    // its release. Event mode overwrites instead.
+    // A hermes chunk id comes from the bundle content, and the release id sits inside the
+    // uploaded map. The build that changes release mode therefore sends the same id with
+    // different bytes, and the server refuses it. Event mode overwrites so that build passes.
     let conflict = conflict.resolve(*release_mode);
 
     let started_at = Instant::now();

@@ -160,8 +160,7 @@ impl UploadConflictArgs {
     /// while the release id travels inside the payload. Every change to that release id makes the
     /// chunk conflict under an unchanged id. A web bundle carries it in the injected snippet, so
     /// it conflicts on every release. A Hermes map conflicts once, on the build that changes mode.
-    /// To honor `--skip-on-conflict` would keep the stored payload, and the release bound to it,
-    /// for every exception.
+    /// To honor `--skip-on-conflict` would keep the stored payload, so the newer one never lands.
     pub fn resolve(&self, release_mode: ReleaseMode) -> ConflictBehavior {
         match release_mode {
             ReleaseMode::Event => ConflictBehavior {
