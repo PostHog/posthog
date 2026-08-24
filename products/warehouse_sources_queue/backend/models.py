@@ -1,5 +1,6 @@
 from django.db import models
 
+from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import UUIDModel, sane_repr
 
 
@@ -44,6 +45,19 @@ class SourceBatch(UUIDModel):
         default=dict,
         blank=True,
         help_text="Stores partitioning config, CDC mode, primary keys, schema path, data folder, etc.",
+    )
+
+    # The destinations this batch is delivered to, snapshotted when the run started so a
+    # config change mid-run cannot alter where an in-flight batch lands. The batch is done
+    # only once every id here has taken it, which is what keeps destinations in step.
+    # db_default matters: `jobs_db.insert_batch` writes this table with raw SQL that does not
+    # list this column, so without a Postgres-level default that insert would violate NOT NULL.
+    # It also gives CDC batches the right value, since CDC stays warehouse-only for now.
+    destination_ids = models.JSONField(
+        default=list,
+        blank=True,
+        db_default=[],
+        help_text="ExternalDataDestination ids this batch is delivered to. Empty means the PostHog warehouse only.",
     )
 
     # Denormalized mirror of the latest sourcebatchstatus row, maintained by the

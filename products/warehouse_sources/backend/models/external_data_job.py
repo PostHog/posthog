@@ -33,6 +33,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
+    # How many destinations this run delivers to, snapshotted when the run started. Rows bill
+    # once per destination, and reading the count from the job rather than live config keeps a
+    # config change mid-run from changing what an in-flight run charges.
+    destination_count = models.PositiveSmallIntegerField(default=1, db_default=1)
+    # The same set as a list of ids, which the load path needs to resolve writers. Kept
+    # beside the count rather than derived from it, because billing aggregates the count in
+    # SQL and measuring a JSON array's length there is awkward.
+    destination_ids = models.JSONField(default=list, blank=True, db_default=[])
     finished_at = models.DateTimeField(null=True, blank=True)
     storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
     # Also stores `cdc_write_mode` (`incremental_merge` | `scd2_append`) so the Syncs UI can
