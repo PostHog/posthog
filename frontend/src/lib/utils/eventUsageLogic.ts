@@ -14,6 +14,7 @@ import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic
 import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
+import { getSurveyDisplayConditionProperties } from 'scenes/surveys/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -4204,6 +4205,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     }
                     return false
                 }),
+                ...getSurveyDisplayConditionProperties(survey),
             })
         },
         reportSurveyViewed: ({ survey }) => {
@@ -4253,6 +4255,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     }
                     return false
                 }),
+                ...getSurveyDisplayConditionProperties(survey),
             })
         },
         reportSurveyTemplateClicked: ({ template, source }) => {

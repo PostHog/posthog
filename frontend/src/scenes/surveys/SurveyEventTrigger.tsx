@@ -214,7 +214,9 @@ function SurveyEventSelector({
                                                         operatorAllowlist={SUPPORTED_OPERATORS}
                                                     />
                                                     <p className="text-xs text-muted m-0">
-                                                        Array and object properties aren't supported here.
+                                                        Array and object properties aren't supported here. The "is set"
+                                                        and "is not set" operators are also unavailable, because PostHog
+                                                        SDKs can't match them in the browser.
                                                     </p>
                                                 </div>
                                             ),
