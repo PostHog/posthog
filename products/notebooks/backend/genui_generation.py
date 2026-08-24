@@ -9,7 +9,7 @@ from openai import OpenAI
 
 from posthog.llm.gateway_client import build_openai_client
 
-from products.canvas.backend.facade import notebooks as canvas_facade
+from products.canvas.backend import notebook_integration as canvas_facade
 from products.notebooks.backend.models import NotebookGenUI
 
 logger = structlog.get_logger(__name__)

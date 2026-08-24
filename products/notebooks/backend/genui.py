@@ -16,7 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.otel_metrics import OtelInstrumentFactory
 
-from products.canvas.backend.facade import notebooks as canvas_facade
+from products.canvas.backend import notebook_integration as canvas_facade
 from products.notebooks.backend.analytics import (
     GENUI_BUILD_COMPLETED_EVENT,
     GENUI_GENERATION_COMPLETED_EVENT,

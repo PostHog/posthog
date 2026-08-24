@@ -866,11 +866,20 @@ depends_on = [
 ]
 layer = "modules"
 
-# Canvas's public surface: routes + presentation for the API layer, tasks for
-# the Celery registrations posthog/tasks/scheduled.py imports.
+# Canvas's public surface: routes for the API layer.
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+# Canvas is still a legacy product, so notebooks use a narrow product-owned
+# integration instead of exposing its whole facade and claiming strict isolation.
+[[interfaces]]
+expose = [
+    "backend\\.notebook_integration.*",
 ]
 from = [
     "products.canvas",

@@ -13,10 +13,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
-from posthog.models.scoping import team_scope
 
-from products.canvas.backend.facade.notebooks import CanvasGenerationState, NotebookCanvasSource
-from products.canvas.backend.models import Canvas, CanvasSourceVersion
+from products.canvas.backend.notebook_integration import (
+    CanvasGenerationState,
+    NotebookCanvasSource,
+    NotebookCanvasVersion,
+)
 from products.notebooks.backend.genui import (
     GENUI_GENERATOR_VERSION,
     GenUIError,
@@ -38,7 +40,6 @@ from products.notebooks.backend.genui import (
 from products.notebooks.backend.genui_generation import _generation_prompt, generate_genui_source
 from products.notebooks.backend.genui_snapshot_store import GenUISnapshotStoreError, build_snapshot_key, read_snapshot
 from products.notebooks.backend.models import Notebook, NotebookGenUI, NotebookNodeRun
-from products.tasks.backend.models import Channel
 
 
 def markdown_content(markdown: str) -> dict[str, Any]:
@@ -545,33 +546,21 @@ class TestGenUILifecycle(APIBaseTest):
             "source": "export default function Canvas() { return <div>Hello</div> }",
         }
 
-    def test_versions_endpoint_marks_the_live_notebook_version(self) -> None:
+    @patch("products.notebooks.backend.genui.canvas_facade.list_notebook_canvas_versions")
+    def test_versions_endpoint_marks_the_live_notebook_version(self, list_canvas_versions) -> None:
         notebook = self._notebook()
         self._run(notebook)
         row, _ = self._ready_row(notebook)
-        with team_scope(self.team.id):
-            channel = Channel.objects.create(team=self.team, name="Notebook visualizations")
-            canvas = Canvas.objects.create(team=self.team, channel=channel, name="Globe", created_by=self.user)
-            previous_version = CanvasSourceVersion.objects.create(
-                team=self.team,
-                canvas=canvas,
-                source_hash="1" * 64,
-                source_object_key="canvas_source/previous",
-                source_size=10,
+        previous_version_id = UUID("00000000-0000-0000-0000-000000000099")
+        assert row.source_version_id is not None
+        list_canvas_versions.return_value = [
+            NotebookCanvasVersion(id=row.source_version_id, prompt="Current globe", created_at=timezone.now()),
+            NotebookCanvasVersion(
+                id=previous_version_id,
                 prompt="First globe",
-            )
-            current_version = CanvasSourceVersion.objects.create(
-                team=self.team,
-                canvas=canvas,
-                parent_version=previous_version,
-                source_hash="2" * 64,
-                source_object_key="canvas_source/current",
-                source_size=10,
-                prompt="Current globe",
-            )
-        row.canvas_id = canvas.id
-        row.source_version_id = current_version.id
-        row.save(update_fields=["canvas_id", "source_version_id", "updated_at"])
+                created_at=timezone.now() - timedelta(days=1),
+            ),
+        ]
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/genui/{self.NODE_ID}/versions/"
@@ -579,7 +568,7 @@ class TestGenUILifecycle(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         versions = response.json()["results"]
-        assert [version["id"] for version in versions] == [str(current_version.id), str(previous_version.id)]
+        assert [version["id"] for version in versions] == [str(row.source_version_id), str(previous_version_id)]
         assert [version["is_current"] for version in versions] == [True, False]
 
     @patch("products.notebooks.backend.genui.canvas_facade.restore_notebook_canvas_version")
