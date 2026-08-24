@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { IconChevronRight, IconComment, IconGithub, IconLetter } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
@@ -6,7 +8,10 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { urls } from 'scenes/urls'
 
-import type { ConversationsTicketSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ConversationsTicketImageApi,
+    ConversationsTicketSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -79,9 +84,40 @@ export function conversationsChannelIcon(source: string): JSX.Element | null {
     }
 }
 
+/** How many attachment thumbnails to show before pointing at the ticket for the rest. */
+const IMAGE_PREVIEW_COUNT = 4
+
+/** One attachment thumbnail that opens the full image. Drops out when the image can no longer be fetched. */
+function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi }): JSX.Element | null {
+    const [failed, setFailed] = useState(false)
+    if (failed) {
+        return null
+    }
+    return (
+        <li>
+            <Link
+                to={image.url}
+                target="_blank"
+                className="block size-16 rounded border overflow-hidden bg-surface-secondary"
+                title={image.author ? `Attached by ${image.author}` : undefined}
+            >
+                <img
+                    src={image.url}
+                    alt={image.author ? `Attachment from ${image.author}` : 'Ticket attachment'}
+                    className="size-full object-cover"
+                    loading="lazy"
+                    onError={() => setFailed(true)}
+                />
+            </Link>
+        </li>
+    )
+}
+
 export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra as Record<string, unknown> & ConversationsTicketSignalExtraApi
     const channelIcon = conversationsChannelIcon(extra.channel_source)
+    const images = Array.isArray(extra.images) ? extra.images : []
+    const ticketUrl = urls.supportTicketDetail(extra.ticket_number)
 
     return (
         <SignalCardShell signal={signal} label={extra.email_subject ?? undefined}>
@@ -89,6 +125,20 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
                 <LemonMarkdown className="text-sm text-secondary mb-2" disableImages>
                     {signal.content}
                 </LemonMarkdown>
+            )}
+            {images.length > 0 && (
+                <ul className="flex flex-wrap items-center gap-1.5 mb-2">
+                    {images.slice(0, IMAGE_PREVIEW_COUNT).map((image, index) => (
+                        <TicketImageThumbnail key={`${image.url}-${index}`} image={image} />
+                    ))}
+                    {images.length > IMAGE_PREVIEW_COUNT && (
+                        <li>
+                            <Link to={ticketUrl} className="text-xs font-medium">
+                                +{images.length - IMAGE_PREVIEW_COUNT} more
+                            </Link>
+                        </li>
+                    )}
+                </ul>
             )}
             <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary">
                 <span className="font-mono font-medium">#{extra.ticket_number}</span>
@@ -112,10 +162,7 @@ export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.
             </div>
             <div className="flex items-center mt-2">
                 <span className="flex-1" />
-                <Link
-                    to={urls.supportTicketDetail(extra.ticket_number)}
-                    className="flex items-center gap-1 text-xs font-medium"
-                >
+                <Link to={ticketUrl} className="flex items-center gap-1 text-xs font-medium">
                     Open ticket
                     <IconChevronRight />
                 </Link>

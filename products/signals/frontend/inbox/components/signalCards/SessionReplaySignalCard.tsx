@@ -16,6 +16,7 @@ import type {
     SessionProblemSignalExtraApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
+import { RecordingPreview } from './RecordingPreview'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
@@ -141,20 +142,33 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonMarkdown>
             )}
 
-            {/* Opens the recording at the segment in the player modal; disables when it wasn't captured. */}
-            <ViewRecordingButton
-                sessionId={extra.session_id}
-                timestamp={segmentSeekTime}
-                openPlayerIn={RecordingPlayerType.Modal}
-                checkRecordingExists
-                label="View replay"
-                type="secondary"
-                size="small"
-                className="mb-2"
-                loading={recordingExistsLoading}
-            />
-            {recordingExists === false && (
-                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+            {/* Both open the recording at the segment in the player modal and disable when it wasn't
+                captured. The screenshot frame is used when the emitter exported one, since it shows
+                what the user saw without opening the player. */}
+            {typeof extra.exported_asset_id === 'number' ? (
+                <RecordingPreview
+                    sessionId={extra.session_id}
+                    seekTime={segmentSeekTime}
+                    exportedAssetId={extra.exported_asset_id}
+                    alt={`Recording preview for ${extra.segment_title}`}
+                />
+            ) : (
+                <>
+                    <ViewRecordingButton
+                        sessionId={extra.session_id}
+                        timestamp={segmentSeekTime}
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        checkRecordingExists
+                        label="View replay"
+                        type="secondary"
+                        size="small"
+                        className="mb-2"
+                        loading={recordingExistsLoading}
+                    />
+                    {recordingExists === false && (
+                        <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
+                    )}
+                </>
             )}
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}

@@ -1,22 +1,13 @@
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { LemonTag } from '@posthog/lemon-ui'
 
-import { IconPlay } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
-
-import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
-import { RecordingPlayerType, useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration, humanFriendlyDuration } from 'lib/utils/durations'
 import { identifierToHuman } from 'lib/utils/strings'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import type { ReplayVisionScannerFindingSignalExtraApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { RecordingPreview } from './RecordingPreview'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
@@ -44,34 +35,7 @@ function findingSeekTime(recordingStartTime: string | null | undefined, offsetSe
 
 /** Live card for a replay-vision scanner finding: thumbnail preview and a play affordance that seeks to the observation. */
 export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
-    const [thumbnailFailed, setThumbnailFailed] = useState(false)
-
     const extra = signal.extra as Record<string, unknown> & ReplayVisionScannerFindingSignalExtraApi
-
-    const hasThumbnail = currentTeamId !== null && !thumbnailFailed
-    const thumbnailSrc = hasThumbnail
-        ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id)
-        : undefined
-
-    const findingSeek = findingSeekTime(extra.recording_start_time, extra.start_time)
-
-    // Batch-check the recording so the play affordance disables (rather than opening an empty player)
-    // when the recording wasn't captured or has expired.
-    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
-    useEffect(() => {
-        checkRecordingInfo(extra.session_id)
-    }, [extra.session_id, checkRecordingInfo])
-    const hasRecording = getRecordingExists(extra.session_id)
-    const recordingCheckLoading = isRecordingExistsLoading(extra.session_id)
-
-    const { onClick: openRecording, disabledReason } = useRecordingButton({
-        sessionId: extra.session_id,
-        timestamp: findingSeek,
-        openPlayerIn: RecordingPlayerType.Modal,
-        hasRecording,
-    })
 
     const confidencePct = Math.round(extra.confidence * 100)
 
@@ -102,42 +66,12 @@ export function ScannerFindingSignalCard({ signal }: SignalCardProps): JSX.Eleme
                 </LemonMarkdown>
             )}
 
-            {/* The 16:9 preview frame is itself the play affordance — clicking it opens the recording at the finding. */}
-            <button
-                type="button"
-                onClick={openRecording}
-                disabled={!!disabledReason || recordingCheckLoading}
-                title={typeof disabledReason === 'string' ? disabledReason : undefined}
-                aria-label="Play recording"
-                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
-            >
-                {thumbnailSrc && (
-                    <img
-                        src={thumbnailSrc}
-                        alt={`Recording preview for ${extra.scanner_name}`}
-                        className="absolute inset-0 size-full object-cover"
-                        onError={() => setThumbnailFailed(true)}
-                    />
-                )}
-                <div
-                    className={clsx(
-                        'absolute inset-0 flex items-center justify-center transition-colors',
-                        thumbnailSrc ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
-                    )}
-                >
-                    {recordingCheckLoading ? (
-                        <Spinner className={clsx('text-2xl', thumbnailSrc ? 'text-white' : 'text-tertiary')} />
-                    ) : (
-                        <IconPlay
-                            className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
-                            aria-hidden
-                        />
-                    )}
-                </div>
-            </button>
-            {hasRecording === false && (
-                <p className="text-xs text-tertiary mb-2">This recording is no longer available.</p>
-            )}
+            <RecordingPreview
+                sessionId={extra.session_id}
+                seekTime={findingSeekTime(extra.recording_start_time, extra.start_time)}
+                exportedAssetId={extra.exported_asset_id}
+                alt={`Recording preview for ${extra.scanner_name}`}
+            />
 
             {/* Dot-separated meta line: affected user, finding window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary">
