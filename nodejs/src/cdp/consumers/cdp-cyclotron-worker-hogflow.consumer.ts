@@ -152,10 +152,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
-                // On the run's first dequeue a stale cached person is unrecoverable for a wait step:
-                // the condition evaluates false, the run parks, and the write it was waiting for has
-                // already happened, so no person message arrives to wake it. Re-read uncached there.
-                const forceFreshPerson = !hogFlowInvocationState.currentAction && hasEvaluableWaitCondition(hogFlow)
+                // A stale cached person is unrecoverable the first time a wait step evaluates: the
+                // condition reads false, the run parks, and the write it was waiting for has already
+                // happened, so no person message arrives to wake it. Re-read uncached on any dequeue
+                // that can reach a wait for the first time — enrollment, and waking from an earlier
+                // step such as a delay. `pollReparked` marks a wait that already parked, whose
+                // re-checks run 10 minutes apart and can keep the cached read.
+                const forceFreshPerson =
+                    hasEvaluableWaitCondition(hogFlow) && !hogFlowInvocationState.currentAction?.pollReparked
 
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
