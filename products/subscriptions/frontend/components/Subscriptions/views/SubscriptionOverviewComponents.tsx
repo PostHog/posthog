@@ -14,6 +14,9 @@ import { urls } from 'scenes/urls'
 
 import { SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+
+import { subscriptionDestination } from '../../../scenes/components/subscriptionDestination'
 import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsTable'
 
 const PROMPT_PREVIEW_MAX_CHARS = 80
@@ -26,26 +29,6 @@ interface SubscriptionListItemProps {
     onToggleEnabled?: (enabled: boolean) => void
     isDelivering?: boolean
     isToggling?: boolean
-}
-
-function subscriptionDestination(subscription: SubscriptionType): { label: string; title: string } {
-    const destinations = subscription.target_value
-        .split(',')
-        .map((destination) => destination.trim())
-        .filter(Boolean)
-
-    if (subscription.target_type === 'email') {
-        return {
-            label: destinations.length === 1 ? destinations[0] : `${destinations.length} recipients`,
-            title: destinations.join(', '),
-        }
-    }
-
-    const channels = destinations.map((destination) => destination.split('|')[1] || destination)
-    return {
-        label: channels.length === 1 ? channels[0] : `${channels.length} channels`,
-        title: channels.join(', '),
-    }
 }
 
 export function SubscriptionEmptyState({
@@ -154,7 +137,12 @@ export function SubscriptionListItem({
     const aiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt ? subscription.prompt : null
     const aiPromptTruncated = aiPrompt && aiPrompt.length > PROMPT_PREVIEW_MAX_CHARS
     const aiPromptPreview = aiPromptTruncated ? `${aiPrompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…` : aiPrompt
-    const destination = subscriptionDestination(subscription)
+    const { parts: destinations, countNoun } = subscriptionDestination(
+        subscription.target_type,
+        subscription.target_value
+    )
+    const destinationLabel =
+        destinations.length === 1 ? destinations[0] : pluralize(destinations.length, countNoun, undefined, true)
 
     return (
         <LemonButton
@@ -221,11 +209,14 @@ export function SubscriptionListItem({
                         </div>
                         <div
                             className="flex items-center gap-1 text-xs text-secondary shrink-0"
-                            title={destination.title}
+                            title={destinations.join(', ')}
                         >
                             {subscription.target_type === 'email' && <IconLetter />}
                             {subscription.target_type === 'slack' && <IconSlack />}
-                            <span className="max-w-40 truncate">{destination.label}</span>
+                            {subscription.target_type === 'teams' && (
+                                <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />
+                            )}
+                            <span className="max-w-40 truncate">{destinationLabel}</span>
                         </div>
                     </div>
                     {aiPrompt ? (
