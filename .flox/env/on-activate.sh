@@ -411,11 +411,15 @@ _GREPTILE_BIN="$_GREPTILE_PREFIX/node_modules/.bin/greptile"
 _GREPTILE_STAMP="$_GREPTILE_PREFIX/.version"
 
 _install_greptile() {
+  # Explicit `|| return`: run_step invokes this inside `if`/`||`, where bash
+  # ignores errexit, so a failed install would otherwise fall through and
+  # stamp the broken state as installed.
   if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-    "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix '$_GREPTILE_PREFIX' --no-fund --no-audit greptile@$_GREPTILE_VERSION"
+    "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix '$_GREPTILE_PREFIX' --no-fund --no-audit greptile@$_GREPTILE_VERSION" || return 1
   else
-    npm install --prefix "$_GREPTILE_PREFIX" --no-fund --no-audit "greptile@$_GREPTILE_VERSION"
+    npm install --prefix "$_GREPTILE_PREFIX" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || return 1
   fi
+  [[ -x "$_GREPTILE_BIN" ]] || return 1
   printf '%s' "$_GREPTILE_VERSION" > "$_GREPTILE_STAMP"
 }
 
