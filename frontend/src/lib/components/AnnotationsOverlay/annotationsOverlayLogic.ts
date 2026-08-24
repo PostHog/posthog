@@ -236,7 +236,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 // Fetch only the annotations inside the chart's visible window. This keeps every
                 // chart accurate on projects with more annotations than the API's page size, where
                 // a single unbounded list call would drop the oldest annotations.
-                loadAnnotations: async () => {
+                loadAnnotations: async (_, breakpoint) => {
                     const { dateRange, timezone } = values
                     if (!dateRange) {
                         return []
@@ -246,11 +246,16 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                         date_to: dateRange[1].toISOString(),
                         hidden_in_user_interface: false,
                     })
+                    // Drop this response if the window changed while it was in flight. Without the
+                    // breakpoint, a slow older request could resolve last and overwrite the newer
+                    // window, leaving the chart filtered against a range these rows fall outside.
+                    breakpoint()
                     // A wide window can hold more annotations than one page. Follow `next` and merge
                     // every page, or the oldest rows in the window drop — the bug this loader fixes.
                     const results = response.next
                         ? [...response.results, ...(await api.loadPaginatedResults<RawAnnotationType>(response.next))]
                         : response.results
+                    breakpoint()
                     return results.map((annotation) => deserializeAnnotation(annotation, timezone))
                 },
             },
