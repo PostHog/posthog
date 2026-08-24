@@ -143,6 +143,23 @@ class NewRelicGraphQLError(Exception):
     """NerdGraph returned HTTP 200 with an `errors` array (bad query, missing account access, ...)."""
 
 
+# NerdGraph reports both permanent and transient problems inside `errors` on an HTTP 200.
+# Only these terms mark a failure that retrying can never fix (authentication, missing
+# permission, a rejected query). Every other resolver error can clear on a retry. This
+# includes New Relic's generic "an error occurred resolving this field" and transient
+# backend blips, so the client retries them by default.
+NON_RETRYABLE_GRAPHQL_TERMS = (
+    "authentication",
+    "unauthorized",
+    "not authorized",
+    "forbidden",
+    "permission",
+    "access denied",
+    "invalid query",
+    "validation error",
+)
+
+
 @dataclasses.dataclass
 class NewRelicResumeConfig:
     # Start (epoch ms) of the next NRQL time window still to fetch. Only event tables save
@@ -195,10 +212,11 @@ def _execute_graphql(
     errors = body.get("errors")
     if errors:
         messages = "; ".join(str(error.get("message", error)) for error in errors)
-        # NerdGraph reports server-side timeouts/deadlines inside `errors` on an HTTP 200.
-        if any(term in messages.lower() for term in ("timeout", "deadline", "too many requests")):
-            raise NewRelicRetryableError(f"New Relic GraphQL error (retryable): {messages}")
-        raise NewRelicGraphQLError(f"New Relic GraphQL error: {messages}")
+        # Fail fast only on the errors retrying can never fix; retry everything else so a
+        # transient resolver failure doesn't kill the whole sync.
+        if any(term in messages.lower() for term in NON_RETRYABLE_GRAPHQL_TERMS):
+            raise NewRelicGraphQLError(f"New Relic GraphQL error: {messages}")
+        raise NewRelicRetryableError(f"New Relic GraphQL error (retryable): {messages}")
 
     return body.get("data") or {}
 
