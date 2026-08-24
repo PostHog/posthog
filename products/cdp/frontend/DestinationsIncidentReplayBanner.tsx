@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { isRerunnableHogFunctionType } from 'scenes/hog-functions/invocations/hogInvocationsLogic'
@@ -23,6 +23,24 @@ function replayBlockedReason(destination: AffectedDestination): string | undefin
         return 'There is nothing left to replay.'
     }
     return undefined
+}
+
+/**
+ * A replay sends real events to the third party, so it gets the same confirmation the per-invocation
+ * and bulk rerun buttons already use. It matters more here: one click covers the whole backlog.
+ */
+function confirmReplay(destination: AffectedDestination, replayDestination: (id: string) => void): void {
+    LemonDialog.open({
+        title: `Replay failed events for ${destination.name || 'this destination'}?`,
+        content: `This sends ${humanFriendlyNumber(destination.failedCount)} failed ${
+            destination.failedCount === 1 ? 'event' : 'events'
+        } to the destination again, starting from August 18. Events the destination already processed are sent a second time.`,
+        primaryButton: {
+            children: 'Replay',
+            onClick: () => replayDestination(destination.id),
+        },
+        secondaryButton: { children: 'Cancel' },
+    })
 }
 
 export function DestinationsIncidentReplayBanner(): JSX.Element | null {
@@ -50,8 +68,9 @@ export function DestinationsIncidentReplayBanner(): JSX.Element | null {
             <div className="flex flex-col gap-2" data-attr="destinations-incident-replay-banner">
                 <div>
                     On August 18 an incident on our side replaced the saved credentials on some destinations with a
-                    placeholder, so their events stopped being delivered. We can't recover the original values. Enter
-                    them again on each destination below, then replay what failed.
+                    placeholder, so their events stopped being delivered. We can't recover the original values. Any
+                    destination below marked "Enter credentials" is affected, and needs its credentials again. The rest
+                    have events that failed since August 18, which may or may not be related, and you can replay those.
                     {hasLargeBacklog ? (
                         <> A replay covers up to 10,000 failed events per run. Replay again to send the rest.</>
                     ) : null}
@@ -82,7 +101,7 @@ export function DestinationsIncidentReplayBanner(): JSX.Element | null {
                                                 ? 'Replay queued. Refresh the page to replay again once it finishes.'
                                                 : blockedReason
                                         }
-                                        onClick={() => replayDestination(destination.id)}
+                                        onClick={() => confirmReplay(destination, replayDestination)}
                                     >
                                         {status === 'queued' ? 'Replay queued' : 'Replay failed events'}
                                     </LemonButton>

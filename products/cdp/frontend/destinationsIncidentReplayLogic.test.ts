@@ -8,6 +8,10 @@ import { destinationsIncidentReplayLogic, incidentReplayWindow } from './destina
 const MASKED_ONLY_ID = '019d244c-42c9-0000-ec6c-752c8b265c4f'
 const FAILED_ONLY_ID = '019d9146-223a-0000-8165-1a3489e88b3d'
 const DELETED_ID = '019f3834-8dbd-0000-4b19-073031109b21'
+const NO_SECRET_ID = '019f3834-8dbd-0000-4b19-073031109b22'
+
+const SECRET_SCHEMA = [{ key: 'api_key', type: 'string', label: 'API key', secret: true }]
+const INTEGRATION_SCHEMA = [{ key: 'slack_workspace', type: 'integration', label: 'Slack workspace' }]
 
 describe('destinationsIncidentReplayLogic', () => {
     let logic: ReturnType<typeof destinationsIncidentReplayLogic.build>
@@ -20,6 +24,7 @@ describe('destinationsIncidentReplayLogic', () => {
                     {
                         results: [
                             [FAILED_ONLY_ID, 224],
+                            [NO_SECRET_ID, 91],
                             [DELETED_ID, 3],
                         ],
                     },
@@ -41,10 +46,40 @@ describe('destinationsIncidentReplayLogic', () => {
                 ],
                 '/api/projects/:team_id/hog_functions/:id/': (req) => {
                     if (req.params.id === MASKED_ONLY_ID) {
-                        return [200, { id: MASKED_ONLY_ID, name: 'Customer.io', type: 'destination', enabled: true }]
+                        return [
+                            200,
+                            {
+                                id: MASKED_ONLY_ID,
+                                name: 'Customer.io',
+                                type: 'destination',
+                                enabled: true,
+                                inputs_schema: SECRET_SCHEMA,
+                            },
+                        ]
                     }
                     if (req.params.id === FAILED_ONLY_ID) {
-                        return [200, { id: FAILED_ONLY_ID, name: 'HubSpot', type: 'destination', enabled: true }]
+                        return [
+                            200,
+                            {
+                                id: FAILED_ONLY_ID,
+                                name: 'HubSpot',
+                                type: 'destination',
+                                enabled: true,
+                                inputs_schema: SECRET_SCHEMA,
+                            },
+                        ]
+                    }
+                    if (req.params.id === NO_SECRET_ID) {
+                        return [
+                            200,
+                            {
+                                id: NO_SECRET_ID,
+                                name: 'Slack',
+                                type: 'destination',
+                                enabled: true,
+                                inputs_schema: INTEGRATION_SCHEMA,
+                            },
+                        ]
                     }
                     return [404, { detail: 'Not found.' }]
                 },
@@ -53,6 +88,14 @@ describe('destinationsIncidentReplayLogic', () => {
         initKeaTests()
         logic = destinationsIncidentReplayLogic()
         logic.mount()
+    })
+
+    it('excludes a failing destination that holds no secret the incident could clear', async () => {
+        await expectLogic(logic, () => logic.actions.loadAffectedDestinations()).toDispatchActions([
+            'loadAffectedDestinationsSuccess',
+        ])
+
+        expect(logic.values.affectedDestinations.map((row) => row.id)).not.toContain(NO_SECRET_ID)
     })
 
     it('lists destinations found by either signal and drops deleted ones', async () => {

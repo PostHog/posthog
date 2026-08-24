@@ -14,7 +14,7 @@ const hogFunction = (id: string, name: string): Record<string, unknown> => ({
     name,
     type: 'destination',
     enabled: true,
-    inputs_schema: [],
+    inputs_schema: [{ key: 'api_key', type: 'string', label: 'API key', secret: true }],
     inputs: {},
     filters: {},
     icon_url: null,

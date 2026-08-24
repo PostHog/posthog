@@ -106,6 +106,11 @@ export type destinationsIncidentReplayLogicType = MakeLogicType<
     destinationsIncidentReplayLogicMeta
 >
 
+/** Whether the destination stores a credential of its own, which is what the incident could clear. */
+function hasSecretInput(hogFunction: HogFunctionApi): boolean {
+    return (hogFunction.inputs_schema ?? []).some((schema) => schema.secret)
+}
+
 /**
  * Counts, per destination, the invocations whose latest status is still failed since the incident
  * began. One query rather than one per destination, and it doubles as the discovery step.
@@ -213,21 +218,32 @@ export const destinationsIncidentReplayLogic = kea<destinationsIncidentReplayLog
                             .map((hogFunction) => [String(hogFunction.id), hogFunction])
                     )
 
-                    return candidateIds
-                        .filter((id) => !dropped.has(id))
-                        .map((id) => {
-                            const hogFunction = byId.get(id)
-                            const maskedRow = maskedSecrets.find((row) => String(row.id) === id)
-                            return {
-                                id,
-                                name: hogFunction?.name ?? maskedRow?.name ?? '',
-                                type: (hogFunction?.type ?? maskedRow?.type ?? null) as HogFunctionTypeType | null,
-                                failedCount: failedCounts.get(id) ?? 0,
-                                needsCredentials: maskedIds.has(id),
-                                enabled: hogFunction?.enabled ?? maskedRow?.enabled ?? false,
-                            }
-                        })
-                        .sort((a, b) => b.failedCount - a.failedCount)
+                    return (
+                        candidateIds
+                            .filter((id) => !dropped.has(id))
+                            // A destination with no secret input never held a credential we could clear,
+                            // so a failure on it belongs to the destination, not to this incident. This
+                            // drops every OAuth-backed destination (Slack, ads, Discord, Linear, GitHub),
+                            // whose credentials live on the Integration record. A destination we could
+                            // not fetch stays: an unknown schema must not hide a real recovery path.
+                            .filter((id) => {
+                                const hogFunction = byId.get(id)
+                                return maskedIds.has(id) || !hogFunction || hasSecretInput(hogFunction)
+                            })
+                            .map((id) => {
+                                const hogFunction = byId.get(id)
+                                const maskedRow = maskedSecrets.find((row) => String(row.id) === id)
+                                return {
+                                    id,
+                                    name: hogFunction?.name ?? maskedRow?.name ?? '',
+                                    type: (hogFunction?.type ?? maskedRow?.type ?? null) as HogFunctionTypeType | null,
+                                    failedCount: failedCounts.get(id) ?? 0,
+                                    needsCredentials: maskedIds.has(id),
+                                    enabled: hogFunction?.enabled ?? maskedRow?.enabled ?? false,
+                                }
+                            })
+                            .sort((a, b) => b.failedCount - a.failedCount)
+                    )
                 },
             },
         ],
