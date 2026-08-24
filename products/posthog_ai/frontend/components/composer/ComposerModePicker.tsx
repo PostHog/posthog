@@ -77,10 +77,9 @@ export interface ComposerModePickerProps {
  * model/effort pickers. The caller owns the selection and its side effects. Also reused by the plan-approval
  * card, where `modes` narrows the menu to the wire-offered modes.
  *
- * The menu keeps each option to one line (icon + label); the highlighted option's description renders in
- * a strip above the options. The menu opens upwards from the composer, so its bottom edge is the fixed
- * one — a description strip above the options absorbs its own height changes and leaves the option rows
- * still under the pointer.
+ * The highlighted option's description renders in a strip attached to the menu's growing edge (away
+ * from the trigger), passed as the `accessory` so its height changes never resize or move the option
+ * list.
  */
 export function ComposerModePicker({ selectedMode, onModeChange, modes }: ComposerModePickerProps): JSX.Element {
     // Ordered by `modes`, not by MODE_OPTIONS: each runtime lists its modes in its own order.
@@ -117,12 +116,23 @@ export function ComposerModePicker({ selectedMode, onModeChange, modes }: Compos
                     )}
                 </SelectValue>
             </SelectTrigger>
-            <SelectContent align="start" alignItemWithTrigger={false}>
-                {descriptionOption && (
-                    <div className="-mx-1 -mt-1 mb-1 flex min-h-[3.25rem] w-60 items-center border-b px-3 py-1.5 text-xs text-secondary">
-                        {descriptionOption.description}
-                    </div>
-                )}
+            <SelectContent
+                align="start"
+                alignItemWithTrigger={false}
+                className="min-w-60 data-[side=top]:rounded-t-none data-[side=bottom]:rounded-b-none"
+                accessory={
+                    descriptionOption && (
+                        <>
+                            <div className="absolute bottom-full left-0 right-0 hidden min-h-[3.25rem] items-center rounded-t-[var(--radius-md)] border border-b-0 border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs text-secondary [[data-side=top]_&]:flex">
+                                {descriptionOption.description}
+                            </div>
+                            <div className="absolute top-full left-0 right-0 hidden min-h-[3.25rem] items-center rounded-b-[var(--radius-md)] border border-t-0 border-[var(--border)] bg-[var(--card)] px-3 py-1.5 text-xs text-secondary [[data-side=bottom]_&]:flex">
+                                {descriptionOption.description}
+                            </div>
+                        </>
+                    )
+                }
+            >
                 {options.map((option) => (
                     <SelectItem
                         key={option.value}

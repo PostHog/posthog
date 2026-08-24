@@ -25,12 +25,18 @@ describe('ComposerModePicker', () => {
         // Never-ask modes are gated out, as they are in the desktop app by default.
         expect(screen.queryByText('Full auto')).not.toBeInTheDocument()
 
-        // The description strip describes the selected mode on open; the other descriptions stay out of the menu.
-        expect(
-            screen.getByText(
-                'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
-            )
-        ).toBeInTheDocument()
+        // The description strip describes the selected mode on open; the other descriptions stay out of
+        // the menu. The strip renders twice (top and bottom edge, CSS picks one by open direction), so
+        // presence checks use getAllByText.
+        const strips = screen.getAllByText(
+            'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
+        )
+        expect(strips).not.toHaveLength(0)
+        // The strips must sit outside the popup: inside it, the popup's overflow clipping and the
+        // list's scroll mask hide them entirely.
+        for (const strip of strips) {
+            expect(strip.closest('[data-slot="select-content"]')).toBeNull()
+        }
         expect(
             screen.queryByText('Plans the work first. Nothing runs until you approve the plan.')
         ).not.toBeInTheDocument()
@@ -40,7 +46,9 @@ describe('ComposerModePicker', () => {
         const planOption = screen.getByText('Plan').closest('[role="option"]')
         expect(planOption).not.toBeNull()
         fireEvent.mouseMove(planOption!)
-        expect(screen.getByText('Plans the work first. Nothing runs until you approve the plan.')).toBeInTheDocument()
+        expect(screen.getAllByText('Plans the work first. Nothing runs until you approve the plan.')).not.toHaveLength(
+            0
+        )
         expect(
             screen.queryByText(
                 'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
@@ -65,7 +73,9 @@ describe('ComposerModePicker', () => {
         fireEvent.click(screen.getByLabelText('Mode'))
 
         // The selected mode is filtered out, so the strip falls back to the first offered mode.
-        expect(screen.getByText('Plans the work first. Nothing runs until you approve the plan.')).toBeInTheDocument()
+        expect(screen.getAllByText('Plans the work first. Nothing runs until you approve the plan.')).not.toHaveLength(
+            0
+        )
         expect(
             screen.queryByText(
                 'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
