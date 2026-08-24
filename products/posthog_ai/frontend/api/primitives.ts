@@ -51,6 +51,8 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
+export type { TurnTrailer } from '../utils/turnTrailers'
+export { TurnFeedbackActions } from '../components/TurnFeedbackActions'
 export { MessageTemplate } from '../messages/MessageTemplate'
 export { MarkdownMessage } from '../messages/MarkdownMessage'
 export { ReasoningAnswer } from '../messages/ReasoningAnswer'
