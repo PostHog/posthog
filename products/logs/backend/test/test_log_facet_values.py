@@ -200,6 +200,21 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("facetResourceAttribute", "k8s.namespace.name"),
+            ("facetAttribute", "log.iostream"),
+        ]
+    )
+    def test_attribute_facet_ignores_a_column_filter_with_no_value(self, target, key):
+        # The search bar writes a filter as soon as its key is picked, so a severity filter sits in
+        # the group with no value while the user chooses one. Translating that to `IN ()` matches
+        # nothing and empties the very list they are picking from.
+        base = self._facet_attr(key, target=target)
+        filter_group = [{"key": "severity_level", "type": "log", "operator": "exact", "value": []}]
+
+        self.assertEqual(self._facet_attr(key, target=target, filterGroup=filter_group), base)
+
+    @parameterized.expand(
+        [
             ("facetResourceAttribute", "k8s.namespace.name", "severity_level", "exact"),
             ("facetResourceAttribute", "k8s.namespace.name", "severity_level", "is_not"),
             ("facetResourceAttribute", "k8s.namespace.name", "service_name", "exact"),
