@@ -164,21 +164,35 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
         // the longer person-on-events branch, so a long org/project/user cannot
         // push the real schema past the cap while this test passes.
+        const worstCaseUser = {
+            first_name: 'F'.repeat(150),
+            last_name: 'L'.repeat(150),
+            email: `${'e'.repeat(242)}@example.com`,
+        } as CachedUser
+        const worstCaseOrg = { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg
+        const worstCaseProject = {
+            name: 'P'.repeat(200),
+            id: 9_999_999,
+            api_token: `phc_${'x'.repeat(43)}`,
+            timezone: 'America/Argentina/ComodRivadavia',
+            person_on_events_querying_enabled: true,
+        } as CachedProject
         const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
-            {
-                first_name: 'F'.repeat(150),
-                last_name: 'L'.repeat(150),
-                email: `${'e'.repeat(242)}@example.com`,
-            } as CachedUser,
-            { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg,
-            {
-                name: 'P'.repeat(200),
-                id: 9_999_999,
-                api_token: `phc_${'x'.repeat(43)}`,
-                timezone: 'America/Argentina/ComodRivadavia',
-                person_on_events_querying_enabled: true,
-            } as CachedProject,
+            worstCaseUser,
+            worstCaseOrg,
+            worstCaseProject,
             'https://us.posthog.com'
+        )
+        // The claude.ai reference renders the compact metadata variant: the
+        // product/integration context lines are excluded from this surface by
+        // design because they do not fit under the cap (see
+        // `buildClaudeExecCommandReference` and `ResolvedState.metadataCompact`).
+        const worstCaseMetadataCompact = buildActiveEnvironmentContextPrompt(
+            worstCaseUser,
+            worstCaseOrg,
+            worstCaseProject,
+            'https://us.posthog.com',
+            { includeProductContext: false }
         )
         // Five group types (the product cap) with generously long names.
         const worstCaseGroupTypes = Array.from({ length: 5 }, (_, i) => ({
@@ -195,6 +209,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
             toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
+            metadataCompact: worstCaseMetadataCompact,
             groupTypes: worstCaseGroupTypes,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)

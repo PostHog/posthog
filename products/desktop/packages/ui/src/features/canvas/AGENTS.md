@@ -36,13 +36,39 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 
 ## Spaces & chrome
 
-- Spaces is a **top-level space** reached through the app rail (`AppNav`),
-  gated behind `project-bluebird` and wired in `routes/__root.tsx`. The rail's
-  spaces are Code (`/code`), Inbox (`/inbox`), and Spaces (`/website`).
+- Spaces is a rail destination, gated behind `project-bluebird` and wired in
+  `routes/__root.tsx`.
+  The rail's destinations and the paths they claim live in one table,
+  `railPane.ts`: Home (`/`), Spaces (`/spaces`), Activity (`/activity`),
+  Inbox (`/inbox`), Command Center (`/command-center`), Loops (`/loops`).
+  Unclaimed routes belong to Spaces.
+  Only Spaces and Activity own the column beside the rail; the rest are
+  whole-screen, so no route under them may draw a second nav.
+- **A rail pick returns you to where that destination was**, not to its index.
+  `RailHistorySync` records the settled route per destination in
+  `railHistoryStore` (session-scoped; `startupLocation` already owns relaunch),
+  and `pickRailDestination` replays it. Only Spaces carries sidebar state on top
+  of its href, so `RailVisit.spaces` is the one pane-shaped field. Clicking the
+  destination you are already on never restores — it runs `onReclick`, which for
+  Spaces means the list.
+  Anything a destination does besides navigating must live in its route
+  component, not its `onPick`: the restore path navigates by href and never
+  reaches the navigation bridge.
+- **Testing flag-off locally:** dev builds default `project-bluebird` and
+  `code-spaces-layout` on, and that default beats posthog's own override. Force
+  them off with
+  `localStorage.setItem("ph-dev-flags-off", "project-bluebird,code-spaces-layout")`
+  and reload (see `devFlagOverrides.ts`). Bluebird-only paths are listed in
+  `bluebirdRoutes.ts`; a flag-off user who restores one lands on a new task.
+- Routes are flat, and the ones wearing the spaces chrome are grouped under the
+  **pathless** `_shell` layout rather than a URL prefix.
+  Match `fullPath` (the route's own pattern) rather than the resolved URL when
+  deciding what a route is: a space id could otherwise impersonate a
+  destination.
 - The Spaces UI has **its own chrome**: rail + a persistent channel-list
-  sidebar (`ChannelsList`, rendered in `__root`) + the `WebsiteLayout` outlet. It
+  sidebar (`ChannelsList`, rendered in `__root`) + the `ShellLayout` outlet. It
   does NOT use the code `HeaderRow`/`MainSidebar`, so breadcrumbs render in
-  `WebsiteLayout`'s own top bar (below).
+  `ShellLayout`'s own top bar (below).
 - Under the channels layout the sidebar is a **master/detail slider**
   (`ChannelPanes` in `ChannelsSidebar.tsx`): the searchable channel list, and the
   channel you're in (`ChannelSidebar`, headed by `ChannelBackRow`). Both panes
@@ -204,16 +230,16 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 
 ## Breadcrumbs
 
-- **`WebsiteLayout` renders its own top bar.** The Spaces UI has no code
+- **`ShellLayout` renders its own top bar.** The Spaces UI has no code
   `HeaderRow`, so breadcrumbs (and the dashboard controls) are a local bar inside
-  `WebsiteLayout`, not pushed through the header store.
+  `ShellLayout`, not pushed through the header store.
 - **A page does not get its own crumb — its H1 is the title.** A view that
   renders its own `<h1>` is NOT repeated as a breadcrumb segment for itself. The
   dashboards grid's h1 is "Dashboards"; a single dashboard's h1 is its name.
 - **A parent index IS a crumb when you're on a child, but not when you're on it.**
-  - On the grid (`/website/$channelId`): trail is `#channel` only — no
+  - On the grid (`/spaces/$channelId`): trail is `#channel` only — no
     "Dashboards" crumb (its own h1 covers it, and `#channel` already links here).
-  - On a single dashboard (`/website/$channelId/dashboards/$id`): trail is
+  - On a single dashboard (`/spaces/$channelId/dashboards/$id`): trail is
     `#channel / Dashboards`, where `Dashboards` links back to the grid. The
     dashboard's name is the h1 below, not a crumb.
 - Crumbs reflect navigable parents above the current page; the current page is
