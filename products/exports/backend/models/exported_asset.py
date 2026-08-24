@@ -1,3 +1,4 @@
+import re
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -35,6 +36,18 @@ SIX_MONTHS = timedelta(days=180)
 TWELVE_MONTHS = timedelta(days=365)
 
 
+# The rasterizer interpolates this id into an internal recording API path, so anything that could
+# change the shape of that path has to be rejected: separators, percent escapes, and a dot-only id,
+# which is a relative segment that URL normalization collapses. Kept in step with SESSION_ID_RE in
+# nodejs/src/session-replay/recording-rasterizer/capture/config.ts.
+SESSION_RECORDING_ID_RE = re.compile(r"(?!\.+\Z)[A-Za-z0-9_.:-]{1,200}")
+
+
+def is_valid_session_recording_id(session_recording_id: object) -> bool:
+    # fullmatch, not match: `$` would also accept a trailing newline.
+    return isinstance(session_recording_id, str) and bool(SESSION_RECORDING_ID_RE.fullmatch(session_recording_id))
+
+
 def get_default_access_token() -> str:
     return secrets.token_urlsafe(22)
 
@@ -46,6 +59,11 @@ class ExportedAssetManager(models.Manager):
 
 
 class ExportedAsset(models.Model):
+    class SourceAuthentication(models.TextChoices):
+        SESSION = "session"
+        PERSONAL_API_KEY = "personal_api_key", "Personal API key"
+        OAUTH_ACCESS_TOKEN = "oauth_access_token", "OAuth access token"
+
     class ExportFormat(models.TextChoices):
         PNG = "image/png", "image/png"
         PDF = "application/pdf", "application/pdf"
@@ -72,6 +90,14 @@ class ExportedAsset(models.Model):
         ExportFormat.JSONL,
     ]
 
+    # Formats rendered by the Temporal rasterizer (headless Chromium replaying the recording) rather
+    # than the browserless image/CSV path. Values are the ffmpeg output format each one renders to.
+    RASTERIZED_FORMATS: dict[str, str] = {
+        ExportFormat.MP4: "mp4",
+        ExportFormat.WEBM: "webm",
+        ExportFormat.GIF: "gif",
+    }
+
     # Relations
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
@@ -87,6 +113,8 @@ class ExportedAsset(models.Model):
     # to allow for lazy deletes
     expires_after = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    source_authentication = models.CharField(max_length=32, choices=SourceAuthentication.choices, null=True, blank=True)
+    source_credential_id = models.CharField(max_length=50, null=True, blank=True)
     # for example holds filters for CSV exports
     export_context = models.JSONField(null=True, blank=True)
     # path in object storage or some other location identifier for the asset
@@ -187,6 +215,12 @@ class ExportedAsset(models.Model):
         )
 
     @property
+    def is_rasterized_export(self) -> bool:
+        """Rendered by the rasterize-recording Temporal workflow, so it lives under that workflow's
+        timing envelope rather than the query/screenshot timeouts the other formats inherit."""
+        return self.export_format in self.RASTERIZED_FORMATS
+
+    @property
     def is_session_recording_export(self) -> bool:
         """Teammates may retrieve by id if they can view the linked session recording."""
         return bool((self.export_context or {}).get("session_recording_id"))
@@ -197,6 +231,9 @@ class ExportedAsset(models.Model):
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
+            # Scanner-driven renders (replay_vision) report through the same pipeline; without this
+            # flag their volume is indistinguishable from user exports in failure-rate comparisons.
+            "is_system": bool(self.is_system),
         }
 
     def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):

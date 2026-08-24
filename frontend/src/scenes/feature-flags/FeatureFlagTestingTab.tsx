@@ -12,6 +12,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { FeatureFlagType, PersonType } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
+import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
 import type { ConditionAnalysis, TestResult } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
@@ -131,6 +132,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                     Provides detailed explanations of why the flag matched or didn't match.
                 </p>
             </div>
+
+            <FeatureFlagNoConditionsWarning conditionSetCount={featureFlag.filters?.groups?.length ?? 0} />
 
             <div className="flex gap-6">
                 {/* Left Panel - Form */}

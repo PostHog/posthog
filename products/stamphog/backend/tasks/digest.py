@@ -21,9 +21,9 @@ from celery import shared_task
 
 from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
-from products.stamphog.backend.logic.digest import summarize_merged_prs
+from products.stamphog.backend.logic.digest import pr_key, summarize_merged_prs
 from products.stamphog.backend.logic.slack_digest import post_digest
-from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequest
+from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequestAudience
 
 logger = structlog.get_logger(__name__)
 
@@ -34,7 +34,7 @@ DIGEST_LOOKBACK_DAYS = 7
 # Per-run claim ceiling. An unbounded claim grows the LLM prompt, the stored summary, and the Slack
 # payload with the burst size — and if either rejects the oversized payload, the failure handler
 # unlinks the same PRs and every later run retries the identical oversized batch forever. Capping the
-# claim drains a backlog across daily runs instead; Slack rendering caps at 40 sections regardless.
+# claim drains a backlog across daily runs instead; the digest itself renders at most MAX_DIGEST_PRS.
 DIGEST_MAX_PRS_PER_RUN = 100
 
 # A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
@@ -85,17 +85,18 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         logger.info("stamphog_digest_channel_missing_or_disabled", digest_channel_id=digest_channel_id)
         return
 
-    # Bound the claim by a merged_at floor: audience_key + digest_run__isnull=True marks a PR
-    # digest-eligible-and-not-yet-posted, but without a floor a channel created (or re-enabled, or
-    # auto-provisioned) long after merges started being captured would claim the whole backlog and
+    # Bound the claim by a merged_at floor: an audience row with digest_run NULL marks a PR
+    # digest-eligible-and-not-yet-posted for THIS audience, but without a floor a channel created
+    # (or re-enabled, or auto-provisioned) long after merges started being captured would claim the
+    # whole backlog and
     # flood its first digest. A channel's FIRST digest covers only the natural cadence window — back
     # to the previous weekday slot, exactly what it would have received had it existed one run
     # earlier. An established channel keeps the wide DIGEST_LOOKBACK_DAYS floor instead: linkage
     # already prevents duplicates there, and the wide floor lets PRs from a failed or missed run be
     # picked up for a week before aging out.
-    # Already-linked PRs are untouched by this floor: once digest_run is set this query excludes
-    # them, and the reclaim/finalize paths key off digest_run_id (not merged_at), so a posted PR
-    # older than the window still finalizes instead of being re-sent.
+    # Already-linked audiences are untouched by this floor: once digest_run is set this query
+    # excludes them, and the reclaim/finalize paths key off digest_run_id (not merged_at), so a
+    # posted PR older than the window still finalizes instead of being re-sent.
     #
     # Claim the candidate PRs before posting: two concurrent runs for the same channel would
     # otherwise both read the same unlinked PRs and both post to Slack. select_for_update locks
@@ -111,39 +112,62 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
         claim_floor = now - timedelta(days=DIGEST_LOOKBACK_DAYS)
     else:
         claim_floor = _previous_run_slot(now)
-    write_db = router.db_for_write(PullRequest)
+    write_db = router.db_for_write(PullRequestAudience)
     with transaction.atomic(using=write_db):
-        prs = list(
-            PullRequest.objects.for_team(team_id)
-            .filter(audience_key=channel.audience_key, digest_run__isnull=True, merged_at__gte=claim_floor)
+        audiences = list(
+            PullRequestAudience.objects.for_team(team_id)
+            .filter(
+                audience_key=channel.audience_key,
+                digest_run__isnull=True,
+                pull_request__merged_at__gte=claim_floor,
+            )
             .select_for_update(of=("self",))
-            .select_related("repo_config")
-            .order_by("merged_at")[:DIGEST_MAX_PRS_PER_RUN]
+            .select_related("pull_request", "pull_request__repo_config")
+            .order_by("pull_request__merged_at")[:DIGEST_MAX_PRS_PER_RUN]
         )
-        if not prs:
+        if not audiences:
             logger.info("stamphog_digest_no_prs", audience_key=channel.audience_key, team_id=team_id)
             return
+        prs = [audience.pull_request for audience in audiences]
 
         run = DigestRun.objects.for_team(team_id).create(
             team_id=team_id,
             digest_channel=channel,
             status=DigestRunStatus.PENDING,
         )
-        PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=run)
+        PullRequestAudience.objects.for_team(team_id).filter(id__in=[a.id for a in audiences]).update(digest_run=run)
 
-    summary = summarize_merged_prs(prs)
+    summary = summarize_merged_prs(prs, audiences)
+    if not summary.prs:
+        # The model kept nothing — nothing to post. Release the claim rather than consume it: the
+        # summarizer reads contributor-authored text, so a single injected or degenerate answer
+        # must not be the last word on a whole batch. Genuinely irrelevant PRs are simply
+        # re-evaluated tomorrow and age out of the claim floor on their own.
+        logger.info("stamphog_digest_nothing_relevant", digest_channel_id=digest_channel_id, pr_count=len(prs))
+        with transaction.atomic(using=write_db):
+            DigestRun.objects.for_team(team_id).filter(id=run.id).update(
+                status=DigestRunStatus.COMPLETED, summary=summary.to_dict(), posted_at=timezone.now()
+            )
+            PullRequestAudience.objects.for_team(team_id).filter(id__in=[a.id for a in audiences]).update(
+                digest_run=None
+            )
+        return
+
     try:
         message_ts = post_digest(team_id, channel, summary)
     except Exception as e:
-        # Unlink the claimed PRs (digest_run back to NULL) so the next run retries them — the retry
-        # query filters digest_run__isnull=True, so leaving them linked to a FAILED run would hide
-        # them forever. Unlinking keeps "Slack failure -> PRs stay retryable" intact.
+        # Unlink the claimed audiences (digest_run back to NULL) so the next run retries them — the
+        # retry query filters digest_run__isnull=True, so leaving them linked to a FAILED run would
+        # hide them forever. Unlinking keeps "Slack failure -> PRs stay retryable" intact, and only
+        # for THIS channel: another team's audience row for the same PR is a separate row.
         logger.exception("stamphog_digest_post_failed", digest_channel_id=digest_channel_id, error=str(e))
         with transaction.atomic(using=write_db):
             DigestRun.objects.for_team(team_id).filter(id=run.id).update(
                 status=DigestRunStatus.FAILED, summary=summary.to_dict(), error=str(e)
             )
-            PullRequest.objects.for_team(team_id).filter(id__in=[pr.id for pr in prs]).update(digest_run=None)
+            PullRequestAudience.objects.for_team(team_id).filter(id__in=[a.id for a in audiences]).update(
+                digest_run=None
+            )
         return
 
     # Proof-of-post, written immediately after Slack accepted the message and before the fuller COMPLETED
@@ -177,6 +201,19 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             slack_message_ts=message_ts or "",
             posted_at=now,
         )
+        # Release the PRs the digest kept but had no room for, so the next run posts them. Every
+        # other claimed PR stays linked: the model saw it and left it out, which is a decision and
+        # not a backlog. Runs after the proof-of-post write, so a crash here loses a day for those
+        # PRs rather than re-sending the whole digest.
+        if summary.deferred_prs:
+            deferred = set(summary.deferred_prs)
+            PullRequestAudience.objects.for_team(team_id).filter(
+                id__in=[
+                    a.id
+                    for a in audiences
+                    if pr_key(a.pull_request.repo_config.repository, a.pull_request.pr_number) in deferred
+                ]
+            ).update(digest_run=None)
         DigestChannel.objects.for_team(team_id).filter(id=channel.id).update(last_digest_at=now)
 
     logger.info("stamphog_digest_posted", digest_channel_id=digest_channel_id, pr_count=len(prs), run_id=str(run.id))
@@ -238,8 +275,8 @@ def _reclaim_stale_pending_runs() -> None:
                 DigestChannel.objects.for_team(team_id).filter(id=channel_id).update(last_digest_at=now)
                 finalized += 1
             else:
-                # Never posted — unlink the PRs so the next run retries them.
-                PullRequest.objects.for_team(team_id).filter(digest_run_id=run_id).update(digest_run=None)
+                # Never posted — unlink the audiences so the next run retries them.
+                PullRequestAudience.objects.for_team(team_id).filter(digest_run_id=run_id).update(digest_run=None)
                 DigestRun.objects.for_team(team_id).filter(id=run_id).update(
                     status=DigestRunStatus.FAILED, error="Reclaimed: worker lost before the digest posted."
                 )
@@ -272,9 +309,8 @@ def send_daily_digests() -> None:
     # "repo:" audiences are included too now — a repo with a declared digest channel (policy.yml) resolves
     # them via logic/channel_resolution.py instead of a plain Slack name match.
     candidate_audiences = (
-        PullRequest.objects.unscoped()
-        .filter(digest_run__isnull=True, merged_at__gte=since)
-        .exclude(audience_key="")
+        PullRequestAudience.objects.unscoped()
+        .filter(digest_run__isnull=True, pull_request__merged_at__gte=since)
         .values_list("team_id", "audience_key")
         .distinct()
     )

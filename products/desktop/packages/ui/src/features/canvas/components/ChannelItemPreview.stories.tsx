@@ -38,7 +38,7 @@ function run(overrides: Partial<TaskRun>): TaskRun {
     id: "run-1",
     task: "task-1",
     team: 1,
-    branch: null,
+    branch: "posthog/importer-cleanup",
     environment: "cloud",
     status: "completed",
     log_url: "",
@@ -62,6 +62,7 @@ function task(latestRun: TaskRun, overrides: Partial<Task> = {}): Task {
     created_at: "2026-07-16T12:00:00.000Z",
     updated_at: "2026-07-17T12:00:00.000Z",
     origin_product: "user_created",
+    repository: "PostHog/code",
     latest_run: latestRun,
     ...overrides,
   };
@@ -95,6 +96,8 @@ function item(
     authorName: null,
     authorUuid: "user-uuid",
     templateId: null,
+    repository: { key: "posthog/code", label: "PostHog/code" },
+    branch: "posthog/importer-cleanup",
     task: task(latestRun, taskOverrides),
     ...overrides,
   };

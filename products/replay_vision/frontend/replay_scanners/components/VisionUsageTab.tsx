@@ -13,6 +13,7 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { VisionDocsLink } from '../../components/DocsLink'
+import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
@@ -295,6 +296,9 @@ export function VisionUsageTab(): JSX.Element {
                     ) : undefined
                 }
             />
+            <div className="text-xs text-muted">
+                <CreditPriceNote dataAttr="vision-pricing-link-usage" />
+            </div>
         </div>
     )
 }

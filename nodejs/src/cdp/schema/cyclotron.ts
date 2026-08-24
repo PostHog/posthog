@@ -29,6 +29,9 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'push_subscription',
         'customer_analytics_account_properties',
         'customer_analytics_account_relationships',
+        'task_model',
+        'task_repository',
+        'task_mcp_installations',
     ]),
     key: z.string(),
     label: z.string(),
@@ -122,6 +125,8 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
 })
 
+export const MAX_WORKFLOW_EMAIL_SENDERS = 10
+
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
     to: z.object({
@@ -131,6 +136,11 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     replyTo: z.string().optional(),
     from: z.object({
         integrationId: z.number(),
+        integrationIds: z.array(z.number()).max(MAX_WORKFLOW_EMAIL_SENDERS).optional(),
+        // Templated per-invocation sender overrides. EmailService requires the rendered
+        // address to be on the selected integration's verified domain before it reaches the provider.
+        email: z.string().optional(),
+        name: z.string().optional(),
     }),
     cc: z.string().optional(),
     bcc: z.string().optional(),

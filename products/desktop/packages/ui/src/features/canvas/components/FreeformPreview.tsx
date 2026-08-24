@@ -76,11 +76,7 @@ export function FreeformPreview({
                 />
               }
             >
-              <FreeformCanvas
-                code={code}
-                mode="edit"
-                onDataRequest={onDataRequest}
-              />
+              <FreeformCanvas code={code} onDataRequest={onDataRequest} />
             </ErrorBoundary>
           </Box>
         ) : (

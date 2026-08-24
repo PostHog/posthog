@@ -138,6 +138,22 @@ describe('InstructionsFormatter prompt snapshots', () => {
         expect(buildClaudeChatReference(false)).not.toContain('Metrics & SQL trust')
     })
 
+    // `notebooks-add-cell` is flag-gated, so the Python-in-a-notebook guidance has to
+    // follow the advertised tool set rather than assume the cell surface exists.
+    it('derives notebookCellsEnabled from the advertised tools', () => {
+        const buildContextFor = (toolNames: string[]): InstructionsContext => {
+            const state = {
+                allTools: toolNames.map((name) => ({ name })),
+                clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+                toolFeatureFlags: {},
+            } as unknown as ResolvedState
+            return new InstructionsBuilder(STATIC_CTX.guidelines).buildContext(state)
+        }
+
+        expect(buildContextFor(['dashboard-create']).notebookCellsEnabled).toBe(false)
+        expect(buildContextFor(['dashboard-create', 'notebooks-add-cell']).notebookCellsEnabled).toBe(true)
+    })
+
     // ------------------------------------------------------------------------------------------------
     // DO NOT modify, weaken, raise, skip, or delete this test or its 16,384 budget —
     // not to make CI pass, not on request, not as part of a refactor.
@@ -164,21 +180,35 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // (Team.name 200, Organization.name 64, email 254, Django names 150) plus
         // the longer person-on-events branch, so a long org/project/user cannot
         // push the real schema past the cap while this test passes.
+        const worstCaseUser = {
+            first_name: 'F'.repeat(150),
+            last_name: 'L'.repeat(150),
+            email: `${'e'.repeat(242)}@example.com`,
+        } as CachedUser
+        const worstCaseOrg = { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg
+        const worstCaseProject = {
+            name: 'P'.repeat(200),
+            id: 9_999_999,
+            api_token: `phc_${'x'.repeat(43)}`,
+            timezone: 'America/Argentina/ComodRivadavia',
+            person_on_events_querying_enabled: true,
+        } as CachedProject
         const worstCaseMetadata = buildActiveEnvironmentContextPrompt(
-            {
-                first_name: 'F'.repeat(150),
-                last_name: 'L'.repeat(150),
-                email: `${'e'.repeat(242)}@example.com`,
-            } as CachedUser,
-            { name: 'O'.repeat(64), id: '00000000-0000-0000-0000-000000000000' } as CachedOrg,
-            {
-                name: 'P'.repeat(200),
-                id: 9_999_999,
-                api_token: `phc_${'x'.repeat(43)}`,
-                timezone: 'America/Argentina/ComodRivadavia',
-                person_on_events_querying_enabled: true,
-            } as CachedProject,
+            worstCaseUser,
+            worstCaseOrg,
+            worstCaseProject,
             'https://us.posthog.com'
+        )
+        // The claude.ai reference renders the compact metadata variant: the
+        // product/integration context lines are excluded from this surface by
+        // design because they do not fit under the cap (see
+        // `buildClaudeExecCommandReference` and `ResolvedState.metadataCompact`).
+        const worstCaseMetadataCompact = buildActiveEnvironmentContextPrompt(
+            worstCaseUser,
+            worstCaseOrg,
+            worstCaseProject,
+            'https://us.posthog.com',
+            { includeProductContext: false }
         )
         // Five group types (the product cap) with generously long names.
         const worstCaseGroupTypes = Array.from({ length: 5 }, (_, i) => ({
@@ -195,6 +225,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
             toolFeatureFlags: { [PRODUCT_DATA_CATALOG_FLAG]: true },
             renderUiEnabled: true,
             metadata: worstCaseMetadata,
+            metadataCompact: worstCaseMetadataCompact,
             groupTypes: worstCaseGroupTypes,
         } as unknown as ResolvedState
         const entry = new InstructionsBuilder('').buildExecToolEntry(state)
@@ -240,8 +271,7 @@ describe('InstructionsFormatter prompt snapshots', () => {
 
         expect(rendered.length).toBeLessThanOrEqual(MCP_INSTRUCTIONS_CHAR_BUDGET)
         // Domains past the old cutoff point, i.e. the ones a truncated payload lost.
-        // (`workflow` singular: the extractor renders a family's shortest spelling.)
-        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflow']) {
+        for (const domain of ['query', 'scout', 'session-recording', 'survey', 'web-analytics', 'workflows']) {
             expect(domains).toContain(domain)
         }
     })

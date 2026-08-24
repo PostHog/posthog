@@ -896,6 +896,21 @@ CREATE TABLE posthog.sharded_app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -1187,15 +1202,15 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   group3_properties String,
   group4_properties String,
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
-  $group_0 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
-  $group_1 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
-  $group_2 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
-  $group_3 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
-  $group_4 String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
-  flag_key String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag',
-  response LowCardinality(String) MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
-  session_id String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
-  request_id String MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
+  $group_0 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0',
+  $group_1 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1',
+  $group_2 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2',
+  $group_3 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_3'), '^"|"$', '') COMMENT 'column_materializer::$group_3',
+  $group_4 String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4',
+  flag_key String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag',
+  response LowCardinality(String) DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_response',
+  session_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$session_id',
+  request_id String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_request_id'), '^"|"$', '') COMMENT 'column_materializer::properties::$feature_flag_request_id',
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64,
@@ -2288,12 +2303,12 @@ CREATE TABLE posthog.writable_session_replay_events (
   snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
-  surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_sessions (
   session_id String,
@@ -2890,6 +2905,21 @@ CREATE TABLE posthog.app_metrics2 (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
+CREATE TABLE posthog.billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.distinct_id_usage (
   team_id Int64,
   distinct_id String,

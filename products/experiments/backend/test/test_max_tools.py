@@ -9,10 +9,12 @@ from posthog.schema import (
 
 from posthog.event_usage import EventSource
 
+from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types import AssistantState
 
 
@@ -482,6 +484,20 @@ class TestExperimentSummaryTool(APIBaseTest):
         assert "Significant: Yes" in result
         assert artifact["has_results"] is True
 
+    async def test_includes_more_than_ten_metrics(self):
+        experiment = await self._create_experiment(flag_key="many-metrics-test")
+        primary_metrics = [
+            MaxExperimentMetricResult(name=f"{i}. Metric {i}", goal="increase", variant_results=[])
+            for i in range(1, 13)
+        ]
+        context = self._build_context(experiment_id=experiment.id, primary_metrics=primary_metrics)
+        tool = self._create_tool(context)
+
+        result, _ = await tool._arun_impl()
+
+        assert "**Metric: 11. Metric 11**" in result
+        assert "**Metric: 12. Metric 12**" in result
+
     async def test_returns_frequentist_metrics(self):
         experiment = await self._create_experiment(
             flag_key="frequentist-metrics-test",
@@ -624,27 +640,43 @@ class TestExperimentSummaryTool(APIBaseTest):
 
         with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
             mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(return_value=(mock_context, None, False))
+            mock_service.fetch_experiment_data = AsyncMock(
+                return_value=ExperimentSummaryData(
+                    context=mock_context, last_refresh=None, pending_calculation=False, omitted_metric_count=2
+                )
+            )
 
             result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
         assert "## Experiment: Agent Discovered Experiment" in result
         assert artifact["experiment_name"] == "Agent Discovered Experiment"
         assert artifact["has_results"] is True
+        assert "**Note:** 2 metrics were omitted from this summary." in result
 
     async def test_fetch_and_format_handles_nonexistent_experiment(self):
         tool = self._create_tool({})
 
-        with patch("products.experiments.backend.max_tools.ExperimentSummaryDataService") as mock_service_class:
-            mock_service = mock_service_class.return_value
-            mock_service.fetch_experiment_data = AsyncMock(
-                side_effect=ValueError("Experiment 99999 not found or access denied")
-            )
+        result, artifact = await tool._arun_impl(experiment_id=99999)
 
-            result, artifact = await tool._arun_impl(experiment_id=99999)
-
-        assert "not found or access denied" in result
+        assert "not found" in result
         assert artifact["error"] == "not_found"
+
+    async def test_denies_object_level_restricted_experiment(self):
+        experiment = await self._create_experiment(flag_key="restricted-test")
+
+        # Agent-initiated path: denied before any metric queries run
+        tool = self._create_tool({})
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl(experiment_id=experiment.id)
+
+        # Frontend-context path
+        tool = self._create_tool(self._build_context(experiment_id=experiment.id))
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl()
 
     async def test_context_experiment_id_takes_priority_over_argument(self):
         experiment = await self._create_experiment(

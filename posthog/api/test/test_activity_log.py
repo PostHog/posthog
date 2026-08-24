@@ -18,6 +18,8 @@ from posthog.models.activity_logging.activity_log import ActivityLog, Detail, lo
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+
 
 def _feature_flag_json_payload(key: str) -> dict:
     return {
@@ -491,3 +493,20 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
 
         assert log.user == self.user
         assert log.was_impersonated is True
+
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_activity_log_export_preserves_oauth_authorization(self, _mock_exporter_task) -> None:
+        token = self._create_oauth_token()
+        token.scope = "activity_log:read"
+        token.save(update_fields=["scope"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv"},
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN
+        assert exported_asset.source_credential_id == str(token.id)
