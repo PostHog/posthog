@@ -5,8 +5,10 @@ import { useEffect } from 'react'
 import { LemonCard } from '@posthog/lemon-ui'
 
 import { ErrorEventType } from 'lib/components/Errors/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { Mocks } from '~/mocks/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { TEST_EVENTS } from '../../__mocks__/events'
@@ -549,8 +551,8 @@ function buildSessionTimelineEvent(
     }
 }
 
-function OpenTimelineTab({ children }: { children: JSX.Element }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id', loading: false }))
+function OpenTimelineTab({ children, issueId = 'issue-id' }: { children: JSX.Element; issueId?: string }): JSX.Element {
+    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId, loading: false }))
 
     useEffect(() => {
         setCurrentTab('timeline')
@@ -587,4 +589,102 @@ export function ExceptionCardAllEvents(): JSX.Element {
             {(issueId, event) => <ExceptionCard issueId={issueId} issueName={null} loading={false} event={event} />}
         </ExceptionCardWrapperAllEvents>
     )
+}
+
+//////////////////// Header layout
+
+/*
+ * The header packs a label, the tab bar and an action into one 40px row. It used to overlap: the
+ * label's grid track was allowed to collapse (min-w-0) while nothing clipped the text, so "Exception"
+ * painted straight over "Stack Trace". These widths pin each branch of the container query.
+ */
+const HEADER_WIDTHS: { width: number; caption: string }[] = [
+    { width: 300, caption: '300px — tightest pane: icon only, tab bar scrolls' },
+    { width: 420, caption: '420px — icon only, tab bar takes the slack' },
+    { width: 560, caption: '560px — still under @xl: icon only' },
+    { width: 576, caption: '576px — @xl boundary: label is back, tab bar re-centres' },
+    { width: 900, caption: '900px — roomy: symmetric gutters, tab bar dead centre' },
+]
+
+function HeaderWidthMatrix({
+    widths = HEADER_WIDTHS,
+    children,
+}: {
+    widths?: typeof HEADER_WIDTHS
+    children: (width: number) => JSX.Element
+}): JSX.Element {
+    return (
+        <div className="space-y-6">
+            {widths.map(({ width, caption }) => (
+                <div key={width} className="space-y-1">
+                    <div className="text-muted text-xs">{caption}</div>
+                    {/* outline rather than border: a border eats 2px of the card's width and would shift
+                        the container-query boundary these captions are naming. */}
+                    <div className="h-48 overflow-hidden outline outline-1 outline-[var(--border)]" style={{ width }}>
+                        {children(width)}
+                    </div>
+                </div>
+            ))}
+        </div>
+    )
+}
+
+export function ExceptionCardHeaderWidths(): JSX.Element {
+    const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+
+    return (
+        <HeaderWidthMatrix>
+            {(width) => (
+                <ExceptionCard issueId={`header-${width}`} issueName="Test Issue" loading={false} event={event} />
+            )}
+        </HeaderWidthMatrix>
+    )
+}
+
+/*
+ * Worst case: the right-hand cell is occupied too, so the tab bar has the least room it ever gets in
+ * production. The action has to survive at every width — the label is the only thing allowed to go.
+ */
+export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
+    const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
+
+    return (
+        <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
+            {(width) => (
+                <OpenTimelineTab issueId={`header-action-${width}`}>
+                    <ExceptionCard
+                        issueId={`header-action-${width}`}
+                        issueName="Test Issue"
+                        loading={false}
+                        event={event}
+                    />
+                </OpenTimelineTab>
+            )}
+        </HeaderWidthMatrix>
+    )
+}
+ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()
+
+// The action is a ViewLogsButton: feature-flagged, only rendered on the timeline/recording tabs, and
+// gated on the team's logs config. All three have to be satisfied or the right-hand cell renders empty
+// and the story stops testing the crowded case it exists for.
+function headerActionParameters(): Record<string, unknown> {
+    const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
+    const timelineMocks = (timeline.msw as { mocks: Mocks }).mocks
+
+    return {
+        featureFlags: [FEATURE_FLAGS.LOGS_IN_ERROR_TRACKING],
+        msw: {
+            mocks: {
+                ...timelineMocks,
+                get: {
+                    'api/projects/:team_id/logs_config/': {
+                        logs_distinct_id_attribute_key: 'posthogDistinctId',
+                        logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                        logs_session_id_attribute_keys: ['sessionId'],
+                    },
+                },
+            },
+        },
+    }
 }

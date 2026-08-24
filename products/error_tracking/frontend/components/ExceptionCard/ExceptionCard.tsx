@@ -93,14 +93,28 @@ function ExceptionCardContent({
                         setCurrentTab(value)
                     }
                 }}
-                className="flex min-h-0 flex-1 flex-col gap-0"
+                className="@container/exception-card flex min-h-0 flex-1 flex-col gap-0"
             >
-                <div className="grid h-10 w-full shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-2">
-                    <div className="flex h-full min-w-0 items-center gap-1 text-lg">
-                        <IconLogomark />
-                        <span className="text-sm">Exception</span>
+                {/* Container query, not viewport: the card lives in a resizable split pane. Wide — symmetric
+                    1fr gutters centre the tab bar. Narrow — the gutters shrink to their content and the tab
+                    bar takes the slack; reserving two gutters for one label is what squeezed it. */}
+                <div className="grid h-10 w-full shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b px-2 @xl/exception-card:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                    {/* overflow-hidden is load-bearing: min-w-0 lets this track collapse, and with nothing
+                        clipping it the label painted straight over the tab bar. */}
+                    <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden text-lg">
+                        <IconLogomark className="shrink-0" />
+                        {/* sr-only rather than hidden: no room to draw it, but it stays in the a11y tree. */}
+                        <span className="truncate text-sm @max-xl/exception-card:sr-only">Exception</span>
                     </div>
-                    <TabsList variant="line" aria-label="Exception details" className="h-full! self-stretch">
+                    {/* Last valve: under ~390px the tab bar alone doesn't fit, so scroll it rather than let
+                        it spill into the actions. justify-start overrides the list's own justify-center —
+                        a centred flex row that overflows spills off *both* edges, putting the first tab
+                        out of reach of the scroller. */}
+                    <TabsList
+                        variant="line"
+                        aria-label="Exception details"
+                        className="h-full! max-w-full justify-start self-stretch overflow-x-auto hide-scrollbar"
+                    >
                         <TabsTrigger
                             value="stack_trace"
                             className="text-sm"
