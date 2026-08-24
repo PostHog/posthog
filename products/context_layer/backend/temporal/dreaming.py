@@ -44,6 +44,7 @@ DISPATCH_CAP_PER_TICK = 200
 FAILURE_STREAK_PAUSE_THRESHOLD = 3
 SKILLS_DIR = Path(__file__).parent.parent.parent / "skills"
 COORDINATOR_DISTINCT_ID = "context-layer-coordinator"
+COMPLETED_TASK_RECOVERY_WINDOW = dt.timedelta(days=7)
 
 
 def _capture_lane_event(distinct_id: str, event: str, properties: dict[str, str | int]) -> None:
@@ -233,7 +234,13 @@ def _build_dream_prompt(since: dt.datetime | None) -> str:
     if since is None:
         preamble = "This is the first dream: review the last 7 days of organizational activity."
     else:
-        preamble = f"Review organizational activity since {since.astimezone(dt.UTC).isoformat()}."
+        since_utc = since.astimezone(dt.UTC)
+        recovery_cutoff = since_utc - COMPLETED_TASK_RECOVERY_WINDOW
+        preamble = (
+            f"Review organizational activity since {since_utc.isoformat()}. "
+            f"For completed tasks, recover from {recovery_cutoff.isoformat()} so work that completed after an "
+            "earlier review is reconsidered."
+        )
     return f"{preamble}\n\n{_dream_skills_content()}"
 
 

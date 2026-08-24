@@ -489,6 +489,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       id: item.id,
       title: item.title,
       isPinned: item.pinned,
+      task: item.task ?? undefined,
       // Ticks the space the session is already in, inside "File to…".
       channelId: spaceId,
       onAddToCommandCenter: actions.commandCenterAssigner(item.id),
@@ -1318,7 +1319,7 @@ function useOpenPersonalChannel(): {
   const openPersonalChannel = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channelId);
     if (!spacesLayout) {
       void navigate({ to: "/spaces/$channelId", params: { channelId } });
@@ -1343,7 +1344,7 @@ function useOpenChannel(): (channel: Channel) => void {
       surface: "sidebar",
       channel_id: channel.id,
     });
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channel.id);
     if (!spacesLayout) {
       void navigate({
@@ -1371,8 +1372,7 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
 
-  // Personal channels are provisioned lazily server-side when the channel list
-  // is fetched; `undefined` just means the list hasn't loaded it yet.
+  // Startup provisions #me, so `undefined` means the list has not loaded yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);

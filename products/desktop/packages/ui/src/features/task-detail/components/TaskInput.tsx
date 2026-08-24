@@ -123,6 +123,7 @@ import { type WorkspaceMode, WorkspaceModeSelect } from "./WorkspaceModeSelect";
 interface TaskInputProps {
   sessionId?: string;
   onTaskCreated?: (task: Task) => void;
+  onTaskCreatedEffect?: (task: Task) => void;
   initialPrompt?: string;
   initialPromptKey?: string;
   initialCloudRepository?: string;
@@ -190,6 +191,7 @@ interface TaskInputProps {
 export function TaskInput({
   sessionId = "task-input",
   onTaskCreated,
+  onTaskCreatedEffect,
   initialPrompt,
   initialPromptKey,
   initialCloudRepository,
@@ -993,6 +995,14 @@ export function TaskInput({
     [autoresearchService],
   );
 
+  const handleTaskCreatedEffect = useCallback(
+    (task: Task) => {
+      handleAutoresearchTaskCreated(task);
+      onTaskCreatedEffect?.(task);
+    },
+    [handleAutoresearchTaskCreated, onTaskCreatedEffect],
+  );
+
   const {
     isCreatingTask,
     isExitingComposer,
@@ -1021,7 +1031,7 @@ export function TaskInput({
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     onTaskCreated,
-    onTaskCreatedEffect: handleAutoresearchTaskCreated,
+    onTaskCreatedEffect: handleTaskCreatedEffect,
     environmentId: selectedEnvironment,
     sandboxEnvironmentId:
       effectiveWorkspaceMode === "cloud" && selectedCloudEnvId

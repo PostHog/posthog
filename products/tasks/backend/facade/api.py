@@ -64,6 +64,9 @@ from products.posthog_ai.backend.task_ownership import detach_conversations_for_
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+    ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
+    ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
@@ -103,6 +106,7 @@ from products.tasks.backend.models import (
     ChannelStar,
     CodeInvite,
     CodeInviteRedemption,
+    DesktopBetaTermsAcceptance,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -1662,6 +1666,22 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
 # --- Desktop invites ---
 
 
+def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    return contracts.DesktopBetaTermsAcceptanceDTO(
+        is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
+            organization_id=organization_id
+        ).exists()
+    )
+
+
+def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    DesktopBetaTermsAcceptance.objects.get_or_create(
+        organization_id=organization_id,
+        defaults={"accepted_by_user_id": user_id},
+    )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
+
+
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
     """Redeem a PostHog Desktop invite for a user.
 
@@ -2125,6 +2145,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_ANALYSIS_INSIGHTS_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
+        # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
+        # at insight-report time to attribute the captured event to a repository and sandbox
+        # image. A PATCHable value would let the sandbox agent forge that attribution.
+        ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
@@ -7214,7 +7240,7 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel."""
+    """Soft-delete an empty public channel. Archived tasks do not count as content."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
@@ -7222,10 +7248,24 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "personal" if channel.created_by_id == user_id else "not_found"
     if _is_general_channel(channel):
         return "general"
-    if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
-        return "not_empty"
-    channel.deleted = True
-    channel.save(update_fields=["deleted", "updated_at"])
+    with transaction.atomic():
+        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
+        # its channel: unlocked, a task can land after the check and be orphaned in a channel
+        # this call goes on to delete.
+        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        if channel is None:
+            return "not_found"
+        if (
+            channel.tasks.filter(deleted=False, archived=False).exists()
+            or channel.canvases.filter(deleted=False).exists()
+        ):
+            return "not_empty"
+        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
+        # no lock on the channel and can happen after the check above. Task visibility joins
+        # through the channel, so a task left pointing at a deleted one leaves every list.
+        channel.tasks.filter(deleted=False).update(channel=None)
+        channel.deleted = True
+        channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
 
 

@@ -1039,7 +1039,7 @@ class Task(DeletedMetaFields, models.Model):
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        user_id: int,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -3456,6 +3456,17 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+class DesktopBetaTermsAcceptance(models.Model):
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        db_constraint=False,
+    )
+    accepted_by_user_id = models.BigIntegerField()
+    accepted_at = models.DateTimeField(auto_now_add=True)
 
 
 # How long a single beacon keeps a device "present" before the row is treated as stale.

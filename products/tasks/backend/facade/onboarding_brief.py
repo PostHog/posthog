@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.facade.domain_research import DomainResearch
+from products.tasks.backend.facade.onboarding_canvas import TEACHING_CANVAS_NAME, TeachingCanvas
 
 TOP_OF_MIND = "Ask what's top of mind."
 
@@ -156,7 +157,19 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     return brief
 
 
-def build_followup(facts: OnboardingFacts) -> list[str]:
+def teaching_canvas_line(teaching: TeachingCanvas) -> str:
+    return (
+        f'A canvas named "{TEACHING_CANVAS_NAME}" is pinned in this space: a short tour of how '
+        "the app works, and itself an example of a canvas. At a natural moment after your first "
+        "message, mention it in one sentence and offer it with a `show_actions` `open_canvas` "
+        f"button (channel_id `{teaching.channel_id}`, canvas_id `{teaching.canvas_id}`). "
+        "You did not make it, so never claim it as your work."
+    )
+
+
+def build_followup(facts: OnboardingFacts, teaching: TeachingCanvas | None = None) -> list[str]:
     followup = [] if facts.org_has_context else [SAVE_CONTEXT]
     followup.append(HAS_DATA if facts.has_events else NO_DATA_YET)
+    if teaching is not None:
+        followup.append(teaching_canvas_line(teaching))
     return followup

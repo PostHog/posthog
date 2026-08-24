@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -12,6 +14,7 @@ from products.tasks.backend.facade.onboarding_brief import (
     prose_list,
     research_line,
 )
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.facade.onboarding_prompt import (
     BUNDLED_ONBOARDING_PROMPT,
     missing_onboarding_prompt_placeholders,
@@ -229,6 +232,23 @@ class TestFollowup(SimpleTestCase):
         followup = build_followup(_setup_facts(has_events=True))
 
         assert not any("/instrument-product-analytics" in line for line in followup)
+
+    def test_a_seeded_tour_is_offered_with_both_ids_the_button_needs(self) -> None:
+        teaching = TeachingCanvas(
+            channel_id=UUID("0198f000-0000-7000-8000-00000000000a"),
+            canvas_id=UUID("0198f000-0000-7000-8000-00000000000b"),
+        )
+
+        followup = build_followup(_setup_facts(), teaching=teaching)
+
+        line = next(line for line in followup if "open_canvas" in line)
+        assert f"channel_id `{teaching.channel_id}`" in line
+        assert f"canvas_id `{teaching.canvas_id}`" in line
+
+    def test_a_missing_tour_is_never_mentioned(self) -> None:
+        followup = build_followup(_setup_facts())
+
+        assert not any("open_canvas" in line for line in followup)
 
 
 class TestBundledPromptRendering(SimpleTestCase):

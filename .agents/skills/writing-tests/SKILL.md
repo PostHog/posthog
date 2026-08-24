@@ -3,7 +3,7 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from a frozen clock meeting real-clock retention).
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from a frozen clock meeting real-clock retention).
   Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -12,9 +12,11 @@ description: >
 The rationale and the same rules in human-facing form live in the handbook: [Backend coding conventions › Testing](https://posthog.com/handbook/engineering/conventions/backend-coding#testing) (`docs/published/handbook/engineering/conventions/backend-coding.md`).
 This skill is the operational gate — run it before writing tests. It carries the decision procedure plus [a catalog of the bug shapes we actually ship](references/mistakes-we-make.md).
 
-## The gate: one question
+## The gate: two questions
 
-Before writing any test, answer in one sentence:
+Before writing any test, answer both in one sentence each.
+
+### 1. Does it earn its place?
 
 > **What realistic regression does this test catch that no existing test already catches?**
 
@@ -27,6 +29,24 @@ That is a test worth keeping.
 Aim each test at a failure mode we actually hit, not a hypothetical.
 The bugs PostHog ships and reverts cluster into a handful of shapes — cataloged with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
 If your test doesn't map to one of them, be skeptical it's worth keeping.
+
+### 2. Where does it go?
+
+Passing the first question buys the _coverage_, not a new test function.
+Find the test that already covers the nearest behavior and answer:
+
+> **Why can't this be a case in that test?**
+
+When your case is a variation of that behavior, extend it: a `@parameterized` case in Python, a `test.each` row in Jest.
+A new standalone test is what you write when extending doesn't work, and you should be able to say why in a sentence: the setup differs, the behavior belongs to a different unit, or no relevant test exists.
+"It's cleaner as its own test" isn't a reason on its own; name which of those three applies.
+
+Extend to remove duplication, not to save setup time.
+A parameterized case is still its own test invocation, so `setUp` and `beforeEach` run for it just as they would for a standalone function.
+That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
+
+Search before you write.
+If you haven't looked for the nearest existing test, you can't answer this question.
 
 ## Don't write it — the five no's
 

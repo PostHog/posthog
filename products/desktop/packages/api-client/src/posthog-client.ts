@@ -800,6 +800,23 @@ function readDetail(error: ApiRequestError): string {
   return body?.detail ?? error.message;
 }
 
+/**
+ * DRF validation failures carry the messages per field, `{ field: [msg] }`,
+ * with no top-level `detail`. Flatten them so the server's own wording reaches
+ * the toast instead of a bare status text.
+ */
+function readFieldErrors(error: ApiRequestError): string {
+  if (typeof error.body !== "object" || error.body === null) {
+    return error.message;
+  }
+  const record = error.body as Record<string, unknown>;
+  if (typeof record.detail === "string") return record.detail;
+  const parts = Object.values(record).flatMap((messages) =>
+    Array.isArray(messages) ? messages.map(String) : [],
+  );
+  return parts.length > 0 ? parts.join(" ") : error.message;
+}
+
 export interface TaskArtifactUploadRequest {
   name: string;
   type: "output" | "user_attachment" | "skill_bundle";
@@ -1968,8 +1985,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1979,6 +1996,40 @@ export class PostHogAPIClient {
         body: JSON.stringify({ is_ai_data_processing_approved: true }),
       },
     });
+  }
+
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
   }
 
   async getProject(projectId: number) {
@@ -2790,8 +2841,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2858,6 +2909,24 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
   }
 
   async updateTaskChannelRepositories(
@@ -5891,20 +5960,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to create sandbox environment: ${response.statusText}`,
+        `Failed to create sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async updateSandboxEnvironment(
@@ -5915,20 +5986,22 @@ export class PostHogAPIClient {
     const url = new URL(
       `${this.api.baseUrl}/api/projects/${teamId}/sandbox_environments/${id}/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "patch",
-      url,
-      path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
-      overrides: {
-        body: JSON.stringify(input),
-      },
-    });
-    if (!response.ok) {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "patch",
+        url,
+        path: `/api/projects/${teamId}/sandbox_environments/${id}/`,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+      return (await response.json()) as SandboxEnvironment;
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
       throw new Error(
-        `Failed to update sandbox environment: ${response.statusText}`,
+        `Failed to update sandbox environment: ${readFieldErrors(error)}`,
       );
     }
-    return (await response.json()) as SandboxEnvironment;
   }
 
   async deleteSandboxEnvironment(id: string): Promise<void> {

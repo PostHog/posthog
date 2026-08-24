@@ -90,6 +90,17 @@ export class TaskCreationSaga extends Saga<
     super(logger);
   }
 
+  private notifyTaskReady(output: TaskCreationOutput): void {
+    try {
+      this.deps.onTaskReady?.(output);
+    } catch (error) {
+      this.log.error("Task-ready callback failed", {
+        taskId: output.task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   protected async execute(
     input: TaskCreationInput,
   ): Promise<TaskCreationOutput> {
@@ -141,9 +152,7 @@ export class TaskCreationSaga extends Saga<
 
     if (hasProvisioning) {
       this.deps.host.setProvisioningActive(task.id);
-      if (this.deps.onTaskReady) {
-        this.deps.onTaskReady({ task, workspace });
-      }
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (repoPath) {
@@ -333,7 +342,7 @@ export class TaskCreationSaga extends Saga<
       if (!taskId && workspaceMode === "cloud") {
         await this.deps.sessionService.watchCreatedCloudTask(task);
       }
-      this.deps.onTaskReady?.({ task, workspace });
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (hasProvisioning) {
@@ -487,7 +496,7 @@ export class TaskCreationSaga extends Saga<
 
       if (!hasProvisioning) {
         await this.deps.sessionService.watchCreatedCloudTask(task);
-        this.deps.onTaskReady?.({ task, workspace });
+        this.notifyTaskReady({ task, workspace });
       }
     }
 

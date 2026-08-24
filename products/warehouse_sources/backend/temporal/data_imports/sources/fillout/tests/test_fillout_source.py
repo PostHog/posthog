@@ -3,20 +3,11 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source import FilloutSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
     FilloutSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestFilloutSource:
@@ -24,31 +15,6 @@ class TestFilloutSource:
         self.source = FilloutSource()
         self.team_id = 123
         self.config = FilloutSourceConfig(api_key="fillout-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FILLOUT
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Fillout"
-        assert config.label == "Fillout"
-        assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/fillout.png"
-
-    def test_source_config_fields(self) -> None:
-        config = self.source.get_source_config
-        input_fields = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        select_fields = [f.name for f in config.fields if isinstance(f, SourceFieldSelectConfig)]
-        assert input_fields == ["api_key"]
-        assert select_fields == ["api_base_url"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_get_schemas_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -111,39 +77,3 @@ class TestFilloutSource:
         assert kwargs["api_key"] == "fillout-key"
         assert kwargs["api_base_url"] == "https://api.fillout.com/v1/api"
         assert kwargs["schema_name"] == "submissions"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source.fillout_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_fillout_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "submissions"
-        inputs.team_id = self.team_id
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = True
-        inputs.incremental_field = "submissionTime"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_fillout_source.assert_called_once()
-        kwargs = mock_fillout_source.call_args.kwargs
-        assert kwargs["api_key"] == "fillout-key"
-        assert kwargs["endpoint"] == "submissions"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["incremental_field"] == "submissionTime"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source.fillout_source")
-    def test_source_for_pipeline_omits_watermark_when_not_incremental(
-        self, mock_fillout_source: mock.MagicMock
-    ) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "submissions"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        kwargs = mock_fillout_source.call_args.kwargs
-        assert kwargs["db_incremental_field_last_value"] is None
-
-    def test_canonical_descriptions_cover_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)

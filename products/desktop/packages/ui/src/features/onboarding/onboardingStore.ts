@@ -30,6 +30,16 @@ const initialState: OnboardingStoreState = {
   selectedProjectId: null,
 };
 
+export function migrateOnboardingState(
+  persistedState: unknown,
+): OnboardingStore {
+  const state = persistedState as OnboardingStore;
+  if ((state.currentStep as string) === "invite-code") {
+    return { ...state, currentStep: "consent" };
+  }
+  return state;
+}
+
 export const useOnboardingStore = create<OnboardingStore>()(
   persist(
     (set) => ({
@@ -51,6 +61,8 @@ export const useOnboardingStore = create<OnboardingStore>()(
     }),
     {
       name: "onboarding-store",
+      version: 1,
+      migrate: migrateOnboardingState,
       partialize: (state) => ({
         currentStep: state.currentStep,
         hasCompletedOnboarding: state.hasCompletedOnboarding,

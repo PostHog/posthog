@@ -8,12 +8,16 @@ from django.db import IntegrityError
 from django.test import TestCase
 from django.test.utils import override_settings
 
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import _origin_key, _session_enabled, start_onboarding_session
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
@@ -90,15 +94,43 @@ class TestOnboardingSessionIdempotency(TestCase):
         with self.assertRaises(IntegrityError):
             self._start(create_side_effect=IntegrityError("duplicate key"))
 
-    def test_a_first_request_starts_a_session_keyed_to_the_user(self):
+    @parameterized.expand(
+        [
+            ("free", [], "@cf/zai-org/glm-5.2"),
+            (
+                "paid",
+                [{"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}],
+                "claude-opus-4-8",
+            ),
+        ]
+    )
+    def test_a_first_request_starts_an_entitled_session_keyed_to_the_user(
+        self, _name: str, available_product_features: list[dict[str, str]], expected_model: str
+    ) -> None:
+        self.organization.available_product_features = available_product_features
+        self.organization.save(update_fields=["available_product_features"])
         task_id = uuid4()
 
         def succeed(**kwargs):
             self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
+            self.assertEqual(kwargs["model"], expected_model)
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         started, create_calls = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create_calls, 1)
+
+    def test_seeding_the_tour_failing_does_not_block_the_session(self) -> None:
+        task_id = uuid4()
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertNotIn("open_canvas", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.ensure_teaching_canvas", side_effect=RuntimeError("canvas app down")):
+            started, create_calls = self._start(create_side_effect=succeed)
 
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
@@ -128,3 +160,18 @@ class TestOnboardingSessionIdempotency(TestCase):
             capture.call_args.kwargs["properties"]["missing_placeholders"],
             ("brief", "channel_id", "followup", "homepage"),
         )
+
+    def test_a_seeded_tour_reaches_the_prompt_with_both_ids(self) -> None:
+        task_id = uuid4()
+        teaching = TeachingCanvas(channel_id=self.channel_id, canvas_id=uuid4())
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertIn(f"channel_id `{teaching.channel_id}`", kwargs["description"])
+            self.assertIn(f"canvas_id `{teaching.canvas_id}`", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.ensure_teaching_canvas", return_value=teaching):
+            started, create_calls = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create_calls, 1)
