@@ -9,6 +9,7 @@ import structlog
 
 from posthog.schema import NativeMarketingSource
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -57,7 +58,7 @@ def _source_schemas_url(source_id: str | None) -> str | None:
     return f"/data-management/sources/managed-{source_id}/schemas"
 
 
-@dataclass
+@frozen
 class RequiredTableStatus:
     table_name: str
     present: bool
