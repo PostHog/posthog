@@ -214,7 +214,7 @@ class TestUserBudgets:
     def test_clear_tolerates_a_missing_budget(self, mock_settings):
         _configured(mock_settings)
         with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(404)):
-            assert clear_user_budget(42, "u1") is None
+            clear_user_budget(42, "u1")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_clear_rejects_a_redirect_response(self, mock_settings):

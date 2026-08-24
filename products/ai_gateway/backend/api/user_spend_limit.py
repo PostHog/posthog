@@ -28,6 +28,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -100,8 +101,8 @@ class SpendLimitErrorSerializer(serializers.Serializer):
 
 
 class UserSpendLimitScopePermission(BasePermission):
-    def has_permission(self, request: Request, view: TeamAndOrgViewSetMixin) -> bool:
-        team = view.team
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        team = cast(TeamAndOrgViewSetMixin, view).team
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_team_ids and team.id not in scoped_team_ids:
             raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
