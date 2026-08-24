@@ -319,11 +319,15 @@ export type ProcessLogMessageBufferResult = {
 /**
  * How much work `processLogMessageBuffer` does with a buffer, cheapest first: `passthrough` forwards
  * it untouched, `decode_only` decodes for a visitor then forwards the original, `decode_and_reencode`
- * decodes, transforms and encodes again. Both branches below read this, so the rule has one
- * expression. A caller about to add a stage asks first, to price what that stage costs the batch.
+ * decodes, transforms and encodes again.
  */
 export type BufferHandling = 'passthrough' | 'decode_only' | 'decode_and_reencode'
 
+/**
+ * Give the buffer's current stage count, not the count it would have. A tier below
+ * `decode_and_reencode` names the work one more stage adds: `decode_only` adds an encode,
+ * `passthrough` adds a decode and an encode.
+ */
 export function bufferHandling(settings: LogsSettings, stageCount: number, hasVisitor: boolean): BufferHandling {
     const normalizeActive = (settings.json_parse_logs ?? false) || (settings.pii_scrub_logs ?? false)
     if (normalizeActive || stageCount > 0) {
@@ -354,8 +358,6 @@ export const processLogMessageBuffer = instrumented({
     options: ProcessLogMessageBufferOptions = {}
 ): Promise<ProcessLogMessageBufferResult> {
     const { onRecordsDecoded, stages = [] } = options
-    const jsonParse = settings.json_parse_logs ?? false
-    const piiScrub = settings.pii_scrub_logs ?? false
     const handling = bufferHandling(settings, stages.length, Boolean(onRecordsDecoded))
 
     if (handling === 'passthrough') {
@@ -363,6 +365,9 @@ export const processLogMessageBuffer = instrumented({
         return { value: buffer, pii: EMPTY_PII, drops: EMPTY_DROP_STATS() }
     }
 
+    // Read only by the duration labels in the `finally`, which the passthrough return never reaches.
+    const jsonParse = settings.json_parse_logs ?? false
+    const piiScrub = settings.pii_scrub_logs ?? false
     const startTime = Date.now()
     let codec = 'unknown'
 

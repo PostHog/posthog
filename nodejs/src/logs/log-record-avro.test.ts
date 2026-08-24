@@ -523,8 +523,42 @@ describe('log-record-avro', () => {
             expect(pii).toEqual({ piiReplacements: 0 })
         })
 
-        // Callers use these exact semantics to price what adding a stage costs a batch. `decode_only`
-        // matters as much as `passthrough`: adding a stage to such a batch buys it a full encode.
+        it('forwards the original buffer when only a visitor ran', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'test-uuid',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: JSON.stringify({ level: 'info', message: 'test' }),
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                    bytes_uncompressed: null,
+                },
+            ]
+
+            const inputBuffer = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const onRecordsDecoded = jest.fn()
+            const { value: out } = await processLogMessageBuffer(
+                inputBuffer,
+                { json_parse_logs: false, pii_scrub_logs: false },
+                { onRecordsDecoded }
+            )
+
+            // The visitor forces a decode, but nothing mutated the records, so the buffer is returned by
+            // identity rather than re-encoded.
+            expect(onRecordsDecoded).toHaveBeenCalledTimes(1)
+            expect(onRecordsDecoded.mock.calls[0][0]).toHaveLength(1)
+            expect(out).toBe(inputBuffer)
+        })
+
         it.each([
             ['everything off', {}, 0, false, 'passthrough'],
             ['json parse on', { json_parse_logs: true }, 0, false, 'decode_and_reencode'],
