@@ -1,6 +1,7 @@
 import type { IconProps } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
+import { splitReportSummary } from "@posthog/core/inbox/reportPresentation";
 import {
   Tabs,
   TabsList,
@@ -35,7 +36,7 @@ import {
   useInboxReportSignals,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
-import { type ComponentType, type ReactNode, useState } from "react";
+import { type ComponentType, type ReactNode, useMemo, useState } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
@@ -57,6 +58,8 @@ interface InboxDetailFrameProps {
   metaSuffix?: ReactNode;
   /** Variant-specific primary action button (e.g. "Open in GitHub" or "Copy link"). */
   primaryAction?: ReactNode;
+  /** Rendered at the top of the main column, before the summary (the verdict banner). */
+  aboveSummary?: ReactNode;
   /** Summary section: icon + title (e.g. "Summary" / "What the agent looked at"). */
   summarySection: {
     Icon: ComponentType<IconProps>;
@@ -97,6 +100,7 @@ export function InboxDetailFrame({
   metaPrefix,
   metaSuffix,
   primaryAction,
+  aboveSummary,
   summarySection,
   belowSummary,
   evidenceSection,
@@ -238,27 +242,12 @@ export function InboxDetailFrame({
         ) : (
           <div className="grid @4xl:grid-cols-[minmax(0,80ch)_minmax(0,1fr)] grid-cols-1 gap-5">
             <div className="flex min-w-0 flex-col gap-5">
-              <DetailSection
+              {aboveSummary}
+              <ReportSummarySlots
+                report={report}
+                fallbackTitle={summarySection.title}
                 Icon={SummaryIcon}
-                title={summarySection.title}
-                collapsible
-              >
-                <SignalReportSummaryMarkdown
-                  content={report.summary}
-                  fallback="No summary yet. The agent is still investigating."
-                  variant="detail"
-                  pending={report.status === "in_progress"}
-                  chartIds={renderableReportChartIds(report.charts)}
-                />
-                {report.charts && report.charts.length > 0 && (
-                  <div className="mt-4">
-                    <ReportChartsSection
-                      reportId={report.id}
-                      charts={report.charts}
-                    />
-                  </div>
-                )}
-              </DetailSection>
+              />
               {belowSummary}
             </div>
 
@@ -290,5 +279,88 @@ export function InboxDetailFrame({
         {showDismiss && dismissDialog}
       </div>
     </div>
+  );
+}
+
+/**
+ * The summary rendered as labeled slots instead of one wall of prose: the
+ * lede (the summary's own tl;dr) stays above the fold, the first section
+ * opens by default, and the rest sit behind disclosure. Nothing is cut —
+ * the reader jumps to the slot they need instead of reading linearly.
+ * Heading-less summaries render whole, exactly as before.
+ */
+function ReportSummarySlots({
+  report,
+  fallbackTitle,
+  Icon,
+}: {
+  report: SignalReport;
+  fallbackTitle: string;
+  Icon: ComponentType<IconProps>;
+}) {
+  const split = useMemo(
+    () => splitReportSummary(report.summary),
+    [report.summary],
+  );
+  const chartIds = renderableReportChartIds(report.charts);
+  const charts = report.charts && report.charts.length > 0 && (
+    <div className="mt-4">
+      <ReportChartsSection reportId={report.id} charts={report.charts} />
+    </div>
+  );
+
+  if (split.sections.length === 0) {
+    return (
+      <DetailSection Icon={Icon} title={fallbackTitle} collapsible>
+        <SignalReportSummaryMarkdown
+          content={report.summary}
+          fallback="No summary yet. The agent is still investigating."
+          variant="detail"
+          pending={report.status === "in_progress"}
+          chartIds={chartIds}
+        />
+        {charts}
+      </DetailSection>
+    );
+  }
+
+  return (
+    <>
+      {split.lede && (
+        <DetailSection Icon={Icon} title={fallbackTitle}>
+          <SignalReportSummaryMarkdown
+            content={split.lede}
+            fallback=""
+            variant="detail"
+            pending={report.status === "in_progress"}
+            chartIds={chartIds}
+          />
+        </DetailSection>
+      )}
+      {split.sections.map((section, index) => (
+        <DetailSection
+          key={`${section.title}-${index}`}
+          Icon={Icon}
+          title={section.title}
+          collapsible
+          defaultCollapsed={index > 0}
+        >
+          <SignalReportSummaryMarkdown
+            content={section.body}
+            fallback=""
+            variant="detail"
+            pending={false}
+            chartIds={chartIds}
+          />
+        </DetailSection>
+      ))}
+      {/* Charts stay outside the collapsibles: in-prose chart links jump to
+          these anchors, and a jump into a folded section lands nowhere. */}
+      {report.charts && report.charts.length > 0 && (
+        <DetailSection Icon={Icon} title="Charts">
+          <ReportChartsSection reportId={report.id} charts={report.charts} />
+        </DetailSection>
+      )}
+    </>
   );
 }
