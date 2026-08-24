@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    "granian[uvloop,reload,pname]==2.7.6",
+    "granian[uvloop,reload,pname]==2.8.2",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
@@ -295,7 +295,12 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+# TEMPORARY, remove before merging: granian 2.8.2 was published 2026-08-23 and
+# the rolling 7-day cutoff hides it until 2026-08-30. We need 2.8.2 rather than
+# 2.8.1 because it fixes a lost-wakeup race in workers shutdown, which our
+# multi-worker pools hit constantly via worker recycling. Drop this entry and
+# re-lock once the cutoff passes; the resolved version does not change.
+exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]

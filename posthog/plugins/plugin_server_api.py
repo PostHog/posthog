@@ -161,12 +161,13 @@ def reschedule_hog_flow_parked_jobs(
     )
 
 
-# Same signing key as reschedule_parked: every workflows route on the CDP API verifies against
-# WORKFLOWS_RESCHEDULE_JWT_SECRET, so the key already spans that one caller/callee surface. The
-# distinct audience still keeps a cancel token useless for reschedule (and vice versa).
+# Dedicated cancel key, distinct from reschedule_parked's: the scoped-JWT rule is one key per
+# caller/callee surface, and cancel mints from the web tier while reschedule mints from the
+# worker, so a leak of one tier's key can't forge the other's calls. The distinct audience
+# still keeps a cancel-invocations token useless for cancel-batch (and vice versa).
 WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
-    settings_name="WORKFLOWS_RESCHEDULE_JWT_SECRETS",
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
     default_ttl=timedelta(minutes=2),
 )
 
@@ -176,14 +177,14 @@ def _mint_cancel_invocations_jwt(team_id: int, hog_flow_id: str) -> str:
     of this one team + workflow. Raises when unprovisioned so the call fails closed. Verified in
     the plugin server's CdpApi.postHogFlowCancelInvocations."""
     if not WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.enabled():
-        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot cancel invocations")
+        raise RuntimeError("WORKFLOWS_CANCEL_JWT_SECRET is not configured — cannot cancel invocations")
     return WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
-# Same shared workflows signing key as the purposes above, on its own audience.
+# Same dedicated cancel key as cancel-invocations (both mint from the web tier), on its own audience.
 WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
-    settings_name="WORKFLOWS_RESCHEDULE_JWT_SECRETS",
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
     default_ttl=timedelta(minutes=2),
 )
 
@@ -193,7 +194,7 @@ def _mint_cancel_batch_jwt(team_id: int, hog_flow_id: str, batch_job_id: str) ->
     this one batch run of this one team + workflow. Raises when unprovisioned so the call fails
     closed. Verified in the plugin server's CdpApi.postHogFlowCancelBatchJob."""
     if not WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.enabled():
-        raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot stop the batch run")
+        raise RuntimeError("WORKFLOWS_CANCEL_JWT_SECRET is not configured — cannot stop the batch run")
     return WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.mint(
         {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
     )
