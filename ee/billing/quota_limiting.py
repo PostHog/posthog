@@ -411,6 +411,11 @@ def org_quota_limited_until(
                 resource,
                 {"quota_limited_until": None, "quota_limiting_suspended_until": None, "limit_decreased_from": None},
             )
+        elif limit_decreased_from is not None:
+            # A harmless decrease: usage stayed under the new limit, so the drop cost nothing.
+            # Consume the one-shot marker now, otherwise a later organic overage that is still
+            # below the old limit would claim the plan-transition grace it never earned.
+            update_organization_usage_fields(organization, resource, {"limit_decreased_from": None})
         return None
 
     # 1b. never drop

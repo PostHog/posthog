@@ -969,6 +969,31 @@ class TestQuotaLimiting(BaseTest):
         assert "limit_decreased_from" not in self.organization.usage["events"]
 
     @freeze_time("2021-01-25T12:00:00Z")
+    def test_org_quota_limited_until_consumes_stale_marker_when_under_new_limit(self):
+        # A harmless decrease leaves usage under the new limit, so no grace is needed. The
+        # one-shot marker must be consumed here too - if it survives, a later organic overage
+        # that is still below the OLD limit would wrongly claim the plan-transition grace.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": 1000, "limit_decreased_from": 1_000_000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        # Under the new limit: no suspension, and the stale marker is cleared.
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+        assert result is None
+        assert "limit_decreased_from" not in self.organization.usage["events"]
+
+        # Usage now grows organically past the new limit (still below the old one). With the
+        # marker gone this is a plain overage, so it limits at once instead of getting grace.
+        self.organization.usage["events"]["usage"] = 1200
+        result = org_quota_limited_until(self.organization, QuotaResource.EVENTS, [])
+        assert result == {
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
+        }
+
+    @freeze_time("2021-01-25T12:00:00Z")
     def test_org_quota_limited_until_ignores_limit_drop_marker_for_grace_exempt_resources(self):
         # AI credits (and other GRACE_PERIOD_EXEMPT_RESOURCES) never get a grace period,
         # including the plan-transition one - abuse risk outweighs the false-positive here.
