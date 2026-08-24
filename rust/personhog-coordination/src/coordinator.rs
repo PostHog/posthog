@@ -85,6 +85,11 @@ pub struct CoordinatorConfig {
     /// could never complete: cancel, replan, warm from zero, forever.
     /// Zero disables the Warming budget entirely.
     pub warming_deadline: Duration,
+    /// The plan-transaction budget, mirroring the server's
+    /// `--max-txn-ops`: plans are applied in chunks that fit it. Must
+    /// not exceed the server's value — a larger transaction is refused
+    /// outright, and the planner would retry it forever.
+    pub max_txn_ops: usize,
 }
 
 impl Default for CoordinatorConfig {
@@ -108,6 +113,9 @@ impl Default for CoordinatorConfig {
             reconcile_interval: Duration::from_secs(5),
             handoff_deadline: Duration::from_secs(120),
             warming_deadline: Duration::from_secs(1800),
+            // etcd's own default; deployments that raise the server
+            // flag raise this with it from the same chart value.
+            max_txn_ops: 128,
         }
     }
 }
@@ -658,6 +666,7 @@ impl Coordinator {
             let k8s_awareness = self.k8s_awareness.clone();
             let debounce_interval = self.config.rebalance_debounce_interval;
             let deadlines = self.config.phase_deadlines();
+            let max_txn_ops = self.config.max_txn_ops;
             let replan = Arc::clone(&replan);
             let token = cancel.child_token();
             tasks.spawn(async move {
@@ -667,6 +676,7 @@ impl Coordinator {
                     k8s_awareness,
                     debounce_interval,
                     deadlines,
+                    max_txn_ops,
                     replan,
                     token,
                     pods_stream,
@@ -680,6 +690,7 @@ impl Coordinator {
             let strategy = Arc::clone(&self.strategy);
             let k8s_awareness = self.k8s_awareness.clone();
             let deadlines = self.config.phase_deadlines();
+            let max_txn_ops = self.config.max_txn_ops;
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_handoffs_loop(
@@ -687,6 +698,7 @@ impl Coordinator {
                     strategy,
                     k8s_awareness,
                     deadlines,
+                    max_txn_ops,
                     token,
                     handoffs_stream,
                 )
@@ -763,6 +775,7 @@ impl Coordinator {
         k8s_awareness: Option<Arc<K8sAwareness>>,
         debounce_interval: Duration,
         deadlines: PhaseDeadlines,
+        max_txn_ops: usize,
         replan: Arc<Notify>,
         cancel: CancellationToken,
         mut stream: WatchStream,
@@ -798,6 +811,7 @@ impl Coordinator {
                 strategy.as_ref(),
                 k8s_awareness.as_deref(),
                 deadlines,
+                max_txn_ops,
             )
             .await?;
         }
@@ -817,6 +831,7 @@ impl Coordinator {
         strategy: Arc<dyn AssignmentStrategy>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
         deadlines: PhaseDeadlines,
+        max_txn_ops: usize,
         cancel: CancellationToken,
         mut stream: WatchStream,
     ) -> Result<()> {
@@ -857,6 +872,7 @@ impl Coordinator {
                             strategy.as_ref(),
                             k8s_awareness.as_deref(),
                             deadlines,
+                            max_txn_ops,
                         )
                         .await?;
                     }
@@ -1242,6 +1258,7 @@ impl Coordinator {
             self.strategy.as_ref(),
             self.k8s_awareness.as_deref(),
             self.config.phase_deadlines(),
+            self.config.max_txn_ops,
         )
         .await
     }
@@ -1251,6 +1268,7 @@ impl Coordinator {
         strategy: &dyn AssignmentStrategy,
         k8s_awareness: Option<&K8sAwareness>,
         deadlines: PhaseDeadlines,
+        max_txn_ops: usize,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
         let total_partitions = match store.get_total_partitions().await {
@@ -1376,14 +1394,15 @@ impl Coordinator {
         let mut creations: Vec<HandoffState> = Vec::new();
         let mut replacements: Vec<HandoffReplacement> = Vec::new();
         let mut fallback_deletes: Vec<FallbackDelete> = Vec::new();
-        let mut replaced_dispositions: Vec<&'static str> = Vec::new();
-        // Held until the plan transaction lands; see `Cancellation`.
-        let mut planned_cancellations: Vec<Cancellation> = Vec::new();
+        let mut replaced_dispositions: Vec<(u32, &'static str)> = Vec::new();
+        // Held until the plan transactions land; see `Cancellation`.
+        let mut planned_cancellations: Vec<(u32, Cancellation)> = Vec::new();
 
         for handoff in handoff_objects {
             match cancelled_by_partition.remove(&handoff.partition) {
                 Some((predecessor, mod_revision)) => {
-                    planned_cancellations.push(
+                    planned_cancellations.push((
+                        handoff.partition,
                         Self::describe_cancellation(
                             store,
                             &routers,
@@ -1392,12 +1411,12 @@ impl Coordinator {
                             "successor",
                         )
                         .await,
-                    );
+                    ));
+                    replaced_dispositions.push((handoff.partition, "successor"));
                     replacements.push(HandoffReplacement {
                         handoff,
                         expected_mod_revision: mod_revision,
                     });
-                    replaced_dispositions.push("successor");
                 }
                 None => creations.push(handoff),
             }
@@ -1408,7 +1427,8 @@ impl Coordinator {
                 .filter(|owner| registered.contains(owner.as_str()));
             match owner {
                 Some(owner) => {
-                    planned_cancellations.push(
+                    planned_cancellations.push((
+                        predecessor.partition,
                         Self::describe_cancellation(
                             store,
                             &routers,
@@ -1417,7 +1437,7 @@ impl Coordinator {
                             "reaffirm",
                         )
                         .await,
-                    );
+                    ));
                     replacements.push(HandoffReplacement {
                         handoff: HandoffState {
                             partition: predecessor.partition,
@@ -1441,7 +1461,7 @@ impl Coordinator {
                         },
                         expected_mod_revision: mod_revision,
                     });
-                    replaced_dispositions.push("reaffirm");
+                    replaced_dispositions.push((predecessor.partition, "reaffirm"));
                 }
                 None => {
                     let cancellation = Self::describe_cancellation(
@@ -1461,19 +1481,8 @@ impl Coordinator {
             }
         }
 
-        let moves = creations
-            .iter()
-            .chain(replacements.iter().map(|r| &r.handoff))
-            .filter(|h| h.phase == HandoffPhase::Freezing && h.old_owner.is_some())
-            .count();
-        let freezing_total = creations.len()
-            + replacements
-                .iter()
-                .filter(|r| r.handoff.phase == HandoffPhase::Freezing)
-                .count();
         tracing::info!(
-            reassignments = moves,
-            fresh = freezing_total - moves,
+            creations = creations.len(),
             replaced = replacements.len(),
             "creating handoffs"
         );
@@ -1502,8 +1511,10 @@ impl Coordinator {
             .iter()
             .chain(replacements.iter().map(|r| &r.handoff))
             .any(|handoff| handoff.freeze_quorum_ref.is_some());
-        if (!creations.is_empty() || !replacements.is_empty())
-            && !store
+        let application = if creations.is_empty() && replacements.is_empty() {
+            crate::store::PlanApplication::default()
+        } else {
+            store
                 .apply_plan(
                     &[],
                     &creations,
@@ -1516,20 +1527,26 @@ impl Coordinator {
                     // for the next sweep to delete, during the mass
                     // cancellation when etcd is least well.
                     references_quorum.then_some((&freeze_quorum_id, &freeze_quorum)),
+                    max_txn_ops,
                 )
                 .await?
-        {
+        };
+        if !application.conflicted.is_empty() {
             // A concurrent invocation (the empty-set re-trigger racing a
-            // pod event, or a failing-over coordinator) created a handoff
-            // first. Its plan acted on fresher state than ours; whatever
-            // this plan wanted beyond it is replanned by the next pod
-            // event or the final sweep.
-            tracing::info!("concurrent plan won handoff creation; standing down");
-            return Ok(());
+            // pod event, or a failing-over coordinator) got to these
+            // partitions first. Its plan acted on fresher state than
+            // ours; whatever this plan wanted beyond it is replanned by
+            // the next pod event or the final sweep.
+            tracing::info!(
+                conflicted = application.conflicted.len(),
+                "concurrent plans won some partitions; standing those down"
+            );
         }
+        let applied: HashSet<u32> = application.applied.iter().copied().collect();
         for handoff in creations
             .iter()
             .chain(replacements.iter().map(|r| &r.handoff))
+            .filter(|h| applied.contains(&h.partition))
         {
             tracing::info!(
                 partition = handoff.partition,
@@ -1540,15 +1557,19 @@ impl Coordinator {
                 "handoff created"
             );
         }
-        for cancellation in &planned_cancellations {
-            cancellation.record();
+        for (partition, cancellation) in &planned_cancellations {
+            if applied.contains(partition) {
+                cancellation.record();
+            }
         }
-        for disposition in &replaced_dispositions {
-            counter!(
-                "personhog_coordination_handoffs_replaced_total",
-                "disposition" => *disposition,
-            )
-            .increment(1);
+        for (partition, disposition) in &replaced_dispositions {
+            if applied.contains(partition) {
+                counter!(
+                    "personhog_coordination_handoffs_replaced_total",
+                    "disposition" => *disposition,
+                )
+                .increment(1);
+            }
         }
 
         // The fallback deletes are per-partition guarded transactions
@@ -1573,10 +1594,21 @@ impl Coordinator {
             }
         }
 
+        let (mut moves, mut fresh) = (0u64, 0u64);
+        for handoff in creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+            .filter(|h| h.phase == HandoffPhase::Freezing && applied.contains(&h.partition))
+        {
+            match handoff.old_owner {
+                Some(_) => moves += 1,
+                None => fresh += 1,
+            }
+        }
         counter!("personhog_coordination_handoffs_created_total", "kind" => "move")
-            .increment(moves as u64);
+            .increment(moves);
         counter!("personhog_coordination_handoffs_created_total", "kind" => "fresh")
-            .increment((freezing_total - moves) as u64);
+            .increment(fresh);
 
         // Nudge advancement for handoffs whose preconditions are already
         // satisfied at creation time (no old_owner, dead old_owner, vacuous
@@ -1586,6 +1618,7 @@ impl Coordinator {
         for handoff in creations
             .iter()
             .chain(replacements.iter().map(|r| &r.handoff))
+            .filter(|h| applied.contains(&h.partition))
         {
             Self::check_phase_advance(store, handoff.partition, AdvanceTrigger::Other).await?;
         }

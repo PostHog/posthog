@@ -1531,6 +1531,7 @@ async fn late_joining_router_stashes_before_populating_table() {
             }],
             &[],
             &[],
+            128
         )
         .await
         .expect("write assignment"));
@@ -1600,6 +1601,7 @@ async fn start_router_with_frozen_handoff(
             }],
             &[],
             &[],
+            128
         )
         .await
         .expect("write assignment"));
@@ -1749,6 +1751,7 @@ async fn a_blocked_drain_does_not_stall_freeze_acks_for_other_partitions() {
             }],
             &[],
             &[],
+            128
         )
         .await
         .expect("write assignment"));
@@ -1966,6 +1969,7 @@ async fn start_reconciling_router(
             }],
             &[],
             &[],
+            128
         )
         .await
         .expect("write assignment"));
@@ -2276,6 +2280,7 @@ async fn start_flaky_router(
             }],
             &[],
             &[],
+            128
         )
         .await
         .expect("write assignment"));
@@ -2515,6 +2520,7 @@ async fn the_reconcile_pass_skips_drains_for_settled_partitions() {
             }],
             &[],
             &[],
+            128
         )
         .await
         .expect("write assignment"));
@@ -5626,4 +5632,131 @@ async fn a_membership_already_read_is_answered_without_reading_again() {
         Some(members),
         "the second resolution must come from memory, not from etcd"
     );
+}
+
+// ── Plan chunking against the server txn budget ─────────────────────
+
+/// The 256→1 collapse shape: a plan of 256 creations carries two
+/// compares per partition, quadruple etcd's default `--max-txn-ops` of
+/// 128 (which this suite's etcd runs). Unchunked, the server rejects
+/// the transaction outright — a hard error, not a failed guard — and a
+/// coordinator retrying the same plan re-earns it forever, with every
+/// partition unassigned. Chunked to the budget, every handoff lands.
+#[tokio::test]
+async fn a_plan_past_the_server_txn_budget_still_applies() {
+    use personhog_coordination::types::AssignmentPrecondition;
+
+    let store = test_store("plan-past-txn-budget").await;
+    let total: u32 = 256;
+
+    let quorum_id = "large-plan-quorum";
+    let quorum = vec!["router-0".to_string()];
+    let now = 1_000_i64;
+    let handoffs: Vec<HandoffState> = (0..total)
+        .map(|partition| HandoffState {
+            partition,
+            old_owner: Some(format!("pod-{partition}")),
+            new_owner: "pod-survivor".to_string(),
+            new_owner_address: None,
+            phase: HandoffPhase::Freezing,
+            started_at: now,
+            handoff_id: format!("handoff-{partition}"),
+            freeze_quorum: None,
+            freeze_quorum_ref: Some(quorum_id.to_string()),
+            created_at_ms: now * 1000,
+            phase_entered_at_ms: now * 1000,
+        })
+        .collect();
+    let preconditions: Vec<AssignmentPrecondition> = (0..total)
+        .map(|partition| AssignmentPrecondition::Absent { partition })
+        .collect();
+
+    let application = store
+        .apply_plan(
+            &[],
+            &handoffs,
+            &[],
+            &preconditions,
+            Some((quorum_id, &quorum)),
+            128,
+        )
+        .await
+        .expect("a plan larger than the server txn budget must apply in chunks");
+
+    assert_eq!(application.applied.len(), total as usize);
+    assert!(application.conflicted.is_empty());
+    let written = store.list_handoffs().await.unwrap();
+    assert_eq!(
+        written.len(),
+        total as usize,
+        "every handoff must be durable"
+    );
+    assert_eq!(
+        store.get_freeze_quorum(quorum_id).await.unwrap().as_deref(),
+        Some(quorum.as_slice()),
+        "the shared quorum record must be durable alongside its handoffs"
+    );
+}
+
+/// Guards keep their bite across chunks: a partition whose handoff key
+/// already exists stands down alone, without dragging the rest of its
+/// chunk — or the plan — with it.
+#[tokio::test]
+async fn a_conflicted_partition_stands_down_alone() {
+    use personhog_coordination::types::AssignmentPrecondition;
+
+    let store = test_store("plan-conflict-isolated").await;
+    let total: u32 = 100;
+
+    let make = |partition: u32, id: &str| HandoffState {
+        partition,
+        old_owner: None,
+        new_owner: "pod-survivor".to_string(),
+        new_owner_address: None,
+        phase: HandoffPhase::Freezing,
+        started_at: 1_000,
+        handoff_id: id.to_string(),
+        freeze_quorum: Some(Vec::new()),
+        freeze_quorum_ref: None,
+        created_at_ms: 1_000_000,
+        phase_entered_at_ms: 1_000_000,
+    };
+
+    // Partition 40 already has a handoff — a concurrent planner won it.
+    let winner = make(40, "handoff-winner");
+    let first = store
+        .apply_plan(&[], std::slice::from_ref(&winner), &[], &[], None, 128)
+        .await
+        .unwrap();
+    assert_eq!(first.applied, vec![40]);
+
+    let handoffs: Vec<HandoffState> = (0..total)
+        .map(|p| make(p, &format!("handoff-{p}")))
+        .collect();
+    let preconditions: Vec<AssignmentPrecondition> = (0..total)
+        .map(|partition| AssignmentPrecondition::Absent { partition })
+        .collect();
+    let application = store
+        .apply_plan(&[], &handoffs, &[], &preconditions, None, 128)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        application.conflicted,
+        vec![40],
+        "only the won partition stands down"
+    );
+    assert_eq!(application.applied.len(), (total - 1) as usize);
+    let ids: HashMap<u32, String> = store
+        .list_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|h| (h.partition, h.handoff_id))
+        .collect();
+    assert_eq!(
+        ids[&40], "handoff-winner",
+        "the winner's record must survive"
+    );
+    assert_eq!(ids.len(), total as usize);
 }
