@@ -11,7 +11,7 @@ import { groupBy } from 'lib/utils/arrays'
 import { parseDateInTimezone } from 'lib/utils/datetime'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
@@ -25,6 +25,8 @@ import {
     IntervalType,
     PropertyGroupFilter,
     QueryBasedInsightModel,
+    TeamPublicType,
+    TeamType,
 } from '~/types'
 
 import type { AnnotationData } from '../../../models/annotationsModel'
@@ -87,6 +89,7 @@ export interface annotationsOverlayLogicValues {
     interval: IntervalType | null | undefined // insightVizDataLogic
     properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined // insightVizDataLogic
     timezone: string // teamLogic
+    currentTeam: TeamType | TeamPublicType | null // teamLogic
     activeDate: Dayjs | null
     annotations: AnnotationType[]
     annotationsLoading: boolean
@@ -215,7 +218,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             insightVizDataLogic,
             ['interval', 'properties', 'breakdownFilter'],
             teamLogic,
-            ['timezone'],
+            ['timezone', 'currentTeam'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -238,7 +241,10 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 // a single unbounded list call would drop the oldest annotations.
                 loadAnnotations: async (_, breakpoint) => {
                     const { dateRange, timezone } = values
-                    if (!dateRange) {
+                    // Skip the fetch on shared and exported charts: the team is unauthenticated
+                    // there, so the project annotations endpoint would reject the request. Mirrors
+                    // the guard on annotationsModel's own load.
+                    if (!dateRange || !isAuthenticatedTeam(values.currentTeam)) {
                         return []
                     }
                     const response = await api.annotations.list({

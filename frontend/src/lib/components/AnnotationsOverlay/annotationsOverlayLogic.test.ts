@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useMocks } from '~/mocks/jest'
 import { deserializeAnnotation } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
-import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, RawAnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, RawAnnotationType, TeamType } from '~/types'
 
 import { annotationsOverlayLogic } from './annotationsOverlayLogic'
 
@@ -312,6 +312,31 @@ describe('annotationsOverlayLogic', () => {
             MOCK_ANNOTATION_ORG_SCOPED.id,
             MOCK_ANNOTATION_INSIGHT_1_SCOPED.id,
         ])
+    })
+
+    it('does not request annotations when the team is unauthenticated (shared/exported charts)', async () => {
+        useInsightMocks()
+        const listSpy = jest.spyOn(api.annotations, 'list')
+
+        // Shared and exported pages carry a public team with no api_token, so isAuthenticatedTeam
+        // is false and the protected project annotations endpoint must not be hit.
+        const publicTeam: Record<string, unknown> = { ...MOCK_DEFAULT_TEAM }
+        delete publicTeam.api_token
+        initKeaTests(true, publicTeam as unknown as TeamType)
+
+        logic = annotationsOverlayLogic({
+            dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+            insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+            dates: ['2022-08-01', '2022-09-01'],
+            ticks: [{ value: 0 }, { value: 1 }],
+            dashboardId: MOCK_DASHBOARD_ID,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
+
+        expect(listSpy).not.toHaveBeenCalled()
+        expect(logic.values.annotations).toEqual([])
+        listSpy.mockRestore()
     })
 
     describe('relevantAnnotations', () => {
