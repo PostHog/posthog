@@ -24,6 +24,13 @@ TEAMS_WEBHOOK_URL_ERROR = (
     "channel you want reports in, then paste the URL it gives you."
 )
 
+# Teams rejects an incoming webhook payload over roughly 28KB. Images are linked rather than
+# embedded, but an asset that failed to generate is sent as error text in place of its image, so a
+# run where several failed reaches that limit on text alone. This budget bounds the text the whole
+# card carries, leaving room for the JSON envelope, the image URLs and the actions.
+TEAMS_CARD_TEXT_BUDGET = 20000
+_TRUNCATION_MARKER = "... (truncated)"
+
 
 def teams_text_block(text: str, *, is_subtle: bool = False) -> dict[str, Any]:
     block: dict[str, Any] = {"type": "TextBlock", "text": text, "wrap": True}
@@ -53,6 +60,12 @@ def teams_card_message(body: list[dict[str, Any]], actions: list[dict[str, str]]
             }
         ],
     }
+
+
+def _fit(text: str, budget: int) -> str:
+    if len(text) <= budget:
+        return text
+    return text[: max(budget - len(_TRUNCATION_MARKER), 0)] + _TRUNCATION_MARKER
 
 
 def _element_for_asset(asset: ExportedAsset, resource_url: str) -> dict[str, Any]:
@@ -103,20 +116,34 @@ def build_teams_subscription_card(
         title = f"Your subscription to {display_name} is ready! 🎉"
 
     body: list[dict[str, Any]] = [teams_text_block(title)]
+    remaining = TEAMS_CARD_TEXT_BUDGET - len(title)
 
     if change_summary:
-        body.append(teams_text_block(f"**AI summary**\n\n{change_summary}"))
+        summary = _fit(f"**AI summary**\n\n{change_summary}", remaining)
+        body.append(teams_text_block(summary))
+        remaining -= len(summary)
     elif summary_skipped_over_budget:
         billing_url = f"{absolute_uri('/organization/billing')}?{TEAMS_UTM_TAGS}"
-        notice = summary_skipped_over_budget_message(f"[Billing settings]({billing_url})")
-        body.append(teams_text_block(f"_{notice}_", is_subtle=True))
+        link = f"[Billing settings]({billing_url})"
+        notice = f"_{summary_skipped_over_budget_message(link)}_"
+        body.append(teams_text_block(notice, is_subtle=True))
+        remaining -= len(notice)
 
-    body.extend(_element_for_asset(asset, resource_url=resource_info.url) for asset in assets)
+    shown = 0
+    for asset in assets:
+        element = _element_for_asset(asset, resource_url=resource_info.url)
+        size = len(element.get("text", ""))
+        # The first asset always goes in, so a card is never all notice and no content.
+        if shown and size > remaining:
+            break
+        body.append(element)
+        remaining -= size
+        shown += 1
 
-    if total_asset_count > len(assets):
+    if total_asset_count > shown:
         body.append(
             teams_text_block(
-                f"Showing {len(assets)} of {total_asset_count} insights. "
+                f"Showing {shown} of {total_asset_count} insights. "
                 f"[View the rest in PostHog]({resource_info.url}?{TEAMS_UTM_TAGS})",
                 is_subtle=True,
             )

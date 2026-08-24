@@ -3,7 +3,8 @@ from posthog.test.base import APIBaseTest
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions.teams_subscriptions import build_teams_subscription_card
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET, build_teams_subscription_card
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 VALID_TEAMS_WEBHOOK_URL = (
@@ -81,3 +82,22 @@ class TestTeamsSubscriptionCard(APIBaseTest):
 
         assert content["body"][1]["text"] == "**AI summary**\n\nSignups doubled"
         assert content["body"][2]["type"] == "Image"
+
+    def test_a_run_where_every_asset_failed_stays_inside_the_card_budget(self) -> None:
+        failed_assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                insight_id=self.insight.id,
+                export_format="image/png",
+                exception="Query timed out. " + "detail " * 1000,
+            )
+            for _ in range(MAX_INSIGHTS)
+        ]
+
+        card = build_teams_subscription_card(self.subscription, failed_assets, MAX_INSIGHTS)
+        body = card["attachments"][0]["content"]["body"]
+        shown = sum(1 for element in body if "Query timed out." in element.get("text", ""))
+
+        assert sum(len(element.get("text", "")) for element in body) <= TEAMS_CARD_TEXT_BUDGET
+        assert shown < MAX_INSIGHTS
+        assert body[-1]["text"].startswith(f"Showing {shown} of {MAX_INSIGHTS} insights.")
