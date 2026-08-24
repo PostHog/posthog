@@ -217,7 +217,7 @@ describe("ChannelFeedView", () => {
     for (const label of [
       "Pin",
       "Rename",
-      "Add to Command Center",
+      "Add to Command Center…",
       "File to…",
       "Archive",
     ]) {

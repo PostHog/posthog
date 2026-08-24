@@ -38,6 +38,10 @@ export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
     metadata?: string | undefined
+    /** `metadata` without the product/integration context lines, for the claude.ai
+     *  exec command reference, which counts against the ~16 KiB registry cap on the
+     *  serialized inputSchema. Falls back to `metadata` when unset. */
+    metadataCompact?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
     /** Whether `render-ui` is actually available to this client (i.e. the client is
@@ -179,7 +183,7 @@ export class InstructionsFormatter {
         const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            metadata: ctx.metadata,
+            metadata: ctx.metadataCompact ?? ctx.metadata,
             groupTypes: ctx.groupTypes,
             tools: ctx.tools,
         }

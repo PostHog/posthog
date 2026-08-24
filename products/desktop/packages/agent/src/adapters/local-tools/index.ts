@@ -3,7 +3,9 @@ import { cloneRepoTool } from "./tools/clone-repo";
 import { finishTool } from "./tools/finish";
 import { listAgentsTool } from "./tools/list-agents";
 import { listReposTool } from "./tools/list-repos";
+import { reportInsightTool } from "./tools/report-insight";
 import { sendAgentMessageTool } from "./tools/send-agent-message";
+import { showActionsTool } from "./tools/show-actions";
 import { signedCommitTool } from "./tools/signed-commit";
 import { signedMergeTool } from "./tools/signed-merge";
 import { signedRewriteTool } from "./tools/signed-rewrite";
@@ -27,7 +29,9 @@ export const LOCAL_TOOLS: LocalTool[] = [
   listReposTool,
   cloneRepoTool,
   speakTool,
+  showActionsTool,
   uploadArtifactTool,
+  reportInsightTool,
   finishTool,
   listAgentsTool,
   sendAgentMessageTool,
