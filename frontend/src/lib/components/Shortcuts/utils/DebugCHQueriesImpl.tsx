@@ -206,7 +206,7 @@ export const BarChartWithLine = ({ data }: { data: DataPoint[] }): JSX.Element =
                 data: labels.map((label) => dataMap.get(label)?.avg_response_time_ms || 0),
             },
         ]
-    }, [data, labels])
+    }, [data, labels, theme])
 
     return (
         <div className="h-[300px] w-full flex flex-col">
