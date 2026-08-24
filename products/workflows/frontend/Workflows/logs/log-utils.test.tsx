@@ -3,7 +3,18 @@ import { render } from '@testing-library/react'
 import { HogFlow } from '../hogflows/types'
 import { renderWorkflowLogMessage } from './log-utils'
 
-const workflow = { id: 'flow-1', actions: [] } as unknown as HogFlow
+const workflow: HogFlow = {
+    id: 'flow-1',
+    team_id: 1,
+    version: 1,
+    name: 'Test workflow',
+    status: 'draft',
+    exit_condition: 'exit_only_at_end',
+    actions: [],
+    edges: [],
+    created_at: '2026-08-24T00:00:00Z',
+    updated_at: '2026-08-24T00:00:00Z',
+}
 
 describe('renderWorkflowLogMessage', () => {
     it('links a [Task:id|run_id] token to the created task', () => {
