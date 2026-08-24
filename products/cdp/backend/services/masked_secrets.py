@@ -21,7 +21,7 @@ from uuid import UUID
 
 from django.db.models import Model, Q, QuerySet
 
-from posthog.cdp.validation import MASKED_SECRET_VALUE
+from posthog.cdp.validation import MASKED_SECRET_VALUE, masked_secret_input_keys
 from posthog.dataclasses import frozen
 from posthog.utils import absolute_uri
 
@@ -104,21 +104,8 @@ class HogFlowMaskedSecretScan:
 
 
 def _masked_input_keys(stored: object) -> tuple[str, ...]:
-    """Input keys whose stored value is the literal mask.
-
-    A row encrypted under a key we no longer hold comes back as the raw ciphertext string rather
-    than a dict, because the field swallows `InvalidToken`. The shape has to be checked, not
-    assumed.
-    """
-    if not isinstance(stored, dict):
-        return ()
-    return tuple(
-        sorted(
-            key
-            for key, entry in stored.items()
-            if isinstance(entry, dict) and entry.get("value") == MASKED_SECRET_VALUE
-        )
-    )
+    """The shared mask predicate, as the tuple the frozen finding dataclasses require."""
+    return tuple(masked_secret_input_keys(stored))
 
 
 def _flow_masked_input_keys(stored: object) -> tuple[str, ...]:
@@ -127,7 +114,7 @@ def _flow_masked_input_keys(stored: object) -> tuple[str, ...]:
     Hog flow secrets are keyed action id then input key. An entry is poisoned when it is the
     `{"secret": true}` read-back marker with no value — the save path should have swapped it for
     the stored secret — or when its value is the literal mask string. Same shape caveat as
-    `_masked_input_keys`: an undecryptable row reads back as a raw string.
+    `masked_secret_input_keys`: an undecryptable row reads back as a raw string.
     """
     if not isinstance(stored, dict):
         return ()
