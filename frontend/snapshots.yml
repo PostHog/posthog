@@ -6817,9 +6817,9 @@ snapshots:
     scenes-app-insights-error-empty-states--funnel-single-step--light:
         hash: v1.k794b7964.66bd00443e2e711874ed527bf57144f29725e97fe6485bd851a5a08fc1312baa.tlLUxnCoHj_VOErbA4ZPNkryCh306EmzhqWZkD8heAU
     scenes-app-insights-error-empty-states--long-loading--dark:
-        hash: v1.k794b7964.a6429bcd1656dc70e30624f2e2f222d77d001a2a0e6fd49e0715598251e08e5e.GjorOUsq0kK5NJezAdyIBqFjJBIveAR3brvuMItSSYc
+        hash: v1.k794b7964.415997fa549e22cefc1d33dac7db7e936ce5a90e720c94a1d044e9e5ef048fc6.c_5apWvY4dXJR2tobyg9FJ3a_DcSKPb37gUHT7K-Lbs
     scenes-app-insights-error-empty-states--long-loading--light:
-        hash: v1.k794b7964.e3f760b8e3b6d5138169be92e3a8026a00e7ec2ee9e252e54b67218df282b804.z796JAdbdGr_wQgg7t4XD97z7nQoKC3qrjEVudqDDeU
+        hash: v1.k794b7964.3c0c4f174ba1ef6cce2f0d3eea3c0a82e3cbe6d278050c0720dd13656335d3b8.2KMbRz5Qoa10NvyLZW6ZW_62bWA1HZ22hX63wMkJEhQ
     scenes-app-insights-error-empty-states--memory-limit-exceeded--dark:
         hash: v1.k794b7964.ef18ee16bcec4b43d74979a5131a3f325f8e0542b6b4cba050746f6b02699ab9.kOLq5BxzD8AlGlxKgleq3uJTw_ddM6GTSmML4MNaZ5o
     scenes-app-insights-error-empty-states--memory-limit-exceeded--light:
