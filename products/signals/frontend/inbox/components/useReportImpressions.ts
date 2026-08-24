@@ -15,7 +15,7 @@ export function useReportImpressions(sectionKey: InboxReportSectionKey, isOpen: 
     const { visibleReports, totalCount, isLoaded, loadedQueryKey, loadedContext } = useValues(reportListLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate impressions on the
     // list actually being the visible surface.
-    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isFocusOpen } =
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isTriageOpen } =
         useValues(inboxSceneLogic)
     const listVisible =
         !selectedReportId &&
@@ -23,7 +23,7 @@ export function useReportImpressions(sectionKey: InboxReportSectionKey, isOpen: 
         !isScratchpadOpen &&
         !isFindingsOpen &&
         !isRunsOpen &&
-        !isFocusOpen
+        !isTriageOpen
 
     const impressedIdsRef = useRef(new Set<string>())
     // Dedupe is per query: a sort/search/filter/scope change is a new ranking context, so a report

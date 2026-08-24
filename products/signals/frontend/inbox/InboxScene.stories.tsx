@@ -89,9 +89,9 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
-// Focus mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
-export const Focus: Story = {
-    decorators: [routeTo(urls.inboxFocus())],
+// Triage mode over the Needs-a-decision queue: one report at a time, keyboard-driven.
+export const Triage: Story = {
+    decorators: [routeTo(urls.inboxTriage())],
 }
 
 export const Scouts: Story = {

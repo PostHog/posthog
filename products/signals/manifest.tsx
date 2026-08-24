@@ -9,8 +9,8 @@ export const manifest: ProductManifest = {
         // keeps the view it was opened from and returns to it.
         inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
         inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
-        // Focus mode: the Needs-a-decision queue one report at a time, full-width over the list.
-        inboxFocus: (): string => '/inbox/reports/focus',
+        // Triage mode: the Needs-a-decision queue one report at a time, full-width over the list.
+        inboxTriage: (): string => '/inbox/reports/triage',
         // Scout detail surface, full-width over the inbox list (the fleet section lives in the Configuration tab).
         // An optional finding id deep-links straight to one emitted finding (best-effort: only resolves while
         // that finding is still in the scout's recent runs window).
@@ -42,7 +42,7 @@ export const manifest: ProductManifest = {
         '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
         '/inbox/scouts/findings': ['Inbox', 'inbox'],
         '/inbox/scouts/runs': ['Inbox', 'inbox'],
-        '/inbox/reports/focus': ['Inbox', 'inbox'],
+        '/inbox/reports/triage': ['Inbox', 'inbox'],
         // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
         '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
         // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.

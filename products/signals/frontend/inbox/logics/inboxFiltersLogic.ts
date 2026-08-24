@@ -548,7 +548,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             [urls.inboxScratchpad()]: applyFromUrl,
             [urls.inboxFindings()]: applyFromUrl,
             [urls.inboxRuns()]: applyFromUrl,
-            [urls.inboxFocus()]: applyFromUrl,
+            [urls.inboxTriage()]: applyFromUrl,
             [urls.inboxScout(':skillName')]: applyFromUrl,
             [urls.inboxScout(':skillName', ':findingId')]: applyFromUrl,
             [urls.inboxReport(':tab', ':reportId')]: applyFromUrl,

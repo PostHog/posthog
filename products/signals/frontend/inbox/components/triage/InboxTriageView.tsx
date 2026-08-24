@@ -13,7 +13,7 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { captureInboxPanelViewed } from '../../inboxAnalytics'
-import { inboxFocusLogic } from '../../logics/inboxFocusLogic'
+import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 import { SignalReport } from '../../types'
 import {
     deriveHeadline,
@@ -74,9 +74,9 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
     )
 }
 
-function FocusCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, isCreatingPr, aiConsentDisabledReason } = useValues(inboxFocusLogic)
-    const { archiveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxFocusLogic)
+function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
+    const { canCreatePr, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTriageLogic)
+    const { archiveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -88,7 +88,7 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
         <article
             key={report.id}
             className="flex max-h-full w-full max-w-3xl min-h-0 flex-col overflow-hidden rounded-lg border border-primary bg-surface-primary shadow-sm"
-            data-attr="inbox-focus-card"
+            data-attr="inbox-triage-card"
         >
             <div className="flex flex-none flex-wrap items-center gap-2 px-6 pt-4">
                 <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
@@ -158,7 +158,7 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
                             No summary yet. An agent is still investigating.
                         </p>
                     )}
-                    <Link to={reportUrl} className="text-xs" data-attr="inbox-focus-full-report">
+                    <Link to={reportUrl} className="text-xs" data-attr="inbox-triage-full-report">
                         Open the full report, with evidence and activity
                     </Link>
                 </div>
@@ -171,7 +171,7 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
                     icon={<IconArchive />}
                     onClick={archiveCurrent}
                     sideIcon={<KeyboardShortcut a />}
-                    data-attr="inbox-focus-archive"
+                    data-attr="inbox-triage-archive"
                 >
                     Archive
                 </LemonButton>
@@ -184,7 +184,7 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
                         loading={isCreatingPr}
                         disabledReason={aiConsentDisabledReason ?? undefined}
                         sideIcon={<KeyboardShortcut c />}
-                        data-attr="inbox-focus-create-pr"
+                        data-attr="inbox-triage-create-pr"
                     >
                         Create PR
                     </LemonButton>
@@ -195,7 +195,7 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
                     size="small"
                     onClick={openCurrent}
                     sideIcon={<KeyboardShortcut o />}
-                    data-attr="inbox-focus-open-report"
+                    data-attr="inbox-triage-open-report"
                 >
                     Open report
                 </LemonButton>
@@ -204,7 +204,7 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
                     size="small"
                     onClick={toggleExpanded}
                     sideIcon={<KeyboardShortcut enter />}
-                    data-attr="inbox-focus-toggle-summary"
+                    data-attr="inbox-triage-toggle-summary"
                 >
                     {expanded ? 'Collapse' : 'Read summary'}
                 </LemonButton>
@@ -214,15 +214,15 @@ function FocusCard({ report, expanded }: { report: SignalReport; expanded: boole
 }
 
 /**
- * Focus mode, at `/inbox/reports/focus`: the Needs-a-decision queue one report at a time, with the
+ * Triage mode, at `/inbox/reports/triage`: the Needs-a-decision queue one report at a time, with the
  * previous and next reports peeking above and below. Every action has a key, and the hint bar at the
  * bottom lists them.
  */
-export function InboxFocusView(): JSX.Element {
+export function InboxTriageView(): JSX.Element {
     const { reports, isLoaded, currentReport, previousReport, nextReport, expanded, counter } =
-        useValues(inboxFocusLogic)
+        useValues(inboxTriageLogic)
     const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent } =
-        useActions(inboxFocusLogic)
+        useActions(inboxTriageLogic)
 
     useKeyboardHotkeys(
         {
@@ -251,7 +251,7 @@ export function InboxFocusView(): JSX.Element {
             a: { action: outsideDialogs(() => archiveCurrent()) },
             c: { action: outsideDialogs(() => createPrForCurrent()) },
             escape: {
-                // Escape peels back one layer: the expanded summary, then focus mode itself.
+                // Escape peels back one layer: the expanded summary, then triage mode itself.
                 action: outsideDialogs(() => {
                     if (expanded) {
                         setExpanded(false)
@@ -270,7 +270,7 @@ export function InboxFocusView(): JSX.Element {
     useEffect(() => {
         if (isLoaded && !viewedFiredRef.current) {
             viewedFiredRef.current = true
-            captureInboxPanelViewed({ panel: 'focus', itemCount: reports.length })
+            captureInboxPanelViewed({ panel: 'triage', itemCount: reports.length })
         }
     }, [isLoaded, reports.length])
 
@@ -285,7 +285,7 @@ export function InboxFocusView(): JSX.Element {
                     size="small"
                     icon={<IconArrowLeft />}
                     to={urls.inbox('reports')}
-                    data-attr="inbox-focus-back"
+                    data-attr="inbox-triage-back"
                 >
                     Reports
                 </LemonButton>
@@ -318,16 +318,16 @@ export function InboxFocusView(): JSX.Element {
                                 report={previousReport}
                                 shortcut={<KeyboardShortcut k />}
                                 onClick={() => navigate(-1)}
-                                dataAttr="inbox-focus-peek-previous"
+                                dataAttr="inbox-triage-peek-previous"
                             />
                         )}
-                        <FocusCard report={currentReport} expanded={expanded} />
+                        <TriageCard report={currentReport} expanded={expanded} />
                         {nextReport && (
                             <PeekStrip
                                 report={nextReport}
                                 shortcut={<KeyboardShortcut j />}
                                 onClick={() => navigate(1)}
-                                dataAttr="inbox-focus-peek-next"
+                                dataAttr="inbox-triage-peek-next"
                             />
                         )}
                     </>

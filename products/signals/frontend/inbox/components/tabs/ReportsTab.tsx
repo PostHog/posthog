@@ -105,7 +105,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
-    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isFocusOpen } =
+    const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen, isRunsOpen, isTriageOpen } =
         useValues(inboxSceneLogic)
     const listVisible =
         !selectedReportId &&
@@ -113,7 +113,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isScratchpadOpen &&
         !isFindingsOpen &&
         !isRunsOpen &&
-        !isFocusOpen
+        !isTriageOpen
 
     // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
     // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
@@ -192,12 +192,12 @@ export function ReportsTab(): JSX.Element {
                     <LemonButton
                         type="primary"
                         size="small"
-                        to={urls.inboxFocus()}
-                        sideIcon={<KeyboardShortcut f />}
+                        to={urls.inboxTriage()}
+                        sideIcon={<KeyboardShortcut t />}
                         tooltip="Go through the reports that need a pull request one at a time"
-                        data-attr="inbox-focus-mode"
+                        data-attr="inbox-triage-mode"
                     >
-                        Focus mode
+                        Triage mode
                     </LemonButton>
                     <InboxScopeSelect />
                 </div>

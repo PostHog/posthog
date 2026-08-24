@@ -46,10 +46,10 @@ export const INBOX_EVENTS = {
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
 /** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'focus_mode'
+export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'triage_mode'
 
-/** How a report detail was opened. `focus` is the open-report shortcut in focus mode. */
-export type InboxReportOpenMethod = 'click' | 'deeplink' | 'focus' | 'unknown'
+/** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
+export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
 
 /**
  * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
@@ -91,7 +91,7 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings
  * tab; the value predates the rename and stays so the panel breakdown reads continuously.
  */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'focus'
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
@@ -499,7 +499,7 @@ export function captureInboxReportActionCompleted(params: {
 }
 
 /**
- * A surface that replaces the report list (Runs, Settings, focus mode, and the two scout panels).
+ * A surface that replaces the report list (Runs, Settings, triage mode, and the two scout panels).
  * None of them render the Reports sections, so without this they're invisible — `Inbox viewed` only
  * ever fires for the report views.
  */

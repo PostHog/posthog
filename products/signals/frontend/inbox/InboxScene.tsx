@@ -18,7 +18,6 @@ import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
-import { InboxFocusView } from './components/focus/InboxFocusView'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
 import { InboxWelcomeRedesign } from './components/onboarding/InboxWelcomeRedesign'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
@@ -26,6 +25,7 @@ import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
+import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
@@ -211,7 +211,7 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen,
         isFindingsOpen,
         isRunsOpen,
-        isFocusOpen,
+        isTriageOpen,
     } = useValues(inboxSceneLogic)
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
@@ -223,7 +223,7 @@ export function InboxScene(): JSX.Element {
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
 
-    // Full-width surfaces (report, scout, the scout panels, runs, focus mode) render over the list,
+    // Full-width surfaces (report, scout, the scout panels, runs, triage mode) render over the list,
     // but the list view stays *mounted* (just hidden) rather than being unmounted. That keeps
     // `reportListLogic` and the scroll container alive, so clicking "back" lands on the same scroll
     // position with the same loaded pages — instead of remounting and resetting to the first page.
@@ -233,14 +233,14 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen ||
         isFindingsOpen ||
         isRunsOpen ||
-        isFocusOpen
+        isTriageOpen
 
-    // `f` opens focus mode from the report list. Not while a surface covers the list, and not
+    // `t` opens triage mode from the report list. Not while a surface covers the list, and not
     // while the inbox is locked behind onboarding.
     const listInteractive = !showDetail && activeTab === 'reports' && onboardingMode === 'none'
     useKeyboardHotkeys(
         {
-            f: { action: () => router.actions.push(urls.inboxFocus()), disabled: !listInteractive },
+            t: { action: () => router.actions.push(urls.inboxTriage()), disabled: !listInteractive },
         },
         [listInteractive]
     )
@@ -300,8 +300,8 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {isFocusOpen ? (
-                        <InboxFocusView />
+                    {isTriageOpen ? (
+                        <InboxTriageView />
                     ) : isFindingsOpen ? (
                         <InboxPanelView onBack={() => setFindingsOpen(false)}>
                             <FindingsPanel />

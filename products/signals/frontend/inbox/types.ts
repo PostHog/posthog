@@ -200,7 +200,7 @@ export const INBOX_REPORT_SECTION_KEYS = ['monitoring', 'needs-decision', 'resol
 export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
 
 /**
- * The section the inbox is fundamentally about: what focus mode walks, and the one whose For-you
+ * The section the inbox is fundamentally about: what triage mode walks, and the one whose For-you
  * count decides the default scope.
  */
 export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-decision'

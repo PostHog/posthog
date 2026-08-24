@@ -183,7 +183,7 @@ function findReportRank(id: string): { rank: number | null; listSize: number | n
 
 /**
  * The URL for whichever full-width inbox surface is open, or the list otherwise. The surfaces
- * (report, scout detail, scratchpad, findings, runs, focus) are mutually exclusive, so a fixed
+ * (report, scout detail, scratchpad, findings, runs, triage) are mutually exclusive, so a fixed
  * priority order resolves them.
  */
 function inboxSurfaceUrl(values: {
@@ -194,7 +194,7 @@ function inboxSurfaceUrl(values: {
     isScratchpadOpen: boolean
     isFindingsOpen: boolean
     isRunsOpen: boolean
-    isFocusOpen: boolean
+    isTriageOpen: boolean
 }): string {
     if (values.selectedReportId) {
         return urls.inboxReport('reports', values.selectedReportId)
@@ -211,8 +211,8 @@ function inboxSurfaceUrl(values: {
     if (values.isRunsOpen) {
         return urls.inboxRuns()
     }
-    if (values.isFocusOpen) {
-        return urls.inboxFocus()
+    if (values.isTriageOpen) {
+        return urls.inboxTriage()
     }
     return urls.inbox(values.activeTab)
 }
@@ -249,10 +249,10 @@ export interface inboxSceneLogicValues {
     activeTab: InboxTabKey
     breadcrumbs: Breadcrumb[]
     isFindingsOpen: boolean
-    isFocusOpen: boolean
     isRunsOpen: boolean
     isScratchpadOpen: boolean
     isStaff: boolean
+    isTriageOpen: boolean
     scoutTemplateDraft: ScoutCreateInitialValues | null
     selectedReport: SignalReport | null
     selectedReportId: string | null
@@ -318,9 +318,6 @@ export interface inboxSceneLogicActions {
     setFindingsOpen: (open: boolean) => {
         open: boolean
     }
-    setFocusOpen: (open: boolean) => {
-        open: boolean
-    }
     setRunsOpen: (open: boolean) => {
         open: boolean
     }
@@ -343,6 +340,9 @@ export interface inboxSceneLogicActions {
     ) => {
         findingId: string | null
         skillName: string | null
+    }
+    setTriageOpen: (open: boolean) => {
+        open: boolean
     }
 }
 
@@ -367,7 +367,7 @@ export type inboxSceneLogicType = MakeLogicType<
 /**
  * Inbox scene orchestrator. Owns the active page tab (Reports / Scouts / Settings), the active
  * Reports view, the selected report (loaded by id), the full-width surfaces that replace the list
- * (scout detail, scratchpad, findings, runs, focus mode), and the project-wide runs list. The
+ * (scout detail, scratchpad, findings, runs, triage mode), and the project-wide runs list. The
  * per-view report lists + their counts live in the keyed `reportListLogic` (one instance per view).
  */
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
@@ -405,8 +405,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setFindingsOpen: (open: boolean) => ({ open }),
         // Runs surface: the project-wide scout + signal-pipeline runs list, reached from the roster.
         setRunsOpen: (open: boolean) => ({ open }),
-        // Focus mode: the Needs-a-decision queue one report at a time, driven from the keyboard.
-        setFocusOpen: (open: boolean) => ({ open }),
+        // Triage mode: the Needs-a-decision queue one report at a time, driven from the keyboard.
+        setTriageOpen: (open: boolean) => ({ open }),
         // The detail pane was scrolled. The logic fires `Inbox report scrolled` once per open; the
         // component reports the raw scroll.
         reportDetailScrolled: true,
@@ -508,7 +508,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
                 setFindingsOpen: (state, { open }) => (open ? false : state),
                 setRunsOpen: (state, { open }) => (open ? false : state),
-                setFocusOpen: (state, { open }) => (open ? false : state),
+                setTriageOpen: (state, { open }) => (open ? false : state),
             },
         ],
         isFindingsOpen: [
@@ -519,7 +519,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
                 setScratchpadOpen: (state, { open }) => (open ? false : state),
                 setRunsOpen: (state, { open }) => (open ? false : state),
-                setFocusOpen: (state, { open }) => (open ? false : state),
+                setTriageOpen: (state, { open }) => (open ? false : state),
             },
         ],
         isRunsOpen: [
@@ -530,13 +530,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
                 setScratchpadOpen: (state, { open }) => (open ? false : state),
                 setFindingsOpen: (state, { open }) => (open ? false : state),
-                setFocusOpen: (state, { open }) => (open ? false : state),
+                setTriageOpen: (state, { open }) => (open ? false : state),
             },
         ],
-        isFocusOpen: [
+        isTriageOpen: [
             false,
             {
-                setFocusOpen: (_, { open }) => open,
+                setTriageOpen: (_, { open }) => open,
                 setSelectedReportId: (state, { id }) => (id ? false : state),
                 setSelectedScoutSkillName: (state, { skillName }) => (skillName ? false : state),
                 setScratchpadOpen: (state, { open }) => (open ? false : state),
@@ -626,7 +626,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setActiveTab('scouts')
             }
         },
-        setFocusOpen: ({ open }) => {
+        setTriageOpen: ({ open }) => {
             if (!open) {
                 return
             }
@@ -637,7 +637,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
             }
-            // Focus mode triages the Reports tab's queue, so leaving it lands back on Reports.
+            // Triage mode triages the Reports tab's queue, so leaving it lands back on Reports.
             if (values.activeTab !== 'reports') {
                 actions.setActiveTab('reports')
             }
@@ -833,7 +833,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             router.values.hashParams,
             { replace: false },
         ],
-        setFocusOpen: () => [
+        setTriageOpen: () => [
             inboxSurfaceUrl(values),
             router.values.searchParams,
             router.values.hashParams,
@@ -858,8 +858,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             if (values.isRunsOpen) {
                 actions.setRunsOpen(false)
             }
-            if (values.isFocusOpen) {
-                actions.setFocusOpen(false)
+            if (values.isTriageOpen) {
+                actions.setTriageOpen(false)
             }
         }
         return {
@@ -878,10 +878,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.setRunsOpen(true)
                 }
             },
-            [urls.inboxFocus()]: () => {
+            [urls.inboxTriage()]: () => {
                 cache.inboxListVisited = true
-                if (!values.isFocusOpen) {
-                    actions.setFocusOpen(true)
+                if (!values.isTriageOpen) {
+                    actions.setTriageOpen(true)
                 }
             },
             [urls.inbox()]: (_, __, hashParams) => {
@@ -942,9 +942,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 searchParams,
                 hashParams
             ) => {
-                // This pattern also matches `/inbox/scouts/<skillName>` and `/inbox/reports/focus`;
+                // This pattern also matches `/inbox/scouts/<skillName>` and `/inbox/reports/triage`;
                 // their own handlers own those paths.
-                if (tab === 'scouts' || (tab === 'reports' && reportId === 'focus')) {
+                if (tab === 'scouts' || (tab === 'reports' && reportId === 'triage')) {
                     return
                 }
                 if (!reportId) {
