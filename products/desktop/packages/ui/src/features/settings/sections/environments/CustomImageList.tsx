@@ -1,3 +1,4 @@
+import { Lock } from "@phosphor-icons/react";
 import { Badge, Button, Text } from "@posthog/quill";
 import {
   isImageBuildFailed,
@@ -41,9 +42,19 @@ export function CustomImageList({
         return (
           <div key={image.id} className="flex items-center gap-3 px-3 py-2.5">
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <Text className="truncate font-medium text-(--gray-12) text-[12.5px]">
-                {image.name}
-              </Text>
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Text className="truncate font-medium text-(--gray-12) text-[12.5px]">
+                  {image.name}
+                </Text>
+                {image.private && (
+                  <Lock
+                    size={12}
+                    role="img"
+                    aria-label="Private, only visible to you"
+                    className="shrink-0 text-(--gray-10)"
+                  />
+                )}
+              </div>
               <div className="flex min-w-0 items-center gap-2">
                 <StatusBadge image={image} />
                 {isImageBuildFailed(image.status) ? (
