@@ -37,10 +37,14 @@ describe('scoutNotePreview', () => {
         expect(scoutNotePreview(link)).toBe('…')
     })
 
-    it('drops a reference definition the cut ran through', () => {
+    it.each([
+        // CommonMark takes the destination on the label's line or the line below it.
+        ['on the label line', ' '],
+        ['on the line below the label', '\n  '],
+    ])('drops a reference definition the cut ran through, destination %s', (_name, gap) => {
         // The label resolves against the definition wherever it sits, so a severed destination is
         // still a live link — to a path the note never pointed at.
-        const preview = scoutNotePreview(`[docs][d]\n\n[d]: /runbooks/${'segment-'.repeat(60)}`)
+        const preview = scoutNotePreview(`[docs][d]\n\n[d]:${gap}/runbooks/${'segment-'.repeat(60)}`)
 
         expect(preview).toBe('[docs][d]…')
     })

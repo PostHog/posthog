@@ -18,11 +18,12 @@ const SEVERED_LINK = /(?:https?:\/\/|\bwww\.)\S*$|[\w.+-]+@[\w-]+(?:\.[\w-]+)+$/
 
 /**
  * A reference definition the cut ran through. A `[docs][d]` earlier in the note still resolves
- * against it, so the label renders as a live link to a shortened destination. Only a cut that keeps
- * the grapheme head can sever one: backing up to whitespace stops before the destination, which
- * leaves `[d]:` and no definition at all.
+ * against it, so the label renders as a live link to a shortened destination. The destination may
+ * sit on the line below the label, which CommonMark allows. Only a cut that keeps the grapheme head
+ * can sever a definition: backing up to whitespace stops before the destination, which leaves
+ * `[d]:` and no definition at all.
  */
-const SEVERED_DEFINITION = /(?:^|\n)[ \t]{0,3}\[[^\]\n]+\]:[^\n]*$/
+const SEVERED_DEFINITION = /(?:^|\n)[ \t]{0,3}\[[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?[^\n]*$/
 
 let segmenter: Intl.Segmenter | null | undefined
 
