@@ -28723,6 +28723,13 @@
                     },
                     "type": "array"
                 },
+                "unpruned_scans": {
+                    "description": "One entry per table scan with no bound on its partition key. Empty when every scan is bounded.",
+                    "items": {
+                        "$ref": "#/definitions/UnprunedTableScan"
+                    },
+                    "type": "array"
+                },
                 "warnings": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
@@ -39913,6 +39920,13 @@
                         "table_names": {
                             "items": {
                                 "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "unpruned_scans": {
+                            "description": "One entry per table scan with no bound on its partition key. Empty when every scan is bounded.",
+                            "items": {
+                                "$ref": "#/definitions/UnprunedTableScan"
                             },
                             "type": "array"
                         },
@@ -53804,6 +53818,34 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "UnprunedTableScan": {
+            "additionalProperties": false,
+            "description": "A table scan the query cannot narrow to a subset of partitions, decided before the query runs.",
+            "properties": {
+                "end": {
+                    "$ref": "#/definitions/integer"
+                },
+                "fix": {
+                    "description": "A predicate that would bound the partition key, ready to paste into the query.",
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "partition_key": {
+                    "description": "Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`.",
+                    "type": "string"
+                },
+                "start": {
+                    "$ref": "#/definitions/integer"
+                },
+                "table_name": {
+                    "type": "string"
+                }
+            },
+            "required": ["table_name", "partition_key", "message", "fix"],
             "type": "object"
         },
         "UsageMetric": {

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
-from posthog.hogql.partition_pruning import find_unpruned_events_scans
+from posthog.hogql.partition_pruning import UNPRUNED_SCAN_FIX, UNPRUNED_SCAN_MESSAGE, find_unpruned_events_scans
 
 
 @dataclass(frozen=True)
@@ -64,11 +64,7 @@ class UnprunedEventsScanHeuristic(MetadataHeuristic):
                 HogQLNotice(
                     start=scan.start,
                     end=scan.end,
-                    message=(
-                        "No filter on events.timestamp, so this reads your full event history. "
-                        "Add a bound like timestamp > now() - INTERVAL 30 DAY to scan less data "
-                        "and avoid hitting query limits."
-                    ),
+                    message=f"{UNPRUNED_SCAN_MESSAGE} {UNPRUNED_SCAN_FIX}",
                 )
             )
         return warnings

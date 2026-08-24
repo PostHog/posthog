@@ -805,12 +805,26 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+/** A table scan the query cannot narrow to a subset of partitions, decided before the query runs. */
+export interface UnprunedTableScan {
+    table_name: string
+    /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
+    partition_key: string
+    message: string
+    /** A predicate that would bound the partition key, ready to paste into the query. */
+    fix: string
+    start?: integer
+    end?: integer
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
+    /** One entry per table scan with no bound on its partition key. Empty when every scan is bounded. */
+    unpruned_scans?: UnprunedTableScan[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

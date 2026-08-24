@@ -6386,23 +6386,6 @@ class PropertyValueItem(BaseModel):
     name: str | float | bool | None = None
 
 
-class QueryResponseAlternative9(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ch_table_names: list[str] | None = None
-    errors: list[HogQLNotice]
-    index_usage: list[PredicateIndexUsage] | None = Field(
-        default=None, description="One entry per property filter, in query order."
-    )
-    isUsingIndices: QueryIndexUsage | None = None
-    isValid: bool | None = None
-    notices: list[HogQLNotice]
-    query: str | None = None
-    table_names: list[str] | None = None
-    warnings: list[HogQLNotice]
-
-
 class QueryResponseAlternative10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8211,6 +8194,24 @@ class TrendsQueryResponse(BaseModel):
             " access."
         ),
     )
+
+
+class UnprunedTableScan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: int | None = None
+    fix: str = Field(
+        ...,
+        description=("A predicate that would bound the partition key, ready to paste into the query."),
+    )
+    message: str
+    partition_key: str = Field(
+        ...,
+        description=("Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`."),
+    )
+    start: int | None = None
+    table_name: str
 
 
 class UsageMetric(BaseModel):
@@ -16983,6 +16984,10 @@ class HogQLMetadataResponse(BaseModel):
     notices: list[HogQLNotice]
     query: str | None = None
     table_names: list[str] | None = None
+    unpruned_scans: list[UnprunedTableScan] | None = Field(
+        default=None,
+        description=("One entry per table scan with no bound on its partition key. Empty when every scan is bounded."),
+    )
     warnings: list[HogQLNotice]
 
 
@@ -18977,6 +18982,27 @@ class QueryResponseAlternative8(BaseModel):
             " the user can't access."
         ),
     )
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ch_table_names: list[str] | None = None
+    errors: list[HogQLNotice]
+    index_usage: list[PredicateIndexUsage] | None = Field(
+        default=None, description="One entry per property filter, in query order."
+    )
+    isUsingIndices: QueryIndexUsage | None = None
+    isValid: bool | None = None
+    notices: list[HogQLNotice]
+    query: str | None = None
+    table_names: list[str] | None = None
+    unpruned_scans: list[UnprunedTableScan] | None = Field(
+        default=None,
+        description=("One entry per table scan with no bound on its partition key. Empty when every scan is bounded."),
+    )
+    warnings: list[HogQLNotice]
 
 
 class QueryResponseAlternative11(BaseModel):

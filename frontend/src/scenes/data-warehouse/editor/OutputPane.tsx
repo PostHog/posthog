@@ -894,7 +894,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
-            <QueryIndexUsageBar predicates={metadata?.index_usage ?? []} refreshing={metadataLoading} />
+            <QueryIndexUsageBar
+                predicates={metadata?.index_usage ?? []}
+                scans={metadata?.unpruned_scans ?? []}
+                refreshing={metadataLoading}
+            />
             {outputContent}
             <div className="flex justify-between px-2 border-t">
                 <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>

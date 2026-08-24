@@ -21,6 +21,11 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.dataclasses import frozen
 
 EVENTS_TABLE_NAME = "events"
+EVENTS_PARTITION_KEY = "toYYYYMM(timestamp)"
+
+# Shared by the editor marker and the scan report so the two cannot drift apart.
+UNPRUNED_SCAN_MESSAGE = "No filter on events.timestamp, so this reads your full event history."
+UNPRUNED_SCAN_FIX = "Add WHERE timestamp > now() - INTERVAL 30 DAY to read a recent time range."
 
 # Wrappers that keep the ordering of `timestamp`, so a bound on the wrapped expression still bounds
 # `toYYYYMM(timestamp)` and prunes partitions. Mirrors the allowlist that helpers/timestamp_visitor.py
