@@ -855,6 +855,7 @@ async def test_fast_return_completes_without_source_setup():
     update = schema_model.objects.filter.return_value.update
     update.assert_called_once()
     assert update.call_args.kwargs["last_synced_at"] is model.created_at
+    assert set(update.call_args.kwargs) == {"last_synced_at", "updated_at"}
 
 
 @pytest.mark.asyncio
