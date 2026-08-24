@@ -523,6 +523,20 @@ jobs:
                   restore-keys: |
                       posthog-segment-durations-
 
+            - name: Prefer a junit-scaled union over an unscaled cache copy
+              # Transition guard: the timing caches only carry junit-scaled product
+              # magnitudes once the updated timing workflow has run. Until then the
+              # newest cache would shadow the scaled committed baseline with call-only
+              # undercounts. Scaled beats unscaled regardless of age; once the caches
+              # carry the marker this step never fires and can be removed.
+              shell: bash
+              run: |
+                  if ! grep -q '"products/.junit-scaled"' .test_durations 2>/dev/null \
+                      && git show HEAD:.test_durations 2>/dev/null | grep -q '"products/.junit-scaled"'; then
+                      git checkout -- .test_durations
+                      echo "Using the junit-scaled committed .test_durations over an unscaled cache copy"
+                  fi
+
             - name: Snapshot the sharding plan for this run
               # The timing caches float to their newest entry, so a re-run can shard
               # differently from attempt 1 and, under "re-run failed jobs", a failing
