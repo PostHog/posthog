@@ -7251,9 +7251,10 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
             or channel.canvases.filter(deleted=False).exists()
         ):
             return "not_empty"
-        # Task visibility joins through the channel, so an archived task left pointing at a
-        # deleted one drops out of every list.
-        channel.tasks.filter(deleted=False, archived=True).update(channel=None)
+        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
+        # no lock on the channel and can happen after the check above. Task visibility joins
+        # through the channel, so a task left pointing at a deleted one leaves every list.
+        channel.tasks.filter(deleted=False).update(channel=None)
         channel.deleted = True
         channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
