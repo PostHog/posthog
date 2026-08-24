@@ -3,6 +3,7 @@ import json
 import typing
 import asyncio
 import datetime as dt
+import functools
 import posixpath
 import contextlib
 import dataclasses
@@ -63,6 +64,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
     PolicyStatement,
+    RefreshCoroutine,
     get_credentials_using_user_aws_role,
     s3_client,
 )
@@ -1417,6 +1419,7 @@ async def upload_manifest_file(
     credentials: AWSCredentials,
     files_uploaded: list[str],
     manifest_key: str,
+    refresh_using: RefreshCoroutine | None = None,
 ):
     """Upload manifest file used by Redshift COPY.
 
@@ -1432,6 +1435,7 @@ async def upload_manifest_file(
         region=region_name,
         # Required for unit tests which run against a local bucket, otherwise always None.
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT if settings.TEST else None,
+        refresh_using=refresh_using,
     ) as client:
         entries = []
 
@@ -1505,6 +1509,7 @@ async def delete_uploaded_files(
     credentials: AWSCredentials,
     files_uploaded: list[str],
     manifest_key: str,
+    refresh_using: RefreshCoroutine | None = None,
 ):
     """Delete files uploaded to S3 bucket during 'COPY' activity.
 
@@ -1516,6 +1521,7 @@ async def delete_uploaded_files(
     async with s3_client(
         credentials,
         region=region_name,
+        refresh_using=refresh_using,
     ) as client:
 
         async def delete_key(f: str):
@@ -1536,6 +1542,7 @@ async def is_s3_read_access_denied(
     region_name: str,
     credentials: AWSCredentials,
     keys: collections.abc.Sequence[str],
+    refresh_using: RefreshCoroutine | None = None,
 ) -> bool:
     """Return True only if a HEAD positively confirms read access is denied for any of `keys`.
 
@@ -1550,6 +1557,7 @@ async def is_s3_read_access_denied(
         async with s3_client(
             credentials,
             region=region_name,
+            refresh_using=refresh_using,
         ) as client:
             for key in keys:
                 try:
@@ -1572,6 +1580,7 @@ async def check_and_raise_redshift_copy_error(
     region_name: str,
     manifest_key: str,
     files_uploaded: collections.abc.Sequence[str],
+    refresh_using: RefreshCoroutine | None = None,
 ) -> None:
     """Translate a failed Redshift COPY into an actionable error.
 
@@ -1589,7 +1598,11 @@ async def check_and_raise_redshift_copy_error(
     if isinstance(authorization, AWSCredentials):
         probe_keys = [manifest_key, *files_uploaded[:1]]
         if await is_s3_read_access_denied(
-            bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
+            bucket=bucket,
+            region_name=region_name,
+            credentials=authorization,
+            keys=probe_keys,
+            refresh_using=refresh_using,
         ):
             raise InsufficientS3PermissionsError(bucket) from err
         return
@@ -1635,14 +1648,22 @@ async def _assume_role_for_stage_bucket(
     )
 
 
-async def _get_s3_bucket_aws_credentials(inputs: RedshiftCopyActivityInputs) -> AWSCredentials:
-    """Resolve the credentials used to stage files in the user's S3 bucket."""
+async def _get_s3_bucket_aws_credentials(
+    inputs: RedshiftCopyActivityInputs,
+) -> tuple[AWSCredentials, RefreshCoroutine | None]:
+    """Resolve the credentials used to stage files in the user's S3 bucket.
+
+    If the credentials are refreshable (i.e. via role assumption), then
+    additionally return a function that may be used to refresh the crednetials.
+    Otherwise, credentials are long lived and the second returned parameter is
+    None.
+    """
     credentials = inputs.copy.s3_bucket.credentials
     if isinstance(credentials, IntegrationID):
         credentials = await _resolve_aws_s3_integration(credentials, inputs.batch_export.team_id)
 
     if isinstance(credentials, AWSCredentials):
-        return credentials
+        return credentials, None
 
     bucket_name = inputs.copy.s3_bucket.name
     key_prefix = get_absolute_key_prefix(
@@ -1663,10 +1684,14 @@ async def _get_s3_bucket_aws_credentials(inputs: RedshiftCopyActivityInputs) -> 
             Resource=f"arn:aws:s3:::{bucket_name}",
         ),
     ]
-    return await _assume_role_for_stage_bucket(credentials, inputs, policy_statements)
+    refresh_credentials = functools.partial(_assume_role_for_stage_bucket, credentials, inputs, policy_statements)
+
+    return await refresh_credentials(), refresh_credentials
 
 
-async def _resolve_copy_authorization(inputs: RedshiftCopyActivityInputs) -> IAMRole | AWSCredentials:
+async def _resolve_copy_authorization(
+    inputs: RedshiftCopyActivityInputs,
+) -> tuple[IAMRole | AWSCredentials, RefreshCoroutine | None]:
     """Resolve the authorization Redshift uses to read staged files during COPY.
 
     An integration id resolves to temporary AWS credentials scoped to reading the
@@ -1675,11 +1700,11 @@ async def _resolve_copy_authorization(inputs: RedshiftCopyActivityInputs) -> IAM
     """
     authorization = inputs.copy.authorization
     if not isinstance(authorization, IntegrationID):
-        return authorization
+        return authorization, None
 
     resolved = await _resolve_aws_s3_integration(authorization, inputs.batch_export.team_id)
     if isinstance(resolved, AWSCredentials):
-        return resolved
+        return resolved, None
 
     bucket_name = inputs.copy.s3_bucket.name
     key_prefix = get_absolute_key_prefix(
@@ -1700,7 +1725,10 @@ async def _resolve_copy_authorization(inputs: RedshiftCopyActivityInputs) -> IAM
             Resource=f"arn:aws:s3:::{bucket_name}",
         ),
     ]
-    return await _assume_role_for_stage_bucket(resolved, inputs, policy_statements)
+
+    refresh_credentials = functools.partial(_assume_role_for_stage_bucket, resolved, inputs, policy_statements)
+    credentials = await refresh_credentials()
+    return credentials, refresh_credentials
 
 
 @activity.defn
@@ -1846,11 +1874,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                         pa.schema(filtered_fields), json_columns=table_schemas.super_columns
                     )
 
-        credentials = await _get_s3_bucket_aws_credentials(inputs)
+        credentials, refresh_credentials = await _get_s3_bucket_aws_credentials(inputs)
 
         async with s3_client(
             credentials,
             region=inputs.copy.s3_bucket.region_name,
+            refresh_using=refresh_credentials,
         ) as client:
             consumer = ConcurrentS3Consumer(
                 bucket=inputs.copy.s3_bucket.name,
@@ -1939,11 +1968,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                     credentials=credentials,
                     files_uploaded=consumer.files_uploaded,
                     manifest_key=manifest_key,
+                    refresh_using=refresh_credentials,
                 )
 
                 # Resolved after uploads finish: temporary credentials from an assumed
                 # role last one hour, which a long upload could outlive.
-                copy_authorization = await _resolve_copy_authorization(inputs)
+                copy_authorization, refresh_copy_authorization = await _resolve_copy_authorization(inputs)
 
                 try:
                     external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
@@ -1965,6 +1995,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             region_name=inputs.copy.s3_bucket.region_name,
                             manifest_key=manifest_key,
                             files_uploaded=consumer.files_uploaded,
+                            refresh_using=refresh_copy_authorization,
                         )
                         raise
 
@@ -1992,6 +2023,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                         credentials=credentials,
                         files_uploaded=consumer.files_uploaded,
                         manifest_key=manifest_key,
+                        refresh_using=refresh_credentials,
                     )
 
         return result
