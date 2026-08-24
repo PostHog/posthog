@@ -174,6 +174,20 @@ def validate_destination_data(
         raise AlertDestinationValidationError(f"{destination_type.label} destinations require {formatted_fields}.")
 
 
+def destination_display_name(data: AlertDestinationData) -> str:
+    """User-visible name for one logical destination, shared by HogFunction names
+    and `AlertDestination.name`."""
+    destination_type = data["type"]
+    if destination_type == DestinationType.SLACK:
+        channel_display = data.get("slack_channel_name") or "channel"
+        return f"Slack #{channel_display}"
+    if destination_type == DestinationType.WEBHOOK:
+        return f"Webhook {data['webhook_url']}"
+    if destination_type == DestinationType.DISCORD:
+        return "Discord"
+    return "Microsoft Teams"
+
+
 def build_alert_destination_config(
     *,
     team: Any,
@@ -185,10 +199,9 @@ def build_alert_destination_config(
 ) -> AlertDestinationConfig:
     destination_type = data["type"]
     product_name = spec.product_label.capitalize()
+    destination_name = destination_display_name(data)
 
     if destination_type == DestinationType.SLACK:
-        channel_display = data.get("slack_channel_name") or "channel"
-        destination_name = f"Slack #{channel_display}"
         inputs = {
             "blocks": {"value": slack_blocks(spec, slack_context_elements)},
             "text": {"value": spec.header},
@@ -196,20 +209,17 @@ def build_alert_destination_config(
             "channel": {"value": data["slack_channel_id"]},
         }
     elif destination_type == DestinationType.WEBHOOK:
-        destination_name = f"Webhook {data['webhook_url']}"
         inputs = {
             "body": {"value": spec.webhook_body},
             "url": {"value": data["webhook_url"]},
             "headers": {"value": WEBHOOK_HEADERS},
         }
     elif destination_type == DestinationType.DISCORD:
-        destination_name = "Discord"
         inputs = {
             "content": {"value": teams_text(spec)},
             "webhookUrl": {"value": data["webhook_url"]},
         }
     else:
-        destination_name = "Microsoft Teams"
         inputs = {
             "webhookUrl": {"value": data["webhook_url"]},
             "text": {"value": teams_text(spec)},

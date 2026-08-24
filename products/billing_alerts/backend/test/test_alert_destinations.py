@@ -7,6 +7,7 @@ from rest_framework import status
 
 from posthog.models.organization import OrganizationMembership
 
+from products.alerts.backend.models.alert_identity import AlertDestination, AlertIdentity, AlertProduct
 from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS, EVENT_KIND_CONFIG
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -114,6 +115,38 @@ class TestBillingAlertDestinations(APIBaseTest):
         assert alert_response.json()["destinations"] == [
             {"type": "webhook", "hog_function_ids": sorted(hog_function_ids)}
         ]
+
+    def test_create_destination_dual_writes_alert_identity_and_destination(self) -> None:
+        self._sync_webhook_template()
+        alert = self._alert()
+
+        response = self.client.post(
+            f"{self.url}{alert.id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/billing-alert"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        hog_function_ids = response.json()["hog_function_ids"]
+
+        identity = AlertIdentity.objects.get(id=alert.id)
+        assert identity.product == AlertProduct.BILLING
+        assert identity.organization_id == self.organization.id
+        assert identity.execution_team_id == alert.execution_team_id
+
+        destination = AlertDestination.objects.get(alert=identity)
+        assert destination.type == "webhook"
+        assert destination.name == "Webhook https://example.com/billing-alert"
+
+        hog_functions = HogFunction.objects.filter(id__in=hog_function_ids)
+        expected_kinds = set(EVENT_KIND_CONFIG)
+        assert {hf.alert_event_kind for hf in hog_functions} == expected_kinds
+        for hf in hog_functions:
+            assert hf.alert_destination_id == destination.id
+            assert hf.type == "internal_destination"
+
+        alert.refresh_from_db()
+        assert alert.alert_id == identity.id
 
     def test_configuration_and_destination_changes_commit_atomically(self) -> None:
         self._sync_webhook_template()

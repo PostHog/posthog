@@ -23,6 +23,7 @@ from posthog.kafka_client.client import ProduceResult
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS, AlertDestinationConfig
+from products.alerts.backend.models.alert_identity import AlertDestination, AlertIdentity, AlertProduct
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -79,6 +80,29 @@ def _active_alert_destinations_qs(
     )
 
 
+def get_or_create_alert_identity(
+    *,
+    product: AlertProduct,
+    organization_id: UUID,
+    execution_team_id: int | None,
+    alert_id: UUID,
+) -> AlertIdentity:
+    """Return the shared identity for one product alert, creating it on first use.
+
+    Reuses the product alert's own UUID so API identifiers and internal-event
+    `alert_id` properties stay stable across the migration.
+    """
+    alert_identity, _ = AlertIdentity.objects.get_or_create(
+        id=alert_id,
+        defaults={
+            "product": product,
+            "organization_id": organization_id,
+            "execution_team_id": execution_team_id,
+        },
+    )
+    return alert_identity
+
+
 def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig], *, request: Any) -> list[HogFunction]:
     created: list[HogFunction] = []
     hog_function_ids_by_team: dict[int, list[UUID]] = {}
@@ -87,6 +111,53 @@ def create_alert_destination_hog_functions(configs: list[AlertDestinationConfig]
             team = config.team
             serializer = HogFunctionSerializer(
                 data=config.payload,
+                context={
+                    "request": request,
+                    "get_team": lambda team=team: team,
+                    "is_create": True,
+                    "allow_managed_alert_destination": True,
+                },
+            )
+            serializer.is_valid(raise_exception=True)
+            hog_function = serializer.save(team=team)
+            created.append(hog_function)
+            hog_function_ids_by_team.setdefault(team.id, []).append(hog_function.id)
+        for team_id, hog_function_ids in hog_function_ids_by_team.items():
+            _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=hog_function_ids)
+    return created
+
+
+def create_owned_alert_destination(
+    configs: list[tuple[AlertDestinationConfig, str]],
+    *,
+    request: Any,
+    alert_identity: AlertIdentity,
+    destination_type: str,
+    destination_name: str,
+) -> list[HogFunction]:
+    """Create one logical AlertDestination plus its executors, stamping ownership.
+
+    `configs` pairs each `AlertDestinationConfig` with its event kind (e.g.
+    "firing"), so the executors are linked to the AlertDestination and typed by
+    kind instead of relying solely on JSON filters. Used during Phase 3 dual-write.
+    """
+    destination = AlertDestination.objects.create(
+        alert=alert_identity,
+        type=destination_type,
+        name=destination_name,
+    )
+    created: list[HogFunction] = []
+    hog_function_ids_by_team: dict[int, list[UUID]] = {}
+    with transaction.atomic():
+        for config, event_kind in configs:
+            team = config.team
+            payload = {
+                **config.payload,
+                "alert_destination": str(destination.id),
+                "alert_event_kind": event_kind,
+            }
+            serializer = HogFunctionSerializer(
+                data=payload,
                 context={
                     "request": request,
                     "get_team": lambda team=team: team,

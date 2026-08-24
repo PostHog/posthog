@@ -16,9 +16,12 @@ from posthog.models.team.team import Team
 
 from products.alerts.backend.facade.api import (
     AlertDestinationData,
+    AlertProduct,
     DestinationType,
     build_alert_destination_config,
-    create_alert_destination_hog_functions,
+    create_owned_alert_destination,
+    destination_display_name,
+    get_or_create_alert_identity,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_destination_data,
@@ -210,17 +213,35 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
         if destination_data["type"].value in existing_types:
             raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
         configs = [
-            build_alert_destination_config(
-                team=locked_alert.team,
-                spec=EVENT_KIND_CONFIG[kind],
-                alert_id=str(locked_alert.id),
-                alert_name=locked_alert.name,
-                data=destination_data,
-                slack_context_elements=BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
+            (
+                build_alert_destination_config(
+                    team=locked_alert.team,
+                    spec=EVENT_KIND_CONFIG[kind],
+                    alert_id=str(locked_alert.id),
+                    alert_name=locked_alert.name,
+                    data=destination_data,
+                    slack_context_elements=BILLING_ALERT_SLACK_CONTEXT_ELEMENTS,
+                ),
+                kind,
             )
             for kind in EVENT_KINDS
         ]
-        hog_functions = create_alert_destination_hog_functions(configs, request=request)
+        alert_identity = get_or_create_alert_identity(
+            product=AlertProduct.BILLING,
+            organization_id=locked_alert.organization_id,
+            execution_team_id=locked_alert.execution_team_id,
+            alert_id=locked_alert.id,
+        )
+        hog_functions = create_owned_alert_destination(
+            configs,
+            request=request,
+            alert_identity=alert_identity,
+            destination_type=destination_data["type"].value,
+            destination_name=destination_display_name(destination_data),
+        )
+        if locked_alert.alert_id is None:
+            locked_alert.alert_id = alert_identity.id
+            locked_alert.save(update_fields=["alert"])
         return [hog_function.id for hog_function in hog_functions]
 
 

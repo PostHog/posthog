@@ -20,6 +20,7 @@ from posthog.models.user import User
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.alerts.backend.models.alert_identity import AlertDestination, AlertIdentity, AlertProduct
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -868,6 +869,43 @@ class TestLogsAlertAPI(APIBaseTest):
 
         reset_calls = [c for c in mock_report.call_args_list if c.args[1] == "logs alert destination created"]
         assert len(reset_calls) == 1
+
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
+    def test_create_slack_destination_dual_writes_alert_identity_and_destination(self, mock_report):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "alerts",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        hog_function_ids = response.json()["hog_function_ids"]
+
+        identity = AlertIdentity.objects.get(id=created["id"])
+        assert identity.product == AlertProduct.LOGS
+        assert identity.organization_id == self.organization.id
+        assert identity.execution_team_id == self.team.id
+
+        destination = AlertDestination.objects.get(alert=identity)
+        assert destination.type == "slack"
+        assert destination.name == "Slack #alerts"
+
+        hog_functions = HogFunction.objects.filter(id__in=hog_function_ids)
+        expected_kinds = {"firing", "resolved", "broken", "errored"}
+        assert {hf.alert_event_kind for hf in hog_functions} == expected_kinds
+        for hf in hog_functions:
+            assert hf.alert_destination_id == destination.id
+            assert hf.type == "internal_destination"
+
+        # The product configuration points back to the shared identity.
+        alert = LogsAlertConfiguration.objects.get(id=created["id"])
+        assert alert.alert_id == identity.id
 
     @patch("products.alerts.backend.destinations.reload_hog_functions_on_workers")
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")

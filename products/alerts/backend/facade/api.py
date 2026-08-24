@@ -22,14 +22,18 @@ from products.alerts.backend.destination_configs import (
     AlertDestinationValidationError,
     DestinationType,
     build_alert_destination_config,
+    destination_display_name,
     validate_destination_data,
 )
 from products.alerts.backend.destinations import (
     create_alert_destination_hog_functions,
+    create_owned_alert_destination,
+    get_or_create_alert_identity,
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
 )
+from products.alerts.backend.models.alert_identity import AlertProduct
 from products.alerts.backend.email_notifications import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -205,13 +209,17 @@ __all__ = [
     "DESTINATION_TEMPLATE_IDS",
     "AlertDestinationData",
     "AlertDestinationValidationError",
+    "AlertProduct",
     "AlertScheduleRestriction",
     "DestinationType",
     "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
     "create_alert_destination_hog_functions",
+    "create_owned_alert_destination",
     "delete_insight_alerts",
+    "destination_display_name",
+    "get_or_create_alert_identity",
     "get_alert_team_id",
     "insight_alerts_prefetch",
     "insight_ids_with_alerts",

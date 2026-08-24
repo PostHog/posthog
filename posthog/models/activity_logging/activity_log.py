@@ -400,6 +400,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_checked_at",
         "consecutive_failures",
         "state",
+        # Internal ownership pointer — not user-meaningful activity.
+        "alert",
     ],
     "Loop": [
         "last_run_at",

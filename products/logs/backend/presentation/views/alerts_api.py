@@ -32,10 +32,13 @@ from products.alerts.backend.facade.api import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
     AlertDestinationValidationError,
+    AlertProduct,
     AlertScheduleRestriction,
     DestinationType,
     build_alert_destination_config,
-    create_alert_destination_hog_functions,
+    create_owned_alert_destination,
+    destination_display_name,
+    get_or_create_alert_identity,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_and_normalize_schedule_restriction,
@@ -957,17 +960,35 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with transaction.atomic():
             alert = self._get_locked_alert()
             configs = [
-                build_alert_destination_config(
-                    team=alert.team,
-                    spec=EVENT_KIND_CONFIG[kind],
-                    alert_id=str(alert.id),
-                    alert_name=alert.name,
-                    data=data,
-                    slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+                (
+                    build_alert_destination_config(
+                        team=alert.team,
+                        spec=EVENT_KIND_CONFIG[kind],
+                        alert_id=str(alert.id),
+                        alert_name=alert.name,
+                        data=data,
+                        slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+                    ),
+                    kind,
                 )
                 for kind in EVENT_KINDS
             ]
-            hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
+            alert_identity = get_or_create_alert_identity(
+                product=AlertProduct.LOGS,
+                organization_id=alert.team.organization_id,
+                execution_team_id=alert.team_id,
+                alert_id=alert.id,
+            )
+            hog_functions = create_owned_alert_destination(
+                configs,
+                request=self.request,
+                alert_identity=alert_identity,
+                destination_type=data["type"].value,
+                destination_name=destination_display_name(data),
+            )
+            if alert.alert_id is None:
+                alert.alert_id = alert_identity.id
+                alert.save(update_fields=["alert"])
 
         report_user_action(
             request.user,

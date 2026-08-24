@@ -53,6 +53,7 @@ from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 
+from products.alerts.backend.models.alert_identity import AlertDestination
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -356,6 +357,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         required=False, help_text="Event filters that control which events trigger this function."
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    # Alert ownership fields: only honored when the serializer runs in the alert-managed
+    # context (see `allow_managed_alert_destination`). Ignored on generic create/update.
+    alert_destination = serializers.PrimaryKeyRelatedField(
+        queryset=AlertDestination.objects.all(), required=False, allow_null=True, write_only=True
+    )
+    alert_event_kind = serializers.CharField(required=False, allow_null=True, max_length=32, write_only=True)
 
     class Meta:
         model = HogFunction
@@ -389,6 +396,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "draft",
             "draft_updated_at",
             "base_updated_at",
+            "alert_destination",
+            "alert_event_kind",
         ]
         read_only_fields = [
             "id",
@@ -573,6 +582,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         if not self.context.get("allow_managed_alert_destination"):
+            # Generic create/update must not be able to attach alert ownership.
+            attrs.pop("alert_destination", None)
+            attrs.pop("alert_event_kind", None)
             current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
             proposed_filters = attrs.get("filters", current_filters)
             current_is_managed = any(

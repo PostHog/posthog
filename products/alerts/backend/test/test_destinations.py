@@ -7,11 +7,14 @@ from rest_framework.exceptions import ValidationError
 from products.alerts.backend.destinations import (
     AlertDelivery,
     alert_internal_event_delivered,
+    create_owned_alert_destination,
+    get_or_create_alert_identity,
     list_active_alert_destinations,
     serialize_deliveries,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
+from products.alerts.backend.models.alert_identity import AlertDestination, AlertIdentity, AlertProduct
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 ALLOWED_EVENT_IDS = ("$logs_alert_firing", "$logs_alert_resolved")
@@ -280,6 +283,119 @@ class TestListActiveAlertDestinations(APIBaseTest):
         )
 
         assert [d.name for d in destinations] == ["Webhook discord.com"]
+
+
+def _destination_payload(event_kind: str, alert_id: str) -> dict:
+    return {
+        "type": "internal_destination",
+        "enabled": True,
+        "name": f"Logs — Test ({event_kind}) → Slack #general",
+        "description": "Sends notifications",
+        "template_id": "template-slack",
+        "filters": {
+            "events": [{"id": f"$logs_alert_{event_kind}", "type": "events"}],
+            "properties": [{"key": "alert_id", "value": alert_id}],
+        },
+        "inputs": {
+            "blocks": {"value": []},
+            "text": {"value": "Alert"},
+            "slack_workspace": {"value": 1},
+            "channel": {"value": "C123"},
+        },
+        "hog": "return event",
+        "inputs_schema": [],
+    }
+
+
+class TestGetOrCreateAlertIdentity(APIBaseTest):
+    def test_creates_identity_reusing_alert_id(self) -> None:
+        from uuid import uuid4
+
+        alert_id = uuid4()
+        identity = get_or_create_alert_identity(
+            product=AlertProduct.LOGS,
+            organization_id=self.organization.id,
+            execution_team_id=self.team.id,
+            alert_id=alert_id,
+        )
+
+        assert identity.id == alert_id
+        assert identity.product == AlertProduct.LOGS
+        assert identity.organization_id == self.organization.id
+        assert identity.execution_team_id == self.team.id
+
+    def test_returns_existing_identity_for_same_alert_id(self) -> None:
+        from uuid import uuid4
+
+        alert_id = uuid4()
+        first = get_or_create_alert_identity(
+            product=AlertProduct.LOGS,
+            organization_id=self.organization.id,
+            execution_team_id=self.team.id,
+            alert_id=alert_id,
+        )
+        second = get_or_create_alert_identity(
+            product=AlertProduct.LOGS,
+            organization_id=self.organization.id,
+            execution_team_id=self.team.id,
+            alert_id=alert_id,
+        )
+
+        assert first.id == second.id
+        assert AlertIdentity.objects.count() == 1
+
+
+class TestCreateOwnedAlertDestination(APIBaseTest):
+    def _make_configs(self, alert_identity: AlertIdentity) -> list[tuple]:
+        from products.alerts.backend.destination_configs import AlertDestinationConfig
+
+        return [
+            (
+                AlertDestinationConfig(
+                    team=self.team,
+                    payload=_destination_payload(event_kind, str(alert_identity.id)),
+                ),
+                event_kind,
+            )
+            for event_kind in ("firing", "resolved")
+        ]
+
+    def test_creates_destination_and_ownership_stamped_executors(self) -> None:
+        from unittest.mock import MagicMock
+        from uuid import uuid4
+
+        from posthog.cdp.templates.fixtures import template_slack
+        from posthog.cdp.templates.hog_function_template import sync_template_to_db
+
+        sync_template_to_db(template_slack)
+
+        identity = get_or_create_alert_identity(
+            product=AlertProduct.LOGS,
+            organization_id=self.organization.id,
+            execution_team_id=self.team.id,
+            alert_id=uuid4(),
+        )
+        configs = self._make_configs(identity)
+
+        hog_functions = create_owned_alert_destination(
+            configs,
+            request=MagicMock(user=None),
+            alert_identity=identity,
+            destination_type="slack",
+            destination_name="Slack #general",
+        )
+
+        assert len(hog_functions) == 2
+        destinations = AlertDestination.objects.filter(alert=identity)
+        assert destinations.count() == 1
+        destination = destinations.get()
+        assert destination.type == "slack"
+        assert destination.name == "Slack #general"
+        kinds = {hf.alert_event_kind for hf in hog_functions}
+        assert kinds == {"firing", "resolved"}
+        for hf in hog_functions:
+            assert hf.alert_destination_id == destination.id
+            assert hf.type == "internal_destination"
 
 
 class TestSerializeDeliveries(APIBaseTest):
