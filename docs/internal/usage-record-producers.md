@@ -156,6 +156,10 @@ Three call sites report, each next to the app metric it is independent of:
 The event-triggered site bills once per triggering event, not per destination, matching the existing app metric.
 The workflow site keys on `actionStepCount` so a cyclotron retry of the same step reuses the ID and deduplicates, while a loop that revisits the same action gets a new one and bills again.
 
+The webhook site mints its `invocationId` when it receives the request, so it is the one producer whose ID a redelivery cannot reproduce: a sender retrying on timeout bills twice.
+Accepted rather than fixed, because the identity would have to come from the sender — a delivery-ID header or a payload hash — and we cannot rely on either across arbitrary sources.
+The three CDP sites also share one `usage_key`, which is why they are the only producer that still prefixes its `record_id`.
+
 The reporter flushes on a timer rather than at a consumer batch boundary, and `CdpBaseConsumer.stop()` flushes it, so a graceful deploy loses nothing.
 An ungraceful exit can still lose up to one interval of records per pod.
 
