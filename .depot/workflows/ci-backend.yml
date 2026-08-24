@@ -2518,3 +2518,5 @@ jobs:
 
                   echo "All backend and product checks passed."
     # Depot shadow: calculate-running-time is omitted so shadow runs are not recorded as canonical CI data.
+    # Changes confined to that job in canonical (e.g. its job-level continue-on-error) are depot-exempt: the
+    # job does not exist here, so there is nothing to mirror.
