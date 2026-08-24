@@ -14,9 +14,6 @@ export const getAiGatewayUserSpendLimitRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_gateway/@me/spend_limit/`
 }
 
-/**
- * The requesting user's own spend limit for model traffic through the gateway.
- */
 export const aiGatewayUserSpendLimitRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -31,9 +28,6 @@ export const getAiGatewayUserSpendLimitCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_gateway/@me/spend_limit/`
 }
 
-/**
- * The requesting user's own spend limit for model traffic through the gateway.
- */
 export const aiGatewayUserSpendLimitCreate = async (
     projectId: string,
     userSpendLimitWriteApi: UserSpendLimitWriteApi,
@@ -51,9 +45,6 @@ export const getAiGatewayUserSpendLimitClearUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_gateway/@me/spend_limit/clear/`
 }
 
-/**
- * The requesting user's own spend limit for model traffic through the gateway.
- */
 export const aiGatewayUserSpendLimitClear = async (
     projectId: string,
     options?: RequestInit

@@ -9,9 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * The requesting user's own spend limit for model traffic through the gateway.
- */
 export const aiGatewayUserSpendLimitCreateBodyLimitUsdRegExp = new RegExp('^-?\\d{0,13}(?:\\.\\d{0,6})?$')
 export const aiGatewayUserSpendLimitCreateBodyWindowSecondsMin = 3600
 export const aiGatewayUserSpendLimitCreateBodyWindowSecondsMax = 31622400
