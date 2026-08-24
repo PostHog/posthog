@@ -836,12 +836,9 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
             count = int(property.operator_value)  # type: ignore[arg-type]
         except (ValueError, TypeError):
             raise QueryError(f"Invalid behavioral filter count: {property.operator_value}")
-        if property.operator is None:
-            count_op = ast.CompareOperationOp.Eq
-        else:
-            count_op = _BEHAVIORAL_COUNT_OPERATORS.get(property.operator)
-            if count_op is None:
-                raise QueryError(f"Invalid behavioral filter count operator: {property.operator}")
+        count_op = _BEHAVIORAL_COUNT_OPERATORS.get(property.operator or "exact")
+        if count_op is None:
+            raise QueryError(f"Invalid behavioral filter count operator: {property.operator}")
         having = ast.CompareOperation(
             op=count_op,
             left=ast.Call(name="count", args=[]),
