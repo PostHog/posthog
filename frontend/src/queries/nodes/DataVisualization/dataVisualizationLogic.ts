@@ -59,7 +59,7 @@ import type {
 } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
-import { columnsFromResponse, getAutoVisualizationType } from './columnUtils'
+import { columnsFromResponse, deriveDefaultAxes, getAutoVisualizationType } from './columnUtils'
 import { Column, ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
 export enum SideBarTab {
@@ -1827,29 +1827,19 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             // Set up chart series
             if (values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
-                const xAxisTypes = value.find((n) => n.type.name.indexOf('DATE') !== -1)
-                const yAxisTypes = value.filter((n) => n.type.isNumerical)
+                const { xAxis, yAxis } = deriveDefaultAxes(value)
 
-                if (yAxisTypes) {
-                    yAxisTypes.forEach((y) => {
-                        if (oldTabularColumnSettings) {
-                            const lastValue = oldTabularColumnSettings.find((n) => n?.name === y.name)
-                            return actions.addYSeries(y.name, lastValue?.settings)
-                        }
-
-                        actions.addYSeries(y.name)
-                    })
-                }
-
-                if (xAxisTypes) {
-                    actions.updateXSeries(xAxisTypes.name)
-                } else {
-                    const yAxisColumnNames = new Set(yAxisTypes.map((column) => column.name))
-                    const firstRemainingColumn = value.find((column) => !yAxisColumnNames.has(column.name))
-
-                    if (firstRemainingColumn) {
-                        actions.updateXSeries(firstRemainingColumn.name)
+                yAxis.forEach((columnName) => {
+                    if (oldTabularColumnSettings) {
+                        const lastValue = oldTabularColumnSettings.find((n) => n?.name === columnName)
+                        return actions.addYSeries(columnName, lastValue?.settings)
                     }
+
+                    actions.addYSeries(columnName)
+                })
+
+                if (xAxis) {
+                    actions.updateXSeries(xAxis)
                 }
             }
 

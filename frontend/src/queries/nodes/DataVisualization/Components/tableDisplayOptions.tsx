@@ -43,7 +43,9 @@ export function renderDisplayTypeLabel(displayType: ChartDisplayType, autoVisual
 export function getTableDisplayOptions(
     columns: Column[],
     numericalColumns: Column[],
-    autoVisualizationType: ChartDisplayType
+    autoVisualizationType: ChartDisplayType,
+    /** Reason to give for the types that need axes assigned by hand. Omit where the user can assign them. */
+    axisSetupDisabledReason?: string
 ): LemonSelectOptions<ChartDisplayType> {
     const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
     // Both scatter axes are numeric measures, so one numeric column can't fill both.
@@ -113,14 +115,17 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ScatterPlot,
                     icon: <IconScatter />,
                     label: 'Scatter plot',
-                    disabledReason: !canDisplayScatterPlot
-                        ? 'Requires at least two numeric columns, one for each axis'
-                        : undefined,
+                    disabledReason:
+                        axisSetupDisabledReason ??
+                        (!canDisplayScatterPlot
+                            ? 'Requires at least two numeric columns, one for each axis'
+                            : undefined),
                 },
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,
                     label: '2d heatmap',
+                    disabledReason: axisSetupDisabledReason,
                 },
             ],
         },

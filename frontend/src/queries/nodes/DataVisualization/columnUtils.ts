@@ -71,6 +71,21 @@ export const columnsFromResponse = (response: AnyResponseType | null): Column[] 
     })
 }
 
+// Which columns a chart plots when nothing has been picked yet: every numeric column on the y axis,
+// and a date column on the x axis, falling back to the first column no y series claimed.
+export const deriveDefaultAxes = (columns: Column[]): { xAxis: string | null; yAxis: string[] } => {
+    const dateColumn = columns.find((column) => column.type.name.indexOf('DATE') !== -1)
+    const numericalColumns = columns.filter((column) => column.type.isNumerical)
+    const yAxis = numericalColumns.map((column) => column.name)
+
+    if (dateColumn) {
+        return { xAxis: dateColumn.name, yAxis }
+    }
+
+    const claimed = new Set(yAxis)
+    return { xAxis: columns.find((column) => !claimed.has(column.name))?.name ?? null, yAxis }
+}
+
 const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayType => {
     const stringColumns = columns.filter((column) => column.type.name === 'STRING')
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
