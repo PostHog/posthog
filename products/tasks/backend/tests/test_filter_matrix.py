@@ -284,6 +284,34 @@ class TestTaskListFilterMatrix(TestCase):
                     "peter_legacy_mention",
                 ],
             ),
+            # Negation must keep tasks whose latest run has no PR/CI/status data — a NULL
+            # annotation must not silently drop them from an exclude().
+            (
+                "negated_pr_any_is_absence",
+                "-pr:any",
+                [
+                    "peter_slack_mention_me",
+                    "adam_mention_peter",
+                    "scout_in_channel",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
+            (
+                "negated_ci_keeps_missing_ci",
+                "-ci:red",
+                [
+                    "peter_plain",
+                    "peter_slack_mention_me",
+                    "adam_mention_peter",
+                    "mine_peter_commented",
+                    "scout_in_channel",
+                    "peter_i_commented",
+                    "adam_pinned_by_me",
+                    "peter_legacy_mention",
+                ],
+            ),
+            ("negated_status_keeps_runless_task", "is:archived -status:failed", ["mine_archived"]),
             ("archived", "is:archived", ["mine_archived"]),
         ]
     )

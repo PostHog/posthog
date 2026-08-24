@@ -2,8 +2,9 @@ import re
 from typing import Literal, cast
 from uuid import UUID
 
-from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 from posthog.models import User
@@ -66,6 +67,14 @@ _PR_VALUES = {"any", "none", "open", "draft", "merged", "closed"}
 _CI_ALIASES = {"red": "failing", "green": "passing"}
 _CI_VALUES = {"red", "green", "failing", "passing", "pending", "none"}
 _TYPE_VALUES = {"task", "space", "command", "saved"}
+# Latest-run annotations are NULL when a task has no run, or the run's output lacks the key.
+# SQL evaluates NULL comparisons to UNKNOWN, so an exclude() over a raw NULL annotation drops
+# those tasks (NOT UNKNOWN is UNKNOWN) instead of keeping them. Coalescing to a concrete
+# sentinel keeps "no data" a real, matchable value on both filter() and exclude().
+_MISSING_STATUS = "__none__"  # not a TaskRun.Status value, so it never matches a status: filter
+_MISSING_CI = "none"  # the canonical "no CI" value the run snapshot itself persists (constants.CI_STATUSES)
+_NO_PR_TEXT = ""  # empty pr_url / pr_state means "no pull request"
+_NOT_MERGED = "false"  # absent pr_merged reads as not merged
 _CHUNK_RE = re.compile(r'(?:[^\s"]+|"[^"]*")+')
 _TOKEN_RE = re.compile(r"^(-)?([A-Za-z][A-Za-z-]*):(.*)$")
 _QUOTED_VALUE_RE = re.compile(r'"([^"]*)"')
@@ -413,28 +422,38 @@ def _latest_run(team_id: int) -> QuerySet[TaskRun]:
 
 
 def _annotate_latest_status(tasks: QuerySet[Task], team_id: int) -> QuerySet[Task]:
-    return tasks.annotate(_task_query_latest_status=Subquery(_latest_run(team_id).values("status")[:1]))
+    return tasks.annotate(
+        _task_query_latest_status=Coalesce(
+            Subquery(_latest_run(team_id).values("status")[:1]),
+            Value(_MISSING_STATUS),
+            output_field=TextField(),
+        )
+    )
 
 
 def _annotate_latest_pr(tasks: QuerySet[Task], team_id: int) -> QuerySet[Task]:
     latest_run = _latest_run(team_id)
+
+    def _output_value(key: str, default: str) -> Coalesce:
+        return Coalesce(
+            Subquery(latest_run.annotate(value=KeyTextTransform(key, "output")).values("value")[:1]),
+            Value(default),
+            output_field=TextField(),
+        )
+
     return tasks.annotate(
-        _task_query_latest_pr_url=Subquery(
-            latest_run.annotate(value=KeyTextTransform("pr_url", "output")).values("value")[:1]
-        ),
-        _task_query_latest_pr_state=Subquery(
-            latest_run.annotate(value=KeyTextTransform("pr_state", "output")).values("value")[:1]
-        ),
-        _task_query_latest_pr_merged=Subquery(
-            latest_run.annotate(value=KeyTextTransform("pr_merged", "output")).values("value")[:1]
-        ),
+        _task_query_latest_pr_url=_output_value("pr_url", _NO_PR_TEXT),
+        _task_query_latest_pr_state=_output_value("pr_state", _NO_PR_TEXT),
+        _task_query_latest_pr_merged=_output_value("pr_merged", _NOT_MERGED),
     )
 
 
 def _annotate_latest_ci_status(tasks: QuerySet[Task], team_id: int) -> QuerySet[Task]:
     return tasks.annotate(
-        _task_query_latest_ci_status=Subquery(
-            _latest_run(team_id).annotate(value=KeyTextTransform("ci_status", "output")).values("value")[:1]
+        _task_query_latest_ci_status=Coalesce(
+            Subquery(_latest_run(team_id).annotate(value=KeyTextTransform("ci_status", "output")).values("value")[:1]),
+            Value(_MISSING_CI),
+            output_field=TextField(),
         )
     )
 
@@ -445,19 +464,13 @@ def _pr_condition(values: list[str]) -> Q:
         normalized = _normalize(value)
         if normalized == "any":
             condition |= (
-                Q(_task_query_latest_pr_url__isnull=False)
-                | Q(_task_query_latest_pr_state__isnull=False)
+                ~Q(_task_query_latest_pr_url=_NO_PR_TEXT)
+                | ~Q(_task_query_latest_pr_state=_NO_PR_TEXT)
                 | Q(_task_query_latest_pr_merged="true")
             )
         elif normalized == "none":
-            condition |= Q(
-                _task_query_latest_pr_url__isnull=True,
-                _task_query_latest_pr_state__isnull=True,
-                _task_query_latest_pr_merged__isnull=True,
-            ) | Q(
-                _task_query_latest_pr_url__isnull=True,
-                _task_query_latest_pr_state__isnull=True,
-                _task_query_latest_pr_merged="false",
+            condition |= Q(_task_query_latest_pr_url=_NO_PR_TEXT, _task_query_latest_pr_state=_NO_PR_TEXT) & ~Q(
+                _task_query_latest_pr_merged="true"
             )
         elif normalized == "merged":
             condition |= Q(_task_query_latest_pr_state="merged") | Q(_task_query_latest_pr_merged="true")
