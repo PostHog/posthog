@@ -22,6 +22,7 @@ import {
 const account: AccountApi = {
     id: 'account-1',
     name: 'Acme',
+    external_id: 'cust_acme_001',
     notebooks: [],
     ignored_at: null,
     created_at: '2026-01-01T00:00:00Z',
@@ -123,12 +124,44 @@ describe('featureRequestsLogic', () => {
         )
     })
 
-    it('keeps the selected account name while search results reload', () => {
+    it('creates initial evidence from a source and request date', async () => {
+        const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
+        logic.actions.openCreateRequest()
+        logic.actions.setTitle(createdRequest.title)
+        logic.actions.setAccountId(createdRequest.account.id)
+        logic.actions.setProductAreaIds(['area-1'])
+        logic.actions.setEvidenceSource('meeting')
+        logic.actions.setEvidenceRequestedOn('2026-01-01')
+
+        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            title: createdRequest.title,
+            description: '',
+            account_id: createdRequest.account.id,
+            product_area_ids: ['area-1'],
+            idempotency_key: expect.any(String),
+            evidence: {
+                summary: '',
+                customer_quote: '',
+                evidence_source: 'meeting',
+                source_url: '',
+                requested_on: '2026-01-01',
+                image_ids: [],
+            },
+        })
+        expect(logic.values.evidenceSource).toBe('conversation')
+        expect(logic.values.evidenceRequestedOn).toBeNull()
+    })
+
+    it('keeps the selected account name and external key while search results reload', () => {
         logic.actions.loadAccountsSuccess([account])
         logic.actions.setAccountId(account.id)
         logic.actions.loadAccountsSuccess([])
 
-        expect(logic.values.accountOptions).toEqual([{ key: account.id, label: account.name }])
+        expect(logic.values.accountOptions).toEqual([
+            { key: account.id, label: `${account.name} (${account.external_id})` },
+        ])
     })
 
     it('filters product areas by name without changing the available areas', () => {
@@ -215,6 +248,8 @@ describe('featureRequestsLogic', () => {
             previous: null,
             results: [createdRequest],
         })
+        await expectLogic(logic, () => logic.actions.setCreatedByFilter([1, 2])).toFinishAllListeners()
+        listSpy.mockClear()
 
         await expectLogic(logic, () => logic.actions.setFeatureRequestsPage(2))
             .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
@@ -226,6 +261,7 @@ describe('featureRequestsLogic', () => {
                 limit: FEATURE_REQUESTS_PAGE_SIZE,
                 offset: FEATURE_REQUESTS_PAGE_SIZE,
                 archive_state: 'active',
+                created_by_ids: [1, 2],
                 request_ordering: '-updated_at',
             })
         )
@@ -241,6 +277,7 @@ describe('featureRequestsLogic', () => {
             priority: 'high,none',
             product_area: 'area-1,area-2',
             account: 'account-1',
+            created_by: '1,2,invalid,-3',
             archive: 'all',
             sort: 'title',
             page: '3',
@@ -252,6 +289,7 @@ describe('featureRequestsLogic', () => {
             priorityFilter: ['high', 'none'],
             productAreaFilter: ['area-1', 'area-2'],
             accountFilter: ['account-1'],
+            createdByFilter: [1, 2],
             archiveState: 'all',
             requestOrdering: 'title',
             featureRequestsPage: 3,
@@ -262,6 +300,7 @@ describe('featureRequestsLogic', () => {
             priority: 'high,none',
             product_area: 'area-1,area-2',
             account: 'account-1',
+            created_by: '1,2',
             archive: 'all',
             sort: 'title',
             page: '3',
@@ -392,6 +431,7 @@ describe('featureRequestsLogic', () => {
             ...account,
             id: 'account-2',
             name: 'Globex',
+            external_id: 'cust_globex_001',
         }
         const updatedRequest: FeatureRequestApi = {
             ...createdRequest,
@@ -431,7 +471,9 @@ describe('featureRequestsLogic', () => {
         logic.actions.setAddAccountId(otherAccount.id)
         logic.actions.setEvidenceSummary('Globex needs a weekly export.')
         logic.actions.setEvidenceSource('meeting')
-        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
+        expect(logic.values.addAccountOptions).toEqual([
+            { key: otherAccount.id, label: `${otherAccount.name} (${otherAccount.external_id})` },
+        ])
 
         await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
 

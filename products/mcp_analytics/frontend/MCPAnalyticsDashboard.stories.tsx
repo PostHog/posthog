@@ -179,6 +179,16 @@ const DAILY_STATS = [
 
 const CATEGORY_LIST = [['Data exploration'], ['Insights'], ['Dashboards'], ['Cohorts']]
 
+// One category per tool in the clustering fixture. Deliberately selective: `SQL` and
+// `Insights` each cover two of the three clusters, so picking one visibly narrows the list
+// rather than leaving it whole.
+const TOOL_CATEGORY_MAP = [
+    ['execute-sql', 'SQL'],
+    ['insight-create', 'Insights'],
+    ['query-trends', 'Product analytics'],
+    ['read-data-schema', 'Data schema'],
+]
+
 const CATEGORY_COUNTS = [
     ['Data exploration', 2240],
     ['Insights', 950],
@@ -645,6 +655,9 @@ const meta: Meta = {
                     }
                     if (body?.query?.kind === 'MCPToolCategoriesQuery') {
                         return [200, { results: CATEGORY_LIST.map((r) => ({ category: r[0] })) }]
+                    }
+                    if (body?.query?.kind === 'MCPToolCategoryMapQuery') {
+                        return [200, { results: TOOL_CATEGORY_MAP.map((r) => ({ tool: r[0], category: r[1] })) }]
                     }
                     if (body?.query?.kind === 'MCPToolCategoryCountsQuery') {
                         return [200, { results: CATEGORY_COUNTS.map((r) => ({ category: r[0], calls: r[1] })) }]

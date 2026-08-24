@@ -51,7 +51,7 @@ export function closeSettings(): void {
   if (nav.canGoBackInHistory()) {
     nav.goBackInHistory();
   } else {
-    nav.navigateToCode();
+    nav.navigateToNewTask();
   }
 }
 

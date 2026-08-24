@@ -46,8 +46,11 @@ import type {
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
+    ScannerScoutCreateApi,
+    ScannerScoutCreateResponseApi,
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
+    ScoutReportApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionActionApi,
@@ -1143,6 +1146,64 @@ export const visionScannersPromptSuggestionsGenerateCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getVisionScannersScoutReportsListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/`
+}
+
+/**
+ * Reports filed by this scanner's scouts, newest first.
+ */
+export const visionScannersScoutReportsList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ScoutReportApi[]> => {
+    return apiMutator<ScoutReportApi[]>(getVisionScannersScoutReportsListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutReportsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scout_reports/${id}/`
+}
+
+/**
+ * One report filed by this scanner's scouts.
+ */
+export const visionScannersScoutReportsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutReportApi> => {
+    return apiMutator<ScoutReportApi>(getVisionScannersScoutReportsRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersScoutsCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scouts/`
+}
+
+/**
+ * Create a scout that watches this scanner, recorded as belonging to it.
+ */
+export const visionScannersScoutsCreate = async (
+    projectId: string,
+    scannerId: string,
+    scannerScoutCreateApi: ScannerScoutCreateApi,
+    options?: RequestInit
+): Promise<ScannerScoutCreateResponseApi> => {
+    return apiMutator<ScannerScoutCreateResponseApi>(getVisionScannersScoutsCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scannerScoutCreateApi),
+    })
 }
 
 export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {

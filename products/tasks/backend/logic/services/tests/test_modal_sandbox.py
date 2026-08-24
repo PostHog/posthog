@@ -771,6 +771,7 @@ class TestModalSandboxAgentServer:
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=True),
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
         ):
@@ -785,6 +786,31 @@ class TestModalSandboxAgentServer:
         wait_for_ready.assert_called_once_with(["example.com"])
         mock_free.assert_not_called()
         mock_sandbox.execute.assert_not_called()
+
+    def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        with (
+            patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=False),
+            patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh,
+            patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
+            patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
+        ):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                allowed_domains=["example.com"],
+            )
+
+        mock_free.assert_called_once_with()
+        mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
+        wait_for_ready.assert_called_once_with(["example.com"])
+        assert "./node_modules/.bin/agent-server" in _agent_server_launch_command(mock_sandbox.execute)
 
     def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
         with (

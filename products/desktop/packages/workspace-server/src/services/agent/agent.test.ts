@@ -22,6 +22,8 @@ const mockPrompt = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ stopReason: "end_turn" }),
 );
 
+const mockPrepareContextWiki = vi.hoisted(() => vi.fn());
+
 const mockAcpClient = vi.hoisted(() => ({
   current: undefined as
     | {
@@ -110,6 +112,10 @@ vi.mock("@agentclientprotocol/sdk", () => ({
 
 vi.mock("@posthog/agent", () => ({
   isMcpToolReadOnly: vi.fn(() => false),
+  POSTHOG_METHODS: {
+    SIDE_QUESTION: "_posthog/side_question",
+    REFRESH_SESSION: "_posthog/refresh_session",
+  },
 }));
 
 vi.mock("@posthog/agent/posthog-api", () => ({
@@ -140,6 +146,10 @@ vi.mock("@posthog/agent/adapters/claude/session/jsonl-hydration", () => ({
   hydrateSessionJsonl: mockHydrateSessionJsonl,
 }));
 
+vi.mock("./context-wiki", () => ({
+  prepareContextWiki: mockPrepareContextWiki,
+}));
+
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return {
@@ -158,6 +168,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // --- Import after mocks ---
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { PRODUCT_ENGINEER_PROMPT } from "@posthog/shared/product-engineer-prompt";
 import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
 import {
   AgentService,
@@ -299,6 +310,93 @@ describe("AgentService", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  describe("context wiki mount", () => {
+    const credentials = {
+      apiHost: "https://app.posthog.test",
+      projectId: 1,
+    } as never;
+    const mount = {
+      path: "/mock/appData/context-wiki/org-1/head1",
+      commitsPath: "/api/organizations/org-1/context_layer/commits/",
+    };
+
+    const ENV_KEYS = [
+      "POSTHOG_API_KEY",
+      "POSTHOG_PERSONAL_API_KEY",
+      "POSTHOG_CONTEXT_LAYER_PATH",
+      "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
+    ];
+
+    beforeEach(() => {
+      for (const key of ENV_KEYS) {
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of ENV_KEYS) {
+        delete process.env[key];
+      }
+    });
+
+    // POSTHOG_API_KEY is what the auth sync just wrote, and it is deliberately
+    // absent while impersonating — so an impersonation credential must never
+    // reach the agent subprocess as a publish token.
+    it.each([
+      ["the auth sync wrote one", "synced-key", "synced-key"],
+      ["the session is impersonated", undefined, undefined],
+    ])(
+      "exposes a publish token only when %s",
+      async (_label, apiKey, expected) => {
+        if (apiKey) {
+          process.env.POSTHOG_API_KEY = apiKey;
+        }
+        mockPrepareContextWiki.mockResolvedValueOnce(mount);
+
+        const wiki = await service["mountContextWiki"](credentials);
+
+        expect(wiki).toEqual({
+          path: mount.path,
+          commitsPath: mount.commitsPath,
+          personalApiKey: expected,
+        });
+      },
+    );
+
+    // The mount travels per-session precisely because the harness adapters
+    // snapshot process.env at spawn time — a global write here would let
+    // concurrent session starts leak one session's token into another.
+    it("never writes the wiki vars to shared process.env", async () => {
+      process.env.POSTHOG_API_KEY = "synced-key";
+      mockPrepareContextWiki.mockResolvedValueOnce(mount);
+
+      await service["mountContextWiki"](credentials);
+
+      expect(process.env.POSTHOG_CONTEXT_LAYER_PATH).toBeUndefined();
+      expect(process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBeUndefined();
+      expect(process.env.POSTHOG_PERSONAL_API_KEY).toBeUndefined();
+    });
+
+    it("threads the mount into agent.run as a per-session value", async () => {
+      process.env.POSTHOG_API_KEY = "synced-key";
+      mockPrepareContextWiki.mockResolvedValue(mount);
+
+      await service.startSession(baseSessionParams);
+
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          contextWiki: {
+            path: mount.path,
+            commitsPath: mount.commitsPath,
+            personalApiKey: "synced-key",
+          },
+        }),
+      );
+    });
   });
 
   it("includes Modal models in Claude preview options", async () => {
@@ -855,6 +953,7 @@ describe("AgentService", () => {
         config: {},
         promptPending: false,
         inFlightMcpToolCalls: new Map(),
+        pendingSideQuestions: 0,
         mcpToolApprovals: {},
         toolInstallations: {},
         ...overrides,
@@ -993,6 +1092,31 @@ describe("AgentService", () => {
       );
     });
 
+    it("reschedules when pendingSideQuestions is non-zero at timeout", () => {
+      injectSession(service, "run-1", { pendingSideQuestions: 1 });
+      service.recordActivity("run-1");
+
+      vi.advanceTimersByTime(15 * 60 * 1000);
+
+      expect(service.emit).not.toHaveBeenCalledWith(
+        "session-idle-killed",
+        expect.anything(),
+      );
+      expect(getIdleTimeouts(service).has("run-1")).toBe(true);
+    });
+
+    it("kills session when pendingSideQuestions is zero", () => {
+      injectSession(service, "run-1", { pendingSideQuestions: 0 });
+      service.recordActivity("run-1");
+
+      vi.advanceTimersByTime(15 * 60 * 1000);
+
+      expect(service.emit).toHaveBeenCalledWith(
+        "session-idle-killed",
+        expect.objectContaining({ taskRunId: "run-1" }),
+      );
+    });
+
     it("checkIdleDeadlines does not kill non-expired sessions", () => {
       injectSession(service, "run-1");
       service.recordActivity("run-1");
@@ -1008,6 +1132,123 @@ describe("AgentService", () => {
         "session-idle-killed",
         expect.anything(),
       );
+    });
+  });
+
+  describe("sideQuestion", () => {
+    function injectSession(
+      svc: AgentService,
+      taskRunId: string,
+      overrides: Record<string, unknown> = {},
+    ) {
+      const sessions = (svc as unknown as { sessions: Map<string, unknown> })
+        .sessions;
+      sessions.set(taskRunId, {
+        taskRunId,
+        taskId: `task-for-${taskRunId}`,
+        repoPath: "/mock/repo",
+        agent: { cleanup: vi.fn().mockResolvedValue(undefined) },
+        clientSideConnection: { extMethod: vi.fn() },
+        channel: `ch-${taskRunId}`,
+        createdAt: Date.now(),
+        lastActivityAt: 0,
+        config: { sessionId: "agent-session-1" },
+        promptPending: false,
+        inFlightMcpToolCalls: new Map(),
+        pendingSideQuestions: 0,
+        mcpToolApprovals: {},
+        toolInstallations: {},
+        ...overrides,
+      });
+    }
+
+    it("throws when no session exists for the given id", async () => {
+      await expect(service.sideQuestion("unknown-run", "why?")).rejects.toThrow(
+        "Session not found: unknown-run",
+      );
+    });
+
+    it("forwards the question to the adapter and returns the parsed answer", async () => {
+      const extMethod = vi.fn().mockResolvedValue({ answer: "42" });
+      injectSession(service, "run-1", {
+        clientSideConnection: { extMethod },
+      });
+
+      const result = await service.sideQuestion("run-1", "why?");
+
+      expect(result).toEqual({ answer: "42" });
+      expect(extMethod).toHaveBeenCalledWith("_posthog/side_question", {
+        sessionId: "agent-session-1",
+        question: "why?",
+      });
+    });
+
+    it("records activity on the session", async () => {
+      const extMethod = vi.fn().mockResolvedValue({ answer: "42" });
+      injectSession(service, "run-1", {
+        clientSideConnection: { extMethod },
+        lastActivityAt: 0,
+      });
+      const recordActivitySpy = vi.spyOn(service, "recordActivity");
+
+      await service.sideQuestion("run-1", "why?");
+
+      expect(recordActivitySpy).toHaveBeenCalledWith("run-1");
+      const sessions = (
+        service as unknown as {
+          sessions: Map<string, { lastActivityAt: number }>;
+        }
+      ).sessions;
+      expect(sessions.get("run-1")?.lastActivityAt).toBeGreaterThan(0);
+    });
+
+    it("throws when the adapter returns a malformed result", async () => {
+      const extMethod = vi.fn().mockResolvedValue({ notAnAnswer: true });
+      injectSession(service, "run-1", {
+        clientSideConnection: { extMethod },
+      });
+
+      await expect(service.sideQuestion("run-1", "why?")).rejects.toThrow();
+    });
+
+    it("tracks pendingSideQuestions while the extension call is in flight", async () => {
+      let resolveExtMethod: (value: { answer: string }) => void = () => {};
+      const extMethod = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveExtMethod = resolve;
+          }),
+      );
+      injectSession(service, "run-1", { clientSideConnection: { extMethod } });
+      const sessions = (
+        service as unknown as {
+          sessions: Map<string, { pendingSideQuestions: number }>;
+        }
+      ).sessions;
+
+      const promise = service.sideQuestion("run-1", "why?");
+      expect(sessions.get("run-1")?.pendingSideQuestions).toBe(1);
+
+      resolveExtMethod({ answer: "42" });
+      await promise;
+
+      expect(sessions.get("run-1")?.pendingSideQuestions).toBe(0);
+    });
+
+    it("decrements pendingSideQuestions when the extension call fails", async () => {
+      const extMethod = vi.fn().mockRejectedValue(new Error("boom"));
+      injectSession(service, "run-1", { clientSideConnection: { extMethod } });
+      const sessions = (
+        service as unknown as {
+          sessions: Map<string, { pendingSideQuestions: number }>;
+        }
+      ).sessions;
+
+      await expect(service.sideQuestion("run-1", "why?")).rejects.toThrow(
+        "boom",
+      );
+
+      expect(sessions.get("run-1")?.pendingSideQuestions).toBe(0);
     });
   });
 
@@ -1040,10 +1281,14 @@ describe("AgentService", () => {
       ["default", undefined],
       ["overridden", "Generate a canvas."],
     ])(
-      "uses the shared object-reference prompt for a %s session",
+      "uses the shared session guidance for a %s session",
       (_name, systemPromptOverride) => {
-        expect(buildChannelPrompt(systemPromptOverride)).toContain(
-          RICH_OUTPUT_TAGS_PROMPT,
+        const prompt = buildChannelPrompt(systemPromptOverride);
+
+        expect(prompt).toContain(PRODUCT_ENGINEER_PROMPT);
+        expect(prompt).toContain(RICH_OUTPUT_TAGS_PROMPT);
+        expect(prompt.indexOf(PRODUCT_ENGINEER_PROMPT)).toBeLessThan(
+          prompt.indexOf(systemPromptOverride ?? "PostHog context:"),
         );
       },
     );

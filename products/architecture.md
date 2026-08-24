@@ -112,13 +112,52 @@ Two products hold entries.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightViewed` crosses for the view-tracking upsert (`update_or_create`) that shared-insight rendering and the demo generator perform.
 The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
+
 An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
 That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
 The list lives in `MODEL_CROSSINGS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is keyed `(product, class)`, like the carve-outs above: a class that is not listed is a leak and blocks narrowing, so a product already on the list cannot grow a new crossing without a doctrine change.
 It only shrinks.
 Adding an entry requires amending this section to name the class and why it cannot yet be a contract.
-The bar is that some consumer needs ORM semantics a contract cannot express — relation traversal, queryset-typed downstream APIs like access-control filtering, row locking, or model behavior.
-A consumer that only reads fields, or that ends in `values_list`, is disqualifying: the remedy there is a facade function returning contracts, not an entry here.
+
+**The consumer side is default-deny.**
+A crossing class may appear in consumer code only in a shape that `hogli product:crossings` identifies as instance-free.
+These shapes are allowed:
+
+- an annotation, on an argument, a return, or a variable;
+- `X.DoesNotExist`;
+- a nested class attribute, such as `X.Status` or `X.PrivilegeLevel`;
+- `X._meta`;
+- a manager chain that ends in `values()`, `values_list()`, `count()`, `exists()`, or `aggregate()`;
+- a manager chain that `Exists(...)` or `Subquery(...)` embeds.
+
+Every other use is disallowed.
+The check does not ask what the consumer intended.
+If the check does not identify a use as instance-free, change the caller.
+
+**Move the code, do not permit it.**
+Code that queries, serializes, or writes a model belongs in that model's product.
+A consumer that holds such code is misplaced code, not a coupling to document.
+Move the code into the owning product.
+The facade function is what the move leaves behind.
+The consumer keeps the orchestration and the ids.
+
+**The ratchet.**
+`products/model_crossing_uses_baseline.txt` records every disallowed use still in the tree: one line for each crossing class, consumer module, kind, and count.
+A repo-invariant test compares that file against a fresh scan, in both directions.
+A count can go down.
+A count must not go up.
+A use that goes away must leave the file in the same change.
+Run `hogli product:crossings <product>` to see the uses of one product's classes.
+Run `hogli product:crossings --all --write-baseline` to record a decrease.
+
+**What the check cannot see.**
+The check reads uses of the class name.
+It does not read two things:
+
+- attribute access on an instance the consumer already holds, inside a function body;
+- traversal of a foreign key that the consumer's own model declares.
+
+Both are a declared residual, not permission to add more.
 
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).

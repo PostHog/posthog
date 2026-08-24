@@ -181,7 +181,11 @@ export class EmailService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
-            {},
+            // Preserve the incoming priority: createInvocationResult otherwise resets it to 0, which
+            // on a throttle reschedule (below) would rewrite the send's priority class — an entering
+            // bulk send (priority 1) would return as fast-lane (0). The queue caller sets this to the
+            // send's class before calling in, so carrying it through keeps a throttled retry in class.
+            { queuePriority: invocation.queuePriority },
             {
                 finished: true,
             }

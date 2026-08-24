@@ -1,4 +1,5 @@
 import secrets
+import datetime
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
     WebhookCreationResult,
     WebhookDeletionResult,
     WebhookSource,
@@ -141,6 +143,10 @@ class GithubSource(
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
     api_docs_url = "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
+    # GitHub keeps a REST API version answerable for at least 24 months after the next one ships,
+    # then returns 410 Gone. 2022-11-28 is superseded by the 2026-03-10 default, so its earliest
+    # sunset is 2028-03-10 (24 months after that release).
+    deprecated_versions = (VersionDeprecation(version="2022-11-28", sunset_at=datetime.date(2028, 3, 10)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -309,6 +315,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # deleted repository or one the connection can no longer see.
             "GitHub repository is not accessible": "This repository is no longer available on GitHub. It may have been deleted, or your connection may have lost access to it. Update the source with a repository you can still reach, or reconnect your GitHub account.",
             "404 Client Error": "GitHub couldn't find this repository. Check that it still exists and that your connection can access it.",
+            # Every GitHub call carries the source's pinned version in the X-GitHub-Api-Version
+            # header, and GitHub answers 410 Gone once a version is sunset (2022-11-28 reaches this
+            # 24 months after the 2026-03-10 release). 410 is permanent, so retrying loops forever;
+            # disable the schema and point the user at the version repin instead.
+            "410 Client Error": "GitHub no longer serves the API version this source is pinned to. Update the source to a supported version, then sync again.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
             # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.

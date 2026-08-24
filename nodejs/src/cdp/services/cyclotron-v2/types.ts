@@ -38,6 +38,7 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
     queueName: z.string().optional(),
+    priority: z.number().int().optional(),
 })
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
@@ -203,6 +204,9 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
+    // Orders the email queue's fair dequeue by priority class before dequeue_seq.
+    // Only meaningful on the email queue; other queues already order by priority.
+    priorityDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

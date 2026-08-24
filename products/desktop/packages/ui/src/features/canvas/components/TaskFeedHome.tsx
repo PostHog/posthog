@@ -26,6 +26,7 @@ import { useProjectTaskFeed } from "@posthog/ui/features/canvas/hooks/useProject
 import { useTaskFeedResults } from "@posthog/ui/features/canvas/hooks/useTaskFeedResults";
 import { useTaskFeedsStore } from "@posthog/ui/features/canvas/stores/taskFeedsStore";
 import type { ThreadPanelTab } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openRightPanelSide } from "@posthog/ui/features/navigation/rightPanelSide";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -46,9 +47,12 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
     isFetching,
     isLoading,
     issues,
+    mode,
     refetch,
+    reports,
     tasks,
   } = useTaskFeedResults(feed?.query);
+  const openReport = useOpenInboxReport();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
@@ -90,7 +94,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       feed_id: feed.id,
     });
     toast.success("Saved search deleted");
-    void navigate({ to: "/website" });
+    void navigate({ to: "/spaces" });
   }, [feed, removeFeed, navigate]);
 
   if (!feed) {
@@ -105,6 +109,12 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
       </div>
     );
   }
+
+  // Report feeds carry reports, task feeds carry tasks; the status text reads
+  // from whichever list this feed's mode actually populates.
+  const reportsMode = mode === "reports";
+  const resultCount = reportsMode ? reports.length : tasks.length;
+  const resultNoun = reportsMode ? "report" : "task";
 
   const queryBar = (
     <div className="mb-2 flex w-full items-center gap-2 rounded-xl border border-(--gray-4) bg-(--gray-2) px-4 py-3">
@@ -129,7 +139,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           ) : (
             <span className="shrink-0 text-muted-foreground text-xs">
               {isComplete
-                ? `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`
+                ? `${resultCount} ${resultCount === 1 ? resultNoun : `${resultNoun}s`}`
                 : "Partial results"}
             </span>
           )}
@@ -140,7 +150,7 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
           !isLoading &&
           !isComplete && (
             <span className="text-muted-foreground text-xs">
-              Some matching tasks may not be shown.
+              {`Some matching ${resultNoun}s may not be shown.`}
             </span>
           )
         )}
@@ -181,11 +191,15 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
   const intro = (
     <div>
       {queryBar}
-      {!isLoading && !error && isComplete && tasks.length === 0 && (
+      {!isLoading && !error && isComplete && resultCount === 0 && (
         <div className="flex flex-col items-center gap-1 px-4 py-16 text-center">
-          <Text className="font-medium">No tasks match this saved search</Text>
+          <Text className="font-medium">
+            {`No ${resultNoun}s match this saved search`}
+          </Text>
           <Text className="text-muted-foreground text-sm">
-            Tasks appear here when they match the query.
+            {reportsMode
+              ? "Reports appear here when they match the query."
+              : "Tasks appear here when they match the query."}
           </Text>
         </div>
       )}
@@ -198,6 +212,9 @@ export function TaskFeedHome({ feedId }: { feedId: string }) {
         <ChannelFeedView
           channelId={feed.id}
           tasks={tasks}
+          reports={mode === "reports" ? reports : undefined}
+          onOpenReport={openReport}
+          showKindFilter={false}
           isLoading={isLoading}
           intro={intro}
           onOpenTask={handleOpenTask}

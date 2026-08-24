@@ -27,7 +27,13 @@ logger = get_write_only_logger()
 # ApplicationError types that are expected control flow (e.g. activity-retry-as-poll
 # probes, retryable transient-infra re-raises), not defects — same reasoning as the
 # EgressBudgetExhausted exemption below.
-EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset({"trace_not_settled", "TransientRepartitionError"})
+# "EmbeddingServiceUnavailable" is the literal string kept intentionally, not the product
+# constant EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE — this shared Temporal module must not
+# depend on a product. The error-tracking issue-created workflow fails open on it, so it is
+# expected control flow, not a defect.
+EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
+    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable"}
+)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:

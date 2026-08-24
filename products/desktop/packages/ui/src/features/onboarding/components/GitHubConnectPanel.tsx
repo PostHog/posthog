@@ -6,7 +6,10 @@ import {
   GithubLogo,
   Plus,
 } from "@phosphor-icons/react";
-import { isGithubConnectPendingApproval } from "@posthog/core/integrations/connectErrors";
+import {
+  GITHUB_CONNECT_PENDING_APPROVAL_CODE,
+  isGithubConnectPendingApproval,
+} from "@posthog/core/integrations/connectErrors";
 import {
   buildConnectAbandonedProps,
   buildConnectFailedProps,
@@ -21,6 +24,7 @@ import {
 } from "@posthog/core/onboarding/githubConnectPanel";
 import type { GithubConnectService } from "@posthog/core/onboarding/githubConnectService";
 import { GITHUB_CONNECT_SERVICE } from "@posthog/core/onboarding/identifiers";
+import { formatGithubAccountLabel } from "@posthog/core/settings/githubRepoSummary";
 import { useService } from "@posthog/di/react";
 import { Button as QuillButton } from "@posthog/quill";
 import type { OnboardingGithubConnectFlow } from "@posthog/shared/analytics-events";
@@ -28,12 +32,12 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { GithubApprovalNotice } from "@posthog/ui/features/integrations/GithubApprovalNotice";
 import { useGithubDisconnect } from "@posthog/ui/features/integrations/useGithubDisconnect";
+import { useGithubInstallRequests } from "@posthog/ui/features/integrations/useGithubInstallRequests";
 import {
   describeGithubConnectError,
   useGithubConnect,
 } from "@posthog/ui/features/integrations/useGithubUserConnect";
 import {
-  useGithubInstallRequests,
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
@@ -93,6 +97,7 @@ export function GitHubConnectPanel() {
     isConnecting,
     isTimedOut: timedOut,
     hasError: hasConnectError,
+    isPending: awaitingApproval,
     connect: handleConnectGitHub,
     reset: resetConnect,
   } = useGithubConnect({
@@ -104,7 +109,10 @@ export function GitHubConnectPanel() {
     },
   });
   const canTakeAction = !isConnecting && !timedOut && !hasConnectError;
-  const isPendingApproval = isGithubConnectPendingApproval(connectError?.code);
+  // The callback reports an org-owner wait through onPending when the caller
+  // handles it, and on the error channel otherwise, so both are read here.
+  const isPendingApproval =
+    awaitingApproval || isGithubConnectPendingApproval(connectError?.code);
 
   // Every path that begins a connect, including reconnect, must go through
   // this, or its "started" event has no abandoned counterpart.
@@ -151,7 +159,12 @@ export function GitHubConnectPanel() {
       timedOut,
       errorCode: connectError?.code,
     };
-    const fingerprint = buildConnectFailureFingerprint(failureInputs);
+    // A pending approval ends the flow without an error, so it carries no
+    // failure fingerprint of its own; reuse the code so it stays deduped and
+    // still counts as terminal for the abandonment marker below.
+    const fingerprint = isPendingApproval
+      ? GITHUB_CONNECT_PENDING_APPROVAL_CODE
+      : buildConnectFailureFingerprint(failureInputs);
     const flowType = inFlightConnectRef.current?.flowType ?? "user_new";
     // Clear the marker only on a terminal outcome — even a deduped one. A
     // non-terminal re-run (a retry moving error/timeout back to connecting)
@@ -183,6 +196,7 @@ export function GitHubConnectPanel() {
     connectErrorMessage: describeGithubConnectError(connectError),
     timedOut,
     isConnecting,
+    isPending: awaitingApproval,
   });
 
   const {
@@ -190,10 +204,10 @@ export function GitHubConnectPanel() {
     isLoading: githubUserIntegrationsLoading,
   } = useUserGithubIntegrations();
   const hasGitIntegration = githubUserIntegrations.length > 0;
-  const { data: githubInstallRequests = [] } = useGithubInstallRequests();
+  const { data: githubInstallRequests } = useGithubInstallRequests();
   const approvalState = deriveGithubApprovalState({
     errorCode: connectError?.code,
-    requests: githubInstallRequests,
+    requests: githubInstallRequests?.results ?? [],
     hasIntegration: hasGitIntegration,
   });
   const isAwaitingApproval = approvalState === "awaiting";
@@ -345,7 +359,10 @@ export function GitHubConnectPanel() {
             <Flex direction="column" gap="3">
               {githubUserIntegrations.map((integration) => {
                 const installationId = integration.installation_id;
-                const accountName = integration.account?.name ?? "GitHub";
+                const accountName = formatGithubAccountLabel(
+                  integration.account,
+                  installationId,
+                );
                 const installRepos = reposByInstallationId[installationId];
                 const isLoadingInstallRepos = installRepos === undefined;
                 const isStale = failedInstallationIds.includes(installationId);

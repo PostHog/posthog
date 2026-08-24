@@ -19,6 +19,9 @@ import type {
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    DesktopAccessResponseApi,
+    DesktopBetaTermsAcceptanceDTOApi,
+    LegacyDesktopAccessResponseApi,
     LoopDTOApi,
     LoopFireResultApi,
     LoopPreviewDTOApi,
@@ -32,6 +35,7 @@ import type {
     LoopsTriggerCreateBodyThree,
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
+    OnboardingSessionApi,
     PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
@@ -81,6 +85,9 @@ import type {
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
+    TaskRunAnalysisInsightRequestApi,
+    TaskRunAnalysisInsightResponseApi,
+    TaskRunAnalyzeResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
     TaskRunArtifactPresignResponseApi,
@@ -146,11 +153,13 @@ export const getCodeInvitesCheckAccessRetrieveUrl = () => {
 }
 
 /**
- * Check whether the authenticated user has access to PostHog Desktop and to Loops.
+ * Check whether the authenticated user has legacy PostHog Desktop access and Loops access.
  * @summary Check access
  */
-export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+export const codeInvitesCheckAccessRetrieve = async (
+    options?: RequestInit
+): Promise<LegacyDesktopAccessResponseApi> => {
+    return apiMutator<LegacyDesktopAccessResponseApi>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
         method: 'GET',
     })
@@ -161,7 +170,7 @@ export const getCodeInvitesRedeemCreateUrl = () => {
 }
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable legacy access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreate = async (
@@ -186,6 +195,52 @@ export const getCodeSandboxPricingListUrl = () => {
  */
 export const codeSandboxPricingList = async (options?: RequestInit): Promise<SandboxComputePricingApi> => {
     return apiMutator<SandboxComputePricingApi>(getCodeSandboxPricingListUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsCreate = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDesktopAccessRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop/access/`
+}
+
+/**
+ * Evaluate Desktop access for the selected project and organization.
+ * @summary Check PostHog Desktop access
+ */
+export const desktopAccessRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DesktopAccessResponseApi> => {
+    return apiMutator<DesktopAccessResponseApi>(getDesktopAccessRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -1082,6 +1137,24 @@ export const taskChannelsStarCreate = async (
     })
 }
 
+export const getTaskChannelsOnboardingSessionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/onboarding_session/`
+}
+
+/**
+ * Open the agent session a new user lands in, in the team's #general space. Reads the company's homepage, so it takes a few seconds and is deliberately not part of provisioning, which blocks the app opening. Callers fire it without awaiting it when provision_defaults reports personal_created.
+ * @summary Start a first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<OnboardingSessionApi> => {
+    return apiMutator<OnboardingSessionApi>(getTaskChannelsOnboardingSessionCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTaskChannelsProvisionDefaultsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/task_channels/provision_defaults/`
 }
@@ -1611,6 +1684,49 @@ export const tasksRunsPartialUpdate = async (
     })
 }
 
+export const getTasksRunsAnalysisInsightCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analysis-insight/`
+}
+
+/**
+ * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis finding
+ */
+export const tasksRunsAnalysisInsightCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunAnalysisInsightRequestApi?: TaskRunAnalysisInsightRequestApi,
+    options?: RequestInit
+): Promise<TaskRunAnalysisInsightResponseApi> => {
+    return apiMutator<TaskRunAnalysisInsightResponseApi>(getTasksRunsAnalysisInsightCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunAnalysisInsightRequestApi),
+    })
+}
+
+export const getTasksRunsAnalyzeCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/analyze/`
+}
+
+/**
+ * Create a PostHog-funded analysis task that reviews this run's transcript for inefficiencies and reports findings. Idempotent per run: if an analysis task already exists for this run, it is returned instead of creating another. The analysis is not billed to the customer.
+ * @summary Analyze this run
+ */
+export const tasksRunsAnalyzeCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunAnalyzeResponseApi> => {
+    return apiMutator<TaskRunAnalyzeResponseApi>(getTasksRunsAnalyzeCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsAppendLogCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/append_log/`
 }
@@ -1881,7 +1997,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
 import {
     IconArchive,
@@ -15,7 +14,6 @@ import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -33,7 +31,7 @@ import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
     const {
         mutatingArchive,
-        listSearchParams,
+        featureRequestBackUrl,
         activeRequestAccountLinks,
         activeRequestEvidenceCount,
         activeRequestImages,
@@ -67,7 +65,7 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         type="tertiary"
                         size="small"
                         icon={<IconArrowLeft />}
-                        to={combineUrl(urls.customerAnalyticsFeatureRequests(), listSearchParams).url}
+                        to={featureRequestBackUrl}
                         className="-ml-2"
                     >
                         Feature requests

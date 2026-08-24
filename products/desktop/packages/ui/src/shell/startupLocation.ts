@@ -1,12 +1,12 @@
-import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { isGeneralChannel } from "@posthog/core/canvas/channelName";
-import type { ProvisionedTaskChannels } from "@posthog/shared/domain-types";
+import { rewriteLegacyHref } from "@posthog/ui/router/legacyPaths";
+import {
+  ensureSession,
+  type FirstRunClient,
+  firstRun,
+  isFirstRun,
+} from "@posthog/ui/shell/firstRun";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
-
-type StartupLocationClient = Pick<
-  PostHogAPIClient,
-  "provisionDefaultTaskChannels"
->;
 
 const storageKey = (identity: string): string =>
   `startup-location:v2:${identity}`;
@@ -19,50 +19,72 @@ interface StartupLocation {
   firstRun: { generalChannelId: string } | null;
 }
 
-let primedProvision: ProvisionedTaskChannels | null = null;
-
 /**
- * Whoever provisions first consumes the created flags, so a flow that provisions
- * before the app mounts has to hand its result over rather than let startup
- * provision again and read false flags.
+ * The session starts as soon as consent permits and normally settles while onboarding is still on
+ * screen, so this wait is only ever paid by someone who got through onboarding faster than the
+ * scrape. The cap is what stops a hung one holding the app shut: past it the feed opens, and the
+ * session shows up there instead.
  */
-export function primeStartupProvision(result: ProvisionedTaskChannels): void {
-  primedProvision = result;
+const SESSION_WAIT_MS = 15_000;
+
+async function cappedSessionTaskId(
+  sessionTaskId: Promise<string | null>,
+): Promise<string | null> {
+  return Promise.race([
+    sessionTaskId,
+    new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), SESSION_WAIT_MS),
+    ),
+  ]);
 }
 
 export async function resolveStartupLocation(
   identity: string,
-  client: StartupLocationClient,
+  client: FirstRunClient,
+  spacesEnabled: boolean,
 ): Promise<StartupLocation> {
-  const saved = await stateStorage.getItem(storageKey(identity));
-  if (saved) return { href: saved, firstRun: null };
+  // Provisioning is what says whether this is a first run, so it is read before anything looks at
+  // where the user was last. A saved location is written on every navigation and is shared by every
+  // account on the project, so it answers neither question reliably.
+  const run = firstRun(identity, client);
+  const sessionTaskIdPromise = ensureSession(identity, client);
+  const provisioned = await run.provisioned;
 
+  // The old key predates the created flags, so its presence is the only proof this install was
+  // in use before the default spaces existed. That outranks the flags: provisioning a long-time
+  // user's spaces for the first time reports a first run, and they are not new.
   const legacy = await stateStorage.getItem(legacyStorageKey(identity));
   if (legacy) {
-    // Provisioning does not get to decide whether someone who was already using
-    // the app can open it. Keeping the old key retries on the next launch.
-    try {
-      await client.provisionDefaultTaskChannels();
-      void stateStorage.removeItem(legacyStorageKey(identity));
-    } catch {}
-    return { href: legacy, firstRun: null };
+    if (provisioned) void stateStorage.removeItem(legacyStorageKey(identity));
+    return { href: rewriteLegacyHref(legacy), firstRun: null };
   }
 
-  const provisioned =
-    primedProvision ?? (await client.provisionDefaultTaskChannels());
-  primedProvision = null;
+  const firstRunHere = isFirstRun(provisioned);
+
+  if (!firstRunHere) {
+    const saved = await stateStorage.getItem(storageKey(identity));
+    if (saved) return { href: rewriteLegacyHref(saved), firstRun: null };
+  }
+  if (!provisioned) return { href: "/code", firstRun: null };
+
   const general = provisioned.channels.find((channel) =>
     isGeneralChannel(channel),
   );
   if (!general) throw new Error("#general was not provisioned");
 
-  // A reinstall or a new machine loses only the saved location, so the created
-  // flags decide this rather than the absence of one.
-  const isFirstRun =
-    provisioned.personal_created || provisioned.general_created;
+  // /website renders WebsiteLayout, which suppresses ContentHeader and hides the Channels
+  // toggle, and the route stays registered whether or not the layout is on. Sending someone
+  // there before we know they can leave again is how a first run strands with no way back;
+  // /code is navigable either way. An uncached flag reads false here, so a flag-on user can
+  // land on /code once, which costs them a click rather than the session.
+  if (!spacesEnabled) return { href: "/code", firstRun: null };
+
+  const sessionTaskId = await cappedSessionTaskId(sessionTaskIdPromise);
   return {
-    href: `/website/${general.id}`,
-    firstRun: isFirstRun ? { generalChannelId: general.id } : null,
+    href: sessionTaskId
+      ? `/spaces/${general.id}/tasks/${sessionTaskId}`
+      : `/spaces/${general.id}`,
+    firstRun: firstRunHere ? { generalChannelId: general.id } : null,
   };
 }
 

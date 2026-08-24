@@ -1,0 +1,18 @@
+[
+    {
+        "name": "hero",
+        "pseudonymSecret": "test-pseudonym-secret",
+        "canonicalUrl": "https://cdn.example.com/hero.png?w=200",
+        "globalUrlKey": "46debdbcad6c0b245d92ed38ac325eac",
+        "hash": "7WmDiXph-36Tg6OgJyWa8U",
+        "ref": "imageurl:7WmDiXph-36Tg6OgJyWa8U"
+    },
+    {
+        "name": "root",
+        "pseudonymSecret": "0123456789abcdef0123456789abcdef",
+        "canonicalUrl": "https://example.com/",
+        "globalUrlKey": "588b95940ea105e7ecc5f1e9b8ae4f50",
+        "hash": "XSZWrG3WXXBn46zmq_k7RS",
+        "ref": "imageurl:XSZWrG3WXXBn46zmq_k7RS"
+    }
+]

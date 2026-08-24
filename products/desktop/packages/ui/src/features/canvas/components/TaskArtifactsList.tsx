@@ -57,7 +57,10 @@ import {
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
-import { getObjectKind } from "@posthog/ui/utils/objectKinds";
+import {
+  getObjectKind,
+  POSTHOG_OBJECT_ICON_COLOR,
+} from "@posthog/ui/utils/objectKinds";
 import { useMemo, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
@@ -361,7 +364,6 @@ function PostHogObjectRow({
   const ObjectIcon = object.icon;
   const meta = [
     object.kindLabel,
-    object.source,
     occurrenceCount > 1 ? `Referenced ${occurrenceCount} times` : null,
     uploadedAt ? formatRelativeTimeShort(uploadedAt) : null,
   ]
@@ -370,10 +372,12 @@ function PostHogObjectRow({
 
   return (
     <ArtifactCard
-      icon={<ObjectIcon size={16} />}
+      icon={<ObjectIcon size={16} color={POSTHOG_OBJECT_ICON_COLOR} />}
       title={name}
       meta={meta}
-      onOpen={() => openArtifactTab(taskId, { runId, artifactId, name })}
+      onOpen={() =>
+        openArtifactTab(taskId, { runId, artifactId, name, objectKind })
+      }
       actions={<CommentCountBadge count={commentCount} />}
     />
   );
