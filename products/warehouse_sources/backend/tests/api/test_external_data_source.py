@@ -6069,6 +6069,78 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.BillomatSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_host_change_preserves_secret_nested_in_switch_group_is_rejected(
+        self, mock_validate_credentials
+    ):
+        """Billomat's `app_secret` lives nested inside the `registered_app` switch-group container,
+        not at the top level. Changing `billomat_id` (a `connection_host_fields` entry) must still be
+        rejected when that nested secret would be carried over unchanged — otherwise the preserved
+        `app_secret` gets sent to whatever host the new `billomat_id` resolves to."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Billomat",
+            created_by=self.user,
+            prefix="test_billomat_nested_secret",
+            job_inputs={
+                "source_type": "Billomat",
+                "billomat_id": "acme",
+                "api_key": "original_api_key",
+                "registered_app": {
+                    "enabled": True,
+                    "app_id": "original_app_id",
+                    "app_secret": "original_app_secret",
+                },
+            },
+        )
+
+        # Re-supplying the top-level secret (api_key) but not the nested one (app_secret) must still
+        # be rejected: the preserved app_secret would otherwise follow billomat_id to the new host.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "billomat_id": "attacker-controlled",
+                    "api_key": "original_api_key",
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["billomat_id"] == "acme"
+        assert source.job_inputs["registered_app"]["app_secret"] == "original_app_secret"
+        mock_validate_credentials.assert_not_called()
+
+        # Re-supplying both the top-level and nested secrets succeeds and adopts the new host.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "billomat_id": "new-tenant",
+                    "api_key": "new_api_key",
+                    "registered_app": {
+                        "enabled": True,
+                        "app_id": "original_app_id",
+                        "app_secret": "new_app_secret",
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["billomat_id"] == "new-tenant"
+        assert source.job_inputs["registered_app"]["app_secret"] == "new_app_secret"
+        mock_validate_credentials.assert_called_once()
+
     @parameterized.expand([("with_password", {"password": "new_password"}, 200), ("without_password", {}, 400)])
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",

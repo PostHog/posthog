@@ -109,6 +109,28 @@ describe("UserMessage", () => {
     expect(screen.queryByText(/channel_context/)).not.toBeInTheDocument();
   });
 
+  it("replaces a whole-message onboarding brief with a chip", () => {
+    vi.stubEnv("DEV", false);
+    renderWithFlags(
+      <UserMessage
+        content={
+          "<onboarding_brief>\nWrite the first message.\n</onboarding_brief>"
+        }
+        taskId="task-1"
+      />,
+      false,
+    );
+
+    expect(
+      screen.getByText("Getting started with PostHog Desktop"),
+    ).toBeInTheDocument();
+    // The brief is the entire message, so a bare strip would leave an empty bubble.
+    expect(screen.queryByText(/onboarding_brief/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Write the first message/),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders Pi skill invocations as a command chip", () => {
     renderWithFlags(<UserMessage content={PROMPT_WITH_PI_SKILL} />, true);
 

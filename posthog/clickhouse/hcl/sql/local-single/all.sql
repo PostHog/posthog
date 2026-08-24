@@ -1525,7 +1525,8 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
+  _partition UInt64,
+  INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, producer_id, usage_key, record_id) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
