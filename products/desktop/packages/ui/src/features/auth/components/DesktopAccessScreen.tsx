@@ -1,6 +1,5 @@
 import {
   ArrowClockwise,
-  Buildings,
   CaretDown,
   Coins,
   Key,
@@ -238,6 +237,7 @@ export function DesktopAccessScreen({
                     disabled={controlsDisabled}
                   >
                     <ComboboxTrigger
+                      nativeButton
                       render={
                         <button
                           ref={organizationAnchorRef}
@@ -246,10 +246,6 @@ export function DesktopAccessScreen({
                           className={FIELD_TRIGGER_CLASS}
                           data-attr="desktop-access-organization-switcher"
                         >
-                          <Buildings
-                            size={16}
-                            className="shrink-0 text-muted"
-                          />
                           <span className="min-w-0 flex-1 truncate text-left">
                             {selectedOrganization?.name ??
                               "Select organization"}
@@ -311,6 +307,7 @@ export function DesktopAccessScreen({
                     disabled={controlsDisabled}
                   >
                     <ComboboxTrigger
+                      nativeButton
                       render={
                         <button
                           ref={projectAnchorRef}
