@@ -11,7 +11,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.canvas.backend.facade.api import (
+from products.canvas.backend.teaching import (
     TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,
     seed_teaching_canvas,
 )

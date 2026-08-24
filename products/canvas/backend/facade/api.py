@@ -9,8 +9,4 @@ from products.canvas.backend.layout import (
     validate_layout as validate_layout,
     validate_layout_references as validate_layout_references,
 )
-from products.canvas.backend.teaching import (
-    TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,
-    seed_teaching_canvas as seed_teaching_canvas,
-)
 from products.canvas.backend.welcome import seed_home_canvas as seed_home_canvas

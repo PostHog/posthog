@@ -877,14 +877,7 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.facade.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
+    "backend\\.teaching.*",
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
 ]
