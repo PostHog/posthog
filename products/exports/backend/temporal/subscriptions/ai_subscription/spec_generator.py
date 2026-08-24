@@ -29,6 +29,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     EnrichedPromptSpec,
     QueryPlan,
+    QueryPlanStep,
     RelevantEvents,
 )
 
@@ -72,6 +73,14 @@ MAX_PINNED_EVENTS = 25
 # Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
 # or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
 _QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+# A report prompt can opt out of planning when it includes one SQL block and explicitly asks us to
+# run it unchanged. This is intentionally narrow: ordinary code examples still go through the
+# planner, while an exact query keeps dynamic expressions such as `now()` and event names intact.
+_VERBATIM_HOGQL_RE = re.compile(r"```(?:sql|hogql)?\s*\n(?P<hogql>SELECT\b[\s\S]*?)```", re.IGNORECASE)
+_VERBATIM_QUERY_INSTRUCTION_RE = re.compile(
+    r"\b(?:run|execute)\b[\s\S]{0,160}\bexact(?:ly)?\b[\s\S]{0,160}\bdo not\s+(?:rewrite|modify|change)\b",
+    re.IGNORECASE,
+)
 
 # Placeholder tokens the planner writes instead of concrete dates, so frozen HogQL stays
 # window-agnostic; ReportWindow.render_window_filter substitutes the run's fresh bounds.
@@ -87,7 +96,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 4
+AI_QUERY_PLAN_VERSION = 5
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -222,6 +231,19 @@ def sanitize_prompt(raw: str | None) -> str:
         raise PromptRejectedError("Prompt is empty.")
 
     return cleaned
+
+
+def _extract_verbatim_hogql(prompt: str) -> Optional[str]:
+    """Return a user-supplied SELECT only when the prompt explicitly asks to run it unchanged."""
+    if not _VERBATIM_QUERY_INSTRUCTION_RE.search(prompt):
+        return None
+    matches = list(_VERBATIM_HOGQL_RE.finditer(prompt))
+    if len(matches) != 1:
+        return None
+    hogql = matches[0].group("hogql").strip()
+    # The query runner accepts one statement. Let the normal planner handle multi-statement examples
+    # instead of changing their meaning here.
+    return hogql if ";" not in hogql else None
 
 
 def _top_event_names(team: Team, limit: int) -> list[str]:
@@ -569,6 +591,21 @@ def build_enriched_prompt(
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
+    # `sanitize_prompt` is for prose sent to the LLM and can remove characters meaningful in HogQL.
+    # The verbatim path validates its own narrow SELECT-only fenced block from the original input.
+    verbatim_hogql = _extract_verbatim_hogql(prompt or "")
+    if verbatim_hogql is not None:
+        # Do not route an explicitly verbatim query through the planner: its fixed report window is a
+        # safety rail for generated SQL, but rewriting `now()` here changes the query's semantics.
+        context_blob = build_context_blob(team, window)
+        return EnrichedPromptSpec(
+            cleaned_prompt=cleaned,
+            context_blob=context_blob,
+            plan=QueryPlan(
+                overall_intent="Run the HogQL supplied verbatim in the subscription prompt.",
+                steps=[QueryPlanStep(description="User-supplied HogQL", hogql=verbatim_hogql)],
+            ),
+        )
     relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
     context_blob = build_context_blob(team, window, relevant_events=relevant_events)
     plan = generate_query_plan(

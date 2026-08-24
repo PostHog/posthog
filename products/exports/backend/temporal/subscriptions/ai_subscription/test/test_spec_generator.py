@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     StoredPlanInvalidError,
     _event_property_names,
     _extract_quoted_event_tokens,
+    _extract_verbatim_hogql,
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
@@ -36,6 +37,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _select_relevant_events,
     _top_event_names,
     build_context_blob,
+    build_enriched_prompt,
     build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
@@ -93,6 +95,50 @@ class TestPromptRejectionOwnerSafe:
 
     def test_returns_cleaned_prompt(self) -> None:
         assert sanitize_prompt("  Weekly pageviews summary  ") == "Weekly pageviews summary"
+
+
+class TestVerbatimHogQL:
+    def test_extracts_one_explicitly_verbatim_select(self) -> None:
+        prompt = """Run this HogQL exactly once. Do not rewrite it.
+
+```sql
+SELECT count()
+FROM events
+WHERE timestamp >= now() - INTERVAL 7 DAY
+```
+"""
+
+        assert _extract_verbatim_hogql(prompt) == "SELECT count()\nFROM events\nWHERE timestamp >= now() - INTERVAL 7 DAY"
+
+    @patch(f"{_SG}.generate_query_plan")
+    @patch(f"{_SG}.build_context_blob", return_value="context")
+    def test_bypasses_planner_for_explicit_verbatim_hogql(
+        self, _mock_context_blob: MagicMock, mock_generate_query_plan: MagicMock
+    ) -> None:
+        prompt = """Execute this query exactly. Do not modify it.
+```hogql
+SELECT count() FROM events WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY
+```
+"""
+
+        spec = build_enriched_prompt(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_window())
+
+        mock_generate_query_plan.assert_not_called()
+        assert spec.plan.steps[0].hogql == (
+            "SELECT count() FROM events WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY"
+        )
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "```sql\nSELECT count() FROM events\n```",
+            "Run this query exactly.\n```sql\nSELECT count() FROM events\n```",
+            "Run this HogQL exactly once. Do not rewrite it.\n```sql\nSELECT 1; SELECT 2\n```",
+            "Run this HogQL exactly once. Do not rewrite it.\n```sql\nSELECT 1\n```\n```sql\nSELECT 2\n```",
+        ],
+    )
+    def test_ignores_non_verbatim_or_ambiguous_sql(self, prompt: str) -> None:
+        assert _extract_verbatim_hogql(prompt) is None
 
 
 class TestNoDataEventNames(APIBaseTest):
