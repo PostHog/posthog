@@ -33,12 +33,10 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
-    is_fast_return_enabled,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_fast_return_enabled
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
