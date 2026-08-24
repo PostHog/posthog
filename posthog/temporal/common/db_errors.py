@@ -1,5 +1,7 @@
 from django.db import InterfaceError, OperationalError
 
+import psycopg
+
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
 # connections as closed or reset connections. Both clear on their own, so a Temporal retry
@@ -36,18 +38,42 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "pooler is shutting down",
 )
 
+# Transient only when every token in the group is present. Used when no single substring is
+# safe to whitelist alone: one token names the transient condition, the other only narrows it
+# to a specific operation. Each group is AND-matched against the message.
+_TRANSIENT_DB_ERROR_MARKER_GROUPS: tuple[tuple[str, ...], ...] = (
+    # duckgres refusing a new session while it is out of capacity: the server answers a connect
+    # with a ResourceExhausted status during ducklake session-metadata init, and psycopg surfaces
+    # it as a raw OperationalError. The DuckLake registration finalizer already retries for ~25
+    # minutes to ride out exactly this capacity blip, so the condition self-heals and must not mint
+    # an error tracking issue. Require the ResourceExhausted status as well as the operation text,
+    # because "create session: initialize ducklake session metadata" alone names the step, not the
+    # cause: a persistent failure of that same step (bad catalog credentials, missing S3
+    # permissions, corrupt metadata) carries a different status and must keep reaching error
+    # tracking.
+    ("ResourceExhausted", "create session: initialize ducklake session metadata"),
+)
+
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and
-# refusing work while it does, which clears once it comes back. Available on the wrapped
-# psycopg error for server-raised failures; connect failures carry no SQLSTATE and fall
-# through to the message markers above.
+# refusing work while it does, which clears once it comes back. A raw psycopg error carries the
+# SQLSTATE on itself; a Django-wrapped error carries it on the psycopg __cause__. Connect
+# failures carry no SQLSTATE and fall through to the message markers above.
 _TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
 
 
+# Django wraps driver errors raised through its cursor, but a raw ``psycopg.connect`` (e.g.
+# ``connect_to_duckgres``) raises psycopg's own exception classes, which do not inherit from
+# Django's. Accept both so a duckgres connect failure is still classified as transient.
+_TRANSIENT_DB_ERROR_CLASSES = (OperationalError, InterfaceError, psycopg.OperationalError, psycopg.InterfaceError)
+
+
 def is_transient_db_error(error: BaseException) -> bool:
-    if not isinstance(error, OperationalError | InterfaceError):
+    if not isinstance(error, _TRANSIENT_DB_ERROR_CLASSES):
         return False
-    sqlstate = getattr(error.__cause__, "sqlstate", None)
+    sqlstate = getattr(error, "sqlstate", None) or getattr(error.__cause__, "sqlstate", None)
     if isinstance(sqlstate, str) and sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES):
         return True
     message = str(error)
-    return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+    if any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+        return True
+    return any(all(token in message for token in group) for group in _TRANSIENT_DB_ERROR_MARKER_GROUPS)

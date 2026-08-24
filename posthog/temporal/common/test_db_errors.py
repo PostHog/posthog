@@ -2,6 +2,8 @@ import pytest
 
 from django.db import InterfaceError, OperationalError
 
+import psycopg
+
 from posthog.temporal.common.db_errors import is_transient_db_error
 
 
@@ -36,6 +38,24 @@ class _WithSqlstate(Exception):
         ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
+        # duckgres out of capacity on session create — raised as a raw psycopg error, not a
+        # Django-wrapped one, so it exercises the widened class check too.
+        (
+            psycopg.OperationalError("ResourceExhausted: create session: initialize ducklake session metadata"),
+            True,
+        ),
+        # A persistent failure of the same session-create step (not a capacity blip) carries a
+        # different status, so the operation text alone must not suppress it.
+        (
+            psycopg.OperationalError("PermissionDenied: create session: initialize ducklake session metadata"),
+            False,
+        ),
+        # A raw psycopg misconfiguration error must still surface.
+        (psycopg.OperationalError("connection failed: FATAL: password authentication failed for user"), False),
+        # duckgres backend killed mid-query: the server shutdown raises a raw psycopg error that
+        # carries the transient 57P SQLSTATE on itself (not on a Django __cause__), with a message
+        # that is not in the markers. It must still classify as transient via SQLSTATE.
+        (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:
