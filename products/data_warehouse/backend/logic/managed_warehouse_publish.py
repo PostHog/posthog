@@ -10,7 +10,6 @@ from django.db import IntegrityError, transaction
 
 import psycopg
 from asgiref.sync import async_to_sync
-from psycopg import sql as psql
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -24,7 +23,6 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseModeledTable,
     ManagedWarehousePublishedTableRecord,
 )
-from products.managed_warehouse.backend.facade.team_state import resolve_events_persons_tables
 from products.managed_warehouse.backend.facade.temporal import PrunePublishedSnapshotInputs, PublishTableInputs
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 
@@ -34,10 +32,10 @@ _NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 _DISCOVERY_CONNECT_TIMEOUT_SECONDS = 5
 _DISCOVERY_STATEMENT_TIMEOUT_SECONDS = 5
 
-_MODELED_TABLES_SQL = """
+_WAREHOUSE_TABLES_SQL = """
 SELECT table_schema, table_name
 FROM information_schema.tables
-WHERE table_type = 'BASE TABLE' AND table_schema = {}
+WHERE table_type = 'BASE TABLE'
 ORDER BY table_schema, table_name
 """
 
@@ -57,23 +55,30 @@ def list_modeled_tables(team_id: int) -> list[ManagedWarehouseModeledTable]:
         return []
 
     try:
-        modeled_schema = managed_warehouse.ducklake_data_modeling_schema(team_id)
-        managed_tables = resolve_events_persons_tables(team_id)
         result = execute_ducklake_query(
             team_id,
-            sql=psql.SQL(_MODELED_TABLES_SQL).format(psql.Literal(modeled_schema)).as_string(),
+            sql=_WAREHOUSE_TABLES_SQL,
             connect_timeout_seconds=_DISCOVERY_CONNECT_TIMEOUT_SECONDS,
             statement_timeout_seconds=_DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
         )
     except (CPUnavailableError, psycopg.Error) as error:
         raise ModeledTableDiscoveryError("The managed warehouse is temporarily unavailable.") from error
-    reserved_table_names = frozenset({managed_tables.events_table, managed_tables.persons_table})
-    return [
-        ManagedWarehouseModeledTable(schema_name=str(row[0]), table_name=str(row[1]))
-        for row in result.results
-        if str(row[0]) == modeled_schema
-        and managed_warehouse.is_publishable_table(str(row[0]), str(row[1]), reserved_table_names=reserved_table_names)
-    ]
+    tables: list[ManagedWarehouseModeledTable] = []
+    for row in result.results:
+        schema_name = str(row[0])
+        table_name = str(row[1])
+        disabled_reason = managed_warehouse.table_publish_block_reason(
+            schema_name, table_name, reserved_table_names=frozenset()
+        )
+        tables.append(
+            ManagedWarehouseModeledTable(
+                schema_name=schema_name,
+                table_name=table_name,
+                publishable=disabled_reason is None,
+                disabled_reason=disabled_reason,
+            )
+        )
+    return tables
 
 
 def create_publication(
@@ -92,8 +97,13 @@ def create_publication(
     except ValueError as error:
         raise PublishValidationError(str(error)) from error
 
-    if source_schema_name != managed_warehouse.ducklake_data_modeling_schema(team.pk):
-        raise PublishValidationError("Choose a modeled table from this project.")
+    disabled_reason = managed_warehouse.table_publish_block_reason(
+        source_schema_name,
+        source_table_name,
+        reserved_table_names=frozenset(),
+    )
+    if disabled_reason is not None:
+        raise PublishValidationError(disabled_reason)
 
     resolved_name = name or managed_warehouse.sanitize_ducklake_identifier(
         f"{source_schema_name}_{source_table_name}", default_prefix="published"

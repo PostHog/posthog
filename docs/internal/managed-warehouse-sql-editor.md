@@ -20,11 +20,11 @@ The native adapter sends one PostgreSQL-compatible statement unchanged, supports
 
 Deprovision captures the active generation before the control-plane request and deactivates only that generation. A direct 404 is authoritative absence. If the request times out or returns 409, PostHog reads warehouse status. It converges local cleanup only when the warehouse is `deleting`, `deleted`, or absent. A ready warehouse remains active.
 
-## Published modeled tables
+## Published warehouse tables
 
-The `data-ops-published-tables` feature flag adds a **Published tables** tab to Data Ops for projects with a ready managed warehouse. Editors can publish a modeled table as a snapshot in PostHog, monitor its status, publish it again, or unpublish it. Viewers can inspect publication status and open completed tables in the SQL editor.
+The `data-ops-published-tables` feature flag adds a **Published tables** tab to Data Ops for projects with a ready managed warehouse. Editors can explore every warehouse schema and table, then publish an eligible table as a snapshot in PostHog. PostHog-managed schemas remain visible and are marked as managed, but their tables cannot be published. Editors can monitor publication status, publish again, or unpublish. Viewers can inspect publication status and open completed tables in the SQL editor.
 
-Published tables do not refresh automatically. Use **Publish again** after the modeled table changes. Unpublishing removes the table and its published snapshot from PostHog without changing the modeled table.
+Published tables do not refresh automatically. Use **Publish again** after the source table changes. Unpublishing removes the table and its published snapshot from PostHog without changing the source table.
 
 ## Deployment and rollback
 

@@ -67,11 +67,11 @@ tracer = trace.get_tracer(__name__)
 class PublishModeledTableRequestSerializer(serializers.Serializer):
     source_schema_name = serializers.CharField(
         max_length=63,
-        help_text="Duckgres schema containing the modeled table.",
+        help_text="Duckgres schema containing the source table.",
     )
     source_table_name = serializers.CharField(
         max_length=63,
-        help_text="Modeled Duckgres table to publish.",
+        help_text="Duckgres table to publish.",
     )
     name = serializers.CharField(
         required=False,
@@ -84,7 +84,7 @@ class PublishModeledTableRequestSerializer(serializers.Serializer):
 class PublishedTableSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Publication ID.")
     name = serializers.CharField(help_text="Warehouse table name in PostHog.")
-    source_schema_name = serializers.CharField(help_text="Duckgres schema of the source modeled table.")
+    source_schema_name = serializers.CharField(help_text="Duckgres schema of the source table.")
     source_table_name = serializers.CharField(help_text="Duckgres table this publication copies.")
     status = serializers.ChoiceField(
         choices=[(status.value, status.value.title()) for status in ManagedWarehousePublishedTableStatus],
@@ -107,10 +107,15 @@ class PublishedTableSerializer(serializers.Serializer):
 class ModeledTableSerializer(serializers.Serializer):
     schema_name = serializers.CharField(help_text="Duckgres schema name.")
     table_name = serializers.CharField(help_text="Duckgres table name.")
+    publishable = serializers.BooleanField(help_text="Whether this table can be published to PostHog.")
+    disabled_reason = serializers.CharField(
+        allow_null=True,
+        help_text="Why this table cannot be published, or null when it can be published.",
+    )
 
 
 class ModeledTablesResponseSerializer(serializers.Serializer):
-    results = ModeledTableSerializer(many=True, help_text="Modeled tables eligible for publishing.")
+    results = ModeledTableSerializer(many=True, help_text="Warehouse tables and their publishability.")
 
 
 class PublishedTablesResponseSerializer(serializers.Serializer):
@@ -1371,8 +1376,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: ModeledTablesResponseSerializer,
             503: OpenApiResponse(description="The managed warehouse is temporarily unavailable."),
         },
-        summary="List modeled managed warehouse tables",
-        description="List modeled Duckgres tables that can be published to the PostHog data warehouse.",
+        summary="List managed warehouse tables",
+        description="List Duckgres tables and whether each table can be published to the PostHog data warehouse.",
     )
     @action(
         methods=["GET"],
@@ -1385,14 +1390,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             tables = managed_warehouse_publish.list_modeled_tables(self.team_id)
         except managed_warehouse_publish.ModeledTableDiscoveryError as error:
             return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        return Response(
-            {"results": [{"schema_name": table.schema_name, "table_name": table.table_name} for table in tables]}
-        )
+        return Response({"results": ModeledTableSerializer(tables, many=True).data})
 
     @extend_schema(
         responses={200: PublishedTablesResponseSerializer},
         summary="List published managed warehouse tables",
-        description="List modeled Duckgres tables published to the PostHog data warehouse.",
+        description="List Duckgres tables published to the PostHog data warehouse.",
     )
     @action(
         methods=["GET"],
@@ -1408,10 +1411,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         request_serializer=PublishModeledTableRequestSerializer,
         responses={
             201: OpenApiResponse(response=PublishedTableSerializer, description="Publication created."),
-            400: OpenApiResponse(description="The modeled table or publication name is invalid."),
+            400: OpenApiResponse(description="The source table or publication name is invalid."),
         },
         summary="Publish a managed warehouse table",
-        description="Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.",
+        description="Copy a Duckgres table into the ClickHouse-queryable PostHog data warehouse.",
     )
     @action(
         methods=["POST"],

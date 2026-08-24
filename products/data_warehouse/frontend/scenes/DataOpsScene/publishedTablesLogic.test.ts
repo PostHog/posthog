@@ -26,7 +26,7 @@ describe('publishedTablesLogic', () => {
         jest.useRealTimers()
     })
 
-    it('publishes the selected modeled table and refreshes the list', async () => {
+    it('publishes the selected warehouse table and refreshes the list', async () => {
         let requestBody: Record<string, unknown> | null = null
         let listCalls = 0
         useMocks({
@@ -37,7 +37,16 @@ describe('publishedTablesLogic', () => {
                 },
                 '/api/projects/:team_id/data_warehouse/managed-warehouse-modeled-tables/': [
                     200,
-                    { results: [{ schema_name: 'posthog_data_modeling_team_2', table_name: 'customers' }] },
+                    {
+                        results: [
+                            {
+                                schema_name: 'analytics',
+                                table_name: 'customers',
+                                publishable: true,
+                                disabled_reason: null,
+                            },
+                        ],
+                    },
                 ],
             },
             post: {
@@ -52,9 +61,12 @@ describe('publishedTablesLogic', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadPublishedTablesSuccess'])
 
-        await expectLogic(logic, () => logic.actions.openPublishModal()).toDispatchActions(['loadModeledTablesSuccess'])
+        await expectLogic(logic, () => logic.actions.openPublishModal()).toDispatchActions([
+            'loadWarehouseTablesSuccess',
+        ])
         logic.actions.setPublishTableValues({
-            sourceTableKey: 'posthog_data_modeling_team_2.customers',
+            sourceSchemaName: 'analytics',
+            sourceTableName: 'customers',
             name: 'customers_snapshot',
         })
 
@@ -63,13 +75,13 @@ describe('publishedTablesLogic', () => {
             .toFinishAllListeners()
 
         expect(requestBody).toEqual({
-            source_schema_name: 'posthog_data_modeling_team_2',
+            source_schema_name: 'analytics',
             source_table_name: 'customers',
             name: 'customers_snapshot',
         })
         expect(listCalls).toBe(2)
         expect(logic.values.publishModalOpen).toBe(false)
-        expect(logic.values.publishTable).toEqual({ sourceTableKey: '', name: '' })
+        expect(logic.values.publishTable).toEqual({ sourceSchemaName: '', sourceTableName: '', name: '' })
     })
 
     it.each([

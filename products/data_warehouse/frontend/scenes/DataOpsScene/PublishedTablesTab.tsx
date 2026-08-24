@@ -59,7 +59,7 @@ export function PublishedTablesTab(): JSX.Element {
             <PublishTableModal />
             <SceneSection
                 title="Published tables"
-                description="Publish snapshots of modeled tables so you can query them with other warehouse data in PostHog."
+                description="Publish snapshots of warehouse tables so you can query them with other warehouse data in PostHog."
                 actions={
                     <>
                         <LemonButton
@@ -115,7 +115,7 @@ export function PublishedTablesTab(): JSX.Element {
                             emptyState={
                                 searchTerm
                                     ? 'No published tables match your search.'
-                                    : 'No tables have been published yet. Publish a modeled table to get started.'
+                                    : 'No tables have been published yet. Publish a warehouse table to get started.'
                             }
                             columns={[
                                 {
@@ -135,7 +135,7 @@ export function PublishedTablesTab(): JSX.Element {
                                         ),
                                 },
                                 {
-                                    title: 'Modeled table',
+                                    title: 'Source table',
                                     key: 'source',
                                     render: (_, publication: PublishedTableApi) => (
                                         <code>
@@ -223,7 +223,7 @@ export function PublishedTablesTab(): JSX.Element {
                                                                     LemonDialog.open({
                                                                         title: `Unpublish ${publication.name}?`,
                                                                         description:
-                                                                            'This removes the table and its published snapshot from PostHog. The modeled table is not changed.',
+                                                                            'This removes the table and its published snapshot from PostHog. The source table is not changed.',
                                                                         primaryButton: {
                                                                             status: 'danger',
                                                                             children: 'Unpublish table',

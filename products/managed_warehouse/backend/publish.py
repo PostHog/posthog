@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 PUBLISHED_PREFIX = "__posthog_published"
 
 # Schemas that are posthog-managed or DuckDB-internal — never publish candidates.
-_EXCLUDED_SCHEMAS = {"information_schema", "pg_catalog", "system"}
-_EXCLUDED_SCHEMA_PREFIXES = ("posthog_data_imports", "shadow_")
+_EXCLUDED_SCHEMAS = {"information_schema", "pg_catalog", "posthog", "system"}
+_EXCLUDED_SCHEMA_PREFIXES = ("__ducklake_metadata", "posthog_data_imports", "shadow_")
 # Sink marker tables and backfill scratch tables.
 _EXCLUDED_TABLE_PREFIXES = ("_posthog_",)
 _EXCLUDED_TABLE_SUBSTRINGS = ("__bf_",)
@@ -51,18 +51,24 @@ def reserved_backfill_table_names(table_suffix: str | None) -> frozenset[str]:
     return frozenset({"events", "persons"})
 
 
-def is_publishable_table(schema_name: str, table_name: str, *, reserved_table_names: frozenset[str]) -> bool:
+def table_publish_block_reason(
+    schema_name: str, table_name: str, *, reserved_table_names: frozenset[str]
+) -> str | None:
     if schema_name in _EXCLUDED_SCHEMAS:
-        return False
+        return "PostHog manages this schema, so you can't publish its tables."
     if schema_name.startswith(_EXCLUDED_SCHEMA_PREFIXES):
-        return False
+        return "PostHog manages this schema, so you can't publish its tables."
     if table_name.startswith(_EXCLUDED_TABLE_PREFIXES):
-        return False
+        return "PostHog manages this table, so you can't publish it."
     if any(marker in table_name for marker in _EXCLUDED_TABLE_SUBSTRINGS):
-        return False
+        return "PostHog manages this table, so you can't publish it."
     if table_name in reserved_table_names:
-        return False
-    return True
+        return "PostHog manages this table, so you can't publish it."
+    return None
+
+
+def is_publishable_table(schema_name: str, table_name: str, *, reserved_table_names: frozenset[str]) -> bool:
+    return table_publish_block_reason(schema_name, table_name, reserved_table_names=reserved_table_names) is None
 
 
 def build_publish_copy_sql(schema_name: str, table_name: str, destination_uri: str) -> psql.Composed:

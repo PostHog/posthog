@@ -23,6 +23,8 @@ class TestPublishHelpers(SimpleTestCase):
             ("imports_schema", "posthog_data_imports_team_1", "stripe_invoice", False),
             ("imports_suffix_schema", "posthog_data_imports_prod", "stripe_invoice", False),
             ("shadow_schema", "shadow_1_models", "model_a", False),
+            ("posthog_schema", "posthog", "events_prod", False),
+            ("ducklake_metadata", "__ducklake_metadata_ducklake", "ducklake_table", False),
             ("system_schema", "system", "query_log", False),
             ("information_schema", "information_schema", "tables", False),
             ("marker_table", "main", "_posthog_source_batch_duckgres_apply", False),

@@ -426,8 +426,8 @@ export const getDataWarehouseManagedWarehouseModeledTablesRetrieveUrl = (project
 }
 
 /**
- * List modeled Duckgres tables that can be published to the PostHog data warehouse.
- * @summary List modeled managed warehouse tables
+ * List Duckgres tables and whether each table can be published to the PostHog data warehouse.
+ * @summary List managed warehouse tables
  */
 export const dataWarehouseManagedWarehouseModeledTablesRetrieve = async (
     projectId: string,
@@ -502,7 +502,7 @@ export const getDataWarehouseManagedWarehousePublishTableCreateUrl = (projectId:
 }
 
 /**
- * Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.
+ * Copy a Duckgres table into the ClickHouse-queryable PostHog data warehouse.
  * @summary Publish a managed warehouse table
  */
 export const dataWarehouseManagedWarehousePublishTableCreate = async (
@@ -557,7 +557,7 @@ export const getDataWarehouseManagedWarehousePublishedTablesRetrieveUrl = (proje
 }
 
 /**
- * List modeled Duckgres tables published to the PostHog data warehouse.
+ * List Duckgres tables published to the PostHog data warehouse.
  * @summary List published managed warehouse tables
  */
 export const dataWarehouseManagedWarehousePublishedTablesRetrieve = async (

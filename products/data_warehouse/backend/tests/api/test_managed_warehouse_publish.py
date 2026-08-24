@@ -13,7 +13,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from products.managed_warehouse.backend.facade import api as managed_warehouse
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeQueryResult,
-    DucklingTables,
     ManagedWarehousePublishedTableRecord,
     ManagedWarehousePublishedTableStatus,
 )
@@ -22,6 +21,8 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _LOGIC = "products.data_warehouse.backend.logic.managed_warehouse_publish"
 _MANAGED_WAREHOUSE_FACADE = "products.managed_warehouse.backend.facade.api"
+_MANAGED_SCHEMA_REASON = "PostHog manages this schema, so you can't publish its tables."
+_MANAGED_TABLE_REASON = "PostHog manages this table, so you can't publish it."
 
 
 class TestManagedWarehousePublish(APIBaseTest):
@@ -47,20 +48,15 @@ class TestManagedWarehousePublish(APIBaseTest):
             table_id=table_id,
         )
 
-    @patch(
-        f"{_LOGIC}.resolve_events_persons_tables",
-        return_value=DucklingTables(events_table="events", persons_table="persons"),
-    )
     @patch(f"{_LOGIC}.execute_ducklake_query")
-    def test_modeled_tables_excludes_posthog_managed(
-        self, mock_query: MagicMock, _mock_reserved_tables: MagicMock
-    ) -> None:
+    def test_warehouse_tables_include_posthog_managed_as_disabled(self, mock_query: MagicMock) -> None:
         mock_query.return_value = DuckLakeQueryResult(
             columns=["table_schema", "table_name"],
             types=[],
             results=[
                 [self._model_schema(), "customer_arr"],
                 [f"posthog_data_modeling_team_{self.team.pk + 1}", "sibling_model"],
+                ["posthog", "events"],
                 ["posthog_data_imports_team_1", "stripe_invoice"],
                 ["shadow_1_models", "model_a"],
                 [self._model_schema(), "_posthog_source_batch_duckgres_apply"],
@@ -70,7 +66,50 @@ class TestManagedWarehousePublish(APIBaseTest):
         )
         response = self.client.get(f"{self._base()}/managed-warehouse-modeled-tables/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"] == [{"schema_name": self._model_schema(), "table_name": "customer_arr"}]
+        assert response.json()["results"] == [
+            {
+                "schema_name": self._model_schema(),
+                "table_name": "customer_arr",
+                "publishable": True,
+                "disabled_reason": None,
+            },
+            {
+                "schema_name": f"posthog_data_modeling_team_{self.team.pk + 1}",
+                "table_name": "sibling_model",
+                "publishable": True,
+                "disabled_reason": None,
+            },
+            {
+                "schema_name": "posthog",
+                "table_name": "events",
+                "publishable": False,
+                "disabled_reason": _MANAGED_SCHEMA_REASON,
+            },
+            {
+                "schema_name": "posthog_data_imports_team_1",
+                "table_name": "stripe_invoice",
+                "publishable": False,
+                "disabled_reason": _MANAGED_SCHEMA_REASON,
+            },
+            {
+                "schema_name": "shadow_1_models",
+                "table_name": "model_a",
+                "publishable": False,
+                "disabled_reason": _MANAGED_SCHEMA_REASON,
+            },
+            {
+                "schema_name": self._model_schema(),
+                "table_name": "_posthog_source_batch_duckgres_apply",
+                "publishable": False,
+                "disabled_reason": _MANAGED_TABLE_REASON,
+            },
+            {
+                "schema_name": "system",
+                "table_name": "query_log",
+                "publishable": False,
+                "disabled_reason": _MANAGED_SCHEMA_REASON,
+            },
+        ]
 
     @patch(f"{_LOGIC}.execute_ducklake_query")
     @patch(f"{_MANAGED_WAREHOUSE_FACADE}.is_dev_mode", return_value=False)
@@ -87,14 +126,8 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.json() == {"results": []}
         mock_query.assert_not_called()
 
-    @patch(
-        f"{_LOGIC}.resolve_events_persons_tables",
-        return_value=DucklingTables(events_table="events", persons_table="persons"),
-    )
     @patch(f"{_LOGIC}.execute_ducklake_query", side_effect=psycopg.OperationalError("connection timed out"))
-    def test_modeled_tables_reports_temporary_unavailability(
-        self, _mock_query: MagicMock, _mock_reserved_tables: MagicMock
-    ) -> None:
+    def test_modeled_tables_reports_temporary_unavailability(self, _mock_query: MagicMock) -> None:
         response = self.client.get(f"{self._base()}/managed-warehouse-modeled-tables/")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -132,7 +165,8 @@ class TestManagedWarehousePublish(APIBaseTest):
     @parameterized.expand(
         [
             ("invalid_identifier", "main; drop table"),
-            ("sibling_project", "posthog_data_modeling_team_999999"),
+            ("posthog_schema", "posthog"),
+            ("data_imports_schema", "posthog_data_imports_team_999999"),
         ]
     )
     @patch(f"{_LOGIC}.start_publish_workflow")

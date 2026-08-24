@@ -258,10 +258,17 @@ export interface ModeledTableApi {
     schema_name: string
     /** Duckgres table name. */
     table_name: string
+    /** Whether this table can be published to PostHog. */
+    publishable: boolean
+    /**
+     * Why this table cannot be published, or null when it can be published.
+     * @nullable
+     */
+    disabled_reason: string | null
 }
 
 export interface ModeledTablesResponseApi {
-    /** Modeled tables eligible for publishing. */
+    /** Warehouse tables and their publishability. */
     results: ModeledTableApi[]
 }
 
@@ -483,12 +490,12 @@ export interface ManagedWarehouseMonitoringSeriesResponseApi {
 
 export interface PublishModeledTableRequestApi {
     /**
-     * Duckgres schema containing the modeled table.
+     * Duckgres schema containing the source table.
      * @maxLength 63
      */
     source_schema_name: string
     /**
-     * Modeled Duckgres table to publish.
+     * Duckgres table to publish.
      * @maxLength 63
      */
     source_table_name: string
@@ -519,7 +526,7 @@ export interface PublishedTableApi {
     id: string
     /** Warehouse table name in PostHog. */
     name: string
-    /** Duckgres schema of the source modeled table. */
+    /** Duckgres schema of the source table. */
     source_schema_name: string
     /** Duckgres table this publication copies. */
     source_table_name: string

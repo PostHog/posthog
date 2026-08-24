@@ -34,7 +34,7 @@ const publications: PublishedTableApi[] = [
         source_table_name: 'account_health',
         status: 'failed',
         last_published_at: null,
-        last_error: 'The modeled table could not be read. Check that it still exists, then try again.',
+        last_error: 'The source table could not be read. Check that it still exists, then try again.',
         row_count: null,
     },
 ]
@@ -62,8 +62,24 @@ const meta: Meta<typeof PublishedTablesTab> = {
                     200,
                     {
                         results: [
-                            { schema_name: 'posthog_data_modeling_team_2', table_name: 'customers' },
-                            { schema_name: 'posthog_data_modeling_team_2', table_name: 'product_usage' },
+                            {
+                                schema_name: 'analytics',
+                                table_name: 'customers',
+                                publishable: true,
+                                disabled_reason: null,
+                            },
+                            {
+                                schema_name: 'analytics',
+                                table_name: 'product_usage',
+                                publishable: true,
+                                disabled_reason: null,
+                            },
+                            {
+                                schema_name: 'posthog',
+                                table_name: 'events',
+                                publishable: false,
+                                disabled_reason: "PostHog manages this schema, so you can't publish its tables.",
+                            },
                         ],
                     },
                 ],
