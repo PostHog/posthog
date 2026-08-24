@@ -20,9 +20,9 @@ function ChannelReportDetailRoute() {
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   return (
-    // WebsiteLayout's outlet is overflow-hidden, so the detail supplies its
-    // own scroll container (the inbox shell used to provide this).
-    <div className="h-full min-h-0 overflow-y-auto">
+    // ReportDetail owns its scroll (its chat dock sits beside the scrolling
+    // report); this wrapper only hands it WebsiteLayout's outlet height.
+    <div className="h-full min-h-0">
       <ReportDetail
         reportId={reportId}
         cachedReport={cachedReport}
