@@ -2,11 +2,11 @@
 
 Ownership decides who hears about a merge:
 
-- ``owned`` — one audience per team owning a file the PR changed, read back from the ownership
-  the review already resolved against the checkout (see models.PullRequestAudience).
-- ``repo_declared`` — one audience for a repo that declared its own digest channel (see
-  logic/digest_config.py). It carries every one of that repo's merges to one place regardless of
-  who owns what, which is what a standalone repo needs.
+- ``owned``: one audience for each team that owns a file the PR changed. The review already
+  resolved that ownership against the checkout (see models.PullRequestAudience).
+- ``repo_declared``: one audience for a repo that declared its own digest channel (see
+  logic/digest_config.py). It carries every merge in that repo to one place, whoever owns what.
+  A standalone repo needs this.
 
 The author's own team is deliberately not an audience. A team hears about code it owns, not about
 everywhere its members touched. A merge that no team owns, in a repo that declares nothing,

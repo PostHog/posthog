@@ -112,10 +112,10 @@ def _is_valid_slack(raw: object) -> TypeGuard[str | bool]:
 
 
 def _validate_teams(value: object, errors: list[str]) -> dict[str, TeamEntry]:
-    """Validate the root-only ``teams:`` registry — a mapping of team slug to its channels.
+    """Validate the root-only ``teams:`` registry, a mapping of team slug to its channels.
 
-    A slug is registered only when it declares at least one channel, so membership of the
-    returned mapping means "this repo answered for that team" and nothing else.
+    A slug registers only when it declares at least one channel. Membership of the returned
+    mapping therefore means "this repo answered for that team", and nothing more.
     """
     known_keys = ", ".join(sorted(_TEAMS_ENTRY_KEYS))
     registry: dict[str, TeamEntry] = {}

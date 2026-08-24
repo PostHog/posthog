@@ -222,16 +222,17 @@ def _claim_and_partition(
     config that can change between the merge and the digest. A row whose merges route nowhere is
     left unlinked, so a declaration added later picks it up instead of losing it.
 
-    A destination depends only on the audience and the repository a merge came from, so every
-    repository is resolved before the query rather than per claimed row. That is what lets the
-    claim exclude unroutable repositories in SQL, and the cap then applies to rows this run can
-    actually post. Capping first would let an audience whose oldest merges are all unroutable
-    select the same rows every day and never reach the routable ones behind them, which age out.
+    A destination depends only on the audience and the repository a merge came from. Every
+    repository therefore resolves before the query, not once per claimed row. This lets the claim
+    exclude unroutable repositories in SQL, so the cap applies to rows this run can post.
 
-    The repo's digest toggle is read here for the same reason. Capture only decides what gets
-    stamped, so a repo switched off after its merges landed would still post them. Reading the
-    toggle at claim time means switching it off stops the next digest, including the merges already
-    captured, and switching it back on returns whatever is still inside the claim floor.
+    A cap applied first selects the same rows every day, if an audience's oldest merges are all
+    unroutable. The routable merges behind them are never reached, and they age out unposted.
+
+    The claim reads the repo's digest toggle for the same reason. Capture decides only what gets
+    stamped, so a repo switched off after its merges landed would still post them. A toggle read at
+    claim time stops the next digest, including merges already captured. Switching the toggle back
+    on returns whatever is still inside the claim floor.
 
     Every atomic block is bound to the model's routed DB (stamphog_db_writer when the product DB is
     configured, else default). A bare atomic() opens on the default connection, so the
@@ -309,12 +310,12 @@ def post_team_digests(team_id: int, audience_keys: list[str]) -> None:
     established = _established_audiences(team_id, audience_keys)
     floors = {audience_key: _claim_floor(audience_key, now, established) for audience_key in audience_keys}
 
-    # Building the routing context costs a config read per connected repository plus a Slack channel
-    # listing, so check there is anything to route first. An audience whose merges route nowhere is
-    # left unclaimed on purpose and re-enqueues its team every day until they age out, which makes
-    # "enqueued but nothing claimable" the steady state for a team with an ownership gap, not a rare
-    # case. The widest floor over-approximates: nothing claimable there means nothing at any of the
-    # narrower per-audience floors either.
+    # A routing context costs one config read per connected repository, plus a Slack channel
+    # listing. Check that there is something to route before paying for it. An audience whose merges
+    # route nowhere stays unclaimed on purpose, and it re-enqueues its team every day until those
+    # merges age out. "Enqueued but nothing claimable" is therefore the steady state for a team with
+    # an ownership gap, not a rare case. The widest floor over-approximates: nothing claimable there
+    # means nothing claimable at any narrower per-audience floor.
     if not _has_claimable_merges(team_id, audience_keys, min(floors.values())):
         return
 

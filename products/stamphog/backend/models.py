@@ -248,9 +248,9 @@ class DigestRun(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # The bucket this run drained, e.g. a team slug or "repo:owner/name".
     #
-    # db_default on all four: during a rolling deploy the previous release still inserts rows here
-    # without these columns, and Django's default= is applied in Python only. Without a database
-    # default those inserts fail the NOT NULL check for as long as both releases are running.
+    # db_default on all four. During a rolling deploy the previous release still inserts rows here
+    # without these columns, and Django applies default= in Python only. Without a database default,
+    # those inserts fail the NOT NULL check for as long as both releases run.
     audience_key = models.CharField(max_length=255, default="", db_default="")
     slack_channel_id = models.CharField(max_length=64, default="", db_default="")
     slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
@@ -277,9 +277,9 @@ class DigestRun(ProductTeamModel):
 
     class Meta(ProductTeamModel.Meta):
         indexes = [
-            # Two reads key off (team, audience): "has this audience ever posted", which decides how
-            # far back its claim reaches, and the API's history listing. Without it both scan a table
-            # that grows by one row per audience per weekday and never shrinks.
+            # Two reads key off (team, audience). The first asks whether this audience ever posted,
+            # which decides how far back its claim reaches. The second is the API's history listing.
+            # Without this index both scan a table that grows by one row per audience per weekday.
             models.Index(fields=["team_id", "audience_key"], name="stamphog_digest_run_audience"),
         ]
 

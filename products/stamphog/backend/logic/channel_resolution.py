@@ -17,13 +17,13 @@ The order is proximity, not alphabet. For an audience's merges that came from re
 4. Otherwise the slug is matched against a same-named Slack channel, which is the derived
    ``#<slug>`` rule that a registry entry exists to override.
 
-Step 2 answering by omission is what stops a peripheral repository from capturing a team it does
-not own. Without it, one repository declaring a slug would route every other repository's merges
-for that team too, since none of them declared anything to the contrary.
+Step 2 answers by omission. This is what stops a peripheral repository from capturing a team it
+does not own. Without it, one repository that declares a slug routes every other repository's
+merges for that team, because no other repository declared anything.
 
-Two repositories declaring one team is a scope rather than a conflict. Each answers for its own
-merges, so the same audience can resolve to two channels in one run and the digest partitions
-between them (see tasks/digest.py). No merge is posted twice, and no declaration is discarded.
+Two repositories that declare one team is a scope, not a conflict. Each answers for its own merges.
+One audience can therefore resolve to two channels in one run, and the digest partitions between
+them (see logic/digest_runs.py). No merge is posted twice, and no declaration is discarded.
 """
 
 from __future__ import annotations
@@ -54,21 +54,21 @@ _OWNERS_FILE_PATH = "owners.yaml"
 _CHANNEL_PURPOSE: Purpose = "notifications"
 
 # Slack channel flags that mark a channel as shared beyond this workspace. Routing maps a GitHub
-# team slug onto a Slack channel by name or by a registry entry, so a shared channel matching that
-# name would route internal PR digests into an externally connected (Slack Connect) or cross-org
-# channel — a leak. is_ext_shared / is_pending_ext_shared cover live and pending external
-# connections; is_shared also catches org-shared channels. A repo's own declared digest channel is
-# exempt, because the maintainer chose it for their own repository.
+# team slug onto a Slack channel by name, or by a registry entry. A shared channel with that name
+# therefore sends internal PR digests outside the workspace, which is a leak. is_ext_shared and
+# is_pending_ext_shared cover live and pending external connections. is_shared also catches
+# org-shared channels. A repo's own declared digest channel is exempt, because the maintainer chose
+# that channel for their own repository.
 _SHARED_CHANNEL_FLAGS = ("is_ext_shared", "is_pending_ext_shared", "is_shared")
 
 
 class RoutingUnavailable(Exception):
     """A registry could not be read, so no routing decision this run is safe.
 
-    Routing is derived fresh every run and nothing is cached, so a half-read registry does not
-    degrade — it silently reroutes. A repository whose ``owners.yaml`` fetch fails could have been
-    the one declaring every team's channel, and continuing without it would send a morning's
-    digests to derived channel names instead. Losing one day is the smaller failure.
+    Every run derives routing again, and nothing is cached. A half-read registry therefore does not
+    degrade. It reroutes, and it does so silently. The repository whose ``owners.yaml`` fetch failed
+    can be the one that declares every team's channel. A run that continues without it sends the
+    morning's digests to derived channel names. One lost day costs less.
     """
 
 
@@ -121,15 +121,15 @@ def _is_shared_channel(channel: dict) -> bool:
 def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
     """Every repo the team still uses, in a fixed order.
 
-    Any of them can carry the root ``owners.yaml`` that names a team's channel, so all of them are
-    read rather than whichever repo happened to merge last: a team whose PRs arrive from several
-    repos must not get a different channel depending on merge timing. Ordering by repository is
-    what makes the inherited answer reproducible when more than one declares the same slug.
+    Any of them can carry the root ``owners.yaml`` that names a team's channel. The run therefore
+    reads all of them, rather than the repo that merged last. A team whose PRs arrive from several
+    repos must not get a different channel because of merge timing. The order by repository makes
+    the inherited answer reproducible when more than one repo declares the same slug.
 
-    Reviews are enough to qualify — the registry is ownership metadata, not digest configuration,
-    so a monorepo carrying it stays the source for a deployment repo even with its own digest off.
-    A repo switched off entirely is dropped: it can no longer be corrected, and a dead installation
-    would otherwise fail every routing context below.
+    Reviews alone qualify a repo. The registry is ownership metadata, not digest configuration, so
+    a monorepo that carries it stays the source for a deployment repo even with its own digest off.
+    A repo switched off entirely is dropped, because nobody can correct it any more, and a dead
+    installation would fail every routing context below.
 
     Writer pin: a repo connected seconds ago is a legitimate registry source, and a lagged reader
     dropping it would change the answer for that run only.
@@ -222,11 +222,13 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
 def _registry_answer(context: RoutingContext, slug: str, repository: str) -> TeamChannel:
     """What the closest registry says about this slug, for merges that came from ``repository``.
 
-    A repository holding a registry answers from it and never inherits, which is what makes it
-    answer by omission: ``team_channel`` reports an absent slug as undeclared, and the caller
-    reads that as "the derived name is right". An empty mapping means the repository carries no
-    registry, not that it carries an empty one. The distinction only matters for a root file with
-    a ``teams:`` block holding nothing, which no repository has a reason to write.
+    A repository that holds a registry answers from that registry and never inherits one. This is
+    what makes it answer by omission. ``team_channel`` reports an absent slug as undeclared, and the
+    caller reads that as "the derived name is correct".
+
+    An empty mapping means the repository carries no registry. It does not mean the repository
+    carries an empty one. The difference only matters for a root file with an empty ``teams:``
+    block, which no repository has a reason to write.
     """
     registry = context.registry_by_repo.get(repository) or context.inherited_registry
     return team_channel(slug, registry, _CHANNEL_PURPOSE)
