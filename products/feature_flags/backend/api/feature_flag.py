@@ -118,6 +118,7 @@ from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
     replay_linked_flag_ids,
     teams_linking_flag,
+    teams_linking_flag_in_project,
 )
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
@@ -1934,9 +1935,7 @@ class FeatureFlagSerializer(
         # the tombstone instead — same scheme as the soft-delete update path.
         # Only safe when no active dependent references it; re-check that
         # invariant and error clearly if violated.
-        # select_related("team") because the replay-link check below reads `flag.team.project_id`,
-        # which the filter's join doesn't select.
-        soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.select_related("team").filter(
+        soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
             key=key,
             team__project_id=self.context["project_id"],
             deleted=True,
@@ -1945,7 +1944,7 @@ class FeatureFlagSerializer(
             soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
 
         for flag in soft_deleted_qs:
-            if teams_linking_flag(flag).exists():
+            if teams_linking_flag_in_project(self.context["project_id"], flag.id).exists():
                 # Hard-deleting fires no save, so nothing relinks the teams gating replay on
                 # this tombstone and they keep the key the new flag is about to claim. Rename
                 # instead and `relink_teams_on_key_change` moves them onto the tombstone. The

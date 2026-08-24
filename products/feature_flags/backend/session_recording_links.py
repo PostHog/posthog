@@ -45,11 +45,16 @@ def linked_flag_id(linked_flag: Any) -> int | None:
 
 def teams_linking_flag(feature_flag: FeatureFlag) -> QuerySet[Team]:
     """Every team gating session recording on this flag."""
+    return teams_linking_flag_in_project(feature_flag.team.project_id, feature_flag.id)
+
+
+def teams_linking_flag_in_project(project_id: int, flag_id: int) -> QuerySet[Team]:
+    """Every team in this project gating session recording on the flag with this id."""
     # Scoped by project rather than by team: any team in the project can gate recording on a flag
     # owned by a sibling team.
     return Team.objects.filter(
-        project_id=feature_flag.team.project_id,
-        session_recording_linked_flag__contains={"id": feature_flag.id},
+        project_id=project_id,
+        session_recording_linked_flag__contains={"id": flag_id},
     )
 
 
@@ -135,7 +140,6 @@ def relink_teams(feature_flag: FeatureFlag) -> None:
 
 
 _KEY_BEFORE_SAVE_ATTR = "_replay_link_key_before_save"
-_KEY_FIELD = frozenset({"key"})
 
 
 @receiver(pre_save, sender=FeatureFlag)
@@ -153,7 +157,7 @@ def capture_replay_link_key_before_save(
     capture_fields_before_save(
         instance,
         FeatureFlag.objects_including_soft_deleted,
-        _KEY_FIELD,
+        frozenset({"key"}),
         attr=_KEY_BEFORE_SAVE_ATTR,
         update_fields=update_fields,
         raw=raw,
@@ -174,8 +178,7 @@ def relink_teams_on_key_change(
     # inherit: `mute_selected_signals()` and the activity-log `signal_exclusions` can both
     # silently drop that signal, and a skipped relink turns replay off for every linking team.
     # The snapshot is only a change detector; `relink_teams` re-reads the stored key itself.
-    key_changed = snapshot_if_changed(instance, attr=_KEY_BEFORE_SAVE_ATTR) is not None
-    if raw or created or not key_changed:
+    if raw or created or snapshot_if_changed(instance, attr=_KEY_BEFORE_SAVE_ATTR) is None:
         return
 
     # Unlike `repair_replay_linked_flag_keys`, this has no `instance.deleted` guard, including
