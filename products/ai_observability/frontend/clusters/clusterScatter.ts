@@ -80,3 +80,18 @@ export function clusterItemFooter(meta: ClusterScatterMeta, clusteringLevel: Clu
         ? 'click to view generation'
         : 'click to view trace'
 }
+
+/** Placeholder body line shown until the item's summary loads: a shortened id. */
+export function fallbackItemLabel(meta: ClusterScatterMeta, clusteringLevel: ClusteringLevel): string | undefined {
+    if (!meta.traceId) {
+        return undefined
+    }
+    const id = (meta.generationId || meta.traceId).slice(0, 8)
+    if (clusteringLevel === 'generation') {
+        return `Generation ${id}...`
+    }
+    if (clusteringLevel === 'evaluation') {
+        return `Evaluation ${id}...`
+    }
+    return `Trace ${meta.traceId.slice(0, 8)}...`
+}

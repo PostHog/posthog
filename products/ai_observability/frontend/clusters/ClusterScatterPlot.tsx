@@ -9,9 +9,9 @@ import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from
 import { useChartTheme } from 'lib/charts/hooks'
 import { urls } from 'scenes/urls'
 
-import { clusterItemFooter, clusterItemLabel, navigateToClusterItem } from './clusterScatter'
+import { navigateToClusterItem } from './clusterScatter'
 import type { ClusterScatterMeta } from './clusterScatter'
-import { ClusterScatterTooltip } from './ClusterScatterTooltip'
+import { ClusterOverviewTooltip } from './ClusterScatterTooltip'
 import { clustersLogic } from './clustersLogic'
 
 export function ClusterScatterPlot(): JSX.Element {
@@ -60,27 +60,13 @@ export function ClusterScatterPlot(): JSX.Element {
                         componentStack: info.componentStack ?? undefined,
                     })
                 }
-                tooltip={({ point }) => {
-                    const meta = point.meta ?? {}
-                    if (meta.isCentroid) {
-                        return (
-                            <ClusterScatterTooltip
-                                color={point.color}
-                                title={point.seriesLabel.replace(' (centroid)', '')}
-                                subtitle="Cluster centroid"
-                                footer="click to view cluster"
-                            />
-                        )
-                    }
-                    return (
-                        <ClusterScatterTooltip
-                            color={point.color}
-                            title={point.seriesLabel}
-                            subtitle={clusterItemLabel(meta, clusteringLevel, traceSummaries)}
-                            footer={clusterItemFooter(meta, clusteringLevel)}
-                        />
-                    )
-                }}
+                tooltip={({ point }) => (
+                    <ClusterOverviewTooltip
+                        point={point}
+                        clusteringLevel={clusteringLevel}
+                        traceSummaries={traceSummaries}
+                    />
+                )}
             />
         </div>
     )

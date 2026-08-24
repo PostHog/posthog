@@ -8,23 +8,9 @@ import type { ScatterAreaSelection, ScatterChartConfig, ScatterPointDatum } from
 import { useChartTheme } from 'lib/charts/hooks'
 
 import { clusterDetailLogic } from './clusterDetailLogic'
-import { clusterItemFooter, clusterItemLabel, navigateToClusterItem } from './clusterScatter'
+import { navigateToClusterItem } from './clusterScatter'
 import type { ClusterScatterMeta } from './clusterScatter'
-import { ClusterScatterTooltip } from './ClusterScatterTooltip'
-
-function fallbackItemLabel(meta: ClusterScatterMeta, clusteringLevel: string): string | undefined {
-    if (!meta.traceId) {
-        return undefined
-    }
-    const id = (meta.generationId || meta.traceId).slice(0, 8)
-    if (clusteringLevel === 'generation') {
-        return `Generation ${id}...`
-    }
-    if (clusteringLevel === 'evaluation') {
-        return `Evaluation ${id}...`
-    }
-    return `Trace ${meta.traceId.slice(0, 8)}...`
-}
+import { ClusterDetailTooltip } from './ClusterScatterTooltip'
 
 export function ClusterDetailScatterPlot(): JSX.Element {
     const { cluster, traceSummaries, scatterPlotSeries, clusteringLevel } = useValues(clusterDetailLogic)
@@ -62,29 +48,14 @@ export function ClusterDetailScatterPlot(): JSX.Element {
                         componentStack: info.componentStack ?? undefined,
                     })
                 }
-                tooltip={({ point }) => {
-                    const meta = point.meta ?? {}
-                    if (meta.isCentroid) {
-                        return (
-                            <ClusterScatterTooltip
-                                color={point.color}
-                                title="Cluster centroid"
-                                subtitle="Center of this cluster"
-                            />
-                        )
-                    }
-                    return (
-                        <ClusterScatterTooltip
-                            color={point.color}
-                            title={cluster?.title ?? point.seriesLabel}
-                            subtitle={
-                                clusterItemLabel(meta, clusteringLevel, traceSummaries) ??
-                                fallbackItemLabel(meta, clusteringLevel)
-                            }
-                            footer={clusterItemFooter(meta, clusteringLevel)}
-                        />
-                    )
-                }}
+                tooltip={({ point }) => (
+                    <ClusterDetailTooltip
+                        point={point}
+                        cluster={cluster}
+                        clusteringLevel={clusteringLevel}
+                        traceSummaries={traceSummaries}
+                    />
+                )}
             />
         </div>
     )
