@@ -12,6 +12,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     CHQueryErrorCorruptedParquetMetadata,
+    CHQueryErrorQueryWasCancelled,
     CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
@@ -137,6 +138,16 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         server_error = ServerException("DB::Exception: Table is in readonly mode.", code=242)
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, CHQueryErrorTableIsReadOnly)
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+    def test_wrap_clickhouse_query_error_query_was_cancelled_is_stable_and_transient(self):
+        # Code 394 (QUERY_WAS_CANCELLED) happens when a deploy cancels in-flight queries; it must
+        # map to the importable class that lives in CH_TRANSIENT_ERRORS so tasks can retry it,
+        # rather than falling back to a dynamically generated class that no autoretry tuple
+        # references.
+        server_error = ServerException("DB::Exception: Query was cancelled.", code=394)
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorQueryWasCancelled)
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
 
 

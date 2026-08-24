@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
 from django.utils import timezone
 
@@ -44,6 +45,12 @@ from products.cohorts.backend.models.util import (
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
+
+COHORT_RECALCULATION_MAX_RETRIES = 6
+
+# CH_TRANSIENT_ERRORS plus the Postgres errors calculate_cohort_ch's own ORM reads can hit
+# (e.g. a connection-pooler blip before the ClickHouse recalculation even starts).
+COHORT_RECALCULATION_TRANSIENT_ERRORS = (*CH_TRANSIENT_ERRORS, OperationalError, InterfaceError)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -461,11 +468,11 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
-    # Auto-retry for transient ClickHouse errors with exponential backoff
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    # Auto-retry for transient ClickHouse and Postgres errors with exponential backoff
+    autoretry_for=COHORT_RECALCULATION_TRANSIENT_ERRORS,
     retry_backoff=60,
     retry_backoff_max=1800,
-    max_retries=6,
+    max_retries=COHORT_RECALCULATION_MAX_RETRIES,
 )
 @skip_team_scope_audit
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
@@ -473,31 +480,46 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
-        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+        try:
+            cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-        # Skip calculation if this version is now obsolete (superseded by newer save)
-        if cohort.pending_version and pending_version < cohort.pending_version:
-            logger.info(
-                "cohort_calculation_skipped_obsolete",
-                cohort_id=cohort_id,
-                task_version=pending_version,
-                current_pending_version=cohort.pending_version,
+            # Skip calculation if this version is now obsolete (superseded by newer save)
+            if cohort.pending_version and pending_version < cohort.pending_version:
+                logger.info(
+                    "cohort_calculation_skipped_obsolete",
+                    cohort_id=cohort_id,
+                    task_version=pending_version,
+                    current_pending_version=cohort.pending_version,
+                )
+                return
+
+            posthoganalytics.tag("team_id", cohort.team.id)
+
+            staleness_hours = 0.0
+            if cohort.last_calculation is not None:
+                staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+            COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+
+            tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
+            if initiating_user_id:
+                tags.user_id = initiating_user_id
+            if current_task and current_task.request and current_task.request.id:
+                tags.celery_task_id = current_task.request.id
+            update_tags(tags)
+        except Exception as err:
+            # Recalculation never started - calculate_people_ch's own bookkeeping (which handles
+            # is_calculating/errors_calculating for failures during recalculation) never ran either.
+            # If Celery won't retry this (a non-transient error, or retries already exhausted),
+            # clear is_calculating immediately rather than leaving the cohort stranded "in flight"
+            # until the hourly reset_stuck_cohorts job, which would then charge it an
+            # errors_calculating increment for a recalculation that never actually ran.
+            retries = current_task.request.retries if current_task and current_task.request else 0
+            will_retry = retries < COHORT_RECALCULATION_MAX_RETRIES and isinstance(
+                err, COHORT_RECALCULATION_TRANSIENT_ERRORS
             )
-            return
-
-        posthoganalytics.tag("team_id", cohort.team.id)
-
-        staleness_hours = 0.0
-        if cohort.last_calculation is not None:
-            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
-
-        tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
-        if initiating_user_id:
-            tags.user_id = initiating_user_id
-        if current_task and current_task.request and current_task.request.id:
-            tags.celery_task_id = current_task.request.id
-        update_tags(tags)
+            if not will_retry:
+                Cohort.objects.filter(pk=cohort_id, is_calculating=True).update(is_calculating=False)
+            raise
 
         cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
 

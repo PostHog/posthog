@@ -161,6 +161,9 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TABLE_IS_READ_ONLY":
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
+    elif name == "QUERY_WAS_CANCELLED":
+        # Transient: happens when a deploy or manual restart cancels in-flight queries.
+        return CHQueryErrorQueryWasCancelled(err.message, code=err.code, code_name="query_was_cancelled")
 
     # user query errors - pass through original message with proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
@@ -249,6 +252,10 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorQueryWasCancelled(InternalCHQueryError):
     pass
 
 
@@ -1037,6 +1044,7 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
+    CHQueryErrorQueryWasCancelled,
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
 )

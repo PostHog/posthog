@@ -4,6 +4,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -23,6 +24,7 @@ from posthog.tasks.calculate_cohort import (
     MAX_AGE_MINUTES,
     MAX_ERRORS_CALCULATING,
     MAX_STUCK_COHORTS_TO_RESET,
+    calculate_cohort_ch,
     calculate_cohort_from_list,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
@@ -1291,6 +1293,49 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_dep_cache.assert_not_called()
         mock_flags_cache.delay.assert_not_called()
         mock_hog_refresh.delay.assert_not_called()
+
+    def test_calculate_cohort_ch_keeps_is_calculating_when_transient_error_will_retry(self) -> None:
+        # A pooler blip on the task's first ORM read used to strand the cohort "in flight" for an
+        # hour until reset_stuck_cohorts caught it - regression guard for that report signal 5.
+        # Since Celery will retry this (OperationalError is in COHORT_RECALCULATION_TRANSIENT_ERRORS
+        # and no retries have been used yet), is_calculating must not be cleared prematurely.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True)
+
+        with (
+            patch.object(Cohort.objects, "get", side_effect=OperationalError("connection reset")),
+            self.assertRaises(OperationalError),
+        ):
+            calculate_cohort_ch(cohort.id, 1)
+
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+
+    @parameterized.expand(
+        [
+            ("non_retryable_error", ValueError("boom"), 0),
+            ("retries_exhausted", OperationalError("connection reset"), 6),
+        ]
+    )
+    def test_calculate_cohort_ch_clears_is_calculating_when_recalculation_will_not_be_retried(
+        self, _name: str, error: Exception, retries: int
+    ) -> None:
+        # Whether the error can never be retried (ValueError) or retries are exhausted, the
+        # recalculation is never going to run again - the cohort must not stay "in flight" until
+        # the hourly reset_stuck_cohorts job, which would otherwise also charge it a spurious
+        # errors_calculating increment for a recalculation that never started.
+        cohort = Cohort.objects.create(team=self.team, name="test_cohort", is_calculating=True)
+        mock_request = MagicMock(retries=retries)
+
+        with (
+            patch.object(Cohort.objects, "get", side_effect=error),
+            patch("posthog.tasks.calculate_cohort.current_task") as mock_current_task,
+        ):
+            mock_current_task.request = mock_request
+            with self.assertRaises(type(error)):
+                calculate_cohort_ch(cohort.id, 1)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
 
     def test_insert_cohort_from_query_count_updated_on_exception(self) -> None:
         from posthog.tasks.calculate_cohort import insert_cohort_from_query
