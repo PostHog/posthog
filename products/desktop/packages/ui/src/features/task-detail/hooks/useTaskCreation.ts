@@ -540,7 +540,7 @@ export function useTaskCreation({
             });
             // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
-              useUsageLimitStore.getState().show();
+              useUsageLimitStore.getState().show({ cause: "org_limit" });
               log.warn("Cloud task creation blocked by usage limit");
             } else {
               const title = getErrorTitle(result.failedStep);
