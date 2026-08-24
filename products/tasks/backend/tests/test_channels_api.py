@@ -514,8 +514,6 @@ class ChannelsAPITestCase(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertTrue(Channel.objects.unscoped().get(id=channel_id).deleted)
-        # Unfiled, not orphaned: visibility joins through the channel, so a task left
-        # pointing at the deleted space would vanish from the archive.
         self.assertIsNone(Task.objects.get(id=task_id).channel_id)
         listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
         self.assertEqual([task["id"] for task in listed], [task_id])
