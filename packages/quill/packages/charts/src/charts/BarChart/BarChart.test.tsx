@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChart, getHogChartTooltip, renderHogChart } from '../../testing'
+import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -419,6 +419,35 @@ describe('BarChart', () => {
                 clientY: yMidRow,
             })
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+        })
+
+        it.each<[string, 'bar' | 'band', number, string | null]>([
+            ['band hit-testing reaches a bar one unit tall', 'band', 1, 'Tue'],
+            ['band hit-testing reaches an empty bucket', 'band', 2, 'Wed'],
+            ['bar hit-testing leaves a bar one unit tall unreachable', 'bar', 1, null],
+            ['bar hit-testing leaves an empty bucket unreachable', 'bar', 2, null],
+        ])('%s', async (_name, hitTest, index, expectedLabel) => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { hitTest } }}
+                />
+            )
+            const bandCenterX = (i: number): number =>
+                dimensions.plotLeft + ((i + 0.5) * dimensions.plotWidth) / LABELS.length
+            const clientY = dimensions.plotTop + 4
+            // The first bar fills the plot, so this hover proves the chart is live.
+            await waitForHogChartTooltip(3000, () =>
+                fireEvent.mouseMove(chart.element, { clientX: bandCenterX(0), clientY })
+            )
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX(index), clientY })
+            await waitFor(() =>
+                expectedLabel
+                    ? expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel)
+                    : expect(getHogChartTooltip()?.textContent ?? '').toBe('')
+            )
         })
 
         describe('sparse-stacked horizontal (overlap layout)', () => {
