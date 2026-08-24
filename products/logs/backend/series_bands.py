@@ -110,6 +110,11 @@ def fetch_series_slot_rows(
     tag_queries(product=Product.LOGS, feature=Feature.QUERY, source="logs_series_bands", team_id=str(team.id))
 
     baseline_start = window_start - dt.timedelta(weeks=BASELINE_WEEKS)
+    # The series cap ranks over the whole 42d, not the display window: a series
+    # that went silent this week has zero window volume, and ranking on the
+    # window alone would drop exactly the series a silence should surface. The
+    # subquery fetches one series past the cap so the caller can tell a full
+    # response from a truncated one.
     query = parse_select(
         """
         SELECT
@@ -143,7 +148,7 @@ def fetch_series_slot_rows(
                         AND time_bucket < {window_end}
                     GROUP BY namespace, environment, severity_text
                     ORDER BY sum(log_count) DESC
-                    LIMIT {max_series}
+                    LIMIT {max_series_plus_probe}
                 )
             GROUP BY namespace, environment, severity_text, slot
         )
@@ -158,7 +163,7 @@ def fetch_series_slot_rows(
             "interval": ast.Call(name="toIntervalMinute", args=[ast.Constant(value=interval_minutes)]),
             "baseline_seconds": ast.Constant(value=BASELINE_WEEKS * SECONDS_PER_WEEK),
             "week_seconds": ast.Constant(value=SECONDS_PER_WEEK),
-            "max_series": ast.Constant(value=MAX_SERIES),
+            "max_series_plus_probe": ast.Constant(value=MAX_SERIES + 1),
             "row_limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
     )
@@ -270,12 +275,14 @@ def run_series_bands(
     slot_rows = fetch_series_slot_rows(team, service_name, window_start, window_end, interval_minutes)
     series = [_build_series(key, rows, window_start, window_end, interval_minutes) for key, rows in slot_rows.items()]
     series.sort(key=lambda s: (-s.total_count, s.namespace, s.environment, s.severity))
+    series_truncated = len(series) > MAX_SERIES
+    series = series[:MAX_SERIES]
 
     return SeriesBandsResult(
         service_name=service_name,
         window_start=window_start,
         window_end=window_end,
         interval_minutes=interval_minutes,
-        series_truncated=len(series) >= MAX_SERIES,
+        series_truncated=series_truncated,
         series=series,
     )
