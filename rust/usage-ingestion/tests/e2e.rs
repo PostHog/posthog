@@ -13,7 +13,7 @@ use uuid::Uuid;
 /// Fixed so both rows land in one monthly partition, the scope ReplacingMergeTree collapses within.
 const FIRST_EVENT_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
 
-fn record(record_id: &str, event_timestamp_ms: i64) -> BillingUsageRecord {
+fn record(record_id: &str, timestamp_ms: i64) -> BillingUsageRecord {
     BillingUsageRecord {
         record_id: record_id.to_string(),
         producer_id: "usage-ingestion-e2e".to_string(),
@@ -22,7 +22,7 @@ fn record(record_id: &str, event_timestamp_ms: i64) -> BillingUsageRecord {
         mode: BillingUsageMode::Delta as i32,
         unit: "record".to_string(),
         quantity: 1,
-        event_timestamp_ms,
+        timestamp_ms,
         dimensions: Default::default(),
     }
 }
@@ -54,7 +54,7 @@ async fn retried_record_with_original_timestamp_deduplicates() {
     let http = reqwest::Client::new();
     // Wait for the original record: each retry preserves the event timestamp.
     let arrival_query = format!(
-        "SELECT count() FROM {table} WHERE record_id = '{record_id}' AND event_timestamp = toDateTime64('2024-06-15 00:00:00', 6, 'UTC')"
+        "SELECT count() FROM {table} WHERE record_id = '{record_id}' AND timestamp = toDateTime64('2024-06-15 00:00:00', 6, 'UTC')"
     );
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
@@ -82,7 +82,7 @@ async fn retried_record_with_original_timestamp_deduplicates() {
     let canonical = clickhouse(
         &http,
         &clickhouse_url,
-        &format!("SELECT toString(event_timestamp) FROM {table} WHERE record_id = '{record_id}' FORMAT TSV"),
+        &format!("SELECT toString(timestamp) FROM {table} WHERE record_id = '{record_id}' FORMAT TSV"),
     )
     .await;
     let canonical: Vec<&str> = canonical.lines().collect();
