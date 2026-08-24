@@ -150,6 +150,44 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("where_optimization", response.clickhouse)
 
     @snapshot_clickhouse_queries
+    def test_id_in_subquery_filter_folded_into_argmax_select(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select id from persons where properties.$some_prop = 'ifwematcholdversionsthiswillmatch' "
+                "or id in (select person_id from person_distinct_ids where distinct_id = '3')"
+            ),
+            self.team,
+            modifiers=self.modifiers,
+            pretty=False,
+        )
+        # Only the person with distinct id "3" matches. The second and deleted persons match the property on an
+        # older version of their row, and the re-check against the deduplicated values has to drop them.
+        assert [row[0] for row in response.results] == [self.third_person.uuid]
+
+        assert response.clickhouse
+        # The filter is applied inside the argMax select, so nothing re-checks it outside...
+        assert "AS persons WHERE" not in response.clickhouse
+        # ...which puts both distinct id lookups in one query scope, where ClickHouse builds the set once.
+        having = response.clickhouse.split("GROUP BY person.id HAVING")[1]
+        assert "person_distinct_id2" in having
+        assert "where_optimization" not in having
+
+    def test_id_in_subquery_filter_under_a_nested_or_is_left_alone(self):
+        response = execute_hogql_query(
+            parse_select(
+                "select id from persons where properties.$another_prop = 'something3' "
+                "and (properties.$some_prop = 'ifwematcholdversionsthiswillmatch' "
+                "or id in (select person_id from person_distinct_ids where distinct_id = '3'))"
+            ),
+            self.team,
+            modifiers=self.modifiers,
+            pretty=False,
+        )
+        assert [row[0] for row in response.results] == [self.third_person.uuid]
+        assert response.clickhouse
+        assert "AS persons WHERE" in response.clickhouse
+
+    @snapshot_clickhouse_queries
     def test_order_by_limit_transferred(self):
         response = execute_hogql_query(
             parse_select(

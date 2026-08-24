@@ -24,6 +24,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
+from posthog.hogql.database.schema.util.persons_where_pushdown import plan_single_pass_filter
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
@@ -137,6 +138,21 @@ def select_from_persons_table(
                 deleted_field="is_deleted",
                 timestamp_field_to_clamp="created_at",
             )
+
+            single_pass = (
+                plan_single_pass_filter(node, join_or_table, context)
+                if isinstance(join_or_table, LazyTableToAdd)
+                else None
+            )
+            if single_pass is not None:
+                select.where = single_pass.candidate
+                select.having = (
+                    ast.And(exprs=[select.having, single_pass.recheck]) if select.having else single_pass.recheck
+                )
+                # The subquery now applies the filter exactly, so leave nothing for the caller to re-check.
+                node.where = None
+                return select
+
             inner_select = cast(
                 ast.SelectQuery,
                 parse_select(
