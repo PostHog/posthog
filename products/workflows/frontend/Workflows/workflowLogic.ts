@@ -170,6 +170,7 @@ const WORKFLOW_CONTENT_FIELDS = [
     'trigger_masking',
     'conversion',
     'exit_condition',
+    'email_sending_rate_limit',
     'abort_action',
     'variables',
 ] as const
