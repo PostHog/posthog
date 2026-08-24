@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -27,7 +28,10 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -55,6 +59,7 @@ import {
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper } from './ScannerEditorStepper'
+import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -268,6 +273,27 @@ function DetailsStep(): JSX.Element {
     )
 }
 
+// Live outcomes under the self-driving toggle: what turning it on has already produced. Renders
+// nothing until the scanner has emitted at least one signal, so a new scanner just sees the pitch.
+function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { selfDrivingStats } = useValues(scannerSelfDrivingStatsLogic({ scannerId }))
+    if (!selfDrivingStats || selfDrivingStats.signals_emitted === 0) {
+        return null
+    }
+    const { signals_emitted, reports_contributed, prs_opened, prs_merged } = selfDrivingStats
+    return (
+        <div className="text-xs text-muted" data-attr="vision-editor-self-driving-outcomes">
+            So far this scanner has emitted <strong className="tabular-nums">{signals_emitted.toLocaleString()}</strong>{' '}
+            {pluralize(signals_emitted, 'signal', undefined, false)}, contributing to{' '}
+            <strong className="tabular-nums">{reports_contributed.toLocaleString()}</strong>{' '}
+            {pluralize(reports_contributed, 'report', undefined, false)} and{' '}
+            <strong className="tabular-nums">{prs_opened.toLocaleString()}</strong>{' '}
+            {pluralize(prs_opened, 'PR', undefined, false)}
+            {prs_opened > 0 ? <> ({prs_merged.toLocaleString()} merged)</> : null}.
+        </div>
+    )
+}
+
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
     const { scanner, isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
@@ -384,6 +410,7 @@ function ConfigureStep(): JSX.Element {
                                     </Link>
                                     .
                                 </div>
+                                {!isNew && <SelfDrivingOutcomesLine scannerId={scannerId} />}
                             </div>
                             <LemonSwitch
                                 checked={!!value}
@@ -418,6 +445,11 @@ function EditorFooter({
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
+    // The backend rejects scanner creation without org AI consent, so the popover interposes at
+    // Save instead of letting the request 400.
+    const needsConsent = isNew && !dataProcessingAccepted
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
     const prevStep = previous === 'template' && !isNew ? null : previous
@@ -483,16 +515,33 @@ function EditorFooter({
                             Next: {STEP_LABELS[nextStep]}
                         </LemonButton>
                     ) : (
-                        <LemonButton
-                            type="primary"
-                            loading={isSubmitting}
-                            disabledReason={saveDisabledReason}
-                            onClick={onSave}
-                            data-attr="vision-editor-save"
-                            data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                        <AIConsentPopoverWrapper
+                            placement="top-end"
+                            showArrow
+                            ignoreDismissal
+                            hideTrainingDisclaimer
+                            hidden={!consentRequested}
+                            onApprove={() => {
+                                setConsentRequested(false)
+                                onSave()
+                            }}
+                            onDismiss={() => setConsentRequested(false)}
                         >
-                            {isNew ? 'Create scanner' : 'Save changes'}
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                loading={isSubmitting}
+                                disabledReason={saveDisabledReason}
+                                onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                data-attr="vision-editor-save"
+                                data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                            >
+                                {needsConsent
+                                    ? 'Allow AI analysis and create scanner'
+                                    : isNew
+                                      ? 'Create scanner'
+                                      : 'Save changes'}
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
                     )}
                 </div>
             </div>

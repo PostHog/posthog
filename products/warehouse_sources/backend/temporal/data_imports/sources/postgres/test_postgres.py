@@ -66,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSL_REQUIRED_AFTER_DATE,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
     PostgreSQLColumn,
@@ -99,6 +100,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
+    _is_statement_timeout_error,
     _is_unsupported_function_error,
     _is_unsupported_statement_timeout_error,
     _next_recovery_conflict_chunk_size,
@@ -422,6 +424,10 @@ class TestPostgresSourceNonRetryableErrors:
             # customer RLS policy, view, or pooler. Permanent until the customer changes it — must not
             # keep retrying. Parameter name is invented, not a real customer value.
             'unrecognized configuration parameter "app.current_tenant"',
+            # A database proxy (e.g. Prisma Accelerate) refuses the connection because the account
+            # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
+            # the same refusal — must not keep retrying. Host/port are invented, not a real value.
+            'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -457,6 +463,19 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "connect timeout must be classified non-retryable"
         assert matches[0] is not None, "connect timeout must surface an actionable message, not raw driver text"
         assert "firewall" in matches[0].lower()
+
+    def test_plan_limit_restriction_surfaces_actionable_message(self, source):
+        # A proxy plan-limit refusal must stop retrying and explain how to lift the restriction,
+        # rather than storing the raw provider text. Mirror the finalizer's first-match selection.
+        error_msg = "Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions."
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "plan-limit restriction must be classified non-retryable"
+        assert matches[0] is not None, "plan-limit restriction must surface an actionable message, not raw driver text"
+        assert "plan" in matches[0].lower()
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1815,6 +1834,16 @@ class TestIsConnectionDroppedError:
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a
             # server-side rejection. Transient; the reconnect must catch it.
             psycopg.OperationalError("connection is bad: no error details available"),
+            # Neon's compute-side walsender loses connectivity to a safekeeper (the storage-tier
+            # peer holding the WAL) and surfaces it as a generic XX000 InternalError_, not the
+            # libpq/Supavisor signatures above. Transient — a safekeeper failover or network blip —
+            # so the reconnect must catch it. Hostname/port are volatile and excluded from the match.
+            psycopg.errors.InternalError_(
+                "[walsender] Failed to read WAL (req_lsn=0/1000000, len=8192): failed to connect to "
+                "safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: connection "
+                'to server at "safekeeper-1.cell-1.us-east-1.aws.neon.tech" (203.0.113.10), port 6401 '
+                "failed: server closed the connection unexpectedly"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -3570,7 +3599,7 @@ class TestValidateCredentialsErrorMapping:
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
                 "error received from server in SCRAM exchange: Wrong password",
-                "Invalid user or password",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
                 'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
@@ -4282,6 +4311,40 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
     def _config(self):
         return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
 
+    def test_required_ssl_is_used_for_every_schema_discovery_connection(self, source):
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+        metadata_connection = mock.MagicMock()
+        metadata_connection.__enter__.return_value = mock.MagicMock()
+        metadata_connection.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value={},
+            ) as get_schemas,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ) as get_foreign_keys,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.get_postgres_row_count",
+                return_value={},
+            ) as get_row_count,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.pg_connection",
+                return_value=metadata_connection,
+            ) as pg_connection,
+        ):
+            source.get_schemas(self._config(), team_id=1, with_counts=True, require_ssl=True)
+
+        assert get_schemas.call_args.kwargs["require_ssl"] is True
+        assert get_foreign_keys.call_args.kwargs["require_ssl"] is True
+        assert get_row_count.call_args.kwargs["require_ssl"] is True
+        assert pg_connection.call_args.kwargs["require_ssl"] is True
+
     @pytest.mark.parametrize(
         "exc",
         [
@@ -4910,22 +4973,33 @@ class TestBuildXminQuery:
     def _render(self, composed: sql.Composed) -> str:
         return composed.as_string()
 
-    def _bounds(self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False) -> XminBounds:
+    def _bounds(
+        self, *, lower=0, upper=5000, num_wraparound=0, wraparound_or_range=False, full_scan=False
+    ) -> XminBounds:
         return XminBounds(
             lower=lower,
             upper=upper,
             ceiling_xid8=(num_wraparound << 32) | upper,
             num_wraparound=num_wraparound,
             wraparound_or_range=wraparound_or_range,
+            full_scan=full_scan,
         )
 
-    def test_first_run_reads_below_ceiling(self):
-        query = _build_query("public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(lower=0))
+    def test_full_scan_drops_the_xmin_window(self):
+        query = _build_query(
+            "public", "users", False, "table", None, None, None, xmin_bounds=self._bounds(full_scan=True)
+        )
         rendered = self._render(query)
         assert f'xmin::text::bigint AS "{XMIN_PROJECTED_COLUMN}"' in rendered
-        assert "xmin::text::bigint >= 0 AND xmin::text::bigint < 5000" in rendered
-        assert "OR xmin::text::bigint" not in rendered
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
         assert rendered.rstrip().endswith("ORDER BY xmin::text::bigint ASC")
+
+    def test_full_scan_count_query_counts_every_row(self):
+        query = _build_count_query("public", "users", False, None, None, None, xmin_bounds=self._bounds(full_scan=True))
+        rendered = self._render(query)
+        assert "xmin::text::bigint >=" not in rendered
+        assert "xmin::text::bigint <" not in rendered
 
     def test_steady_state_single_range(self):
         query = _build_query(
@@ -4996,18 +5070,27 @@ class TestCaptureXminCeiling:
         with pytest.raises(XminUnsupportedError, match="PostgreSQL 13"):
             _capture_xmin_ceiling(cursor, None, None, MagicMock())
 
-    def test_first_run_seeds_zero_lower_bound(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
-        bounds = _capture_xmin_ceiling(cursor, None, None, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.upper == 5000
-        assert bounds.wraparound_or_range is False
+    @parameterized.expand(
+        [
+            ("first_run", None, None),
+            ("multi_wrap", 4000000000, 0),
+        ]
+    )
+    def test_reads_whole_table_when_no_window_is_safe(self, _name, stored_last_value, stored_num_wraparound):
+        # Backfills and multi-wrap re-reads can't use a 32-bit window: `ceiling_xid` is only the low
+        # half of the ceiling, so tuples written in earlier epochs sit above it.
+        cursor = self._cursor(server_version=150000, ceiling_xid8=(12 << 32) | 500, ceiling_xid=500)
+        bounds = _capture_xmin_ceiling(cursor, stored_last_value, stored_num_wraparound, MagicMock())
+        assert bounds.full_scan is True
+        assert bounds.ceiling_xid8 == (12 << 32) | 500
+        assert bounds.num_wraparound == 12
 
     def test_steady_state_uses_stored_lower_bound(self):
         cursor = self._cursor(server_version=150000, ceiling_xid8=5000, ceiling_xid=5000)
         bounds = _capture_xmin_ceiling(cursor, 100, 0, MagicMock())
         assert bounds.lower == 100
         assert bounds.wraparound_or_range is False
+        assert bounds.full_scan is False
 
     def test_single_wrap_sets_or_range(self):
         # Epoch advanced by exactly 1 since last sync.
@@ -5016,12 +5099,36 @@ class TestCaptureXminCeiling:
         assert bounds.num_wraparound == 1
         assert bounds.wraparound_or_range is True
         assert bounds.lower == 4000000000
+        assert bounds.full_scan is False
 
-    def test_multi_wrap_forces_full_reread(self):
-        cursor = self._cursor(server_version=150000, ceiling_xid8=(3 << 32) | 500, ceiling_xid=500)
-        bounds = _capture_xmin_ceiling(cursor, 4000000000, 0, MagicMock())
-        assert bounds.lower == 0
-        assert bounds.wraparound_or_range is False
+
+class TestXminBackfillAgainstPostgres:
+    @pytest.mark.django_db
+    def test_backfill_reads_tuples_above_the_ceiling_remainder(self):
+        # Reproduces the reported silent data loss. On a cluster past a wraparound the ceiling's
+        # low 32 bits are a small remainder while every tuple written in an earlier epoch keeps a
+        # much larger raw `xmin`, so the old `[0, remainder)` backfill window matched no rows and
+        # the run still completed and advanced the cursor.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE xmin_wraparound_probe (id int PRIMARY KEY)")
+            dj_cursor.execute("INSERT INTO xmin_wraparound_probe SELECT generate_series(1, 10)")
+            dj_cursor.execute("SELECT MIN(xmin::text::bigint) FROM xmin_wraparound_probe")
+            lowest_tuple_xmin = dj_cursor.fetchone()[0]
+
+            snapshot_cursor = MagicMock()
+            snapshot_cursor.connection.info.server_version = 150000
+            snapshot_cursor.fetchone.return_value = ((12 << 32) | lowest_tuple_xmin,)
+            bounds = _capture_xmin_ceiling(snapshot_cursor, None, None, MagicMock())
+
+            dj_cursor.execute(
+                _build_query("public", "xmin_wraparound_probe", False, "table", None, None, None, xmin_bounds=bounds)
+            )
+            assert len(dj_cursor.fetchall()) == 10
+
+            dj_cursor.execute(
+                _build_count_query("public", "xmin_wraparound_probe", False, None, None, None, xmin_bounds=bounds)
+            )
+            assert dj_cursor.fetchone()[0] == 10
 
 
 class TestXminCapableTablesFromConn:
@@ -5830,6 +5937,24 @@ class TestRangeAsStringLoader:
 
     def test_loads_unbounded_range(self, loader):
         assert loader.load(b"[,10)") == "[,10)"
+
+
+class TestNetworkAsStringLoader:
+    @pytest.fixture
+    def loader(self):
+        return NetworkAsStringLoader(oid=869)
+
+    def test_loads_inet_address(self, loader):
+        assert loader.load(b"192.168.1.1") == "192.168.1.1"
+
+    def test_loads_cidr_network(self, loader):
+        assert loader.load(b"192.168.1.0/24") == "192.168.1.0/24"
+
+    def test_loads_ipv6(self, loader):
+        assert loader.load(b"::1") == "::1"
+
+    def test_none_returns_none(self, loader):
+        assert loader.load(None) is None
 
 
 class TestSSLRequiredAfterDate:
@@ -7403,6 +7528,25 @@ class TestIsUnsupportedStatementTimeoutError:
         assert _is_unsupported_statement_timeout_error(error) is expected
 
 
+class TestIsStatementTimeoutError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.QueryCanceled("canceling statement due to statement timeout"), True),
+            # A recovery conflict is also QueryCanceled but a different message entirely.
+            (psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"), False),
+            # The engine-rejects-the-SET case is a different exception type, not a cancellation.
+            (
+                psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported'),
+                False,
+            ),
+            (psycopg.OperationalError("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_statement_timeout(self, error, expected):
+        assert _is_statement_timeout_error(error) is expected
+
+
 class TestRlsActiveFromConnErrorHandling:
     @staticmethod
     def _conn_raising(exc: Exception):
@@ -7430,6 +7574,19 @@ class TestRlsActiveFromConnErrorHandling:
         conn = self._conn_raising(
             psycopg.errors.FeatureNotSupported('setting configuration parameter "statement_timeout" not supported')
         )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_statement_timeout_error_is_not_captured(self):
+        # This lookup runs under the same 30s SET LOCAL statement_timeout guard as the sibling
+        # PK/xmin/index best-effort probes, which already degrade quietly when it fires (see
+        # _xmin_capable_tables_from_conn). Hitting it here is the guard working as intended, not a
+        # bug — must not flood error tracking.
+        conn = self._conn_raising(psycopg.errors.QueryCanceled("canceling statement due to statement timeout"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as capture_mock:

@@ -134,14 +134,14 @@ export const calendarSyncLogic = kea<calendarSyncLogicType>([
                     integration_id: integrationId,
                 })
                 if (result.status === 'already_running') {
-                    lemonToast.info('A sync for this calendar is already running')
+                    lemonToast.info('A sync for this Google account is already running')
                     actions.triggerFinished(integrationId)
                 } else {
-                    lemonToast.success('Calendar sync started. New meetings appear in a few minutes.')
+                    lemonToast.success('Google account sync started. New meetings and emails appear in a few minutes.')
                 }
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'calendarSyncLogic.syncNow' })
-                lemonToast.error('Failed to start the calendar sync')
+                lemonToast.error('Could not start the Google account sync. Try again.')
                 actions.triggerFinished(integrationId)
             } finally {
                 actions.loadStatuses()

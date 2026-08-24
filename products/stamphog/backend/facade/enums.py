@@ -33,6 +33,22 @@ TERMINAL_STATUSES = frozenset(
 )
 
 
+class ReviewTrigger(StrEnum):
+    """What caused a run to exist, derived from the run and its repo config.
+
+    Not stored: a run records `inbox_review` provenance on its output and inherits the repo's
+    review_mode, and this collapses the two into the one answer a reader wants — why did stamphog
+    look at this PR at all.
+    """
+
+    # Self-driving: stamphog reviewed a bot-authored PR off its own inbox provenance.
+    SELF_DRIVING = "self_driving"
+    # The repo is in LABEL mode, so the trigger label opted this PR in.
+    LABEL = "label"
+    # The repo reviews every relevant PR event.
+    ALL = "all"
+
+
 class ReviewVerdict(StrEnum):
     NONE = "none"
     APPROVED = "approved"

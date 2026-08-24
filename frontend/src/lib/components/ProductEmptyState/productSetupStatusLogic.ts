@@ -21,7 +21,6 @@ export interface productSetupStatusLogicValues {
     currentTeamId: number | null // teamLogic
     detected: DetectedStatus
     mode: ProductEmptyStateMode
-    showEmptyState: boolean
     skipped: boolean
     skippedByTeam: Record<number, boolean>
     status: ProductSetupStatus
@@ -60,7 +59,6 @@ export interface productSetupStatusLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         status: (detected: DetectedStatus, currentTeamId: number | null) => ProductSetupStatus
         skipped: (skippedByTeam: Record<number, boolean>, currentTeamId: number | null) => boolean
-        showEmptyState: (status: ProductSetupStatus, skipped: boolean) => boolean
         mode: (status: ProductSetupStatus) => ProductEmptyStateMode
     }
 }
@@ -138,11 +136,6 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
             (skippedByTeam: Record<number, boolean>, currentTeamId: number | null): boolean =>
                 !!(currentTeamId && skippedByTeam[currentTeamId]),
         ],
-        showEmptyState: [
-            (s) => [s.status, s.skipped],
-            (status: ProductSetupStatus, skipped: boolean): boolean =>
-                !skipped && (status === 'needs-setup' || status === 'waiting-for-data'),
-        ],
         mode: [
             (s) => [s.status],
             (status: ProductSetupStatus): ProductEmptyStateMode =>
@@ -151,6 +144,17 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         setDetectedStatus: ({ status }) => {
+            // Detection answers more than once per session: several products poll while their
+            // scene is mounted. Once a status has put the real scene on screen, a later
+            // `needs-setup` must not replace it, because that swaps a mounted scene for the
+            // setup screen under the user, losing whatever they had typed into it, and a
+            // product with `skippable: false` leaves no way back. `unknown` means detection
+            // failed and we deliberately failed open; `has-data` means real data was seen.
+            // A project switch resets `status` to `loading`, so the new team can still land on
+            // `needs-setup`, and `waiting-for-data` stays free to move either way.
+            if (status === 'needs-setup' && (values.status === 'unknown' || values.status === 'has-data')) {
+                return
+            }
             actions.applyDetectedStatus(status, values.currentTeamId)
         },
         skipEmptyState: () => {

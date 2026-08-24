@@ -58,6 +58,9 @@ Grant the following read scopes so the connected endpoints can sync:
 
 To also sync the `calls_extensive` table (call participants and CRM associations), additionally grant:
 - `api:calls:read:extensive`
+
+To also sync the `transcripts` table (what was said on each call), additionally grant:
+- `api:calls:read:transcript`
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",
@@ -106,6 +109,7 @@ To also sync the `calls_extensive` table (call participants and CRM associations
                 supports_incremental=endpoint_config.supports_incremental,
                 supports_append=endpoint_config.supports_incremental,
                 incremental_fields=endpoint_config.incremental_fields,
+                default_incremental_lookback_seconds=endpoint_config.default_incremental_lookback_seconds,
                 description="Only syncs the last 365 days on initial sync"
                 if endpoint_config.uses_date_window
                 else None,

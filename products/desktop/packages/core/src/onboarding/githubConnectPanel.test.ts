@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { GITHUB_CONNECT_TIMEOUT_MESSAGE } from "../integrations/connectErrors";
 import {
+  buildConnectAbandonedProps,
   buildConnectFailedProps,
   buildConnectFailureFingerprint,
   buildInstallationSettingsUrl,
   deriveAlternativeConnectedProjects,
   deriveConnectButtonState,
+  deriveGithubApprovalState,
   getGithubPanelMessage,
   isAnyIntegrationStale,
   resolveSelectedProjectId,
@@ -173,6 +175,28 @@ describe("buildConnectFailedProps", () => {
   });
 });
 
+describe("buildConnectAbandonedProps", () => {
+  it("carries the flow type and rounds the elapsed seconds", () => {
+    expect(
+      buildConnectAbandonedProps({
+        flowType: "user_new",
+        startedAtMs: 1_000,
+        nowMs: 1_000 + 12_400,
+      }),
+    ).toEqual({ flow_type: "user_new", seconds_since_started: 12 });
+  });
+
+  it("never reports a negative duration", () => {
+    expect(
+      buildConnectAbandonedProps({
+        flowType: "team_existing",
+        startedAtMs: 10_000,
+        nowMs: 1_000,
+      }),
+    ).toEqual({ flow_type: "team_existing", seconds_since_started: 0 });
+  });
+});
+
 describe("deriveConnectButtonState", () => {
   it("is a fresh connect when idle", () => {
     expect(
@@ -202,5 +226,54 @@ describe("deriveConnectButtonState", () => {
         timedOut: true,
       }),
     ).toEqual({ isRetry: true, shouldReset: false, label: "Retry connection" });
+  });
+});
+
+describe("deriveGithubApprovalState", () => {
+  it.each([
+    [
+      "this attempt just came back pending",
+      "github_install_pending",
+      [],
+      false,
+      "awaiting",
+    ],
+    [
+      "a pending request row exists server-side",
+      null,
+      [{ status: "pending" }],
+      false,
+      "awaiting",
+    ],
+    [
+      "an approved request exists but no integration is linked yet",
+      null,
+      [{ status: "approved" }],
+      false,
+      "approved",
+    ],
+    [
+      "an existing integration wins over a stale approved row",
+      null,
+      [{ status: "approved" }],
+      true,
+      "none",
+    ],
+    [
+      "an existing integration wins over a stale pending row",
+      null,
+      [{ status: "pending" }],
+      true,
+      "none",
+    ],
+    ["nothing pending or approved", null, [], false, "none"],
+  ] as const)("%s", (_label, errorCode, requests, hasIntegration, expected) => {
+    expect(
+      deriveGithubApprovalState({
+        errorCode,
+        requests: [...requests],
+        hasIntegration,
+      }),
+    ).toBe(expected);
   });
 });

@@ -7,7 +7,9 @@ description: >
   flaky long-pole, how long PRs take from open to merge, how an author's merge time compares to the cohort, which
   open PRs have failing or pending CI, or where a specific pull request is stuck. Triggers on "engineering
   analytics", "is CI getting slower", "slow workflow", "flaky CI", "time to merge", "cycle time", "PR throughput",
-  "failing checks", "where is PR <n> stuck", "CI long pole", "what's holding up this PR".
+  "failing checks", "where is PR <n> stuck", "CI long pole", "what's holding up this PR". For a verdict on one
+  specific CI failure (whose fault, which commit) use investigating-ci-failures; to save these numbers as insights
+  use turning-engineering-analytics-into-insights.
 ---
 
 # Diagnosing CI and merge bottlenecks
@@ -15,7 +17,8 @@ description: >
 Engineering analytics treats a pull request like product analytics treats a user: a PR moves through a pipeline
 (`opened → CI → review → merged → deployed`) and the job is to find where it slows down. The surface is **named
 MCP tools** — you call them, you don't write SQL. Dogfooded on `PostHog/posthog`; the same tools serve
-autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
+autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs. Scope is aggregate pipeline health:
+to take one failing test or red run to a verdict, switch to the `investigating-ci-failures` skill.
 
 ## The tools
 
@@ -41,8 +44,9 @@ autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
 - **`engineering-analytics-flaky-tests`** — the active test-health queue from the per-test CI spans, over a
   window (`date_from` default `-7d`, max 30 days). Evidence is counted per CI run, never per span or run attempt.
   `classification` is `confirmed_flake` only where the evidence proves nondeterminism
-  (`same_commit_recovery_run_count > 0`: one commit both failed and passed the test, via a "Re-run failed jobs"
-  attempt going green or an in-job retry); `quarantined` means a tolerated failure was recorded while masked;
+  (`same_commit_recovery_run_count > 0`: one commit both failed and passed the test **in the same matrix
+  job**, via a "Re-run failed jobs" attempt going green or an in-job retry; a pass in a different leg, such as FOSS
+  against EE, is not recovery); `quarantined` means a tolerated failure was recorded while masked;
   `suspected_regression` means only failures were recorded, which is absence of proof, not proof of a real break.
   A test qualifies on any same-commit recovery, a quarantined failure, any master/main failure, or failures on ≥
   `min_failed_prs` distinct PRs (`failed_pr_count`). Answers "what is this failing test costing us" and picks
@@ -50,6 +54,11 @@ autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
   and Frontend Jest suites, and recovery proof only arrives when someone re-runs failed jobs (or a pytest test is hand-marked
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
   emitted, so there is no honest denominator.
+
+- **`engineering-analytics-sources`**: the team's connected GitHub sources and repos. With more than one of
+  either, call it first and pass the chosen entry's `source_id` **and** `repo` to `pull-requests`,
+  `workflow-health`, and `pr-lifecycle`. Passing only `source_id` reads that source's default repo, not the one
+  you picked. With a single source and repo the tools default to it.
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).
@@ -74,10 +83,10 @@ These are structural limits of today's snapshot data — state them, don't paper
 - **Bots and drafts are present in `pull-requests` output, excluded by convention.** Filter out `author.is_bot`
   (nested under `author`, not a row-level field) and `is_draft` for throughput / merge-time questions; keep them in
   for bot-impact questions.
-- **`pull-requests` returns a capped page.** At most `limit` rows (newest first); `truncated` is `true` when more
-  match, and there is no repo or limit filter to narrow the call. When `truncated` is `true`, any percentile or
-  count you derive covers only the newest page — not the whole window — so say so and shrink `date_from` until the
-  real set fits under the cap.
+- **`pull-requests` returns a capped page.** 1000 rows, newest first: a fixed server-side cap, echoed in the
+  response as `limit`, that no parameter raises. When `truncated` is `true`, any percentile or count you derive
+  covers only that newest page, not the whole window. Say so, then narrow until the real set fits: `author`
+  filters to one handle, `source_id` / `repo` to one repo, and `date_from` shortens the window.
 
 ## Choosing a tool
 
@@ -88,7 +97,7 @@ These are structural limits of today's snapshot data — state them, don't paper
 | Which PRs are stuck open longest?                      | `pull-requests`                     | Keep `state = open`, not `is_draft`, not `author.is_bot`; sort by `created_at` ascending (oldest first).                                                                                                                                                                                                                                                     |
 | How long are PRs taking to merge? Per author?          | `pull-requests`                     | Over merged rows (`merged_at` set, not bot, not draft), aggregate `ready_to_merge_seconds` where non-null (fall back to `open_to_merge_seconds`, labeled as coarse) — median and p95. Group by `author.handle` for **cohort context, not a ranking** (per-developer surveillance is an explicit non-goal). Trend it by calling with two `date_from` windows. |
 | Where is PR N stuck?                                   | `pr-lifecycle`                      | Walk the sorted events: `opened → ready_for_review` (draft time, when transition events are present), the CI span (first start → last finish; one pair per workflow), `last CI finished → merged`. The largest gap is the bottleneck. A long ready→merge with quick CI points at review/idle time the `partial` data can't itemize yet — say so.             |
-| What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky": only `confirmed_flake` rows are proven, and only for tests hand-marked with reruns.                                                                                                                |
+| What is a failing test costing us? What to quarantine? | `engineering-analytics-flaky-tests` | Default window is `-7d`; rows are already ranked by blast radius (master failures, then distinct PRs hit). Report counts, never rates. For "is it flaky": only `confirmed_flake` rows are proven (one commit both failed and passed **in the same matrix job**: a re-run attempt went green, or an in-job retry recovered it).                               |
 
 ## The high-value chain
 

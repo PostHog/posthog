@@ -15,7 +15,7 @@ use crate::{
     },
 };
 
-use super::utils::{add_raw_to_junk, get_sourcelocation_context};
+use super::utils::{add_raw_to_junk, get_sourcelocation_context, is_kotlin_compose_source};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -224,10 +224,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
             .and_then(|f| f.name())
             .map(|s| sanitize_string(s.to_string()));
 
-        let in_app = source
-            .as_ref()
-            .map(|s| !s.contains("node_modules"))
-            .unwrap_or(raw_frame.meta.in_app);
+        let in_app = raw_frame.meta.in_app && !source.as_deref().is_some_and(is_dependency_source);
 
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
@@ -354,8 +351,41 @@ impl From<&RawJSFrame> for Frame {
     }
 }
 
+fn is_dependency_source(source: &str) -> bool {
+    source.contains("node_modules") || is_kotlin_compose_source(source)
+}
+
 #[cfg(test)]
 mod test {
+    use super::is_dependency_source;
+
+    #[test]
+    fn detects_dependency_sources() {
+        let cases = [
+            ("webpack:///app/node_modules/react/index.js", true),
+            (
+                "webpack:///app/../dependencies/compose/ui/src/commonMain/kotlin/androidx/compose/ui/Button.kt",
+                true,
+            ),
+            (
+                "webpack:///app/../dependencies/compose/ui/src/skikoMain/kotlin/androidx/compose/ui/RootNodeOwner.kt",
+                true,
+            ),
+            (
+                "webpack:///app/../dependencies/compose/resources/src/commonMain/kotlin/org/jetbrains/compose/resources/Resource.kt",
+                true,
+            ),
+            (
+                "webpack:///app/src/commonMain/kotlin/com/example/checkout/App.kt",
+                false,
+            ),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(is_dependency_source(source), expected, "{source}");
+        }
+    }
+
     #[test]
     fn source_ref_generation() {
         let frame = super::RawJSFrame {
