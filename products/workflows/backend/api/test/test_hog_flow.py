@@ -8,7 +8,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.management import call_command
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -535,6 +535,22 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert fresh_response.status_code == 200, fresh_response.json()
         assert HogFlow.objects.get(pk=flow_id).name == "Fresh edit"
+
+    def test_concurrent_lock_conflict_is_rejected_with_409(self):
+        flow_id = self._create_simple_flow()
+
+        # A second in-flight writer holds the row lock, so the NOWAIT re-fetch raises OperationalError.
+        # It must surface as a 409 the caller retries, not a 500 from the statement timeout.
+        locked_qs = MagicMock()
+        locked_qs.get.side_effect = OperationalError("could not obtain lock on row of relation posthog_hogflow")
+        with patch.object(HogFlow.objects, "select_for_update", return_value=locked_qs):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "Contended edit"},
+            )
+        assert response.status_code == 409, response.json()
+        assert response.json()["code"] == "concurrent_update", response.json()
+        assert HogFlow.objects.get(pk=flow_id).name != "Contended edit"
 
     def test_update_without_base_updated_at_is_not_gated(self):
         # Backwards compatible: callers that don't opt in to the base timestamp keep last-writer-wins.
