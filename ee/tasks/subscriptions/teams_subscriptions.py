@@ -27,10 +27,16 @@ TEAMS_WEBHOOK_URL_ERROR = (
 
 # Teams rejects an incoming webhook payload over roughly 28KB. Images are linked rather than
 # embedded, but an asset that failed to generate is sent as error text in place of its image, so a
-# run where several failed reaches that limit on text alone. This budget bounds the text the whole
-# card carries, leaving room for the JSON envelope, the image URLs and the actions.
+# run where several failed reaches that limit on text alone. This budget bounds the UTF-8 bytes of
+# text the whole card carries, which is the unit Teams measures the payload in, and leaves room for
+# the JSON envelope, the image URLs and the actions. Counting characters instead would let a card of
+# emoji or non-Latin text pass this check and still be rejected on the wire.
 TEAMS_CARD_TEXT_BUDGET = 20000
 _TRUNCATION_MARKER = "... (truncated)"
+
+
+def _byte_size(text: str) -> int:
+    return len(text.encode("utf-8"))
 
 
 def teams_text_block(text: str, *, is_subtle: bool = False) -> dict[str, Any]:
@@ -64,9 +70,11 @@ def teams_card_message(body: list[dict[str, Any]], actions: list[dict[str, str]]
 
 
 def _fit(text: str, budget: int) -> str:
-    if len(text) <= budget:
+    if _byte_size(text) <= budget:
         return text
-    return text[: max(budget - len(_TRUNCATION_MARKER), 0)] + _TRUNCATION_MARKER
+    keep = max(budget - _byte_size(_TRUNCATION_MARKER), 0)
+    # Slicing bytes can land inside a multi-byte character, so drop the partial one on decode.
+    return text.encode("utf-8")[:keep].decode("utf-8", errors="ignore") + _TRUNCATION_MARKER
 
 
 def _element_for_asset(asset: ExportedAsset, resource_url: str) -> dict[str, Any]:
@@ -117,25 +125,25 @@ def build_teams_subscription_card(
         title = f"Your subscription to {display_name} is ready! 🎉"
 
     body: list[dict[str, Any]] = [teams_text_block(title)]
-    remaining = TEAMS_CARD_TEXT_BUDGET - len(title)
+    remaining = TEAMS_CARD_TEXT_BUDGET - _byte_size(title)
 
     if change_summary:
         # The summary is LLM output over customer data, so it is defanged the same way the AI
         # report is before it reaches a surface that turns a URL into a link.
         summary = _fit(f"**AI summary**\n\n{strip_external_links_markdown(change_summary)}", remaining)
         body.append(teams_text_block(summary))
-        remaining -= len(summary)
+        remaining -= _byte_size(summary)
     elif summary_skipped_over_budget:
         billing_url = f"{absolute_uri('/organization/billing')}?{TEAMS_UTM_TAGS}"
         link = f"[Billing settings]({billing_url})"
         notice = f"_{summary_skipped_over_budget_message(link)}_"
         body.append(teams_text_block(notice, is_subtle=True))
-        remaining -= len(notice)
+        remaining -= _byte_size(notice)
 
     shown = 0
     for asset in assets:
         element = _element_for_asset(asset, resource_url=resource_info.url)
-        size = len(element.get("text", ""))
+        size = _byte_size(element.get("text", ""))
         # The first asset always goes in, so a card is never all notice and no content.
         if shown and size > remaining:
             break

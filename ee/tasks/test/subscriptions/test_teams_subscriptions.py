@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 
@@ -88,13 +90,21 @@ class TestTeamsSubscriptionCard(APIBaseTest):
 
         assert "evil.example.com" not in str(content)
 
-    def test_a_run_where_every_asset_failed_stays_inside_the_card_budget(self) -> None:
+    @parameterized.expand(
+        [
+            ("single_byte_error_text", "detail "),
+            # Three bytes per character, so a card that fits the budget by character count is over
+            # it by the byte count Teams measures.
+            ("multi_byte_error_text", "詳細 "),
+        ]
+    )
+    def test_a_run_where_every_asset_failed_stays_inside_the_card_budget(self, _label, filler) -> None:
         failed_assets = [
             ExportedAsset.objects.create(
                 team=self.team,
                 insight_id=self.insight.id,
                 export_format="image/png",
-                exception="Query timed out. " + "detail " * 1000,
+                exception="Query timed out. " + filler * 1000,
             )
             for _ in range(MAX_INSIGHTS)
         ]
@@ -103,6 +113,13 @@ class TestTeamsSubscriptionCard(APIBaseTest):
         body = card["attachments"][0]["content"]["body"]
         shown = sum(1 for element in body if "Query timed out." in element.get("text", ""))
 
-        assert sum(len(element.get("text", "")) for element in body) <= TEAMS_CARD_TEXT_BUDGET
+        assert sum(len(element.get("text", "").encode("utf-8")) for element in body) <= TEAMS_CARD_TEXT_BUDGET
         assert shown < MAX_INSIGHTS
         assert body[-1]["text"].startswith(f"Showing {shown} of {MAX_INSIGHTS} insights.")
+
+    def test_an_oversized_multi_byte_summary_is_truncated_within_the_byte_budget(self) -> None:
+        content = self._card_content(change_summary="詳" * TEAMS_CARD_TEXT_BUDGET)
+        summary = content["body"][1]["text"]
+
+        assert len(summary.encode("utf-8")) <= TEAMS_CARD_TEXT_BUDGET
+        assert summary.endswith("... (truncated)")
