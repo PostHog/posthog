@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -326,6 +337,7 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
   TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
@@ -355,8 +367,10 @@ export type {
   TaskCreationOutput,
 } from "./task-creation-domain";
 export {
+  formatAbsoluteDateTime,
   formatClockTime,
   formatDaySeparatorLabel,
+  formatRelativeAge,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   formatShortDayLabel,

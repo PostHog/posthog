@@ -2,7 +2,7 @@ import importlib
 import threading
 from datetime import timedelta
 from typing import Any, ClassVar
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +12,9 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
-from posthog.models import Integration, Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Integration, Organization, OrganizationMembership, Team
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.signals.backend.models import SignalTeamConfig
@@ -31,6 +33,8 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+
+from ee.models.rbac.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -905,6 +909,42 @@ class TestFacadeReadsAndMappers(TestCase):
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
 
+    @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
+    def test_create_task_names_from_naming_source_keeping_description_bare(self, mock_title):
+        # When a client pastes text (stored as an attachment), it sends the pasted content as
+        # naming_source so the title reads well, while description stays the bare prompt the
+        # agent — and the reload transcript dedup — expect.
+        mock_title.side_effect = lambda text: f"title:{text}"
+        dto = facade.create_task(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            validated_data={
+                "description": "Attached files: pasted-text.txt",
+                "naming_source": "Deploy blocks on a stale lockfile",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            },
+        )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.description, "Attached files: pasted-text.txt")
+        self.assertEqual(task.title, "title:Deploy blocks on a stale lockfile")
+        self.assertFalse(task.title_manually_set)
+        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile")
+
+    @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
+    def test_create_task_falls_back_to_description_without_naming_source(self, mock_title):
+        mock_title.side_effect = lambda text: f"title:{text}"
+        dto = facade.create_task(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            validated_data={
+                "description": "Fix the login redirect",
+                "origin_product": Task.OriginProduct.USER_CREATED,
+            },
+        )
+        task = Task.objects.get(id=dto.id)
+        self.assertEqual(task.title, "title:Fix the login redirect")
+        mock_title.assert_called_once_with("Fix the login redirect")
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):
         # The reconciler re-dispatches lost runs from the row alone, so the dispatch params
@@ -1401,3 +1441,223 @@ class TestSelfDrivingQuotaRefreshDispatch(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             facade._refresh_self_driving_quota_for_pr(run, None)
         task_mock.delay.assert_not_called()
+
+
+class TestApplyTaskRunModelConfig(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Config Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Config Team")
+        cls.user = User.objects.create(email="config@test.com", distinct_id="config-distinct")
+
+    def _run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="A task",
+            description="desc",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+            repository="posthog/posthog",
+        )
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"runtime_adapter": "claude", "model": "claude-sonnet-4-6", "sandbox_url": "https://sandbox"},
+        )
+
+    def _apply(self, run: TaskRun, **kwargs) -> bool:
+        return facade.apply_task_run_model_config(run.id, run.task_id, self.team.id, **kwargs)
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_sends_the_model_before_the_effort_and_records_both(self, send_mock):
+        # Which efforts exist depends on the model, so the agent-server has to see the
+        # model change first or it validates the effort against the outgoing one.
+        send_mock.return_value = MagicMock(success=True)
+        run = self._run()
+
+        applied = self._apply(run, model="claude-fable-5", reasoning_effort="xhigh")
+
+        self.assertTrue(applied)
+        self.assertEqual(
+            [(c.args[1], c.args[2]) for c in send_mock.call_args_list],
+            [("model", "claude-fable-5"), ("effort", "xhigh")],
+        )
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-fable-5")
+        self.assertEqual(run.state["reasoning_effort"], "xhigh")
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_rejected_model_leaves_the_effort_alone(self, send_mock):
+        # The agent-server rejects a model its harness can't drive. Sending the effort
+        # anyway would half-apply a single request onto the model the author didn't ask for.
+        send_mock.return_value = MagicMock(success=False, error="Invalid value for config option model")
+        run = self._run()
+
+        applied = self._apply(run, model="gpt-5.6-sol", reasoning_effort="xhigh")
+
+        self.assertFalse(applied)
+        self.assertEqual(send_mock.call_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.state["model"], "claude-sonnet-4-6")
+        self.assertNotIn("reasoning_effort", run.state)
+
+    @patch("products.tasks.backend.facade.api.get_model_access_error", return_value="'x' is not available.")
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_a_gated_model_never_reaches_the_sandbox(self, send_mock, _access_mock):
+        run = self._run()
+
+        self.assertFalse(self._apply(run, model="claude-fable-5", actor_user_id=self.user.id))
+        send_mock.assert_not_called()
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_set_config_option")
+    def test_nothing_to_change_is_not_a_sandbox_call(self, send_mock):
+        self.assertFalse(self._apply(self._run()))
+        send_mock.assert_not_called()
+
+
+class TestDesktopUsersInTeam(TestCase):
+    def test_someone_who_left_the_organization_is_not_welcomed(self) -> None:
+        organization = Organization.objects.create(name="Members Org")
+        team = Team.objects.create(organization=organization, name="Project")
+        arriving = User.objects.create(email="arriving@test.com", distinct_id="arriving")
+        staying = User.objects.create(email="staying@test.com", distinct_id="staying")
+        leaving = User.objects.create(email="leaving@test.com", distinct_id="leaving")
+        for user in (arriving, staying, leaving):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+
+        OrganizationMembership.objects.filter(organization=organization, user=leaving).delete()
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == ["staying"]
+
+    def test_a_space_from_before_system_role_still_counts_as_a_member(self) -> None:
+        organization = Organization.objects.create(name="Legacy Org")
+        team = Team.objects.create(organization=organization, name="Project")
+        arriving = User.objects.create(email="arriving2@test.com", distinct_id="arriving2")
+        settled = User.objects.create(email="settled@test.com", distinct_id="settled")
+        for user in (arriving, settled):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+        # system_role is stamped lazily, so a space nobody has opened Desktop on since the field
+        # landed still carries NULL.
+        with team_scope(team.id):
+            Channel.objects.filter(team_id=team.id, created_by=settled).update(system_role=None)
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == ["settled"]
+
+    def test_someone_without_private_project_access_is_not_welcomed(self) -> None:
+        organization = Organization.objects.create(name="Private Project Org")
+        team = Team.objects.create(organization=organization, name="Private Project")
+        arriving = User.objects.create(email="arriving-private@test.com", distinct_id="arriving-private")
+        revoked = User.objects.create(email="revoked@test.com", distinct_id="revoked")
+        for user in (arriving, revoked):
+            OrganizationMembership.objects.create(organization=organization, user=user)
+            with team_scope(team.id):
+                facade.provision_default_channels(team.id, user.id)
+
+        organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        organization.save(update_fields=["available_product_features"])
+        OrganizationMembership.objects.filter(organization=organization, user=arriving).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        AccessControl.objects.create(
+            team=team,
+            resource="project",
+            resource_id=str(team.id),
+            access_level="none",
+        )
+
+        with team_scope(team.id):
+            names = facade.desktop_users_in_team(team, arriving.id)
+
+        assert names == []
+
+
+class TestOrganizationHasContext(TestCase):
+    organization: ClassVar[Organization]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        cls.organization = Organization.objects.create(name="Context Org")
+        cls.user = User.objects.create(email="context@test.com", distinct_id="context-distinct")
+
+    def _team(self, name: str) -> Team:
+        return Team.objects.create(organization=self.organization, name=name)
+
+    def _provision_general(self, team: Team) -> UUID:
+        with team_scope(team.id):
+            facade.provision_default_channels(team.id, self.user.id)
+            channel_id = facade.find_general_channel_id(team.id)
+        assert channel_id is not None
+        return channel_id
+
+    def _publish_general(self, team: Team, content: str) -> None:
+        channel_id = self._provision_general(team)
+        with team_scope(team.id):
+            facade.publish_channel_instructions(channel_id, team.id, self.user.id, content=content)
+
+    def test_a_general_space_from_before_system_role_still_carries_context(self) -> None:
+        team = self._team("Legacy project")
+        self._publish_general(team, "We make climbing gear.")
+        # Same lazy stamping as personal spaces: an org-wide read that only matched the stamped
+        # shape would rescrape and re-ask a company that has already answered.
+        with team_scope(team.id):
+            Channel.objects.filter(team_id=team.id).update(system_role=None)
+
+        self.assertTrue(facade.organization_has_context(self.organization.id))
+
+    @parameterized.expand([("no_general_space", False), ("blank_general_space", True)])
+    def test_context_in_one_team_answers_for_the_whole_org(self, _name: str, provision_sibling: bool) -> None:
+        # The context-less project is created first so the scan reaches it before the one
+        # holding the context: a per-project answer would stop there and report "no".
+        sibling = self._team("Project A")
+        if provision_sibling:
+            self._provision_general(sibling)
+        self._publish_general(self._team("Project B"), "We make climbing gear.")
+
+        self.assertTrue(facade.organization_has_context(self.organization.id))
+
+    @parameterized.expand(
+        [
+            ("no_general_space", "none"),
+            ("general_space_never_published", "provisioned"),
+            ("published_instructions_are_blank", "blank"),
+        ]
+    )
+    def test_returns_false_without_usable_instructions(self, _name: str, setup: str) -> None:
+        team = self._team("Project A")
+        if setup == "provisioned":
+            self._provision_general(team)
+        elif setup == "blank":
+            self._publish_general(team, "   \n")
+
+        self.assertFalse(facade.organization_has_context(self.organization.id))
+
+    def test_another_organizations_context_does_not_count(self) -> None:
+        self._provision_general(self._team("Project A"))
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Project")
+        with team_scope(other_team.id):
+            facade.provision_default_channels(other_team.id, self.user.id)
+            other_channel = facade.find_general_channel_id(other_team.id)
+            assert other_channel is not None
+            facade.publish_channel_instructions(other_channel, other_team.id, self.user.id, content="They make bikes.")
+
+        self.assertFalse(facade.organization_has_context(self.organization.id))
+        self.assertTrue(facade.organization_has_context(other_org.id))
