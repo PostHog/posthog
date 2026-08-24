@@ -8,6 +8,7 @@
 import { parentPort } from 'node:worker_threads'
 
 import { UndecodableImageError } from './blur.ts'
+import { ImageOptOutError } from './image-input.ts'
 import { advancedScrub, loadModels } from './scrub.ts'
 import { type ScrubJob, type ScrubReply } from './worker-protocol.ts'
 
@@ -41,7 +42,12 @@ port.on('message', (job: ScrubJob) => {
                 id: job.id,
                 failure: {
                     message: error instanceof Error ? error.message : String(error),
-                    undecodable: error instanceof UndecodableImageError,
+                    kind:
+                        error instanceof ImageOptOutError
+                            ? 'opt-out'
+                            : error instanceof UndecodableImageError
+                              ? 'undecodable'
+                              : 'failed',
                 },
             } satisfies ScrubReply)
         })
