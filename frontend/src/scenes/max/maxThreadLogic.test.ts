@@ -1897,6 +1897,22 @@ describe('maxThreadLogic', () => {
             expect(names).not.toContain(SlashCommandName.SlashTicket)
         })
 
+        it('hides every command for a new conversation with the sandbox toggle on', () => {
+            // No conversation row yet, so `agent_runtime` is unknown — the toggle is the only runtime signal.
+            logic.actions.setIsSandboxMode(true)
+            maxLogicInstance.actions.setQuestion('')
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                created_at: dayjs().toISOString(),
+            } as OrganizationType)
+            expect(logic.values.conversation).toBeNull()
+            const names = logic.values.filteredCommands.map((c) => c.name)
+            expect(names).not.toContain(SlashCommandName.SlashInit)
+            expect(names).not.toContain(SlashCommandName.SlashRemember)
+            expect(names).not.toContain(SlashCommandName.SlashUsage)
+            expect(names).not.toContain(SlashCommandName.SlashFeedback)
+            expect(names).not.toContain(SlashCommandName.SlashTicket)
+        })
+
         it('keeps the core-memory commands for langgraph conversations', async () => {
             setRuntime('langgraph')
             const names = logic.values.filteredCommands.map((c) => c.name)

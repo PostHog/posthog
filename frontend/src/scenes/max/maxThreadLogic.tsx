@@ -2862,16 +2862,19 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation, s.canCreateTicket],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.conversation, s.canCreateTicket, s.isSandboxMode],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
                 threadLoading: boolean,
                 conversation: Conversation | null,
-                canCreateTicket: boolean
+                canCreateTicket: boolean,
+                isSandboxMode: boolean
             ): SlashCommand[] => {
-                // Sandbox runtime drops core-memory commands; LangGraph keeps the full set.
-                const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
+                // Sandbox runtime drops core-memory commands; LangGraph keeps the full set. A brand-new
+                // conversation has no `agent_runtime` yet, so also honor the sandbox toggle — otherwise
+                // the commands stay visible until the first message stamps the runtime.
+                const isSandboxRuntime = conversation?.agent_runtime === 'sandbox' || isSandboxMode
 
                 return MAX_SLASH_COMMANDS.filter(
                     (command) =>
