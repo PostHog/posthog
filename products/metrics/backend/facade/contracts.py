@@ -192,6 +192,20 @@ class MetricEventSample:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricErrorSpike:
+    """An Error Tracking issue spike detected in a time window.
+
+    PoC for the metrics chart's error-spike overlay: team-wide, not yet
+    scoped to a specific metric's service (Error Tracking issues carry no
+    service attribution today — see METRICS_ERROR_OVERLAY_PLAN.md).
+    """
+
+    detected_at: str  # ISO 8601
+    issue_id: str
+    issue_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CompanionMetric:
     """A metric to check alongside the primary one to confirm or rule out a
     cause. `role` is a short hint ('traffic', 'saturation', 'processing') shown

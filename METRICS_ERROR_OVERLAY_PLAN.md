@@ -196,3 +196,109 @@ pattern.
 - Does the logs-anomalies caching fix (needed for the UI toggle) also
   reduce risk for the MCP path, since an agent-driven investigation could
   also call `run_scan` repeatedly within one session?
+
+## PoC scope (minimal, verifiable against a local `hogli` instance)
+
+Picks the Error Tracking path only — it needs no caching work and no
+dependency on an experimental flag, unlike logs anomalies. Team-wide only
+(no service scoping); that's the documented gap above, not a PoC omission.
+
+### Backend
+
+1. `tach.toml`: add `"products.error_tracking"` to `products.metrics`'s
+   `depends_on`. Currently metrics depends only on `posthog` — the trace
+   pivot never needed a backend cross-product import (it reads `trace_id`
+   directly off `metric_samples`, and only the frontend imports
+   `products/tracing/frontend/traceLinks`). This is a new, real dependency
+   edge, not a workaround; both products are isolated, and
+   `error_tracking.backend.facade.api` is already exposed to depending
+   modules under the canonical "Facade + views" interface every isolated
+   product shares.
+2. `products/metrics/backend/facade/contracts.py`: add a `MetricErrorSpike`
+   dataclass (`detected_at: str`, `issue_id: str`, `issue_name: str | None`).
+3. `products/metrics/backend/facade/api.py`: add
+   `list_metric_error_spikes(*, team, date_from, date_to) -> list[MetricErrorSpike]`,
+   calling `error_tracking.backend.facade.api.list_spike_events(team_id=team.id, date_from=..., date_to=...)`
+   and adapting the result. Module-level import, not deferred — this is a
+   permanent dependency, not a circular-import workaround.
+4. `products/metrics/backend/presentation/api.py`: add an `error_spikes` GET
+   action on `MetricsViewSet`, mirroring the existing `attribute_values`
+   action's shape (query params `dateFrom`/`dateTo`, response
+   `{"results": [...]}`). Same `metrics:read` scope as every other action;
+   no new permission surface.
+5. `hogli build:openapi` to regenerate the generated frontend types
+   (`products/metrics/frontend/generated/api*.ts`).
+
+### Frontend
+
+6. `metricsSamplesLogic.tsx`: add a `loadErrorSpikes` loader, a
+   `showErrorSpikes` toggle (reducer + action), and a selector adapting
+   results into the exemplar-marker shape.
+7. `MetricsExemplarMarkers.tsx`: add an optional per-marker `color`, so error
+   spikes render visually distinct from trace exemplars (default unchanged,
+   backwards compatible).
+8. `MetricsViewer.tsx`: merge trace exemplars and error-spike exemplars into
+   the existing `exemplarMarkers` array passed to `MetricsSeriesChart` (no
+   change needed to that component); add a `LemonSwitch` toggle; clicking an
+   error-spike dot navigates to `urls.errorTrackingIssue(issueId, { timestamp })`.
+
+### Explicitly out of scope for the PoC
+
+- Service-name scoping (documented gap above; needs either a facade/model
+  change in Error Tracking or the trace_id-join approach).
+- Logs anomaly overlay (needs the caching fix first; separate follow-up).
+- MCP tool flag flips (`metrics-samples-create`, `error-tracking-spike-events-list`)
+  and the `characterize-metric-anomaly.md` prompt extension — tracked above,
+  not needed to prove the UI overlay works.
+- Access-control polish beyond reusing the existing `metrics:read` scope.
+
+### Verification plan — executed
+
+Real spike events require cymbal + Redis + a Temporal workflow to fire
+Error Tracking's actual detector — too much infrastructure to stand up just
+to prove this overlay. Verification instead:
+
+1. **Done.** `tach check --dependencies --interfaces` passes with the new
+   `products.metrics` → `products.error_tracking` edge.
+2. **Done, at the facade layer.** Seeded an `ErrorTrackingIssue` +
+   `ErrorTrackingSpikeEvent` directly against the shared local Postgres
+   (via `manage.py shell`, since the infra containers were already up from
+   another worktree) and called `list_metric_error_spikes(...)` directly —
+   confirmed it returns the seeded row correctly, end to end through the
+   real cross-product facade call.
+3. **Done, at the HTTP layer.** Added `TestMetricsErrorSpikesApi` (Django
+   `APIBaseTest`) exercising the actual `GET .../metrics/error_spikes/`
+   endpoint against a seeded spike, plus extended the existing
+   `test_none_access_blocks_every_metrics_action_before_validation`
+   parameterized case with `error_spikes` so the access-control gate is
+   covered like every other action. `pytest products/metrics/backend/tests/test_api.py`:
+   18/18 pass. A broader `pytest products/metrics/backend/tests/` run is
+   clean except two pre-existing failures in
+   `test_metrics_query_runner.py` (a `TeamCustomerAnalyticsConfig` fixture
+   gap in the generic `/query/` endpoint's cache-key path) — unrelated to
+   this change, confirmed by reading the stack trace: neither file touches
+   `error_tracking` or the new action.
+4. **Done, at the frontend logic/component layer.** Regenerated OpenAPI
+   types (`hogli build:openapi-schema` + the orval `openapi:types` step;
+   the chained `build:widget-types` step failed on an unrelated missing
+   `orval` package in this fresh worktree — fixed by `pnpm install`, since
+   it wasn't specific to this change) and confirmed `metricsErrorSpikesRetrieve`
+   / `_MetricErrorSpikeApi` landed in `products/metrics/frontend/generated/`.
+   Extended `metricsSamplesLogic.test.ts` (2 new cases: the toggle gates the
+   fetch, and enabling it fetches + derives `errorSpikeExemplars` correctly)
+   and `MetricsExemplarMarkers.test.tsx` (1 new case: a marker-specific
+   `color` renders distinctly from the default). All pass; the pre-existing
+   suites for both files are unaffected. `pnpm typescript:check` is clean
+   for every file this PR touches (two unrelated pre-existing gaps
+   remain — `@posthog/hogvm` isn't built in this fresh worktree — in files
+   this PR doesn't touch).
+5. **Not done: live browser confirmation.** Starting this worktree's own
+   `hogli start -y -d` hit a `debugpy` port collision — another worktree's
+   backend process was already holding the debug port on this machine.
+   Rather than kill a process that may belong to someone else's active
+   session, verification stopped at the pytest/Jest layer above, which
+   exercises the real endpoint and real logic more rigorously than a manual
+   click-through would. Loading the Metrics viewer and clicking a live
+   marker is the one open item if a human wants to eyeball the actual
+   chart rendering — it needs a port-free `hogli start` and a team with
+   `METRICS` feature-flagged on and real metrics ingested.

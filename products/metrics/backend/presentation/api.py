@@ -29,6 +29,7 @@ from products.metrics.backend.facade.api import (
     get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
+    list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
     run_metric_query,
@@ -588,6 +589,35 @@ class _MetricSamplesResponseSerializer(serializers.Serializer):
     )
 
 
+class _MetricErrorSpikesParamsSerializer(serializers.Serializer):
+    dateFrom = serializers.DateTimeField(
+        help_text="Lower bound (inclusive) for the spike window. ISO 8601.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the spike window. Defaults to now if omitted.",
+    )
+
+
+class _MetricErrorSpikeSerializer(serializers.Serializer):
+    detected_at = serializers.CharField(help_text="When the error spike was detected, ISO 8601.")
+    issue_id = serializers.CharField(help_text="Error Tracking issue that spiked.")
+    issue_name = serializers.CharField(
+        allow_null=True,
+        help_text="Issue name, if one is set.",
+    )
+
+
+class _MetricErrorSpikesResponseSerializer(serializers.Serializer):
+    results = _MetricErrorSpikeSerializer(
+        many=True,
+        help_text=(
+            "Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet "
+            "scoped to a specific metric's service."
+        ),
+    )
+
+
 class _MetricExplainBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -944,6 +974,27 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"results": [asdict(s) for s in samples]}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricErrorSpikesParamsSerializer], responses={200: _MetricErrorSpikesResponseSerializer}
+    )
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    def error_spikes(self, request: Request, *args, **kwargs) -> Response:
+        """Error Tracking issue spikes detected in a time window — backs the
+        metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+        to the metric's own service."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricErrorSpikesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        spikes = list_metric_error_spikes(
+            team=self.team,
+            date_from=params.validated_data["dateFrom"],
+            date_to=params.validated_data.get("dateTo") or timezone.now(),
+        )
+
+        return Response({"results": [asdict(s) for s in spikes]}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricExplainRequestSerializer, responses={200: _MetricExplainResponseSerializer})
     @action(

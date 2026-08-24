@@ -6,6 +6,15 @@ import { dimensions, makeOverlayContext, renderOverlayInChart } from '@posthog/q
 
 import { MetricsExemplarMarkers } from './MetricsExemplarMarkers'
 
+// jsdom has no stylesheet to resolve real color vars from, so both tokens would
+// otherwise fall back to the same value — mock the lookup so per-marker colors
+// (e.g. error spikes using 'danger') are distinguishable in assertions below.
+// jsdom's style setter rejects `var(...)` as an inline value, so map to plain
+// hex colors instead of round-tripping the token name.
+jest.mock('lib/colors', () => ({
+    getColorVar: (variable: string) => (variable === 'danger' ? '#ff0000' : '#0000ff'),
+}))
+
 // Three hourly buckets, laid out 100px apart, so an interpolated x is checkable by eye.
 const BUCKETS = ['2026-08-01T10:00:00Z', '2026-08-01T11:00:00Z', '2026-08-01T12:00:00Z']
 const BUCKET_X: Record<string, number> = { [BUCKETS[0]]: 100, [BUCKETS[1]]: 200, [BUCKETS[2]]: 300 }
@@ -77,6 +86,26 @@ describe('MetricsExemplarMarkers', () => {
         renderMarkers([BUCKETS[1]], onClick)
         fireEvent.click(screen.getByTestId('metrics-exemplar-marker'))
         expect(onClick).toHaveBeenCalledTimes(1)
+    })
+
+    // Regression: error-spike markers sharing this overlay with trace exemplars
+    // must render in their own color, or the two kinds become visually identical.
+    it('uses a marker-specific color when provided, and the default otherwise', () => {
+        renderOverlayInChart(
+            <MetricsExemplarMarkers
+                exemplars={[
+                    { timeMs: Date.parse(BUCKETS[0]), onClick: jest.fn() },
+                    { timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn(), color: 'danger' },
+                ]}
+            />,
+            makeOverlayContext(
+                { x: (label) => BUCKET_X[label], y: (value) => value, yTicks: () => [] },
+                { labels: BUCKETS }
+            )
+        )
+        const [defaultDot, coloredDot] = screen.getAllByTestId('metrics-exemplar-marker')
+        expect(defaultDot.style.borderColor).toBe('#0000ff')
+        expect(coloredDot.style.borderColor).toBe('#ff0000')
     })
 
     it('renders nothing when the chart has no buckets yet', () => {
