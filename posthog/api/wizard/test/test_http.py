@@ -659,6 +659,7 @@ class SetupWizardGatewayTokenThrottleTests(APIBaseTest):
     WIZARD_GATEWAY_MINT_KEY="phs_wizard_mint",
     WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com",
     WIZARD_GATEWAY_CLIENT_IDS=["wizard-client-id"],
+    WIZARD_GATEWAY_PROGRAM_IDS=["integration"],
 )
 class SetupWizardGatewayTokenTests(APIBaseTest):
     GATEWAY_TOKEN_URL = "/api/wizard/gateway_token"
@@ -691,7 +692,9 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_mints_for_scoped_oauth_token(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
 
-        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         body = response.json()
@@ -699,10 +702,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert body["expires_at"] == self.MINTED["expires_at"]
         assert body["gateway_url"] == "https://ai-gateway.us.posthog.com"
         assert body["team_id"] == self.team.id
-        # The mint pins obo to the org and user to the acting identity.
+        # The mint pins obo to the org, user to the acting identity, and the product
+        # to the run's program.
         assert mock_mint.call_args.kwargs == {
             "obo": str(self.team.organization_id),
             "user": str(self.user.distinct_id),
+            "product": "wizard:integration",
         }
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -766,5 +771,32 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_mint_failure_is_503(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
-        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_unlisted_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+        # The allowlist is authoritative. Folding an unlisted program into a generic
+        # node would bill it as plain wizard spend and leave it unbudgeted.
+        self._mock_oauth(mock_authentication)
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "invented"}, headers={"authorization": "Bearer pha_test"}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_missing_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+        # A CLI that names no program cannot mint: there is no node to pin it to.
+        self._mock_oauth(mock_authentication)
+        response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_mint.assert_not_called()

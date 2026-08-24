@@ -76,7 +76,8 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/not_wizard_app/"
-    "scope_missing/team_ambiguous/team_missing/unauthorized/not_rolled_out/mint_failed)",
+    "scope_missing/team_ambiguous/team_missing/unauthorized/program_unknown/not_rolled_out/"
+    "mint_failed)",
     labelnames=["outcome"],
 )
 
@@ -474,9 +475,12 @@ class SetupWizardViewSet(viewsets.ViewSet):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_rolled_out").inc()
             raise exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization.")
 
-        # The caller names its program; the resolver decides what gets pinned, so a
-        # program outside the configured set spends under the parent node.
+        # The caller names its program; the configured set decides whether it may be
+        # pinned. Refusing keeps every pinned node one that carries a budget.
         product = wizard_product_node(request.data.get("program") if isinstance(request.data, dict) else None)
+        if product is None:
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
+            raise exceptions.ValidationError("Unrecognized wizard program.")
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
         except WizardGatewayMintError as e:

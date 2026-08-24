@@ -37,18 +37,20 @@ _CAP_QUANTUM = Decimal("0.000001")
 WIZARD_PRODUCT = "wizard"
 
 
-def wizard_product_node(program: str | None) -> str:
-    """The product node to pin for a run: `wizard:<program>`, or bare `wizard`.
+def wizard_product_node(program: str | None) -> str | None:
+    """The product node to pin for a run, or None when this is not a program
+    Django knows.
 
-    An unrecognized program degrades to the parent instead of being pinned as
-    sent. Gateway budgets match a node value exactly and skip a value with no
-    budget row, so pinning a caller-supplied program would let a caller name an
-    unbudgeted node and spend without a ceiling. Degrading also keeps a program
-    the CLI ships before this list knows it running, under the parent's budget.
+    The setting is authoritative: an unrecognized program is refused rather than
+    folded into a generic node. Gateway budgets match a node value exactly, so
+    folding would report a new program's spend as plain wizard spend and leave the
+    program itself with no budget of its own, and the drift would be silent. A
+    refusal is visible in the mint outcome counter, and the CLI reads any non-200
+    as "stay on the legacy gateway", so runs continue while the list is updated.
     """
     if program and program in set(settings.WIZARD_GATEWAY_PROGRAM_IDS):
         return f"{WIZARD_PRODUCT}:{program}"
-    return WIZARD_PRODUCT
+    return None
 
 
 WIZARD_GATEWAY_MINTS = Counter(

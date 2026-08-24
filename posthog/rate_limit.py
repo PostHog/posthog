@@ -1074,7 +1074,9 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
             program = request.data.get("program") if isinstance(request.data, dict) else None
         except Exception:
             program = None
-        ident = f"{ident}|{wizard_product_node(program)}"
+        # One shared bucket for anything unrecognized: a per-name bucket would hand
+        # out a fresh quota for every invented program, even though each is refused.
+        ident = f"{ident}|{wizard_product_node(program) or 'unknown-program'}"
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 

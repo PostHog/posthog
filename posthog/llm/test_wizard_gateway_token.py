@@ -190,14 +190,14 @@ class TestWizardProductNode:
         assert wizard_product_node("audit") == "wizard:audit"
 
     @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration"])
-    def test_an_unknown_program_degrades_to_the_parent(self):
-        # Not rejected: the parent node carries a budget, an invented one would
-        # carry none, and gateway budgets skip a node with no budget row.
-        assert wizard_product_node("../../etc") == "wizard"
-        assert wizard_product_node("not-a-program") == "wizard"
-        assert wizard_product_node("") == "wizard"
-        assert wizard_product_node(None) == "wizard"
+    def test_an_unknown_program_is_refused(self):
+        # No fold to a generic node: that would bill a new program as plain wizard
+        # spend and leave the program with no budget of its own, silently.
+        assert wizard_product_node("../../etc") is None
+        assert wizard_product_node("not-a-program") is None
+        assert wizard_product_node("") is None
+        assert wizard_product_node(None) is None
 
     @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=[])
-    def test_no_configured_programs_pins_the_parent(self):
-        assert wizard_product_node("audit") == "wizard"
+    def test_no_configured_programs_refuses_every_program(self):
+        assert wizard_product_node("audit") is None
