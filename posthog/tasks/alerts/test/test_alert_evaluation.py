@@ -9,6 +9,7 @@ from posthog.schema import (
     ChartDisplayType,
     DateRange,
     EventsNode,
+    IntervalType,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -80,13 +81,16 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_hourly_alert_on_single_number_insight_outlives_its_cache(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
-        # A single-number insight carries the schema's default `day` interval however short its date
-        # range, and its check reuses the insight's own query (so the same cache entry). That bought
-        # a cached value a six-hour staleness window, and an hourly check kept re-reading a number
-        # from hours earlier. The cadence ceiling is what forces the recompute.
+        # A single-number display discards the configured interval for `day` (TrendsQueryRunner
+        # .query_date_range), so this minute-interval, one-hour insight lands on day's six-hour
+        # staleness window. Its check reuses the insight's own query, so both read that one cached
+        # entry and an hourly check kept re-reading a number from hours earlier. The interval is
+        # explicitly `minute` here to pin that the configured value does not save it: only the
+        # cadence ceiling forces the recompute.
         query_dict = TrendsQuery(
             series=[EventsNode(event="$exception")],
             trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+            interval=IntervalType.MINUTE,
             dateRange=DateRange(date_from="-1h"),
         ).model_dump()
         insight = self.dashboard_api.create_insight(data={"name": "errors last hour", "query": query_dict})[1]
