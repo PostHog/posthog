@@ -1,5 +1,5 @@
 import { Text } from "@components/text";
-import { TouchableOpacity, View } from "react-native";
+import { Pressable, View } from "react-native";
 
 interface ConsentErrorProps {
   onRetry: () => void;
@@ -15,14 +15,14 @@ export function ConsentError({ onRetry }: ConsentErrorProps) {
         Check your connection and try again. If it keeps happening, contact
         support.
       </Text>
-      <TouchableOpacity
-        className="mt-1 items-center rounded-lg bg-accent-9 py-3"
+      <Pressable
+        className="mt-1 items-center rounded-lg bg-accent-9 py-3 active:opacity-80"
         onPress={onRetry}
       >
         <Text className="font-semibold text-accent-contrast text-sm">
           Retry
         </Text>
-      </TouchableOpacity>
+      </Pressable>
     </View>
   );
 }

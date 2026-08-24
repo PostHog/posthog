@@ -4,12 +4,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { usePostHog } from "posthog-react-native";
-import {
-  ActivityIndicator,
-  ScrollView,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore, useUserQuery } from "@/features/auth";
 import { ConsentError } from "@/features/consent/components/ConsentError";
@@ -82,14 +77,12 @@ export default function ConsentScreen() {
         )}
       </ScrollView>
       <View className="flex-row items-center justify-between px-6 pb-4">
-        <TouchableOpacity
-          onPress={() => openExternalUrl(EXTERNAL_LINKS.discord)}
-        >
+        <Pressable onPress={() => openExternalUrl(EXTERNAL_LINKS.discord)}>
           <Text className="text-gray-11 text-sm">Get support</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleLogout}>
+        </Pressable>
+        <Pressable onPress={handleLogout}>
           <Text className="text-gray-11 text-sm">Log out</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </SafeAreaView>
   );

@@ -1,6 +1,6 @@
 import { Text } from "@components/text";
 import { useState } from "react";
-import { ActivityIndicator, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
 
@@ -137,14 +137,14 @@ function ConsentCard({
       </View>
       <Text className="text-gray-11 text-sm leading-5">{detail}</Text>
       {link && (
-        <TouchableOpacity onPress={() => openExternalUrl(link.url)}>
+        <Pressable onPress={() => openExternalUrl(link.url)}>
           <Text className="text-accent-11 text-sm">{link.label}</Text>
-        </TouchableOpacity>
+        </Pressable>
       )}
       {isAdmin ? (
-        <TouchableOpacity
+        <Pressable
           className={`mt-1 items-center rounded-lg py-3 ${
-            isDisabled ? "bg-gray-7" : "bg-accent-9"
+            isDisabled ? "bg-gray-7" : "bg-accent-9 active:opacity-80"
           }`}
           onPress={onAccept}
           disabled={isDisabled}
@@ -156,7 +156,7 @@ function ConsentCard({
               {actionLabel}
             </Text>
           )}
-        </TouchableOpacity>
+        </Pressable>
       ) : (
         <Text className="text-gray-11 text-sm">{adminHelp}</Text>
       )}
