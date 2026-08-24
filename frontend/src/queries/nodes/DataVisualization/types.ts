@@ -10,6 +10,18 @@ export type ColumnScalar =
     | 'ARRAY'
     | 'UNKNOWN'
 
+export interface ColumnType {
+    name: ColumnScalar
+    isNumerical: boolean
+}
+
+export interface Column {
+    name: string
+    type: ColumnType
+    label: string
+    dataIndex: number
+}
+
 export interface FormattingTemplate {
     id: string
     label: string
