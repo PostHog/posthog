@@ -7101,7 +7101,7 @@
         }
     },
     "logs-services-create": {
-        "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
+        "description": "Return one page of services by log volume in the window, each with log_count, error_count, and error_rate, plus a sparkline for the first 25 services of the first page. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts. A page holds 100 services by default; when hasMore is true, request the next page with offset.",
         "category": "Logs",
         "feature": "logs",
         "summary": "List services with stats",

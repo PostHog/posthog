@@ -8,14 +8,18 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.http import HttpResponse
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend import services_query_runner
-from products.logs.backend.services_query_runner import rule_could_apply_to_service
+from products.logs.backend.presentation.views.api import LogsViewSet
+from products.logs.backend.services_query_runner import ServicesPageParams, rule_could_apply_to_service
 
 
 def _wrap(inner: dict) -> dict:
@@ -184,7 +188,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
 
     def _post_services(
         self, date_from: str, date_to: str, service_name_search: str | None = None, **query_extra: Any
-    ) -> Response:
+    ) -> HttpResponse:
         query: dict[str, Any] = {
             "dateRange": {"date_from": date_from, "date_to": date_to},
             "severityLevels": [],
@@ -204,7 +208,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
     ) -> dict:
         response = self._post_services(date_from, date_to, service_name_search, **query_extra)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()
+        return json.loads(response.content)
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_services_honors_sub_day_date_range(self):
@@ -312,7 +316,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual({s["service_name"] for s in result["services"]}, expected_names)
         self.assertEqual(result["total_services"], len(expected_names))
 
-    def test_offset_pagination_walks_every_row_once(self):
+    def test_offset_pagination_walks_every_row_once(self) -> None:
         full = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
         self.assertFalse(full["hasMore"])
 
@@ -330,7 +334,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         walked = [s["service_name"] for p in pages for s in p["services"]]
         self.assertEqual(walked, [s["service_name"] for s in full["services"]])
 
-    def test_later_pages_share_stays_global_and_skip_sparkline_and_summary(self):
+    def test_later_pages_share_stays_global_and_skip_sparkline_and_summary(self) -> None:
         full = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
         share_by_name = {s["service_name"]: s["volume_share_pct"] for s in full["services"]}
 
@@ -365,7 +369,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(keys), 12)
         self.assertEqual(keys, sorted(keys, reverse=reverse))
 
-    def test_offset_past_the_reachability_cap_returns_an_empty_page(self):
+    def test_offset_past_the_reachability_cap_returns_an_empty_page(self) -> None:
         result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", limit=10, offset=10000)
 
         self.assertEqual(result["services"], [])
@@ -374,6 +378,13 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result["total_services"], 0)
         self.assertNotIn("summary", result)
 
+    def test_invalid_pagination_params_reach_the_validator(self) -> None:
+        response = self._post_services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", limit=1001)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestServicesPageParams(SimpleTestCase):
     @parameterized.expand(
         [
             ("limit_zero", {"limit": 0}),
@@ -386,10 +397,21 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
             ("unknown_order_direction", {"orderDirection": "up"}),
         ]
     )
-    def test_invalid_pagination_params_are_rejected(self, _name: str, extra: dict):
-        response = self._post_services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z", **extra)
+    def test_invalid_page_params_are_rejected(self, _name: str, extra: dict[str, Any]) -> None:
+        with self.assertRaises(ValidationError):
+            LogsViewSet._services_page_params(extra)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_null_page_params_read_as_omitted(self) -> None:
+        params = LogsViewSet._services_page_params(
+            {"limit": None, "offset": None, "orderBy": None, "orderDirection": None}
+        )
+
+        self.assertEqual(params, ServicesPageParams())
+
+    def test_non_page_body_keys_are_ignored(self) -> None:
+        params = LogsViewSet._services_page_params({"dateRange": {"date_from": "-1h"}, "limit": 5})
+
+        self.assertEqual(params, ServicesPageParams(limit=5))
 
 
 if __name__ == "__main__":

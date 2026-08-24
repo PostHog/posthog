@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from functools import cached_property
 from typing import Any, Literal
 
@@ -181,21 +182,20 @@ SERVICES_MAX_PAGE_LIMIT = 1000
 SPARKLINE_SERVICES_LIMIT = 25
 
 ServicesOrderBy = Literal["log_count", "service_name", "error_rate"]
+# Uppercase to match the orderDirection convention shared by error tracking,
+# tracing, and dashboard widgets; the generated OrderDirectionEnum is one
+# schema-wide component, so a differing case here would fork it.
 ServicesOrderDirection = Literal["ASC", "DESC"]
 
 # Kept as HogQL source and re-parsed per request, not as shared AST nodes:
 # resolution mutates the nodes it walks, so one shared node would leak state
-# between requests. Every grouped row has log_count >= 1, so the error_rate
-# division is safe.
+# between requests.
 SERVICES_ORDER_EXPRS: dict[ServicesOrderBy, str] = {
     "log_count": "log_count",
     "service_name": "service_name",
+    # Safe to divide: every grouped row has log_count >= 1.
     "error_rate": "error_count / log_count",
 }
-# Uppercase to match the orderDirection convention shared by error tracking,
-# tracing, and dashboard widgets; the generated OrderDirectionEnum is one
-# schema-wide component, so a differing case here would fork it.
-SERVICES_ORDER_DIRECTIONS: tuple[ServicesOrderDirection, ...] = ("ASC", "DESC")
 
 
 @frozen
@@ -220,12 +220,17 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        # Neither of these lives on the query object, so they never reach the
-        # cache key. Safe only while the services endpoint runs
-        # CALCULATE_BLOCKING_ALWAYS; a move to any cached execution mode
-        # requires them on LogsQuery instead.
         self.service_name_search = service_name_search.strip() if service_name_search else None
         self.page = page if page is not None else ServicesPageParams()
+
+    def get_cache_payload(self) -> dict:
+        # Neither input lives on the query object, so the base payload keys every
+        # page and every search alike. Fold them in by hand: they decide both the
+        # rows returned and whether `summary` is present at all.
+        payload = super().get_cache_payload()
+        payload["service_name_search"] = self.service_name_search
+        payload["page"] = asdict(self.page)
+        return payload
 
     @property
     def _effective_limit(self) -> int:
@@ -239,19 +244,21 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         return self.page.offset == 0 and self.page.order_by == "log_count" and self.page.order_direction == "DESC"
 
     def _calculate(self) -> LogsQueryResponse:
-        if self.page.offset >= SERVICES_LIMIT:
-            return LogsQueryResponse(results={"services": [], "sparkline": [], "total_services": 0, "hasMore": False})
-        aggregates_response = execute_hogql_query(
-            query_type="LogsQuery",
-            query=self._aggregates_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            filters=self.query_date_range.to_hogql_filters(),
-            settings=self.settings,
-        )
+        # Every page past the reachability ceiling is empty, so skip the queries
+        # and let the rest of the method build that empty page like any other.
+        aggregate_rows: list[Any] = []
+        if self.page.offset < SERVICES_LIMIT:
+            aggregate_rows = execute_hogql_query(
+                query_type="LogsQuery",
+                query=self._aggregates_query(),
+                modifiers=self.modifiers,
+                team=self.team,
+                workload=Workload.LOGS,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                filters=self.query_date_range.to_hogql_filters(),
+                settings=self.settings,
+            ).results
 
         # Sparklines cover only the first page's leading rows; callers wanting
         # trends for other rows re-request with `serviceNames` scoped to the
@@ -260,7 +267,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         # time × service rows under the sparkline query's row LIMIT (which
         # truncates the most recent buckets first).
         top_service_names = (
-            [row[0] for row in aggregates_response.results[:SPARKLINE_SERVICES_LIMIT]] if self.page.offset == 0 else []
+            [row[0] for row in aggregate_rows[:SPARKLINE_SERVICES_LIMIT]] if self.page.offset == 0 else []
         )
         sparkline_rows: list[Any] = []
         if top_service_names:
@@ -279,17 +286,18 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
         # True distinct-service count, which the UI uses to disclose truncation.
         # The window functions run before LIMIT/OFFSET apply, so every row of the
-        # page carries the same window totals. An empty page carries none, so both
-        # totals fall back to zero.
-        total_services = int(aggregates_response.results[0][6]) if aggregates_response.results else 0
-        total_log_count = int(aggregates_response.results[0][7]) if aggregates_response.results else 0
+        # page carries the same window totals.
+        total_services = int(aggregate_rows[0][6]) if aggregate_rows else 0
+        total_log_count = int(aggregate_rows[0][7]) if aggregate_rows else 0
 
-        enabled_rules = list(
-            LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
-        )
+        enabled_rules: list[LogsExclusionRule] = []
+        if aggregate_rows:
+            enabled_rules = list(
+                LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
+            )
 
         services = []
-        for row in aggregates_response.results:
+        for row in aggregate_rows:
             service_name = row[0] if row[0] else "(no service)"
             log_count = row[1]
             error_count = row[2]
@@ -351,8 +359,6 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             # paginating there even when more services exist.
             "hasMore": self.page.offset + len(services) < min(total_services, SERVICES_LIMIT),
         }
-        # The header summary describes the top services by volume, so it is only
-        # computable when this page actually starts with them.
         if self._is_default_first_page:
             top_n = min(5, len(services))
             results["summary"] = {

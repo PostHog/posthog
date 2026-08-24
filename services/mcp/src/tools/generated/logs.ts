@@ -652,7 +652,12 @@ const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/services/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['services', 'sparkline']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'services',
+            'sparkline',
+            'hasMore',
+            'total_services',
+        ]) as typeof result
         return filtered
     },
 })

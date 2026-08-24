@@ -5033,8 +5033,6 @@ export const LogsServicesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
-
 export const logsServicesCreateBodyQueryOneLimitDefault = 100
 export const logsServicesCreateBodyQueryOneLimitMax = 1000
 
@@ -5043,10 +5041,38 @@ export const logsServicesCreateBodyQueryOneOffsetMin = 0
 
 export const logsServicesCreateBodyQueryOneOrderByDefault = `log_count`
 export const logsServicesCreateBodyQueryOneOrderDirectionDefault = `DESC`
+export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
 
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsServicesCreateBodyQueryOneLimitMax)
+                .default(logsServicesCreateBodyQueryOneLimitDefault)
+                .describe('Number of service rows to return per page.'),
+            offset: zod
+                .number()
+                .min(logsServicesCreateBodyQueryOneOffsetMin)
+                .default(logsServicesCreateBodyQueryOneOffsetDefault)
+                .describe(
+                    'Number of service rows to skip, for offset pagination. Rows beyond the 10000-service cap are not reachable by pagination; use serviceNameSearch to find services past it.'
+                ),
+            orderBy: zod
+                .enum(['log_count', 'service_name', 'error_rate'])
+                .describe('\* `log_count` - log_count\n\* `service_name` - service_name\n\* `error_rate` - error_rate')
+                .default(logsServicesCreateBodyQueryOneOrderByDefault)
+                .describe(
+                    'Column to order service rows by, applied before pagination.\n\n\* `log_count` - log_count\n\* `service_name` - service_name\n\* `error_rate` - error_rate'
+                ),
+            orderDirection: zod
+                .enum(['ASC', 'DESC'])
+                .describe('\* `ASC` - ASC\n\* `DESC` - DESC')
+                .default(logsServicesCreateBodyQueryOneOrderDirectionDefault)
+                .describe(
+                    'Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.\n\n\* `ASC` - ASC\n\* `DESC` - DESC'
+                ),
             dateRange: zod
                 .object({
                     date_from: zod
@@ -5136,33 +5162,6 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters for the query.'),
-            limit: zod
-                .number()
-                .min(1)
-                .max(logsServicesCreateBodyQueryOneLimitMax)
-                .default(logsServicesCreateBodyQueryOneLimitDefault)
-                .describe('Number of service rows to return per page.'),
-            offset: zod
-                .number()
-                .min(logsServicesCreateBodyQueryOneOffsetMin)
-                .default(logsServicesCreateBodyQueryOneOffsetDefault)
-                .describe(
-                    'Number of service rows to skip, for offset pagination. Rows beyond the 10000-service cap are not reachable by pagination; use serviceNameSearch to find services past it.'
-                ),
-            orderBy: zod
-                .enum(['log_count', 'service_name', 'error_rate'])
-                .describe('\* `log_count` - log_count\n\* `service_name` - service_name\n\* `error_rate` - error_rate')
-                .default(logsServicesCreateBodyQueryOneOrderByDefault)
-                .describe(
-                    'Column to order service rows by, applied before pagination.\n\n\* `log_count` - log_count\n\* `service_name` - service_name\n\* `error_rate` - error_rate'
-                ),
-            orderDirection: zod
-                .enum(['ASC', 'DESC'])
-                .describe('\* `ASC` - ASC\n\* `DESC` - DESC')
-                .default(logsServicesCreateBodyQueryOneOrderDirectionDefault)
-                .describe(
-                    'Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.\n\n\* `ASC` - ASC\n\* `DESC` - DESC'
-                ),
         })
         .describe('The services aggregation query to execute.'),
 })

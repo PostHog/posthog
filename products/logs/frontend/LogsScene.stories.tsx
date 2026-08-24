@@ -409,6 +409,7 @@ const servicesMock: MockSignature = async ({ request }) => {
             })),
             sparkline,
             total_services: totalServices,
+            hasMore: services.length < totalServices,
             summary: {
                 top_services_count: Math.min(5, services.length),
                 top_services_volume_share_pct: 68.4,

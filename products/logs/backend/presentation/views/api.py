@@ -2,6 +2,7 @@ import re
 import json
 import base64
 import datetime as dt
+from typing import get_args
 
 from django.utils import timezone
 
@@ -69,9 +70,10 @@ from products.logs.backend.presentation.views.sampling_api import LogsSamplingRu
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import (
     SERVICES_DEFAULT_PAGE_LIMIT,
+    SERVICES_LIMIT,
     SERVICES_MAX_PAGE_LIMIT,
-    SERVICES_ORDER_DIRECTIONS,
     SERVICES_ORDER_EXPRS,
+    ServicesOrderDirection,
     ServicesPageParams,
     ServicesQueryRunner,
 )
@@ -535,7 +537,42 @@ class _LogsCountRangesResponseSerializer(serializers.Serializer):
     )
 
 
-class _LogsServicesBodySerializer(serializers.Serializer):
+# The paging subset of the services body, split out so the view can validate just these keys
+# against the same declarations the published schema is generated from. Kept docstring-free:
+# drf-spectacular would publish one as the inheriting body schema's description.
+class _LogsServicesPageSerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=SERVICES_DEFAULT_PAGE_LIMIT,
+        min_value=1,
+        max_value=SERVICES_MAX_PAGE_LIMIT,
+        help_text="Number of service rows to return per page.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "Number of service rows to skip, for offset pagination. "
+            f"Rows beyond the {SERVICES_LIMIT}-service cap are not reachable by pagination; "
+            "use serviceNameSearch to find services past it."
+        ),
+    )
+    orderBy = serializers.ChoiceField(
+        choices=list(SERVICES_ORDER_EXPRS),
+        required=False,
+        default="log_count",
+        help_text="Column to order service rows by, applied before pagination.",
+    )
+    orderDirection = serializers.ChoiceField(
+        choices=list(get_args(ServicesOrderDirection)),
+        required=False,
+        default="DESC",
+        help_text="Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.",
+    )
+
+
+class _LogsServicesBodySerializer(_LogsServicesPageSerializer):
     dateRange = _DateRangeSerializer(
         required=False,
         help_text="Date range for the services aggregation. Defaults to last hour.",
@@ -567,38 +604,6 @@ class _LogsServicesBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters for the query.",
     )
-    limit = serializers.IntegerField(
-        required=False,
-        default=SERVICES_DEFAULT_PAGE_LIMIT,
-        min_value=1,
-        max_value=SERVICES_MAX_PAGE_LIMIT,
-        help_text="Number of service rows to return per page.",
-    )
-    offset = serializers.IntegerField(
-        required=False,
-        default=0,
-        min_value=0,
-        help_text=(
-            "Number of service rows to skip, for offset pagination. "
-            "Rows beyond the 10000-service cap are not reachable by pagination; "
-            "use serviceNameSearch to find services past it."
-        ),
-    )
-    orderBy = serializers.ChoiceField(
-        choices=list(SERVICES_ORDER_EXPRS),
-        required=False,
-        default="log_count",
-        help_text="Column to order service rows by, applied before pagination.",
-    )
-    orderDirection = serializers.ChoiceField(
-        choices=list(SERVICES_ORDER_DIRECTIONS),
-        required=False,
-        default="DESC",
-        help_text="Order direction. The default pairs with orderBy=log_count to return the highest-volume services first.",
-    )
-
-
-_SERVICES_PAGE_FIELDS = ("limit", "offset", "orderBy", "orderDirection")
 
 
 class _LogsServicesRequestSerializer(serializers.Serializer):
@@ -760,7 +765,7 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
     total_services = serializers.IntegerField(
         help_text=(
             "True distinct service count for the window and filters, unaffected by pagination "
-            "or the 10000-service cap. Greater than the length of `services` when more pages exist. "
+            f"or the {SERVICES_LIMIT}-service cap. Greater than the length of `services` when more pages exist. "
             "Zero whenever the page comes back empty, including an offset past the last service "
             "or past the reachability cap, because the count rides on the page's rows."
         ),
@@ -1226,16 +1231,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @staticmethod
     def _services_page_params(query_data: dict) -> ServicesPageParams:
-        """Validate the page keys through the body serializer, so the bounds and choices the
-        published schema advertises are the ones enforced. Only those keys go in: the rest of
-        the body is read by hand, and more leniently than the serializer declares (`filterGroup`
-        also accepts MCP's flat list shape)."""
-        # An explicit null means "no preference", the same as omitting the key. None of the
-        # four fields declares allow_null, so passing it through would 400 a caller that
-        # serializes its unset page state as null.
-        page = _LogsServicesBodySerializer(
-            data={key: query_data[key] for key in _SERVICES_PAGE_FIELDS if query_data.get(key) is not None}
-        )
+        """Validate the page keys through the serializer the published schema is generated from,
+        so the advertised bounds and choices are the enforced ones. The serializer ignores the
+        rest of the body, which is read by hand and more leniently than it declares
+        (`filterGroup` also accepts MCP's flat list shape)."""
+        # An explicit null means "no preference", the same as omitting the key. No page field
+        # declares allow_null, so passing it through would 400 a caller that serializes its
+        # unset page state as null.
+        page = _LogsServicesPageSerializer(data={k: v for k, v in query_data.items() if v is not None})
         page.is_valid(raise_exception=True)
         return ServicesPageParams(
             limit=page.validated_data["limit"],
@@ -1594,7 +1597,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             request.user,
             "logs services queried",
             {
-                "services_count": len(response.results.get("services", []))
+                # Distinct services in the window, not the page size, which would cap the
+                # metric at the default limit.
+                "services_count": response.results.get("total_services", 0)
                 if isinstance(response.results, dict)
                 else 0,
                 "has_search_term": bool(query_data.get("searchTerm")),

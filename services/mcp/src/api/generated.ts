@@ -82875,21 +82875,6 @@ export namespace Schemas {
     }
 
     export interface _LogsServicesBody {
-      /** Date range for the services aggregation. Defaults to last hour. */
-      dateRange?: _DateRange;
-      /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
-      /** Restrict the aggregation to these service names. */
-      serviceNames?: string[];
-      /** Full-text search term to filter log bodies. */
-      searchTerm?: string;
-      /**
-         * Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.
-         * @maxLength 200
-         */
-      serviceNameSearch?: string;
-      /** Property filters for the query. */
-      filterGroup?: _LogPropertyFilter[];
       /**
          * Number of service rows to return per page.
          * @minimum 1
@@ -82912,6 +82897,21 @@ export namespace Schemas {
        * * `ASC` - ASC
        * * `DESC` - DESC */
       orderDirection?: OrderDirectionEnum;
+      /** Date range for the services aggregation. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict the aggregation to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /**
+         * Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.
+         * @maxLength 200
+         */
+      serviceNameSearch?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
     }
 
     export interface _LogsServicesRequest {
