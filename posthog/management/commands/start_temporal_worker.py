@@ -254,6 +254,10 @@ from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
+from products.tracing.backend.facade.temporal import (
+    ACTIVITIES as TRACING_ALERTING_ACTIVITIES,
+    WORKFLOWS as TRACING_ALERTING_WORKFLOWS,
+)
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
@@ -507,6 +511,11 @@ _task_queue_specs = [
         settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         LOGS_VOLUME_TICK_WORKFLOWS,
         LOGS_VOLUME_TICK_ACTIVITIES,
+    ),
+    (
+        settings.TRACING_ALERTING_TASK_QUEUE,
+        TRACING_ALERTING_WORKFLOWS,
+        TRACING_ALERTING_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,

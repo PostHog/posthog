@@ -70,6 +70,7 @@ from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule impor
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
+from posthog.temporal.tracing_alerting.schedule import create_tracing_alert_check_schedule
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
@@ -890,6 +891,7 @@ schedules = [
     create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,
+    create_tracing_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
