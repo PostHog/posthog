@@ -106,19 +106,17 @@ The pass-budget alert is inactive in dry-run mode. Delay-topic lag has no alert 
 - The DynamoDB table and its workload identity permissions exist before the fetch deployment becomes active.
 - The shared ML bucket grants the data-preparation workload read access to the deterministic URL-image prefix.
 - The image-scrub topic partition count remains fixed while deterministic URL-image objects exist. The source-offset write fence refuses a ref that moves between partitions.
-- Retry topics use the replay cluster's existing `session_replay_` naming convention.
+- Retry topics use the `ai_research_session_replay_` naming convention.
 - Current public documentation already describes the collector-side image limits. No separate documentation repository change is required.
 
 ## Delta from the original requirements
 
-The implementation has four product-behavior or interface deltas from the original README.
+The implementation has two product-behavior or interface deltas from the current README.
 
-| Original requirement                                                                 | Final implementation                                      | Reason and effect                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Accept any number of supported content-coding layers.                                | Accept at most four layers.                               | This bound limits decompression work. A response with more than four layers is refused. Requirements 14.1 and 17.6 now state this bound.                                                                                    |
-| Remove the `cb`, `nocache`, `rnd`, and scoped Meta query fields from the global ref. | Keep every query field in the global ref.                 | An arbitrary origin can use these names to select different bytes. Keeping them prevents cross-tenant object-key collisions. Requirement 13.3 now states this rule.                                                         |
-| Use delay topic names with the `ai_research_session_replay_` prefix.                 | Use the existing replay-cluster `session_replay_` prefix. | This keeps the topics consistent with the deployed replay naming convention. Requirement 16.2 now lists the deployed names.                                                                                                 |
-| Export top-N registrable and provider domains and exact HTTP response values.        | Export no domain labels and group HTTP status by class.   | The metrics system does not support high-cardinality labels. Fixed categories keep the number of time series bounded. Per-domain request share is not available in metrics. Requirements 11.2 and 11.6 now state this rule. |
+| Original requirement                                                          | Final implementation                                    | Reason and effect                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accept any number of supported content-coding layers.                         | Accept at most four layers.                             | This bound limits decompression work. A response with more than four layers is refused. Requirements 14.1 and 17.6 now state this bound.                                                                                    |
+| Export top-N registrable and provider domains and exact HTTP response values. | Export no domain labels and group HTTP status by class. | The metrics system does not support high-cardinality labels. Fixed categories keep the number of time series bounded. Per-domain request share is not available in metrics. Requirements 11.2 and 11.6 now state this rule. |
 
 The implementation also has these rollout and repository-state deltas. They do not change steady-state fetch behavior.
 

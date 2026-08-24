@@ -14,7 +14,7 @@ function message(timestamp: number | undefined, overrides: Partial<Message> = {}
         value: Buffer.from('{"v":1}'),
         key: Buffer.from('example.com'),
         size: 7,
-        topic: 'session_replay_image_fetch_retry_1m',
+        topic: 'ai_research_session_replay_image_fetch_retry_1m',
         partition: 0,
         offset: 0,
         timestamp,

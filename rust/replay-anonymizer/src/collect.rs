@@ -188,7 +188,6 @@ const COLLECTED_MIME_ALLOWLIST: &[&str] = &[
     "image/jpeg",
     "image/gif",
     "image/webp",
-    "image/bmp",
     "image/avif",
 ];
 
@@ -212,7 +211,7 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if !meta.starts_with("image/") || !meta.contains("base64") {
         return None;
     }
-    if meta.starts_with("image/svg") {
+    if meta.starts_with("image/svg") || meta.starts_with("image/bmp") {
         return None;
     }
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
@@ -302,6 +301,7 @@ mod tests {
     #[test]
     fn collectable_rejects_svg_non_base64_and_non_image() {
         assert!(collectable_data_uri_bytes("data:image/svg+xml;base64,PHN2Zz4=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/bmp;base64,Qk0=").is_none());
         assert!(collectable_data_uri_bytes("data:image/svg+xml;utf8,<svg/>").is_none());
         assert!(collectable_data_uri_bytes("data:text/plain;base64,aGk=").is_none());
         assert!(collectable_data_uri_bytes("data:image/png;utf8,notbase64").is_none());

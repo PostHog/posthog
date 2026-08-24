@@ -64,9 +64,12 @@ describe('observeScrubOutcome', () => {
         }
     })
 
-    it('coalesces unexpected source formats into the bounded other label', async () => {
-        ScrubMetrics.observeScrubOutcome(timings({ format: 'vendor-specific' }))
+    it.each(['bmp', 'vendor-specific'])(
+        'coalesces unsupported source format %s into the bounded other label',
+        async (format) => {
+            ScrubMetrics.observeScrubOutcome(timings({ format }))
 
-        expect(await sourceFormatLabels()).toEqual(['other'])
-    })
+            expect(await sourceFormatLabels()).toEqual(['other'])
+        }
+    )
 })

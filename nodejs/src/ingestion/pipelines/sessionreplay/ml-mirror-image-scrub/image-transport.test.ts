@@ -19,7 +19,6 @@ const imageHeaders = {
         Buffer.alloc(4),
         Buffer.from('avifmif1', 'ascii'),
     ]),
-    'image/bmp': Buffer.from('BM', 'ascii'),
 } satisfies Record<(typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number], Buffer>
 
 describe('image transport', () => {
@@ -76,6 +75,12 @@ describe('image transport', () => {
     it('rejects bytes that do not match the declared media type', async () => {
         await expect(prepareFetchedImage(imageHeaders['image/jpeg'], 'image/png', undefined)).rejects.toThrow(
             'image bytes do not match content-type image/png'
+        )
+    })
+
+    it('rejects BMP images', async () => {
+        await expect(prepareFetchedImage(Buffer.from('BM', 'ascii'), 'image/bmp', undefined)).rejects.toThrow(
+            'unsupported content-type: image/bmp'
         )
     })
 })

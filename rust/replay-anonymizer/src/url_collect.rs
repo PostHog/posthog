@@ -227,6 +227,20 @@ mod tests {
     }
 
     #[test]
+    fn cache_busters_share_one_global_ref_and_fetch_candidate() {
+        let mut c = collector();
+        let first = c
+            .collect("https://cdn.example.com/a.png?w=100&cb=first")
+            .unwrap();
+        let second = c
+            .collect("https://cdn.example.com/a.png?w=100&cb=second")
+            .unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(c.into_urls().len(), 1);
+    }
+
+    #[test]
     fn collect_stops_at_the_cap_but_still_refs_a_url_it_already_holds() {
         let mut c = collector();
         for i in 0..MAX_URLS_PER_MESSAGE {

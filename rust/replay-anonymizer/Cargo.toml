@@ -24,7 +24,7 @@ hmac = { workspace = true }
 libdeflater = { workspace = true }
 lz4 = { workspace = true }
 memchr = "2"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 jpeg-decoder = { version = "0.3", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }

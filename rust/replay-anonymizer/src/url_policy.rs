@@ -11,12 +11,15 @@
 //! The fetch lane runs in another language. The registrable domain therefore travels with each
 //! URL as data, so that lane reads the result and never repeats the rule.
 
+use std::collections::HashSet;
 use std::net::IpAddr;
 
 use percent_encoding::percent_decode_str;
 use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
 
 use url::Url;
+
+const VOLATILE_PARAMS: &[&str] = &["cb", "nocache", "rnd"];
 
 const CREDENTIAL_PARAMS: &[&str] = &[
     "__cld_token__",
@@ -58,6 +61,9 @@ const CREDENTIAL_PARAMS: &[&str] = &[
     "x-oss-security-token",
     "x-oss-signature",
 ];
+
+const SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] =
+    &[("_nc_ohc", &["_nc_ohc", "_nc_ht", "ccb", "oe", "oh", "stp"])];
 
 /// Longer than this and we neither collect nor fetch it. Well past what a real image URL needs,
 /// and it bounds what one message can pin in memory alongside the count cap.
@@ -102,6 +108,21 @@ pub struct CanonicalUrl {
     pub host: String,
     /// The registrable domain of `host`. See [`politeness_key`].
     pub domain: String,
+}
+
+fn is_volatile(name: &str, names_on_this_url: &HashSet<String>) -> bool {
+    if VOLATILE_PARAMS
+        .iter()
+        .any(|volatile| volatile.eq_ignore_ascii_case(name))
+    {
+        return true;
+    }
+    SCOPED_VOLATILE_PARAMS.iter().any(|(marker, names)| {
+        names_on_this_url.contains(*marker)
+            && names
+                .iter()
+                .any(|volatile| volatile.eq_ignore_ascii_case(name))
+    })
 }
 
 /// Whether a host is one we would ever fetch from.
@@ -245,7 +266,8 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         return Err(Decline::TooLong);
     }
 
-    let dedup = fetch.clone();
+    remove_volatile_params(&mut url);
+    let dedup = url.to_string();
 
     Ok(CanonicalUrl {
         fetch,
@@ -336,6 +358,34 @@ fn has_credential_path(url: &Url, host: &str) -> Result<bool, Decline> {
         || has_cloudinary_signature
         || has_supabase_signature
         || has_session_token)
+}
+
+fn remove_volatile_params(url: &mut Url) {
+    if url.query().is_none() {
+        return;
+    }
+    let pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .map(|(name, value)| (name.into_owned(), value.into_owned()))
+        .collect();
+    let names_on_this_url: HashSet<String> = pairs
+        .iter()
+        .map(|(name, _)| name.to_ascii_lowercase())
+        .collect();
+    let kept: Vec<&(String, String)> = pairs
+        .iter()
+        .filter(|(name, _)| !is_volatile(name, &names_on_this_url))
+        .collect();
+
+    if kept.is_empty() {
+        url.set_query(None);
+        return;
+    }
+    let mut query = url.query_pairs_mut();
+    query.clear();
+    for (name, value) in kept {
+        query.append_pair(name, value);
+    }
 }
 
 #[cfg(test)]
@@ -441,14 +491,41 @@ mod tests {
     }
 
     #[test]
-    fn every_query_field_contributes_to_the_global_ref() {
-        for name in ["cb", "rnd", "nocache", "_nc_ohc", "stp"] {
-            let first =
-                canonicalize(&format!("https://cdn.example.com/a.png?{name}=first")).unwrap();
-            let second =
-                canonicalize(&format!("https://cdn.example.com/a.png?{name}=second")).unwrap();
-            assert_ne!(first.dedup, second.dedup, "{name}");
-        }
+    fn volatile_query_fields_stay_on_the_fetch_url_and_leave_the_global_ref() {
+        let canonical = canonicalize(
+            "https://cdn.example.com/a.png?w=200&%63b=first&CB=second&no%63ache=third&RND=fourth",
+        )
+        .unwrap();
+
+        assert_eq!(
+            canonical.fetch,
+            "https://cdn.example.com/a.png?w=200&%63b=first&CB=second&no%63ache=third&RND=fourth"
+        );
+        assert_eq!(canonical.dedup, "https://cdn.example.com/a.png?w=200");
+    }
+
+    #[test]
+    fn meta_query_fields_are_volatile_only_with_their_marker() {
+        let without_marker =
+            canonicalize("https://cdn.example.com/a.png?stp=first&ccb=second").unwrap();
+        assert_eq!(
+            without_marker.dedup,
+            "https://cdn.example.com/a.png?stp=first&ccb=second"
+        );
+
+        let with_marker = canonicalize(
+            "https://cdn.example.com/a.png?keep=1&_nc_%6Fhc=a&_NC_HT=b&ccb=c&oe=d&oh=e&stp=f",
+        )
+        .unwrap();
+        assert_eq!(with_marker.dedup, "https://cdn.example.com/a.png?keep=1");
+    }
+
+    #[test]
+    fn credentials_are_refused_before_volatile_query_fields_are_removed() {
+        assert_eq!(
+            try_canonicalize("https://cdn.example.com/a.png?cb=first&TOKEN=secret&cb=second"),
+            Err(Decline::Credential)
+        );
     }
 
     #[test]
@@ -573,10 +650,10 @@ mod tests {
     }
 
     #[test]
-    fn a_cache_buster_identifies_a_distinct_resource() {
+    fn a_cache_buster_does_not_identify_a_distinct_resource() {
         let plain = canonicalize("https://cdn.example.com/a.png?a=hello%20world&b=2").unwrap();
         let cache_busted =
             canonicalize("https://cdn.example.com/a.png?a=hello%20world&b=2&cb=zz").unwrap();
-        assert_ne!(plain.dedup, cache_busted.dedup);
+        assert_eq!(plain.dedup, cache_busted.dedup);
     }
 }

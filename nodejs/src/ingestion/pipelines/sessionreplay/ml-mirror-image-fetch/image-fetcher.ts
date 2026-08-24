@@ -12,7 +12,7 @@ import { WebBotAuthRequestSigner } from './web-bot-auth'
  * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
  * belongs on the inline path rather than on an image model.
  */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif', 'image/bmp'] as const
+const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif'] as const
 
 export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 

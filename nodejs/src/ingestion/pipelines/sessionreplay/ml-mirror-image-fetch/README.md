@@ -463,7 +463,7 @@ that scenario.
 
 **13.3** The key uses the shared Rust URL-policy implementation to canonicalize the URL. The canonical form uses the parser's serialized HTTPS URL, lowercases and IDNA-encodes the host, removes a trailing DNS root dot, removes the fragment, omits the explicit default port `443`, and uses `/` for an empty path. It does not sort path segments or query fields. The shared parser's serialization is authoritative for percent-encoding and dot-segment normalization.
 
-Every path and query field remains part of the global ref. A field name such as `cb`, `nocache`, or `rnd` can select different bytes on an arbitrary origin. Removing it could make two images share one global storage key.
+After parsing and before final serialization, the implementation removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable.
 
 **13.4** A URL ref does not contain a team identifier, a team pseudonym, or a key derived from one team. The same canonical URL produces the same ref for every team.
 
@@ -505,7 +505,6 @@ the userinfo of a URL, cookies, and known credential query parameters
 | `image/gif`    | GIF    |
 | `image/webp`   | WebP   |
 | `image/avif`   | AVIF   |
-| `image/bmp`    | BMP    |
 
 **14.11** This lane does not check that the downloaded bytes match the expected media type. It is expected that the image scrubber will do this.
 
@@ -550,9 +549,9 @@ the userinfo of a URL, cookies, and known credential query parameters
 **16.2** There are 3 delay queues with 3 different delay times
 
 ```text
-session_replay_image_fetch_retry_1m
-session_replay_image_fetch_retry_10m
-session_replay_image_fetch_retry_1h
+ai_research_session_replay_image_fetch_retry_1m
+ai_research_session_replay_image_fetch_retry_10m
+ai_research_session_replay_image_fetch_retry_1h
 ```
 
 **16.3** All three delay topics set `message.timestamp.type=LogAppendTime`. The broker replaces each producer timestamp with the time when it appends the record. The delay-topic consumer uses these broker timestamps as the publishing times for all records in the batch. It waits one time, until `max(publishing_times) + delay_period`. It does not wait separately for each record.

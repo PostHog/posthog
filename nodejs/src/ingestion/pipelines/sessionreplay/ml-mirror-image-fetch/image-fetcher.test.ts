@@ -128,7 +128,7 @@ describe('HttpImageFetcher', () => {
     it.each([
         ['a type that is not an image', 'text/html', PNG, 'not_image'],
         ['a type outside the raster set', 'image/svg+xml', PNG, 'not_image'],
-        ['the BMP format', 'image/bmp', Buffer.from('BM'), 'ok'],
+        ['the BMP format', 'image/bmp', Buffer.from('BM'), 'not_image'],
         ['a payload that is not the declared format', 'image/gif', PNG, 'ok'],
         ['a payload of the wrong raster format', 'image/png', GIF, 'ok'],
     ])('handles %s', async (_name, contentType, bytes, outcome) => {

@@ -4,24 +4,11 @@ import { type StageTimings } from './scrub.ts'
 
 export const register = new Registry()
 
-type SourceFormatLabel =
-    | 'avif'
-    | 'bmp'
-    | 'gif'
-    | 'heif'
-    | 'jpeg'
-    | 'jp2'
-    | 'png'
-    | 'raw'
-    | 'svg'
-    | 'tiff'
-    | 'webp'
-    | 'other'
+type SourceFormatLabel = 'avif' | 'gif' | 'heif' | 'jpeg' | 'jp2' | 'png' | 'raw' | 'svg' | 'tiff' | 'webp' | 'other'
 
 function sourceFormatLabel(format: string): SourceFormatLabel {
     switch (format) {
         case 'avif':
-        case 'bmp':
         case 'gif':
         case 'heif':
         case 'jpeg':
