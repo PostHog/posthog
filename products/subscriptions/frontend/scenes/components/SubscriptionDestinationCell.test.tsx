@@ -19,6 +19,8 @@ describe('SubscriptionDestinationCell', () => {
         )
 
         expect(container.textContent).toBe(TEAMS_WEBHOOK_HOST)
+        // A long host truncates in the cell, so the tooltip is the only way to read it in full.
+        expect(container.firstElementChild).toHaveAttribute('title', TEAMS_WEBHOOK_HOST)
         // innerHTML, not textContent, so DOM attributes such as title are covered too.
         expect(container.innerHTML).not.toContain('sig=')
         expect(container.innerHTML).not.toContain('/workflows/')

@@ -12,7 +12,12 @@ function DestinationCellContents({ destination }: { destination: SubscriptionDes
     const { parts, copyDescription } = destination
 
     if (copyDescription === null) {
-        return <span className="text-secondary max-w-md truncate block">{parts[0]}</span>
+        // The title is the masked value the cell already shows, never the URL it was masked from.
+        return (
+            <span className="text-secondary max-w-md truncate block" title={parts[0]}>
+                {parts[0]}
+            </span>
+        )
     }
 
     if (parts.length === 0) {
