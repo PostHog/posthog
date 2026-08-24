@@ -68,6 +68,7 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
+  fileCanvas: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -507,12 +508,13 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
+  it("lets a canvas be filed to another space", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
+      authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
     });
     renderInList(
       <ChannelItemRow
@@ -532,10 +534,28 @@ describe("ChannelItemRow", () => {
     expect(
       screen.getByRole("button", { name: "Add to Command Center…" }),
     ).not.toBeNull();
-    // A canvas can't be archived or filed to another space.
-    for (const absent of ["Archive", "File to…"]) {
-      expect(screen.queryByRole("button", { name: absent })).toBeNull();
-    }
+    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+  });
+
+  it("does not offer filing for another user's canvas", async () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUser: { id: 7, uuid: "u-2", email: "creator@example.com" },
+    });
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
+    );
+
+    await userEvent.hover(screen.getByText("Web analytics overview"));
+
+    expect(
+      await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "File to…" })).toBeNull();
   });
 
   it("confirms before deleting a canvas — it goes for the whole space", async () => {
