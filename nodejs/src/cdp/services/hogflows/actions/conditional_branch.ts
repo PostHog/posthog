@@ -69,7 +69,10 @@ export class ConditionalBranchHandler implements ActionHandler {
         // apart, by when the cache has expired, so they keep the cheaper read.
         if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
             const refreshed = await invocation.refreshPerson?.()
-            if (refreshed) {
+            // A refresh that finds no person keeps the dequeue's read. The refresh exists to make a
+            // just-written property visible, not to drop a person: a lookup that comes back empty
+            // (replica lag, a transient miss) would otherwise evaluate the condition against nothing.
+            if (refreshed?.person) {
                 invocation.person = refreshed.person
                 invocation.filterGlobals = refreshed.filterGlobals
                 // The result carries a shallow clone, so rebinding only `invocation` would leave it
