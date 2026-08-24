@@ -9157,6 +9157,7 @@ export namespace Schemas {
       /** @nullable */
       readonly calculated_value: number | null;
       readonly state: AlertCheckStateEnum;
+      readonly error: unknown;
       readonly targets_notified: boolean;
       readonly anomaly_scores: unknown;
       readonly triggered_points: unknown;
