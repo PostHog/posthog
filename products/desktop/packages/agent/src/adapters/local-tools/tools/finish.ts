@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { createSandboxPosthogClient } from "../../../signed-commit-artefacts";
+import {
+  createSandboxPosthogClient,
+  withReportDeadline,
+} from "../../../signed-commit-artefacts";
 import {
   defineLocalTool,
   type LocalToolCtx,
@@ -62,10 +65,21 @@ function resolveRequestFinish(
     return undefined;
   }
   return async (status, message) => {
-    await client.updateTaskRun(taskId, taskRunId, {
-      status,
-      ...(status === "failed" && message ? { error_message: message } : {}),
-    });
+    await withReportDeadline(
+      (signal) =>
+        client.updateTaskRun(
+          taskId,
+          taskRunId,
+          {
+            status,
+            ...(status === "failed" && message
+              ? { error_message: message }
+              : {}),
+          },
+          signal,
+        ),
+      "run finish",
+    );
   };
 }
 

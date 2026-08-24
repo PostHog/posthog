@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 const updateTaskRun = vi.fn();
 
-vi.mock("../../../signed-commit-artefacts", () => ({
+vi.mock("../../../signed-commit-artefacts", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../signed-commit-artefacts")
+  >()),
   createSandboxPosthogClient: () => ({ updateTaskRun }),
 }));
 
@@ -94,10 +97,12 @@ describe("finish tool", () => {
       { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
       { status: "failed", reason: "blocked" },
     );
-    expect(updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
-      status: "failed",
-      error_message: "blocked",
-    });
+    expect(updateTaskRun).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      { status: "failed", error_message: "blocked" },
+      expect.any(AbortSignal),
+    );
     expect(result.isError).toBeUndefined();
   });
 
