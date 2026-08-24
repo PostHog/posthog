@@ -2810,7 +2810,7 @@ jobs:
         # 45 for slow Temporal shards on master; keep <= deploy gate wait (container-images-cd.yml)
         timeout-minutes: 45
 
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-24.04
 
@@ -3154,7 +3154,8 @@ jobs:
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
-              # persons-on-events: always update (we ignore snapshot divergence there)
+              # safeguard allowlist leg (matrix.person-on-events): always update — it runs
+              # a subset under the non-default mode, so it does not own snapshots
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
               # --snapshot-warn-unused: pytest-split shards individual tests across
@@ -3225,7 +3226,15 @@ jobs:
               continue-on-error: true
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
-                  PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  # Flipped: person-on-events v2 reads are the production default for
+                  # every project created since 2024-06-14, so the FULL suite runs with
+                  # the mode ON and the small allowlist leg keeps the legacy joined mode
+                  # covered. matrix.person-on-events marks that safeguard allowlist leg,
+                  # not the mode: every other condition keyed on it (targets, snapshot
+                  # ownership, timing artifacts) selects the leg and stays unchanged.
+                  # Compat rows stay on the legacy mode too, doubling as the old-server
+                  # safeguard.
+                  PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}

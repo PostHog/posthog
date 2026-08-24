@@ -655,7 +655,7 @@ function packProducts(products, durations, productsScaled = false) {
 // drifts from its pytest targets sizes shards for a run that never happens, so
 // turbo-discover.test.js asserts these against ci-backend.yml itself.
 // Core: posthog/ + ee/ minus the paths the Core invocation --ignore's
-// Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
+// CorePOE: the POE-off safeguard allowlist — a subset of Core's pool run under the legacy joined mode
 // Temporal: posthog/temporal + the product temporal/emission suites it runs alongside
 const DJANGO_SEGMENTS = {
     Core: {

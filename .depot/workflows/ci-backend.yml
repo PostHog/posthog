@@ -1909,7 +1909,7 @@ jobs:
         # increase for tmate testing
         # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
         timeout-minutes: 45
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
         # migrations exactly like canonical once Depot's cache is warmed by a master run.
@@ -2202,7 +2202,15 @@ jobs:
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
-                  PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  # Flipped: person-on-events v2 reads are the production default for
+                  # every project created since 2024-06-14, so the FULL suite runs with
+                  # the mode ON and the small allowlist leg keeps the legacy joined mode
+                  # covered. matrix.person-on-events marks that safeguard allowlist leg,
+                  # not the mode: every other condition keyed on it (targets, snapshot
+                  # ownership, timing artifacts) selects the leg and stays unchanged.
+                  # Compat rows stay on the legacy mode too, doubling as the old-server
+                  # safeguard.
+                  PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
