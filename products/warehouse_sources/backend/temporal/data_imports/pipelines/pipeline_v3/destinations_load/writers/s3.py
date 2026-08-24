@@ -93,7 +93,7 @@ class S3DestinationConfigurationError(ValueError):
     """The destination's config cannot produce a valid S3 write."""
 
 
-@dataclass
+@dataclass(frozen=False, kw_only=True)
 class _WriteStats:
     """What the parquet stream produced, read back after the upload has drained it."""
 
