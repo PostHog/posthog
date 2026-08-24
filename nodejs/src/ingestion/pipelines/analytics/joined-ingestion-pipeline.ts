@@ -105,6 +105,7 @@ function getTokenAndDistinctId(input: EventSubpipelineInput): string {
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
+    CFeed extends object = Record<never, never>,
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
@@ -218,6 +219,6 @@ export function createJoinedIngestionPipeline<
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )
-            .build()
+            .build<CFeed>()
     )
 }

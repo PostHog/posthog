@@ -182,6 +182,9 @@ const eventSecondsInFlight = new Counter({
     help: 'Cumulative event-seconds spent in flight; rate() gives mean events in flight',
 })
 
+/** Batch context fed with each gRPC sub-batch so its completion routes back to the right stream. */
+type GrpcBatchContext = { grpcStreamId: number; grpcSeq: number }
+
 /**
  * Ingestion API server that exposes the ingestion pipeline as an HTTP endpoint.
  *
@@ -222,7 +225,8 @@ export class IngestionApiServer implements NodeServer {
     private grpcPipeline?: ReturnType<
         typeof createJoinedIngestionPipeline<
             JoinedIngestionPipelineInput,
-            JoinedIngestionPipelineContext & { grpcStreamId: number; grpcSeq: number }
+            JoinedIngestionPipelineContext,
+            GrpcBatchContext
         >
     >
     private grpcServer?: WorkerIngestServer
@@ -528,7 +532,8 @@ export class IngestionApiServer implements NodeServer {
         if (this.config.INGESTION_API_GRPC_ENABLED) {
             this.grpcPipeline = createJoinedIngestionPipeline<
                 JoinedIngestionPipelineInput,
-                JoinedIngestionPipelineContext & { grpcStreamId: number; grpcSeq: number }
+                JoinedIngestionPipelineContext,
+                GrpcBatchContext
             >(joinedPipelineConfig, joinedPipelineDeps)
             this.grpcServer = new WorkerIngestServer(
                 {
@@ -600,7 +605,7 @@ export class IngestionApiServer implements NodeServer {
             // stage processes each key in feed order, so this measures the
             // "processed in order per distinct_id" invariant.
             this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
-            const feedResult = await this.joinedPipeline.feed(batch)
+            const feedResult = await this.joinedPipeline.feed(batch, {})
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
                 // behavior — the Rust consumer holds a per-worker Semaphore
@@ -690,26 +695,14 @@ export class IngestionApiServer implements NodeServer {
             feed: (streamId: number, seq: number, messages: SerializedKafkaMessage[]) => {
                 const batch = messages.map((serialized) => {
                     const message = deserializeKafkaMessage(serialized)
-                    return createOkContext(
-                        { message },
-                        {
-                            message,
-                            debugContext: createKafkaDebugContext(message),
-                            grpcStreamId: streamId,
-                            grpcSeq: seq,
-                        }
-                    )
+                    return createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
                 })
-                return pipeline.feed(batch)
+                return pipeline.feed(batch, { grpcStreamId: streamId, grpcSeq: seq })
             },
             next: async (): Promise<CompletedSubBatch | null> => {
                 const result = await pipeline.next()
                 if (result === null) {
                     return null
-                }
-                const context = result.elements[0]?.context as { grpcStreamId?: number; grpcSeq?: number } | undefined
-                if (typeof context?.grpcStreamId !== 'number' || typeof context?.grpcSeq !== 'number') {
-                    throw new Error('completed batch lost its gRPC stream context')
                 }
                 // waitForAll snapshots the currently scheduled promises, so
                 // this settles even under sustained load from other batches.
@@ -718,8 +711,8 @@ export class IngestionApiServer implements NodeServer {
                     await this.promiseScheduler.waitForAll()
                 })()
                 return {
-                    streamId: context.grpcStreamId,
-                    seq: context.grpcSeq,
+                    streamId: result.batchContext.grpcStreamId,
+                    seq: result.batchContext.grpcSeq,
                     accepted: result.elements.length,
                     settled,
                 }
