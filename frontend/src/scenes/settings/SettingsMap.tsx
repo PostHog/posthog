@@ -1448,7 +1448,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Notifications',
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
-                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
                 allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },

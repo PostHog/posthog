@@ -16,6 +16,7 @@ const allSteps = {
   hasImportableConfig: true,
   hasGithubIntegration: undefined,
   projectCount: 2,
+  consentRequired: true,
 };
 
 describe("computeActiveSteps", () => {
@@ -65,6 +66,18 @@ describe("computeActiveSteps", () => {
     ).toContain("install-cli");
     expect(computeActiveSteps(allSteps)).toContain("install-cli");
   });
+
+  it("includes consent from the sampled requirement", () => {
+    expect(ONBOARDING_STEPS.indexOf("consent")).toBe(
+      ONBOARDING_STEPS.indexOf("invite-code") + 1,
+    );
+    expect(
+      computeActiveSteps({ ...allSteps, consentRequired: undefined }),
+    ).toContain("consent");
+    expect(
+      computeActiveSteps({ ...allSteps, consentRequired: false }),
+    ).not.toContain("consent");
+  });
 });
 
 describe("nearestActiveStep", () => {
@@ -73,6 +86,7 @@ describe("nearestActiveStep", () => {
     hasImportableConfig: false,
     hasGithubIntegration: undefined,
     projectCount: 2,
+    consentRequired: true,
   });
 
   it("returns the step itself while it is still active", () => {
@@ -85,7 +99,7 @@ describe("nearestActiveStep", () => {
     // import-config vanished under the user: continue forward to select-repo,
     // not back to welcome (the regression that reset onboarding mid-flow).
     { removed: "import-config", expected: "select-repo" },
-    { removed: "invite-code", expected: "connect-github" },
+    { removed: "invite-code", expected: "consent" },
   ])(
     "moves forward to $expected when $removed drops out",
     ({ removed, expected }) => {
@@ -111,6 +125,7 @@ describe("step navigation", () => {
     hasImportableConfig: true,
     hasGithubIntegration: undefined,
     projectCount: 2,
+    consentRequired: true,
   });
 
   it("identifies first and last steps", () => {

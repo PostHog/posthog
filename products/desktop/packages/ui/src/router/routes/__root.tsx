@@ -19,6 +19,7 @@ import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStr
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
 import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
 import { useActiveTabIsBlank } from "@posthog/ui/features/browser-tabs/useBrowserTabs";
+import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
@@ -28,11 +29,14 @@ import {
   type FeedbackModalMode,
 } from "@posthog/ui/features/canvas/components/FeedbackModal";
 import { NavRail } from "@posthog/ui/features/canvas/components/NavRail";
+import { RailHistorySync } from "@posthog/ui/features/canvas/components/RailHistorySync";
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
+import { useShellOwnsHeader } from "@posthog/ui/features/canvas/hooks/useShellOwnsHeader";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
@@ -204,8 +208,7 @@ function RootLayout() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  const channelsToggleOn = useSidebarStore((s) => s.channelsEnabled);
-  const channelsEnabled = channelsToggleOn && bluebirdEnabled;
+  const channelsWorld = useChannelsWorld();
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
@@ -290,35 +293,32 @@ function RootLayout() {
     select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
   });
 
-  // The Bluebird chrome is the app shell for every non-settings route now. The
-  // /website (Channels) routes own their own in-pane header (WebsiteLayout), so
-  // the shared ContentHeader is mounted only outside that space.
-  const onWebsitePath = useRouterState({
-    select: (s) =>
-      s.location.pathname === "/website" ||
-      s.location.pathname.startsWith("/website/"),
-  });
+  // ShellLayout draws the in-pane header under `_shell`, so the shared
+  // ContentHeader is mounted only where that layout isn't.
+  const shellOwnsHeader = useShellOwnsHeader();
 
-  // The /website (Channels) routes stay registered regardless of the flag, so a
-  // stale URL, a restored session, or a persisted channel browser tab could
-  // strand a flag-off user on the channel layout with no way back (the Channels
-  // toggle is hidden and ContentHeader is suppressed on /website). Once flags
-  // resolve, send them back to Code.
+  // The bluebird routes stay registered regardless of the flag, so a stale URL,
+  // a restored session, or a persisted browser tab could strand a flag-off user
+  // on chrome they have no way back out of. Once flags resolve, send them back
+  // to a new task.
+  const onBluebirdOnlyPath = useRouterState({
+    select: (s) => isBluebirdOnlyPath(s.location.pathname),
+  });
   useEffect(() => {
-    if (flagsLoaded && !bluebirdEnabled && onWebsitePath) {
+    if (flagsLoaded && !bluebirdEnabled && onBluebirdOnlyPath) {
       openTaskInput();
     }
-  }, [flagsLoaded, bluebirdEnabled, onWebsitePath]);
+  }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
   // A blank browser tab (the "+" new-tab page) shows an empty placeholder — but
-  // ONLY on the channels index. Inside a channel (`/website/$channelId…`) the
-  // route owns the content (channel home, inbox, artifacts, a canvas, …), so the
-  // placeholder must never replace it, otherwise channel navigation looks dead.
-  const onChannelsIndex = useRouterState({
-    select: (s) => s.location.pathname === "/website",
+  // ONLY on the spaces index. Inside a space (`/spaces/$channelId…`) the route
+  // owns the content (space feed, artifacts, a canvas, …), so the placeholder
+  // must never replace it, otherwise space navigation looks dead.
+  const onSpacesIndex = useRouterState({
+    select: (s) => s.location.pathname === "/spaces",
   });
   const activeTabBlank = useActiveTabIsBlank();
-  const showBlankTab = onChannelsIndex && activeTabBlank;
+  const showBlankTab = onSpacesIndex && activeTabBlank;
 
   if (isSettingsRoute) {
     return (
@@ -372,7 +372,7 @@ function RootLayout() {
           <Flex
             id="title-bar-left"
             align="center"
-            justify="between"
+            justify="start"
             gap="3"
             className="shrink-0 pr-2"
             style={{
@@ -442,10 +442,10 @@ function RootLayout() {
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
-          {(billingEnabled || channelsEnabled || channelsLayout) && (
+          {(billingEnabled || channelsWorld) && (
             <Flex align="center" gap="2" className="no-drag ml-auto pr-3">
               <UsageButton />
-              {(channelsEnabled || channelsLayout) && (
+              {channelsWorld && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -499,10 +499,10 @@ function RootLayout() {
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
                 <AnnouncementBanner />
-                {/* The /website space renders its own header (WebsiteLayout);
+                {/* The shell renders its own header (ShellLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
-                {!onWebsitePath && <ContentHeader />}
+                {!shellOwnsHeader && <ContentHeader />}
                 <Box flexGrow="1" overflow="hidden">
                   {showBlankTab ? <BlankTabView /> : <Outlet />}
                 </Box>
@@ -530,6 +530,9 @@ function RootLayout() {
             but the rail can take that column away and the scoping still has to
             happen. */}
         <ChannelRouteSync />
+        {/* Renders nothing — remembers where each rail destination was, so a
+            pick returns you there rather than to its index. */}
+        <RailHistorySync />
         {/* Renders nothing — wires the ⌥↑/⌥↓ task-cycling shortcuts. */}
         <SpaceSwitcher
           tasks={visualTaskOrder}
