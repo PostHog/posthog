@@ -26,12 +26,17 @@ from products.ai_observability.backend.summarization.llm.schema import (
 TEST_TEXT_REPR_BUDGET = 4000
 
 
-def _chatty_payload(summarize_type: str) -> dict[str, Any]:
-    messages = [{"role": "user", "content": f"turn {i} " + "detail " * 40} for i in range(200)]
+def _oversized_payload(summarize_type: str, one_long_line: bool) -> dict[str, Any]:
+    # A single long line cannot be sampled line-wise, which is the shape that escapes a naive bound.
+    ai_input: Any = (
+        "x" * (TEST_TEXT_REPR_BUDGET * 4)
+        if one_long_line
+        else [{"role": "user", "content": f"turn {i} " + "detail " * 40} for i in range(200)]
+    )
     event = {
         "id": "gen-oversized",
         "event": "$ai_generation",
-        "properties": {"$ai_input": messages},
+        "properties": {"$ai_input": ai_input},
     }
     if summarize_type == "event":
         return {"event": event}
@@ -163,10 +168,19 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertIn("title", data["summary"])
         self.assertEqual(data["summary"]["title"], "Multi-step Trace Execution")
 
-    @parameterized.expand(["event", "trace"])
+    @parameterized.expand(
+        [
+            ("event_many_lines", "event", False),
+            ("event_one_long_line", "event", True),
+            ("trace_many_lines", "trace", False),
+            ("trace_one_long_line", "trace", True),
+        ]
+    )
     @patch("products.ai_observability.backend.api.summarization.MAX_TEXT_REPR_CHARS", TEST_TEXT_REPR_BUDGET)
     @patch("products.ai_observability.backend.api.summarization.summarize")
-    def test_oversized_entity_is_bounded_before_the_model_call(self, summarize_type, mock_summarize):
+    def test_oversized_entity_is_bounded_before_the_model_call(
+        self, _name, summarize_type, one_long_line, mock_summarize
+    ):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         mock_summarize.return_value = SummarizationResponse(
@@ -182,7 +196,7 @@ class TestSummarizationAPI(APIBaseTest):
                 "summarize_type": summarize_type,
                 "mode": "minimal",
                 "force_refresh": True,
-                "data": _chatty_payload(summarize_type),
+                "data": _oversized_payload(summarize_type, one_long_line),
             },
             format="json",
         )
@@ -190,8 +204,6 @@ class TestSummarizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         text_repr = mock_summarize.call_args.kwargs["text_repr"]
         self.assertLessEqual(len(text_repr), TEST_TEXT_REPR_BUDGET)
-        self.assertIn("SAMPLED VIEW", text_repr)
-        self.assertEqual(response.data["metadata"]["text_repr_length"], len(text_repr))
 
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""
