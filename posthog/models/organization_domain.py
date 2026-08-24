@@ -10,6 +10,7 @@ import dns.resolver
 
 from posthog.constants import AvailableFeature
 from posthog.dns_utils import dnssec_resolver
+from posthog.dataclasses import frozen
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig
@@ -25,6 +26,13 @@ logger = structlog.get_logger(__name__)
 
 def generate_verification_challenge() -> str:
     return secrets.token_urlsafe(32)
+
+
+@frozen
+class IDJagIdentityProviderResolution:
+    organization_domain: Optional["OrganizationDomain"]
+    identity_provider_config: Optional[IdentityProviderConfig]
+    error: Optional[str]
 
 
 def resolves_to_identity_provider_config_q(
@@ -54,17 +62,23 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain__iexact=domain).first()
 
-    def get_verified_for_email_address_and_issuer(
-        self, email: str, issuer: str
-    ) -> tuple[Optional["OrganizationDomain"], Optional[IdentityProviderConfig], Optional[str]]:
+    def get_verified_for_email_address_and_issuer(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
         if "@" not in email:
-            return None, None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG sub email domain is not a verified domain for any PostHog organization",
+            )
         domain = email[email.index("@") + 1 :].lower()
         normalized_issuer = (issuer or "").rstrip("/")
 
         verified_for_domain = list(self.verified_domains().filter(domain__iexact=domain))
         if not verified_for_domain:
-            return None, None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG sub email domain is not a verified domain for any PostHog organization",
+            )
 
         configured = [
             (organization_domain, config)
@@ -73,7 +87,11 @@ class OrganizationDomainManager(models.Manager):
             if (config.id_jag_issuer_url or "").rstrip("/")
         ]
         if not configured:
-            return None, None, "ID-JAG is not configured for this domain (id_jag_issuer_url is unset)"
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG is not configured for this domain (id_jag_issuer_url is unset)",
+            )
 
         matching = [
             (organization_domain, config)
@@ -81,17 +99,25 @@ class OrganizationDomainManager(models.Manager):
             if (config.id_jag_issuer_url or "").rstrip("/") == normalized_issuer
         ]
         if not matching:
-            return None, None, "ID-JAG iss does not match the IdP configured for this email's domain"
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG iss does not match the IdP configured for this email's domain",
+            )
 
         if len(matching) > 1:
-            return (
-                None,
-                None,
-                "ID-JAG configuration is ambiguous: multiple OrganizationDomains share this (domain, issuer)",
+            return IDJagIdentityProviderResolution(
+                organization_domain=None,
+                identity_provider_config=None,
+                error="ID-JAG configuration is ambiguous: multiple OrganizationDomains share this (domain, issuer)",
             )
 
         organization_domain, config = matching[0]
-        return organization_domain, config, None
+        return IDJagIdentityProviderResolution(
+            organization_domain=organization_domain,
+            identity_provider_config=config,
+            error=None,
+        )
 
     def get_is_saml_available_for_email(self, email: str) -> bool:
         """
