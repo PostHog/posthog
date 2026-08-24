@@ -105,6 +105,21 @@ class TestIntercomSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "400 Client Error: Bad Request for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_exists_exhaustion_is_retryable(self, error_msg):
+        # Opening a companies scroll retries a `scroll_exists` lock inline (see
+        # `_open_companies_scroll`), but a lock held longer than that budget exhausts it and
+        # the raw error propagates. A fresh Temporal attempt opens cleanly once the stale
+        # scroll expires, so this should stay out of error tracking the same way the 404
+        # scroll-expiry case above does.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 

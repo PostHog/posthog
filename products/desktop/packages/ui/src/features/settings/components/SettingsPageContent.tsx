@@ -75,7 +75,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
   "quick-ask": defineSettingsPage("Quick ask", QuickAskSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),
-  slack: defineSettingsPage("Slack integration", SlackSettings),
+  slack: defineSettingsPage("Slack", SlackSettings),
   discord: defineSettingsPage("Discord", DiscordSettings),
   // Slack notification config lives in the dedicated Slack section; the Signals
   // section links out to it rather than duplicating the controls.
@@ -119,7 +119,7 @@ function ContainedSettingsPageLayout({
   title,
 }: SettingsPageLayoutProps) {
   return (
-    <div className="h-full w-full overflow-y-auto">
+    <div className="h-full w-full overflow-y-auto [scrollbar-gutter:stable_both-edges]">
       <div className="relative z-[1] mx-auto max-w-[800px] p-6">
         <div className="flex flex-col gap-5">
           <SettingsPageHeader formMode={formMode} icon={icon} title={title} />

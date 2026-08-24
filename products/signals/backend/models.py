@@ -721,97 +721,6 @@ class SignalReport(UUIDModel):
         return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
 
 
-class SignalReportCanvas(TeamScopedRootMixin, UUIDModel):
-    class GenerationStatus(models.TextChoices):
-        PENDING = "pending", "Pending"
-        GENERATING = "generating", "Generating"
-        READY = "ready", "Ready"
-        FAILED = "failed", "Failed"
-
-    class CollaborationMode(models.TextChoices):
-        MANAGED = "managed", "Managed"
-        COLLABORATIVE = "collaborative", "Collaborative"
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    report = models.OneToOneField(SignalReport, on_delete=models.CASCADE, related_name="canvas_session")
-    canvas_id = models.UUIDField(unique=True)
-    discussion_task_id = models.UUIDField(unique=True)
-    generation_task_id = models.UUIDField(null=True, blank=True)
-    generated_fingerprint = models.CharField(max_length=64, blank=True, default="")
-    generation_status = models.CharField(
-        max_length=16,
-        choices=GenerationStatus,
-        default=GenerationStatus.PENDING,
-    )
-    collaboration_mode = models.CharField(
-        max_length=16,
-        choices=CollaborationMode,
-        default=CollaborationMode.MANAGED,
-    )
-    failure_reason = models.TextField(blank=True, default="")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        indexes = [models.Index(fields=["team", "generation_status"], name="signals_rpt_canvas_status_idx")]
-
-
-class SignalReportCanvasGeneration(TeamScopedRootMixin, UUIDModel):
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        GENERATING = "generating", "Generating"
-        READY = "ready", "Ready"
-        FAILED = "failed", "Failed"
-
-    class ValidationStatus(models.TextChoices):
-        PENDING = "pending", "Pending"
-        VALID = "valid", "Valid"
-        INVALID = "invalid", "Invalid"
-
-    class ReviewStatus(models.TextChoices):
-        UNREVIEWED = "unreviewed", "Unreviewed"
-        USEFUL = "useful", "Useful"
-        UNUSABLE = "unusable", "Unusable"
-        EDITED = "edited", "Edited"
-        PUBLISHED = "published", "Published"
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="canvas_generations")
-    status = models.CharField(max_length=16, choices=Status, default=Status.PENDING)
-    validation_status = models.CharField(
-        max_length=16,
-        choices=ValidationStatus,
-        default=ValidationStatus.PENDING,
-    )
-    review_status = models.CharField(
-        max_length=16,
-        choices=ReviewStatus,
-        default=ReviewStatus.UNREVIEWED,
-    )
-    trigger = models.CharField(max_length=64)
-    prompt_version = models.CharField(max_length=64)
-    input_fingerprint = models.CharField(max_length=64)
-    output_source = models.TextField(blank=True, default="")
-    output_storage_key = models.CharField(max_length=512, blank=True, default="")
-    model_metadata = models.JSONField(default=dict)
-    error_category = models.CharField(max_length=64, blank=True, default="")
-    failure_reason = models.TextField(blank=True, default="")
-    duration_ms = models.PositiveIntegerField(null=True, blank=True)
-    generation_task_id = models.UUIDField(null=True, blank=True)
-    generation_run_id = models.UUIDField(null=True, blank=True)
-    canvas_id = models.UUIDField(null=True, blank=True)
-    started_at = models.DateTimeField(null=True, blank=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=["team", "status", "created_at"], name="signals_canvas_gen_status_idx"),
-            models.Index(fields=["report", "created_at"], name="signals_canvas_gen_report_idx"),
-        ]
-
-
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
 
@@ -1600,10 +1509,22 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
 
+    # Which product created this scout and which of its objects the scout belongs to. Signals owns
+    # scouts, but another product can stand one up for one of its own objects (Replay Vision creates
+    # one per scanner), and that product needs to find its scouts again, authorize reads against the
+    # owning object, and clean up when the object goes. Same `(source_product, source_id)` shape the
+    # rest of Signals uses for cross-product provenance. Null for a scout a person created directly.
+    source_product = models.CharField(max_length=100, choices=signal_source_product_choices, null=True, blank=True)
+    source_id = models.CharField(max_length=200, null=True, blank=True)
+
     class Meta:
         verbose_name = "Signal scout config"
         verbose_name_plural = "Signal scout configs"
         default_manager_name = "all_teams"
+        indexes = [
+            # The owning product's lookup: "which scouts belong to this object of mine".
+            models.Index(fields=["team", "source_product", "source_id"], name="scout_config_source_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
             # Backstop for the dual-write in `save`: added NOT VALID + validated (0080–0082)

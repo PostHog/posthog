@@ -27,7 +27,7 @@ export function ReportDetail({
     <InboxReportDetailGate
       reportId={reportId}
       cachedReport={cachedReport}
-      backTo="/code/inbox/reports"
+      backTo="/inbox/reports"
       backLabel="Back to reports"
       missingCopy="This report couldn't be found. It may have been deleted."
     >
@@ -40,7 +40,7 @@ function ReportDetailContent({ report }: { report: SignalReport }) {
   return (
     <InboxDetailFrame
       report={report}
-      backTo="/code/inbox/reports"
+      backTo="/inbox/reports"
       backLabel="Back to reports"
       fallbackTitle="Untitled report"
       primaryAction={

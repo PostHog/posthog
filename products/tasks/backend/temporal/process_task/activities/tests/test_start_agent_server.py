@@ -1,20 +1,14 @@
 import pytest
 from freezegun import freeze_time
 
-from products.tasks.backend.exceptions import (
-    RequiredMcpUnavailableError,
-    SandboxExecutionError,
-    SandboxMissingRepositoryError,
-)
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
     _agentsh_domains_for,
     _ensure_repository_on_disk,
-    _ensure_required_posthog_mcp_available,
     _include_personal_mcp_for_task,
-    _invoke_start_agent_server,
     _LaunchParams,
     _network_enforcement_observation,
     _record_boot_total,
@@ -22,7 +16,6 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     await_agent_server_ready,
     start_agent_server,
 )
-from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
 
 @freeze_time("2026-08-06T12:01:30Z")
@@ -399,64 +392,6 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     _ensure_repository_on_disk(_context(repository=None), sandbox)
 
     sandbox.execute.assert_not_called()
-
-
-def test_report_canvas_run_fails_when_posthog_mcp_is_unreachable(mocker) -> None:
-    sandbox = mocker.Mock()
-    sandbox.execute.return_value = ExecutionResult(
-        stdout="",
-        stderr="curl: (7) Failed to connect",
-        exit_code=7,
-    )
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-    config = McpServerConfig(type="http", name="posthog", url="http://host.docker.internal:8787/mcp")
-
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _ensure_required_posthog_mcp_available(context, sandbox, [config])
-
-    assert exc_info.value.non_retryable is True
-    assert "Start the MCP server and retry" in str(exc_info.value)
-
-
-def test_report_canvas_run_fails_when_posthog_mcp_is_not_configured(mocker) -> None:
-    sandbox = mocker.Mock()
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _ensure_required_posthog_mcp_available(context, sandbox, [])
-
-    assert exc_info.value.non_retryable is True
-    assert "SANDBOX_MCP_URL" in str(exc_info.value)
-    sandbox.execute.assert_not_called()
-
-
-def test_invoke_start_agent_server_preserves_required_mcp_error(mocker) -> None:
-    # The probe runs inside _invoke_start_agent_server's try, whose broad handler rewraps failures as
-    # retryable SandboxExecutionError. A fatal RequiredMcpUnavailableError must survive that unchanged,
-    # otherwise a missing MCP config burns all three activity attempts. The direct-probe tests above
-    # pass regardless of this, so they don't cover the integrated path.
-    mocker.patch("products.tasks.backend.exceptions.capture_exception")
-    sandbox = mocker.Mock()
-    sandbox.id = "sandbox-id"
-    context = _context(state={"interaction_origin": "signal_report_canvas"})
-    params = _LaunchParams(
-        mcp_configs=[],
-        relayed_mcp_servers=[],
-        actor_user_id=None,
-        agentsh_domains=None,
-        protected_base_branch=None,
-        event_ingest_token=None,
-        task_run_session_token=None,
-        event_ingest_url=None,
-        event_ingest_keep_stream_open=False,
-    )
-
-    with pytest.raises(RequiredMcpUnavailableError) as exc_info:
-        _invoke_start_agent_server(sandbox, context, params, repo_ready_file=None, wait_for_health=True)
-
-    assert exc_info.value.non_retryable is True
-    assert not isinstance(exc_info.value, SandboxExecutionError)
-    sandbox.start_agent_server.assert_not_called()
 
 
 @pytest.mark.django_db

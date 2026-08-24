@@ -36,20 +36,6 @@ class TestResolveScopes(SimpleTestCase):
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
 
-    def test_report_canvas_preset_adds_only_canvas_write(self) -> None:
-        result = resolve_scopes("report_canvas")
-        assert "insight:read" in result
-        assert "canvas:write" in result
-        assert "llm_gateway:read" in result
-        assert "internal_run:read" in result
-        assert "task:write" not in result
-        assert "feature_flag:write" not in result
-        assert has_write_scopes("report_canvas")
-
-    def test_report_canvas_without_internal_scopes(self) -> None:
-        result = resolve_scopes("report_canvas", include_internal_scopes=False)
-        assert set(result) == {*MCP_READ_SCOPES, "canvas:write"}
-
     def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
         # `signals_scout` = `read_only` content PLUS the scout's own internal write scope
         # PLUS the narrow user-facing write allowlist (`SCOUT_USER_WRITE_SCOPES`). No other

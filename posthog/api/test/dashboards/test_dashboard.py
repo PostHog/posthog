@@ -4,8 +4,9 @@ import datetime
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils.timezone import now
@@ -673,6 +674,48 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
+
+    @patch(
+        "products.dashboards.backend.feature_flags.get_flags_from_service",
+        return_value={"flags": {"dashboard-customization": {"enabled": True}}},
+    )
+    def test_dashboard_customization_uses_remote_flag_evaluation(self, mock_get_flags: MagicMock) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"grid_spacing": "condensed", "layout_compaction": "horizontal"},
+        )
+
+        self.assertEqual(
+            updated["customization"],
+            {"tile_spacing": "condensed", "layout_compaction": "horizontal"},
+        )
+        expected_flag_call = call(
+            self.team.api_token,
+            self.user.distinct_id,
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            flag_keys=["dashboard-customization"],
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
+            evaluation_runtime="all",
+        )
+        self.assertGreater(len(mock_get_flags.call_args_list), 0)
+        self.assertTrue(all(flag_call == expected_flag_call for flag_call in mock_get_flags.call_args_list))
+
+    @patch("products.dashboards.backend.feature_flags.get_flags_from_service", side_effect=ConnectionError)
+    def test_dashboard_customization_fails_closed_when_remote_evaluation_fails(
+        self, _mock_get_flags: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"grid_spacing": "condensed"},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(response["attr"], "grid_spacing")
+        self.assertEqual(response["detail"], "Tile density isn't available.")
 
     @parameterized.expand([("horizontal",), ("stable",)])
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
