@@ -71,7 +71,7 @@ export function getTableDisplayOptions(
                 {
                     value: ChartDisplayType.BoldNumber,
                     icon: <Icon123 />,
-                    label: 'Big Number',
+                    label: 'Big number',
                 },
             ],
         },

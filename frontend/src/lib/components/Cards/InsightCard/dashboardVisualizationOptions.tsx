@@ -1,33 +1,43 @@
 import { useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { Node } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, Node } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 
 import { SqlVisualizationPicker } from './SqlVisualizationPicker'
 import { TrendsVisualizationPicker } from './TrendsVisualizationPicker'
 
-export type VisualizationPickerKind = 'sql' | 'trends' | null
+export type VisualizationPicker =
+    | { kind: 'sql'; query: DataVisualizationNode; persistDisplayOptions: (node: Node) => void }
+    | { kind: 'trends' }
+    | null
+
+// LemonMenu renders a function label as a component type, so a fresh closure on each render remounts
+// the picker and closes its dropdown mid-interaction. This one is defined once.
+const TRENDS_SECTION: LemonMenuItems = [
+    { title: 'Visualization', items: [{ label: () => <TrendsVisualizationPicker /> }] },
+]
 
 // Only insight types whose chart type is a single dropdown get a picker. Funnels, retention and paths
 // each pick a chart through their own bespoke control, so they get nothing here.
 export function resolveVisualizationPicker(
     query: Node | null,
     supportsDisplay: boolean,
-    canPersist: boolean
-): VisualizationPickerKind {
-    if (!canPersist || !query) {
+    persistDisplayOptions?: (node: Node) => void
+): VisualizationPicker {
+    if (!persistDisplayOptions || !query) {
         return null
     }
 
     if (isDataVisualizationNode(query)) {
-        return 'sql'
+        return { kind: 'sql', query, persistDisplayOptions }
     }
 
-    return supportsDisplay ? 'trends' : null
+    return supportsDisplay ? { kind: 'trends' } : null
 }
 
 // The chart type section of a dashboard card's "Display options" menu, so switching how an insight is
@@ -44,9 +54,14 @@ export function useDashboardVisualizationOptions({
     const { insightProps } = useValues(insightLogic)
     const { supportsDisplay } = useValues(insightVizDataLogic(insightProps))
 
-    const kind = resolveVisualizationPicker(query, supportsDisplay, !!persistDisplayOptions)
+    const picker = resolveVisualizationPicker(query, supportsDisplay, persistDisplayOptions)
+    const sqlQuery = picker?.kind === 'sql' ? picker.query : null
+    const sqlPersist = picker?.kind === 'sql' ? picker.persistDisplayOptions : undefined
 
-    if (kind === 'sql' && persistDisplayOptions && query && isDataVisualizationNode(query)) {
+    const sqlSection = useMemo<LemonMenuItems>(() => {
+        if (!sqlQuery || !sqlPersist) {
+            return []
+        }
         return [
             {
                 title: 'Visualization',
@@ -54,19 +69,23 @@ export function useDashboardVisualizationOptions({
                     {
                         label: () => (
                             <SqlVisualizationPicker
-                                query={query}
+                                query={sqlQuery}
                                 insightData={insightData}
-                                persistDisplayOptions={persistDisplayOptions}
+                                persistDisplayOptions={sqlPersist}
                             />
                         ),
                     },
                 ],
             },
         ]
+    }, [sqlQuery, insightData, sqlPersist])
+
+    if (picker?.kind === 'sql') {
+        return sqlSection
     }
 
-    if (kind === 'trends') {
-        return [{ title: 'Visualization', items: [{ label: () => <TrendsVisualizationPicker /> }] }]
+    if (picker?.kind === 'trends') {
+        return TRENDS_SECTION
     }
 
     return []
