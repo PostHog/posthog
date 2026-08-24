@@ -15,9 +15,9 @@ from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cach
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestCoreEvent(BaseTest):

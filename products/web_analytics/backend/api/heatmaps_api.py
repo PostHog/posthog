@@ -57,11 +57,11 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControlSerializerMixin,
 )
-from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.api.heatmaps_utils import (
     DEFAULT_TARGET_WIDTHS,

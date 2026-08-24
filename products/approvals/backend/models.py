@@ -5,6 +5,8 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.access_control.backend.models.role import Role
+
 if TYPE_CHECKING:
     from products.approvals.backend.actions.base import BaseAction
     from products.approvals.backend.models import ApprovalPolicy as ApprovalPolicyType
@@ -201,17 +203,12 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.bypass_roles.clear()
             return
 
-        try:
-            from ee.models.rbac.role import Role
-        except ImportError:
-            pass
-        else:
-            # nosemgrep: idor-lookup-without-org (org validation after lookup)
-            roles = Role.objects.filter(id__in=role_ids)
-            invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
-            if invalid_roles:
-                invalid_names = [r.name for r in invalid_roles]
-                raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
+        # nosemgrep: idor-lookup-without-org (org validation after lookup)
+        roles = Role.objects.filter(id__in=role_ids)
+        invalid_roles = [r for r in roles if r.organization_id != self.organization_id]
+        if invalid_roles:
+            invalid_names = [r.name for r in invalid_roles]
+            raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
 
             self.bypass_roles.set(roles)
 
@@ -225,7 +222,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         approver_roles = self.approver_config.get("roles")
         if approver_roles:
             try:
-                from ee.models.rbac.role import RoleMembership
+                from products.access_control.backend.models.role import RoleMembership
 
                 role_user_ids = RoleMembership.objects.filter(
                     role_id__in=approver_roles,

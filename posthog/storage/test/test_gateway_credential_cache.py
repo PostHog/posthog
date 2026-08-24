@@ -713,7 +713,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
         # Role membership is per-user, so it reprojects synchronously, unlike the
         # team-wide access-control handler. The async retry fires only on sync failure.
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()

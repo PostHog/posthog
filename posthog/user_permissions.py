@@ -143,7 +143,7 @@ class UserPermissions:
         AccessControl row can name a role belonging to a different organization, so callers have to
         look roles up under the organization of the team being resolved.
         """
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.role import RoleMembership
 
         result: dict[UUID, set[UUID]] = {}
         for organization_id, role_id in RoleMembership.objects.filter(user=self.user).values_list(

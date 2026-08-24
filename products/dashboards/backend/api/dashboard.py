@@ -94,12 +94,12 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     UserAccessControlSerializerMixin,
     access_level_satisfied_for_resource,
 )
-from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view

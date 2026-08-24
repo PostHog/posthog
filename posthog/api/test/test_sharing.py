@@ -2014,7 +2014,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
     def _enable_sharing(self, kind: str):
@@ -2065,7 +2064,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
             "kind": "DataTableNode",
@@ -2113,7 +2111,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="restricted_inner",

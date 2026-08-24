@@ -7,14 +7,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_access_control_migration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-
-    from ee.models.dashboard_privilege import DashboardPrivilege
-except ImportError:
-    pass
+from ee.models.dashboard_privilege import DashboardPrivilege
 
 
 @pytest.mark.ee

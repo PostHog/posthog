@@ -15,11 +15,17 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from products.access_control.backend.facade.user_access_control import AccessSource
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.access_control_settings import (
+    _display_model,
+    resources_with_object_access_controls,
+)
+from products.access_control.backend.facade.user_access_control import AccessSource
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -29,10 +35,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSource
 
-from products.access_control.backend.facade.access_control_settings import _display_model, resources_with_object_access_controls
 from ee.api.test.base import APILicensedTest
-from products.access_control.backend.models.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class BaseAccessControlTest(APILicensedTest):

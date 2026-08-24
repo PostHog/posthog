@@ -50,6 +50,7 @@ class RoleExternalReference(UUIDModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
+        app_label = "posthog"
         constraints = [
             models.UniqueConstraint(
                 Lower("provider_organization_id"),

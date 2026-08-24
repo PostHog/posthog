@@ -16,11 +16,7 @@ from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     AccessControlLevelResource,
 )
-
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def test_metrics_app_is_installed():

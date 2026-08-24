@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
@@ -23,8 +24,6 @@ from products.data_catalog.backend.logic.metrics import (
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
 from products.product_analytics.backend.facade.models import Insight
-
-from products.access_control.backend.models.access_control import AccessControl
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}

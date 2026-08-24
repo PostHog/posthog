@@ -17,16 +17,12 @@ from posthog.models import Tag, User
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-except ImportError:
-    pass
 
 
 @override_settings(IN_UNIT_TESTING=True)

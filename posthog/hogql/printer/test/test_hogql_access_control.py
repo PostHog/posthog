@@ -157,7 +157,7 @@ class TestAccessControlGuard(BaseTest):
         from posthog.clickhouse.client.escape import substitute_params_for_display
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -213,7 +213,7 @@ class TestAccessControlGuard(BaseTest):
 
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -286,7 +286,7 @@ class TestAccessControlGuard(BaseTest):
 
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -329,7 +329,7 @@ class TestAccessControlGuard(BaseTest):
 
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -381,7 +381,7 @@ class TestRestParityForObjectGrants(BaseTest):
         self.membership.save()
 
     def _ac(self, **kwargs):
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         return AccessControl.objects.create(team=self.team, **kwargs)
 
@@ -475,7 +475,7 @@ class TestDeniedTableError(BaseTest):
         """When a table is denied, error should say 'no access' not 'unknown'."""
         from posthog.constants import AvailableFeature
 
-        from ee.models import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Enable access control feature
         self.organization.available_product_features = [

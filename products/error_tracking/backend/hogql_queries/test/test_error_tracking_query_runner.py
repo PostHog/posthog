@@ -42,6 +42,7 @@ from posthog.models.utils import uuid7
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
@@ -66,8 +67,6 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
-
-from ee.models.rbac.role import Role
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):

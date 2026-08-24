@@ -13,8 +13,8 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
     pipeline (flag off, nobody to notify) counts as sent so it is not retried every tick."""
     try:
         from posthog.models import User  # noqa: PLC0415
-        from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
 
+        from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
         from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)
             NotificationData,
             NotificationType,

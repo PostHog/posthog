@@ -7,6 +7,8 @@ from django.db.models import F, Model, Q
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.scopes import APIScopeObject
+
 from products.access_control.backend.facade.user_access_control import (
     EE_AVAILABLE,
     NO_ACCESS_LEVEL,
@@ -19,13 +21,8 @@ from products.access_control.backend.facade.user_access_control import (
     default_access_level,
     model_to_resource,
 )
-from posthog.scopes import APIScopeObject
-
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-    from ee.models.rbac.role import RoleMembership
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 
 # Per-question state for a resolution in progress, scoped to a `with` block rather than kept on the
 # instance: the subject says whose access resolves; what to leave out for one question does not.
@@ -58,7 +55,7 @@ class SubjectAccessControl(UserAccessControl):
         org_membership: Optional[OrganizationMembership] = None,
         member: Optional[OrganizationMembership] = None,
         role_id: Optional[str] = None,
-    ):
+    ) -> None:
         super().__init__(user, team, organization_id)
         self._subject_member = member
         self._subject_role_id = role_id

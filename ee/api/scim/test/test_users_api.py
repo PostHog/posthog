@@ -6,10 +6,11 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
+from products.access_control.backend.models.role import RoleMembership
+
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.views import MAX_ITEMS_PER_PAGE
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import RoleMembership
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 

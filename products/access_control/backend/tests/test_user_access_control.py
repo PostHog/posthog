@@ -10,7 +10,8 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from products.access_control.backend.facade.user_access_control import SubjectAccessControl
+
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
@@ -19,16 +20,11 @@ from products.access_control.backend.facade.user_access_control import (
     get_field_access_control_map,
     model_to_resource,
 )
-
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
-
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    pass
 
 
 class BaseUserAccessControlTest(BaseTest):

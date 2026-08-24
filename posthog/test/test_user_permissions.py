@@ -223,8 +223,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
     def test_team_effective_membership_level_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
         from products.access_control.backend.models.access_control import AccessControl
-
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         # Set up team with new access control system
         # Team is not private (no AccessControl objects), so organization level is used
@@ -288,8 +287,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
     def test_team_effective_membership_level_with_higher_role_based_access(self):
         """Test that users with admin role-based access have its effective membership level at admin"""
         from products.access_control.backend.models.access_control import AccessControl
-
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         # Set up user as a member
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -322,8 +320,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         """Role-backed project AccessControl rows must NOT take effect when the org lacks
         ROLE_BASED_ACCESS — mirrors the UI gate on the project access settings page."""
         from products.access_control.backend.models.access_control import AccessControl
-
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL
         self.organization.available_product_features = [
@@ -452,8 +449,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         Currently this fails because direct member access returns early without checking roles.
         """
         from products.access_control.backend.models.access_control import AccessControl
-
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         # Set up user as organization member (not admin)
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -504,7 +500,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
     def _grant_project_access_via_new_role(self, access_level: str, *, legacy_membership: bool = False) -> None:
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         role = Role.objects.create(name=f"Role {access_level}", organization=self.organization)
         RoleMembership.objects.create(
@@ -524,8 +520,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         # Nothing scopes the role on an AccessControl row to the project's organization, so a rule
         # can name a role the user holds in an unrelated organization
         from products.access_control.backend.models.access_control import AccessControl
-
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

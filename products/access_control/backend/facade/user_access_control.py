@@ -22,17 +22,14 @@ if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
     from posthog.user_permissions import UserPermissions
 
-    from ee.models import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 
     _AccessControl = AccessControl
 else:
     _AccessControl = object
 
 
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class AccessSource(Enum):

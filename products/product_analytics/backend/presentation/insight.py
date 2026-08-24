@@ -116,12 +116,6 @@ from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
 )
-from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControlError,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
@@ -139,6 +133,12 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControlError,
+    UserAccessControlSerializerMixin,
+    access_level_satisfied_for_resource,
+)
 from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,

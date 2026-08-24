@@ -10,8 +10,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-
-from ee.models.rbac.role import Role, RoleMembership
+from products.access_control.backend.models.role import Role, RoleMembership
 
 
 class TestUserTeamsAccessControl(BaseTest):

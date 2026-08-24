@@ -40,8 +40,9 @@ from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 
+from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
 from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
-from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -64,8 +65,6 @@ from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECOND
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
-
-from ee.models.rbac.role import Role
 
 from .. import reply_dedupe
 

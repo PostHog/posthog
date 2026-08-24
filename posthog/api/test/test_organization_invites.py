@@ -25,8 +25,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
-
-from ee.models import Role, RoleMembership
+from products.access_control.backend.models.role import Role, RoleMembership
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 

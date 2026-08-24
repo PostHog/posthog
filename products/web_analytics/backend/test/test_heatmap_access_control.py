@@ -19,14 +19,10 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
+from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import SavedHeatmap
 from products.web_analytics.backend.test.test_heatmaps_api import INSERT_SINGLE_HEATMAP_EVENT
-
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class TestHeatmapResourceRegistration(SimpleTestCase):

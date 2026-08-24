@@ -107,11 +107,9 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.facade.access_control_settings import AccessControlSettingsViewSetMixin
 from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
-from products.access_control.backend.facade.viewset_mixins import (
-    AccessControlSettingsViewSetMixin,
-    AccessControlViewSetMixin,
-)
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig

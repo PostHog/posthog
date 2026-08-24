@@ -34,8 +34,8 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
+from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
 from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
-from products.access_control.backend.facade.viewset_mixins import AccessControlViewSetMixin
 from products.ai_observability.backend.api.dataset_exports import (
     DatasetExportCreateSerializer,
     DatasetExportErrorSerializer,

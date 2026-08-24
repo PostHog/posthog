@@ -11,14 +11,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
+from products.access_control.backend.models.access_control import AccessControl
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-
-try:
-    from products.access_control.backend.models.access_control import AccessControl
-except ImportError:
-    pass
-
 
 SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT 1"}
 

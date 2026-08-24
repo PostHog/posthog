@@ -1123,8 +1123,7 @@ class Team(UUIDTClassicModel):
         from posthog.models.user import User
 
         from products.access_control.backend.models.access_control import AccessControl
-
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.role import RoleMembership
 
         # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
         # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.
