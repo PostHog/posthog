@@ -1,10 +1,4 @@
-import {
-    DeleteObjectCommand,
-    HeadObjectCommand,
-    HeadObjectCommandOutput,
-    PutObjectCommand,
-    S3Client,
-} from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'node:crypto'
 
@@ -35,12 +29,6 @@ const INDEX_FORMAT_VERSION = 1
 const URL_SOURCE_PARTITION_METADATA = 'source-partition'
 const URL_SOURCE_OFFSET_METADATA = 'source-offset'
 const URL_WRITE_MAX_ATTEMPTS = 8
-
-interface StoredUrlImageFence {
-    etag: string
-    sourcePartition?: number
-    sourceOffset?: number
-}
 
 const INDEX_SCHEMA = new ParquetSchema({
     format_version: { type: 'INT64', compression: 'SNAPPY' },
@@ -85,16 +73,6 @@ export class ImageShardStore {
         const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs)
         try {
             await this.s3.send(command, { abortSignal: controller.signal })
-        } finally {
-            clearTimeout(timer)
-        }
-    }
-
-    private async head(command: HeadObjectCommand): Promise<HeadObjectCommandOutput> {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), this.writeTimeoutMs)
-        try {
-            return await this.s3.send(command, { abortSignal: controller.signal })
         } finally {
             clearTimeout(timer)
         }
@@ -153,15 +131,6 @@ export class ImageShardStore {
         }
         const key = `${this.prefix}/url/${image.hash}`
         for (let attempt = 0; attempt < URL_WRITE_MAX_ATTEMPTS; attempt++) {
-            const stored = await this.readUrlImageFence(key)
-            if (stored?.sourcePartition !== undefined && stored.sourceOffset !== undefined) {
-                if (stored.sourcePartition !== image.sourcePartition) {
-                    throw new Error(`URL image ${image.hash} moved between Kafka partitions`)
-                }
-                if (stored.sourceOffset >= image.sourceOffset) {
-                    return
-                }
-            }
             try {
                 await this.send(
                     new PutObjectCommand({
@@ -173,48 +142,21 @@ export class ImageShardStore {
                             [URL_SOURCE_PARTITION_METADATA]: String(image.sourcePartition),
                             [URL_SOURCE_OFFSET_METADATA]: String(image.sourceOffset),
                         },
-                        ...(stored ? { IfMatch: stored.etag } : { IfNoneMatch: '*' }),
+                        IfNoneMatch: '*',
                     })
                 )
                 return
             } catch (error) {
-                if (!isConditionalWriteConflict(error)) {
-                    throw error
+                if (isPreconditionFailed(error)) {
+                    return
                 }
+                if (isConditionalRequestConflict(error)) {
+                    continue
+                }
+                throw error
             }
         }
-        throw new Error(`URL image ${image.hash} write fence did not converge`)
-    }
-
-    private async readUrlImageFence(key: string): Promise<StoredUrlImageFence | null> {
-        let output: HeadObjectCommandOutput
-        try {
-            output = await this.head(new HeadObjectCommand({ Bucket: this.bucket, Key: key }))
-        } catch (error) {
-            if (isNotFound(error)) {
-                return null
-            }
-            throw error
-        }
-        if (!output.ETag) {
-            throw new Error(`URL image ${key} has no ETag for conditional overwrite`)
-        }
-        const rawPartition = output.Metadata?.[URL_SOURCE_PARTITION_METADATA]
-        const rawOffset = output.Metadata?.[URL_SOURCE_OFFSET_METADATA]
-        if (rawPartition === undefined && rawOffset === undefined) {
-            return { etag: output.ETag }
-        }
-        const sourcePartition = Number(rawPartition)
-        const sourceOffset = Number(rawOffset)
-        if (
-            !Number.isSafeInteger(sourcePartition) ||
-            sourcePartition < 0 ||
-            !Number.isSafeInteger(sourceOffset) ||
-            sourceOffset < 0
-        ) {
-            throw new Error(`URL image ${key} has an invalid source position`)
-        }
-        return { etag: output.ETag, sourcePartition, sourceOffset }
+        throw new Error(`URL image ${image.hash} conditional create did not converge`)
     }
 }
 
@@ -232,12 +174,10 @@ function s3ErrorName(error: unknown): string {
         : ''
 }
 
-function isNotFound(error: unknown): boolean {
-    return s3HttpStatus(error) === 404 || s3ErrorName(error) === 'NoSuchKey' || s3ErrorName(error) === 'NotFound'
+function isPreconditionFailed(error: unknown): boolean {
+    return s3HttpStatus(error) === 412 || s3ErrorName(error) === 'PreconditionFailed'
 }
 
-function isConditionalWriteConflict(error: unknown): boolean {
-    const status = s3HttpStatus(error)
-    const name = s3ErrorName(error)
-    return status === 409 || status === 412 || name === 'ConditionalRequestConflict' || name === 'PreconditionFailed'
+function isConditionalRequestConflict(error: unknown): boolean {
+    return s3HttpStatus(error) === 409 || s3ErrorName(error) === 'ConditionalRequestConflict'
 }

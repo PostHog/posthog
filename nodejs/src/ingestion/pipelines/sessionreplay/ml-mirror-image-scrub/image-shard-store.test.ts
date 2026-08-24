@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 import { ImageShardStore } from './image-shard-store'
 
@@ -43,15 +43,13 @@ describe('ImageShardStore', () => {
         expect(deleted[0]).toContain('/shards/')
     })
 
-    it('creates a missing URL object with a conditional fence and source position', async () => {
-        const missing = Object.assign(new Error('missing'), { $metadata: { httpStatusCode: 404 } })
-        const send = jest.fn().mockRejectedValueOnce(missing).mockResolvedValueOnce({})
+    it('creates a URL object once with its source position', async () => {
+        const send = jest.fn().mockResolvedValueOnce({})
         const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
 
         await store.writeUrlImage(urlImage)
 
-        expect(send.mock.calls[0][0]).toBeInstanceOf(HeadObjectCommand)
-        const put = send.mock.calls[1][0] as PutObjectCommand
+        const put = send.mock.calls[0][0] as PutObjectCommand
         expect(put.input).toMatchObject({
             Key: `images/url/${urlImage.hash}`,
             IfNoneMatch: '*',
@@ -59,32 +57,31 @@ describe('ImageShardStore', () => {
         })
     })
 
-    it('does not let an old owner overwrite a newer offset after a conditional conflict', async () => {
-        const conflict = Object.assign(new Error('changed'), {
+    it('keeps the first URL object when the key already exists', async () => {
+        const exists = Object.assign(new Error('exists'), {
             name: 'PreconditionFailed',
             $metadata: { httpStatusCode: 412 },
         })
-        const send = jest
-            .fn()
-            .mockResolvedValueOnce({
-                ETag: '"old"',
-                Metadata: { 'source-partition': '3', 'source-offset': '8' },
-            })
-            .mockRejectedValueOnce(conflict)
-            .mockResolvedValueOnce({
-                ETag: '"new"',
-                Metadata: { 'source-partition': '3', 'source-offset': '10' },
-            })
+        const send = jest.fn().mockRejectedValueOnce(exists)
         const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
 
         await store.writeUrlImage(urlImage)
 
-        const firstPut = send.mock.calls[1][0] as PutObjectCommand
-        expect(firstPut.input.IfMatch).toBe('"old"')
-        expect(send.mock.calls.map(([command]) => command.constructor)).toEqual([
-            HeadObjectCommand,
-            PutObjectCommand,
-            HeadObjectCommand,
-        ])
+        expect(send).toHaveBeenCalledTimes(1)
+        expect((send.mock.calls[0][0] as PutObjectCommand).input.IfNoneMatch).toBe('*')
+    })
+
+    it('retries a concurrent conditional create until one writer succeeds', async () => {
+        const conflict = Object.assign(new Error('concurrent write'), {
+            name: 'ConditionalRequestConflict',
+            $metadata: { httpStatusCode: 409 },
+        })
+        const send = jest.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce({})
+        const store = new ImageShardStore({ send } as unknown as S3Client, 'bucket', 'images', 1_000, 'node')
+
+        await store.writeUrlImage(urlImage)
+
+        expect(send).toHaveBeenCalledTimes(2)
+        expect(send.mock.calls.map(([command]) => (command as PutObjectCommand).input.IfNoneMatch)).toEqual(['*', '*'])
     })
 })

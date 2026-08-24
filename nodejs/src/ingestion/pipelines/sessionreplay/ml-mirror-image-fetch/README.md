@@ -463,7 +463,7 @@ that scenario.
 
 **13.3** The key uses the shared Rust URL-policy implementation to canonicalize the URL. The canonical form uses the parser's serialized HTTPS URL, lowercases and IDNA-encodes the host, removes a trailing DNS root dot, removes the fragment, omits the explicit default port `443`, and uses `/` for an empty path. It does not sort path segments or query fields. The shared parser's serialization is authoritative for percent-encoding and dot-segment normalization.
 
-After parsing and before final serialization, the implementation removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable.
+The fetch URL keeps the original query verbatim. The global ref uses a canonical query that removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The implementation filters raw query fields and never rebuilds a query. Every retained field stays byte-for-byte unchanged. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable. If several fetch URLs in one collection batch map to one global ref, the first collected fetch URL becomes the fetch candidate.
 
 **13.4** A URL ref does not contain a team identifier, a team pseudonym, or a key derived from one team. The same canonical URL produces the same ref for every team.
 
@@ -597,7 +597,7 @@ ai_research_session_replay_image_fetch_retry_1h
 
 **17.11** After scrubbing a URL-backed image, the image scrubber writes it to the deterministic S3 object key `<configured image prefix>/url/<hash>`, where `<hash>` comes from the `imageurl:<hash>` ref. URL-backed images do not use the time-partitioned shard index used by inline images.
 
-**17.12** A later successful scrub for the same ref overwrites that object. The last completed S3 write is the version that data preparation reads. This policy avoids a version index or a search across historical shards.
+**17.12** The image scrubber creates a URL object with `If-None-Match: *`. If an object already exists for the ref, the scrubber keeps it and treats the write as complete. The first completed S3 write is the version that data preparation reads. This policy makes the first fetch URL that reaches storage win when several fetch URLs map to one global ref.
 
 **17.13** Data preparation converts each distinct ref to the deterministic object key and performs one direct S3 read. A missing object leaves the image placeholder in place and does not require a recrawl.
 

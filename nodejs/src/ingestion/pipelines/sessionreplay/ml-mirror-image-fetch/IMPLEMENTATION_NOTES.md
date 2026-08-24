@@ -52,7 +52,7 @@ The production fetch queue can hold one full 100-record batch at the response-si
 
 The scrubber decodes supported codings in reverse order. It enforces the uncompressed limit during each decoding layer and verifies the image signature.
 
-Inline images retain sharded storage and Parquet indexes. URL images use `scrubbed-images/url/<global-hash>` for deterministic direct lookup. Conditional writes use the source Kafka partition and offset to prevent an old partition owner from replacing newer bytes.
+Inline images retain sharded storage and Parquet indexes. URL images use `scrubbed-images/url/<global-hash>` for deterministic direct lookup. Conditional creates keep the first scrubbed image written for each global ref.
 
 URL-image S3 writes use the scrub worker concurrency bound. A full scrub batch cannot create an unbounded S3 request burst.
 
@@ -105,9 +105,9 @@ The pass-budget alert is inactive in dry-run mode. Delay-topic lag has no alert 
 - The Web Bot Auth private key and Kubernetes secret remain operator-managed. No private key material belongs in these repositories.
 - The DynamoDB table and its workload identity permissions exist before the fetch deployment becomes active.
 - The shared ML bucket grants the data-preparation workload read access to the deterministic URL-image prefix.
-- The image-scrub topic partition count remains fixed while deterministic URL-image objects exist. The source-offset write fence refuses a ref that moves between partitions.
 - Retry topics use the `ai_research_session_replay_` naming convention.
-- Replacement infrastructure provisions the required topics before consumers start. Deprecated protected topics use the Kafka module's separate state-move and deletion workflow.
+- Replacement infrastructure provisions the required topics before consumers start. No deployed producer or consumer uses the deprecated names.
+- Deprecated topics remain protected and unused. Their cleanup is not required for this rollout.
 - Current public documentation already describes the collector-side image limits. No separate documentation repository change is required.
 
 ## Delta from the original requirements

@@ -211,7 +211,10 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if !meta.starts_with("image/") || !meta.contains("base64") {
         return None;
     }
-    if meta.starts_with("image/svg") || meta.starts_with("image/bmp") {
+    let mime_type = meta
+        .split_once(';')
+        .map_or(meta.as_str(), |(mime_type, _)| mime_type);
+    if mime_type.starts_with("image/svg") || mime_type.contains("bmp") {
         return None;
     }
     // An encoded payload that can't decode under the per-image cap would be decoded here only to
@@ -220,9 +223,13 @@ pub fn collectable_data_uri_bytes(uri: &str) -> Option<Vec<u8>> {
     if payload.len() > MAX_IMAGE_BYTES.div_ceil(3) * 4 {
         return None;
     }
-    base64::engine::general_purpose::STANDARD
+    let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
-        .ok()
+        .ok()?;
+    if bytes.starts_with(b"BM") {
+        return None;
+    }
+    Some(bytes)
 }
 
 #[cfg(test)]
@@ -302,6 +309,9 @@ mod tests {
     fn collectable_rejects_svg_non_base64_and_non_image() {
         assert!(collectable_data_uri_bytes("data:image/svg+xml;base64,PHN2Zz4=").is_none());
         assert!(collectable_data_uri_bytes("data:image/bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/x-bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/x-ms-bmp;base64,Qk0=").is_none());
+        assert!(collectable_data_uri_bytes("data:image/png;base64,Qk0=").is_none());
         assert!(collectable_data_uri_bytes("data:image/svg+xml;utf8,<svg/>").is_none());
         assert!(collectable_data_uri_bytes("data:text/plain;base64,aGk=").is_none());
         assert!(collectable_data_uri_bytes("data:image/png;utf8,notbase64").is_none());

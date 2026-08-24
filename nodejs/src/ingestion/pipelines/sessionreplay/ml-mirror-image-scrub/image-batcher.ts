@@ -350,7 +350,7 @@ export class ImageBatcher {
     private planBatch(messages: Message[]): PlannedScrub[] {
         const planned: PlannedScrub[] = []
         const inlineRefs = new Set<string>()
-        const latestUrlByRef = new Map<string, PlannedScrub>()
+        const urlLocationByRef = new Map<string, Pick<PlannedScrub, 'sourceTopic' | 'sourcePartition'>>()
         for (const [index, m] of messages.entries()) {
             const ref = m.key?.toString('utf8')
             // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
@@ -383,21 +383,18 @@ export class ImageBatcher {
                 replayCount: Number(headers[REPLAY_COUNT_HEADER] ?? 0) || 0,
             }
             if (parsed.source === 'url') {
-                const existing = latestUrlByRef.get(ref)
+                const existing = urlLocationByRef.get(ref)
                 if (existing) {
-                    ImageScrubConsumerMetrics.incDeduped('batch')
                     if (
                         existing.sourceTopic !== candidate.sourceTopic ||
                         existing.sourcePartition !== candidate.sourcePartition
                     ) {
                         throw new Error(`URL image ref ${ref} arrived on more than one Kafka partition`)
                     }
-                    if (candidate.sourceOffset > existing.sourceOffset) {
-                        latestUrlByRef.set(ref, candidate)
-                    }
                 } else {
-                    latestUrlByRef.set(ref, candidate)
+                    urlLocationByRef.set(ref, candidate)
                 }
+                planned.push(candidate)
                 continue
             }
             if (inlineRefs.has(ref)) {
@@ -411,28 +408,10 @@ export class ImageBatcher {
             }
             planned.push(candidate)
         }
-        planned.push(...latestUrlByRef.values())
-        planned.sort((left, right) => left.index - right.index)
         return planned
     }
 
     private bufferScrubbedRef(ready: ScrubbedRef): void {
-        if (ready.source === 'url') {
-            const readyImage = ready.image as ScrubbedUrlImage
-            const existingIndex = this.buffer.findIndex((item) => item.source === 'url' && item.ref === ready.ref)
-            if (existingIndex >= 0) {
-                const existing = this.buffer[existingIndex].image as ScrubbedUrlImage
-                if (existing.sourcePartition !== readyImage.sourcePartition) {
-                    throw new Error(`URL image ref ${ready.ref} arrived on more than one Kafka partition`)
-                }
-                if (existing.sourceOffset >= readyImage.sourceOffset) {
-                    return
-                }
-                this.buffer[existingIndex] = ready
-                this.bufferBytes += readyImage.bytes.length - existing.bytes.length
-                return
-            }
-        }
         this.buffer.push(ready)
         this.bufferBytes += ready.image.bytes.length
     }

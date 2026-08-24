@@ -11,8 +11,9 @@
 //! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
 //! the hash, so it sets the ref and the dedup key of the fetch lane.
 //!
-//! The *fetch* URL is canonical, and every permitted parameter stays. The fetcher requests this
-//! one. URLs that carry credentials or signatures are refused before either form is created.
+//! The *fetch* URL keeps the original query bytes, and every permitted parameter stays. The
+//! fetcher requests this one. URLs that carry credentials or signatures are refused before either
+//! form is created.
 //!
 //! That split is what makes the ref stable across non-credential cache busters. A ref that appears
 //! once joins to nothing downstream. Removing the volatile parameters matters more for that than
@@ -59,7 +60,7 @@ pub struct UrlCollection {
 pub struct CollectedUrl {
     /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`.
     pub hash: String,
-    /// The canonical URL with every parameter intact. This is what the fetcher requests.
+    /// The URL with its original query bytes intact. This is what the fetcher requests.
     pub url: String,
     /// The host the request goes to. robots.txt and the connection limit are scoped to this.
     pub host: String,
@@ -229,15 +230,16 @@ mod tests {
     #[test]
     fn cache_busters_share_one_global_ref_and_fetch_candidate() {
         let mut c = collector();
-        let first = c
-            .collect("https://cdn.example.com/a.png?w=100&cb=first")
-            .unwrap();
+        let first_url = "https://cdn.example.com/a.png?w=100&cb=first";
+        let first = c.collect(first_url).unwrap();
         let second = c
             .collect("https://cdn.example.com/a.png?w=100&cb=second")
             .unwrap();
 
         assert_eq!(first, second);
-        assert_eq!(c.into_urls().len(), 1);
+        let urls = c.into_urls();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].url, first_url);
     }
 
     #[test]

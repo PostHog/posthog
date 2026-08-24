@@ -148,7 +148,7 @@ describe('ImageBatcher', () => {
         expect(store.writes).toHaveLength(0)
     })
 
-    it('keeps the highest Kafka offset for a URL ref within one batch', async () => {
+    it('submits every valid URL image for the conditional store to select the first completed write', async () => {
         const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
         const newer = Buffer.concat([png, Buffer.from('newer')])
         const older = Buffer.concat([png, Buffer.from('older')])
@@ -176,6 +176,42 @@ describe('ImageBatcher', () => {
                 bytes: newer,
                 sourcePartition: 0,
                 sourceOffset: 12,
+            },
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: older,
+                sourcePartition: 0,
+                sourceOffset: 10,
+            },
+        ])
+    })
+
+    it('uses a later valid URL image when an earlier candidate for the ref is invalid', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options,
+            0
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 10, pt(1), Buffer.from('not a png'), ref, [{ 'content-type': Buffer.from('image/png') }]),
+                msg(0, 11, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }]),
+            ],
+            1
+        )
+
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: png,
+                sourcePartition: 0,
+                sourceOffset: 11,
             },
         ])
     })

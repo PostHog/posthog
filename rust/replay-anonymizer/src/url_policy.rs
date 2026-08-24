@@ -259,15 +259,18 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         return Err(Decline::Credential);
     }
 
+    let original_query = original_query(raw);
     url.set_fragment(None);
-    let fetch = url.to_string();
+    url.set_query(None);
+    let serialized_without_query = url.to_string();
+    let fetch = serialize_with_query(&serialized_without_query, original_query);
     // Percent-encoding and IDNA can grow a URL, so the cap is re-checked on what we emit.
     if fetch.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
     }
 
-    remove_volatile_params(&mut url);
-    let dedup = url.to_string();
+    let dedup_query = remove_volatile_params(original_query)?;
+    let dedup = serialize_with_query(&serialized_without_query, dedup_query.as_deref());
 
     Ok(CanonicalUrl {
         fetch,
@@ -275,6 +278,20 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         domain: politeness_key(&host),
         host,
     })
+}
+
+fn original_query(raw: &str) -> Option<&str> {
+    let before_fragment = raw.split_once('#').map_or(raw, |(before, _)| before);
+    before_fragment.split_once('?').map(|(_, query)| query)
+}
+
+fn serialize_with_query(serialized_without_query: &str, query: Option<&str>) -> String {
+    let mut serialized = serialized_without_query.to_string();
+    if let Some(query) = query {
+        serialized.push('?');
+        serialized.push_str(query);
+    }
+    serialized
 }
 
 fn has_credential_query(url: &Url) -> Result<bool, Decline> {
@@ -360,32 +377,38 @@ fn has_credential_path(url: &Url, host: &str) -> Result<bool, Decline> {
         || has_session_token)
 }
 
-fn remove_volatile_params(url: &mut Url) {
-    if url.query().is_none() {
-        return;
-    }
-    let pairs: Vec<(String, String)> = url
-        .query_pairs()
-        .map(|(name, value)| (name.into_owned(), value.into_owned()))
-        .collect();
+fn remove_volatile_params(raw_query: Option<&str>) -> Result<Option<String>, Decline> {
+    let Some(raw_query) = raw_query else {
+        return Ok(None);
+    };
+    let pairs: Vec<(&str, String)> = raw_query
+        .split('&')
+        .map(|raw_pair| {
+            let raw_name = raw_pair.split_once('=').map_or(raw_pair, |(name, _)| name);
+            if !has_valid_percent_encoding(raw_name) {
+                return Err(Decline::InvalidQuery);
+            }
+            let decoded_name = percent_decode_str(raw_name)
+                .decode_utf8()
+                .map_err(|_| Decline::InvalidQuery)?
+                .into_owned();
+            Ok((raw_pair, decoded_name))
+        })
+        .collect::<Result<_, _>>()?;
     let names_on_this_url: HashSet<String> = pairs
         .iter()
-        .map(|(name, _)| name.to_ascii_lowercase())
+        .map(|(_, name)| name.to_ascii_lowercase())
         .collect();
-    let kept: Vec<&(String, String)> = pairs
+    let kept: Vec<&str> = pairs
         .iter()
-        .filter(|(name, _)| !is_volatile(name, &names_on_this_url))
+        .filter(|(_, name)| !is_volatile(name, &names_on_this_url))
+        .map(|(raw_pair, _)| *raw_pair)
         .collect();
 
     if kept.is_empty() {
-        url.set_query(None);
-        return;
+        return Ok(None);
     }
-    let mut query = url.query_pairs_mut();
-    query.clear();
-    for (name, value) in kept {
-        query.append_pair(name, value);
-    }
+    Ok(Some(kept.join("&")))
 }
 
 #[cfg(test)]
@@ -502,6 +525,32 @@ mod tests {
             "https://cdn.example.com/a.png?w=200&%63b=first&CB=second&no%63ache=third&RND=fourth"
         );
         assert_eq!(canonical.dedup, "https://cdn.example.com/a.png?w=200");
+    }
+
+    #[test]
+    fn fetch_and_retained_dedup_query_bytes_are_never_rebuilt() {
+        let raw = "https://cdn.example.com/a.png?flag&empty=&plus=a+b&space=a%20b&bytes=%FF&slash=%2f&cb=drop#fragment";
+        let canonical = canonicalize(raw).unwrap();
+
+        assert_eq!(
+            canonical.fetch,
+            "https://cdn.example.com/a.png?flag&empty=&plus=a+b&space=a%20b&bytes=%FF&slash=%2f&cb=drop"
+        );
+        assert_eq!(
+            canonical.dedup,
+            "https://cdn.example.com/a.png?flag&empty=&plus=a+b&space=a%20b&bytes=%FF&slash=%2f"
+        );
+    }
+
+    #[test]
+    fn distinct_raw_nonvolatile_queries_keep_distinct_global_refs() {
+        let bare = canonicalize("https://cdn.example.com/a.png?flag").unwrap();
+        let empty = canonicalize("https://cdn.example.com/a.png?flag=").unwrap();
+        let plus = canonicalize("https://cdn.example.com/a.png?q=a+b").unwrap();
+        let encoded_space = canonicalize("https://cdn.example.com/a.png?q=a%20b").unwrap();
+
+        assert_ne!(bare.dedup, empty.dedup);
+        assert_ne!(plus.dedup, encoded_space.dedup);
     }
 
     #[test]
