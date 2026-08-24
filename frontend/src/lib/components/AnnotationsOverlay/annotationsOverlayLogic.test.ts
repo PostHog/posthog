@@ -2,10 +2,11 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
+import { deserializeAnnotation } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
 import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, RawAnnotationType } from '~/types'
 
@@ -245,7 +246,33 @@ describe('annotationsOverlayLogic', () => {
             dashboardId: MOCK_DASHBOARD_ID,
         })
         logic.mount()
-        await expectLogic(annotationsModel).toDispatchActions(['loadAnnotations'])
+        await expectLogic(logic).toDispatchActions(['loadAnnotations'])
+    })
+
+    it('fetches only the chart window, not the whole project', async () => {
+        useInsightMocks()
+        const listSpy = jest.spyOn(api.annotations, 'list')
+
+        logic = annotationsOverlayLogic({
+            dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+            insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+            dates: ['2022-08-01', '2022-09-01'],
+            ticks: [{ value: 0 }, { value: 1 }],
+            dashboardId: MOCK_DASHBOARD_ID,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
+
+        // The window bounds are passed so the server filters by date_marker instead of
+        // returning a capped page that drops the oldest annotations.
+        expect(listSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                date_from: expect.any(String),
+                date_to: expect.any(String),
+                hidden_in_user_interface: false,
+            })
+        )
+        listSpy.mockRestore()
     })
 
     describe('relevantAnnotations', () => {
@@ -260,7 +287,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(
                 insightLogic({
                     dashboardItemId: MOCK_INSIGHT_SHORT_ID,
@@ -293,7 +320,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(
                 insightLogic({
                     dashboardItemId: MOCK_INSIGHT_SHORT_ID,
@@ -326,7 +353,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID_2,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(
                 insightLogic({
                     dashboardItemId: MOCK_INSIGHT_SHORT_ID,
@@ -360,7 +387,7 @@ describe('annotationsOverlayLogic', () => {
                 ticks: [{ value: 0 }, { value: 1 }],
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // The annotation scoped to insight 3 should be omitted
@@ -385,7 +412,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(logic).toMatchValues({
                 relevantAnnotations: [
                     // This is the only September annotation
@@ -699,7 +726,7 @@ describe('annotationsOverlayLogic', () => {
                         ticks: [{ value: 0 }, { value: 1 }],
                     })
                     logic.mount()
-                    await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+                    await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
                     await expectLogic(
                         insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
                     ).toDispatchActions(['loadInsightSuccess'])
@@ -726,7 +753,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(
                 insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
             ).toDispatchActions(['loadInsightSuccess'])
@@ -760,7 +787,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(
                 insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
             ).toDispatchActions(['loadInsightSuccess'])
@@ -803,7 +830,7 @@ describe('annotationsOverlayLogic', () => {
                 dashboardId: MOCK_DASHBOARD_ID,
             })
             logic.mount()
-            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadAnnotationsSuccess'])
             await expectLogic(
                 insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
             ).toDispatchActions(['loadInsightSuccess'])
