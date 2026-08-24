@@ -26,30 +26,14 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
+import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
-import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
-import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
-import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLink";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { DOT_TONE_VAR } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderChip,
-  PageHeaderDescription,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
-import {
-  navigateToChannelDashboard,
-  navigateToChannelTask,
-  navigateToTaskDetail,
-} from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo } from "react";
@@ -68,7 +52,8 @@ export function ActivityRow({
   currentUser,
   blockedTaskIds,
   surface = "activity",
-  onNavigate,
+  onActivate,
+  isSelected = false,
   compact = false,
 }: {
   item: TaskActivityItem;
@@ -84,7 +69,9 @@ export function ActivityRow({
    */
   blockedTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
-  onNavigate?: () => void;
+  /** Where the row goes is the feed's business, not the row's. */
+  onActivate: (item: TaskActivityItem) => void;
+  isSelected?: boolean;
   compact?: boolean;
 }) {
   const isAgentActivity =
@@ -114,30 +101,16 @@ export function ActivityRow({
         .getState()
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
     }
-    onNavigate?.();
-    if (channelId && item.commentTarget?.scope === "desktop_canvas") {
-      useCanvasChatPanelStore.getState().openComments();
-      navigateToChannelDashboard(channelId, item.commentTarget.itemId);
-      return;
-    }
-    // The channel thread route is the deep-link target; unfiled tasks fall
-    // back to the plain task view.
-    if (channelId) {
-      if (item.commentId) {
-        useThreadPanelStore.getState().setCollapsed(false);
-      }
-      navigateToChannelTask(channelId, item.taskId);
-    } else {
-      navigateToTaskDetail(item.taskId);
-    }
+    onActivate(item);
   };
 
   return (
     <div className="group relative">
-      <button
+      <Button
         type="button"
         onClick={openTask}
-        className={`flex w-full gap-2 rounded-md px-2 text-left transition-colors hover:bg-fill-hover ${compact ? "py-1.5 pr-14" : "py-2"} ${item.isUnread ? "bg-fill-secondary" : ""}`}
+        left
+        className={`h-auto w-full text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : item.isUnread ? "bg-primary/10 outline outline-primary/20 hover:bg-primary/15" : ""}`}
       >
         <span className="relative mt-0.5 shrink-0">
           {isAgentActivity ? (
@@ -182,9 +155,9 @@ export function ActivityRow({
               </Text>
             )}
           </span>
-          <Text size="1" className="block truncate text-muted-foreground">
+          <span className="block truncate text-muted-foreground text-xs">
             {item.taskTitle}
-          </Text>
+          </span>
           {item.snippet && !compact && (
             <MentionText
               content={item.snippet}
@@ -193,11 +166,11 @@ export function ActivityRow({
             />
           )}
         </span>
-      </button>
+      </Button>
       {compact && (
         <Text
           size="1"
-          className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground"
+          className="pointer-events-none absolute top-1.5 right-2 text-muted-foreground text-xs"
         >
           {formatRelativeTimeShort(item.activityAt)}
         </Text>
@@ -231,11 +204,14 @@ export function ActivityRow({
   );
 }
 
-// The Activity page: every task the viewer is involved in — created, mentioned
-// in, or messaged in — newest activity first. Rows clear as they are opened, not
-// when the page is; merely landing here shouldn't dismiss what you haven't read.
+// The Activity page for the code layout: every task the viewer is involved in —
+// created, mentioned in, or messaged in — newest activity first. Rows clear as
+// they are opened, not when the page is; merely landing here shouldn't dismiss
+// what you haven't read.
+//
+// The spaces layout has no page: the feed is the column beside the rail
+// (ChannelsSidebar) and /activity's pane is whatever you picked from it.
 export function ActivityView() {
-  const spacesLayout = useChannelsLayout();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const {
@@ -329,7 +305,7 @@ export function ActivityView() {
             <EmptyDescription>
               {unreadsOnly
                 ? "You're all caught up."
-                : `Task updates and comment notifications across ${spacesLayout ? "spaces" : "channels"} appear here.`}
+                : "Task updates and comment notifications across channels appear here."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
@@ -345,6 +321,7 @@ export function ActivityView() {
               channelId={item.channelId}
               onOpen={markRead}
               onMarkRead={markRead}
+              onActivate={openActivityItem}
               currentUser={currentUser}
               blockedTaskIds={blockedTaskIds}
             />
@@ -353,35 +330,6 @@ export function ActivityView() {
         {loadMoreButton}
       </>
     );
-
-  if (spacesLayout) {
-    return (
-      <div className="flex h-full min-h-0 flex-col bg-gray-1">
-        <PageHeader>
-          <PageHeaderHeading>
-            <PageHeaderTitleRow>
-              <PageHeaderTitle>Activity</PageHeaderTitle>
-              {unreadCount > 0 && (
-                <PageHeaderChip icon={<BellIcon size={12} weight="fill" />}>
-                  {unreadCount} unread
-                </PageHeaderChip>
-              )}
-              <PageHeaderActions>
-                {unreadCount > 0 && markAllReadButton}
-                <ActivityUnreadsToggle />
-              </PageHeaderActions>
-            </PageHeaderTitleRow>
-            <PageHeaderDescription>
-              Task updates and comment notifications across spaces.
-            </PageHeaderDescription>
-          </PageHeaderHeading>
-        </PageHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[680px] px-4 py-6">{feed}</div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="h-full overflow-y-auto bg-gray-1">
@@ -392,8 +340,7 @@ export function ActivityView() {
               Activity
             </Text>
             <Text size="2" className="block text-muted-foreground">
-              Task updates and comment notifications across{" "}
-              {spacesLayout ? "spaces" : "channels"}.
+              Task updates and comment notifications across channels.
             </Text>
           </div>
           <div className="flex shrink-0 items-center gap-2">

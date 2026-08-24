@@ -19,6 +19,7 @@ import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
+import { resolveContextWikiPath } from "../context-wiki";
 import { OtelRunTelemetry } from "../otel-telemetry";
 import {
   createPiRpcClient,
@@ -570,7 +571,7 @@ export class PiAgentServer {
       task_execution_environment: "cloud",
     });
 
-    const extensions: PiRuntimeExtension[] = [];
+    const extensions: PiRuntimeExtension[] = ["context-wiki"];
     if (!this.config.repositoryPath) {
       extensions.push("repository-tools");
     }
@@ -598,6 +599,7 @@ export class PiAgentServer {
         headers: attributionHeaders,
       },
       extensions,
+      contextWikiPath: resolveContextWikiPath(),
     });
     const runtime = new PiRuntime(client);
     const unsubscribeConversation = runtime.onConversationEvent((event) =>
