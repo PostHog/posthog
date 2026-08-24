@@ -26,6 +26,7 @@ import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { DynamicCohortWarning } from './DynamicCohortWarning'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -60,6 +61,7 @@ const MetricsTab = (): JSX.Element => {
                 <div>
                     <Exposures />
                     <MultiVariantBiasWarning />
+                    <DynamicCohortWarning />
                 </div>
             </div>
 

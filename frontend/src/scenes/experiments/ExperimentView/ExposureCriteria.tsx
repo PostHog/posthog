@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,14 +10,15 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType } from '~/types'
+import { CohortType, FilterType } from '~/types'
 
 import { SelectableCard } from '../components/SelectableCard'
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { commonActionFilterProps } from '../Metrics/Selectors'
-import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
+import { exposureConfigToFilter, filterToExposureConfig, getExposureCriteriaCohortIds } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 
 type ExposureCriteriaModalProps = {
@@ -31,6 +32,13 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
 
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
+
+    // Dynamic cohorts in exposure filters go stale between membership recalculations, so
+    // exposure counts lag flag routing — warn as soon as one is attached (see DynamicCohortWarning).
+    const { cohortsById } = useValues(cohortsModel)
+    const dynamicCohorts = getExposureCriteriaCohortIds(exposureCriteria)
+        .map((id) => cohortsById[id])
+        .filter((cohort): cohort is CohortType => !!cohort && !cohort.is_static)
 
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
     // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
@@ -199,6 +207,15 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
                     />
                 </div>
+            )}
+            {dynamicCohorts.length > 0 && (
+                <LemonBanner type="warning" className="mb-4">
+                    <strong>{dynamicCohorts.map((cohort) => cohort.name || `Cohort ${cohort.id}`).join(', ')}</strong>{' '}
+                    {dynamicCohorts.length === 1 ? 'is a dynamic cohort' : 'are dynamic cohorts'}. Cohort membership
+                    recalculates periodically, while the feature flag routes users from live person properties, so users
+                    who qualify between recalculations will be routed into a variant before exposure counts reflect
+                    them. This can grow into a sample ratio mismatch. Filter directly on person properties instead.
+                </LemonBanner>
             )}
             <div className="w-[405px]">
                 <div className="mb-4">

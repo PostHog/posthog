@@ -1,6 +1,7 @@
 import { match } from 'ts-pattern'
 
 import { getSeriesColor } from 'lib/colors'
+import { isCohortPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
@@ -13,6 +14,7 @@ import {
     EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetricStep,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -86,6 +88,31 @@ export function isEventExposureConfig(config: ExperimentExposureConfig): config 
 
 export function getExposureConfigDisplayName(config: ExperimentExposureConfig): string {
     return isEventExposureConfig(config) ? config.event || 'Unknown Event' : config.name || `Action ${config.id}`
+}
+
+/**
+ * Cohort ids referenced by the exposure criteria's property filters (exposure and activation
+ * config). Used to warn when any of them is a dynamic cohort — flag routing reads live person
+ * properties while the exposure query reads the cohort's periodically recalculated membership
+ * list, so exposure counts can lag flag routing.
+ *
+ * Unlike the backend equivalent (`_collect_cohort_ids`, which recurses over the whole criteria),
+ * this walks a fixed set of config fields. When #75623 lands `exposure_criteria.exclusions`, add
+ * it to the loop below — a dynamic cohort used as an exclusion carries the same staleness gap.
+ */
+export function getExposureCriteriaCohortIds(criteria: ExperimentExposureCriteria | null | undefined): number[] {
+    const ids = new Set<number>()
+    for (const config of [criteria?.exposure_config, criteria?.activation_config]) {
+        for (const property of config?.properties ?? []) {
+            if (isCohortPropertyFilter(property)) {
+                const id = Number(property.value)
+                if (Number.isFinite(id)) {
+                    ids.add(id)
+                }
+            }
+        }
+    }
+    return Array.from(ids).sort((a, b) => a - b)
 }
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {

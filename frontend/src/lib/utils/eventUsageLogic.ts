@@ -1072,6 +1072,9 @@ export interface eventUsageLogicActions {
         dashboardId: number
         experiment: Experiment
     }
+    reportExperimentDynamicCohortWarningShown: (experiment: Experiment) => {
+        experiment: Experiment
+    }
     reportExperimentEndDateChange: (
         experiment: Experiment,
         newEndDate: string
@@ -2522,6 +2525,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             warningKey,
         }),
         reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
+        reportExperimentDynamicCohortWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -3703,6 +3707,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentBiasWarningShown: ({ experiment }) => {
             posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentDynamicCohortWarningShown: ({ experiment }) => {
+            posthog.capture('experiment dynamic cohort warning shown', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },

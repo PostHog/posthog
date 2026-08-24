@@ -5510,6 +5510,25 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+/** A dynamic cohort referenced by an experiment's exposure criteria. */
+export interface DynamicCohortReference {
+    /** @asType integer */
+    id: number
+    name: string
+}
+
+/**
+ * Dynamic cohorts referenced in exposure criteria. Flag evaluation checks the cohort's
+ * filters against live person properties, while the exposure query reads the cohort's
+ * stored membership list, which only recalculates periodically. Users who qualify in the
+ * gap between recalculations are routed into a variant by the flag before the exposure
+ * query reflects them, so exposure counts drift — eventually surfacing as a sample ratio
+ * mismatch. Present on the response only when at least one referenced cohort is dynamic.
+ */
+export interface DynamicCohortExposureRisk {
+    cohorts: DynamicCohortReference[]
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -5517,6 +5536,7 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    dynamic_cohort_risk?: DynamicCohortExposureRisk
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

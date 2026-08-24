@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -10,6 +10,7 @@ from posthog.schema import (
     BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
+    DynamicCohortExposureRisk,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
@@ -32,7 +33,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.analysis_health import evaluate_bias_risk, evaluate_dynamic_cohort_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -41,6 +43,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
+    _collect_cohort_ids,
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
@@ -298,6 +301,48 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures=total_exposures,
         )
 
+    def _evaluate_dynamic_cohort_risk(self) -> DynamicCohortExposureRisk | None:
+        # Unlike bias_risk, this is emitted for stopped experiments too: the staleness gap
+        # already shaped the collected exposures, and swapping the cohort for a person-property
+        # filter and recomputing is still actionable after the experiment ends.
+        #
+        # Read the criteria off the experiment record, NOT self.exposure_criteria (which comes
+        # from the caller's query). This response carries cohort names, which the cohort API
+        # gates behind `cohort:read` — sourcing the ids from caller input would let a
+        # `query:read`-only token enumerate cohort ids and read back their names. The saved
+        # criteria is also the right thing to describe: the warning tells the user to go change
+        # their experiment's configuration, not whatever criteria this one query passed in.
+        criteria: Any = self.experiment.exposure_criteria
+        cohort_ids = _collect_cohort_ids(criteria) if criteria else set()
+        # Test-account filters are team-level, not part of the criteria, but the exposure query
+        # ANDs them in when filterTestAccounts is on (see build_test_accounts_filter) — and a
+        # cohort is an allowed filter there. A dynamic cohort in that list carries the same gap.
+        # Resolve the flag the way the query does rather than reading the raw key: the query
+        # treats it as on unless the saved criteria explicitly turns it off, so a keyless criteria
+        # (the model default is {}) still filters test accounts and must still be scanned.
+        exposure_params = get_exposure_config_params_for_builder(criteria, self.team, self.experiment.start_date)
+        if exposure_params.filter_test_accounts and self.team.test_account_filters:
+            cohort_ids |= _collect_cohort_ids(self.team.test_account_filters)
+        if not cohort_ids:
+            return None
+        # This runs last in _calculate, after the exposures query (max_execution_time=600) and
+        # every derived stat. A transient Postgres fault here would otherwise propagate through
+        # experiment_error_handler — which re-raises what it can't map — and discard all of that
+        # completed work for the sake of an advisory banner. Degrade to "no risk shown" instead,
+        # mirroring _ensure_exposures_precomputed above.
+        try:
+            referenced_cohorts = list(
+                Cohort.objects.filter(
+                    team__project_id=self.team.project_id,
+                    pk__in=cohort_ids,
+                    deleted=False,
+                ).values("id", "name", "is_static")
+            )
+        except Exception:
+            logger.exception("dynamic_cohort_risk_lookup_failed", experiment_id=self.experiment.id)
+            return None
+        return evaluate_dynamic_cohort_risk(referenced_cohorts)
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         # Adding experiment specific tags to the tag collection
@@ -371,6 +416,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures)
+        dynamic_cohort_risk = self._evaluate_dynamic_cohort_risk()
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -378,6 +424,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
+            dynamic_cohort_risk=dynamic_cohort_risk,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -424,7 +471,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 2
+        payload["experiment_exposures_response_version"] = 3
         return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:

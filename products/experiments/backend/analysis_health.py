@@ -1,12 +1,14 @@
 """
 Analysis-health signals for experiments. Pure functions — no I/O.
 
-Currently evaluates one signal: asymmetric `$multiple`-exclusion bias on uneven
-splits. Designed to grow (SRM, low exposures, variant drift, ...) as additional
-pure evaluators when needed.
+Currently evaluates two signals: asymmetric `$multiple`-exclusion bias on uneven
+splits, and dynamic cohorts referenced in exposure criteria. Designed to grow
+(SRM, low exposures, variant drift, ...) as additional pure evaluators when needed.
 """
 
-from posthog.schema import BiasRisk, MultipleVariantHandling
+from typing import Any
+
+from posthog.schema import BiasRisk, DynamicCohortExposureRisk, DynamicCohortReference, MultipleVariantHandling
 
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
@@ -48,3 +50,30 @@ def evaluate_bias_risk(
         return None
 
     return BiasRisk(multiple_variant_percentage=multiple_variant_percentage)
+
+
+def evaluate_dynamic_cohort_risk(referenced_cohorts: list[dict[str, Any]]) -> DynamicCohortExposureRisk | None:
+    """
+    Dynamic cohorts referenced in exposure criteria: flag evaluation checks the cohort's
+    filters against live person properties, while the exposure query reads the cohort's
+    stored membership list, which only recalculates periodically. Users who qualify in
+    the gap between recalculations are routed into a variant by the flag before the
+    exposure query reflects them, so exposure counts drift — eventually surfacing as a
+    sample ratio mismatch. This is structural, not empirical: any dynamic cohort in
+    exposure criteria carries the gap, so there is no observed-imbalance threshold.
+
+    `referenced_cohorts` carries pre-fetched `{id, name, is_static}` for every cohort the
+    experiment's exposure criteria references. Returns a risk naming the dynamic cohorts,
+    or `None` when only static cohorts (or none) are referenced — static membership is
+    fixed at creation, so flag evaluation and the exposure query agree.
+    """
+    dynamic = [cohort for cohort in referenced_cohorts if not cohort.get("is_static")]
+    if not dynamic:
+        return None
+
+    return DynamicCohortExposureRisk(
+        cohorts=[
+            DynamicCohortReference(id=cohort["id"], name=cohort.get("name") or "")
+            for cohort in sorted(dynamic, key=lambda cohort: cohort["id"])
+        ]
+    )

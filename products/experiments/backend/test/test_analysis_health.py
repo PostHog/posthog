@@ -2,9 +2,13 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BiasRisk, MultipleVariantHandling
+from posthog.schema import BiasRisk, DynamicCohortExposureRisk, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    evaluate_bias_risk,
+    evaluate_dynamic_cohort_risk,
+)
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -102,3 +106,43 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+
+class TestEvaluateDynamicCohortRisk(TestCase):
+    def test_dynamic_cohort_returns_populated_risk(self):
+        result = evaluate_dynamic_cohort_risk([{"id": 7, "name": "Signups in tier-3 countries", "is_static": False}])
+        self.assertIsInstance(result, DynamicCohortExposureRisk)
+        assert result is not None
+        self.assertEqual([(c.id, c.name) for c in result.cohorts], [(7, "Signups in tier-3 countries")])
+
+    def test_mixed_cohorts_name_only_the_dynamic_ones_sorted_by_id(self):
+        # Static cohorts are fixed at creation, so both flag evaluation and the exposure
+        # query agree on them — only the dynamic ones carry the recalculation gap.
+        result = evaluate_dynamic_cohort_risk(
+            [
+                {"id": 9, "name": "Dynamic B", "is_static": False},
+                {"id": 3, "name": "Uploaded CSV", "is_static": True},
+                {"id": 4, "name": "Dynamic A", "is_static": False},
+            ]
+        )
+        assert result is not None
+        self.assertEqual([(c.id, c.name) for c in result.cohorts], [(4, "Dynamic A"), (9, "Dynamic B")])
+
+    def test_unnamed_dynamic_cohort_falls_back_to_empty_name(self):
+        # Cohort.name is nullable in the model; the schema field is not.
+        result = evaluate_dynamic_cohort_risk([{"id": 5, "name": None, "is_static": False}])
+        assert result is not None
+        self.assertEqual(result.cohorts[0].name, "")
+
+    @parameterized.expand(
+        [
+            ("no_cohorts", []),
+            ("static_only", [{"id": 3, "name": "Uploaded CSV", "is_static": True}]),
+            (
+                "static_only_multiple",
+                [{"id": 3, "name": "Uploaded CSV", "is_static": True}, {"id": 8, "name": "VIPs", "is_static": True}],
+            ),
+        ]
+    )
+    def test_returns_none_when_not_at_risk(self, _name, referenced_cohorts):
+        self.assertIsNone(evaluate_dynamic_cohort_risk(referenced_cohorts))

@@ -8,6 +8,7 @@ import {
     Breakdown,
     CachedNewExperimentQueryResponse,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentMetricType,
@@ -39,6 +40,7 @@ import {
     filterToExposureConfig,
     getBaselineVariantKey,
     getEventCountQuery,
+    getExposureCriteriaCohortIds,
     getExposureFallbackFilter,
     getFunnelDropoffReason,
     getOrderedMetricsWithResults,
@@ -56,6 +58,49 @@ import {
 } from './utils'
 
 describe('utils', () => {
+    describe('getExposureCriteriaCohortIds', () => {
+        it('collects cohort ids across exposure and activation configs, deduped and sorted', () => {
+            const criteria: ExperimentExposureCriteria = {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: '$feature_flag_called',
+                    properties: [
+                        { key: 'id', type: PropertyFilterType.Cohort, value: 12, operator: PropertyOperator.In },
+                        {
+                            key: 'country_code',
+                            type: PropertyFilterType.Person,
+                            value: 'DE',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+                activation_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: '$pageview',
+                    properties: [
+                        { key: 'id', type: PropertyFilterType.Cohort, value: 7, operator: PropertyOperator.In },
+                        { key: 'id', type: PropertyFilterType.Cohort, value: 12, operator: PropertyOperator.In },
+                    ],
+                },
+            }
+            expect(getExposureCriteriaCohortIds(criteria)).toEqual([7, 12])
+        })
+
+        it('returns no ids without cohort filters', () => {
+            expect(getExposureCriteriaCohortIds(undefined)).toEqual([])
+            expect(getExposureCriteriaCohortIds({})).toEqual([])
+            expect(
+                getExposureCriteriaCohortIds({
+                    exposure_config: {
+                        kind: NodeKind.ExperimentEventExposureConfig,
+                        event: '$feature_flag_called',
+                        properties: [],
+                    },
+                })
+            ).toEqual([])
+        })
+    })
+
     describe('percentageDistribution', () => {
         it('given variant count, calculates correct rollout percentages', async () => {
             expect(percentageDistribution(1)).toEqual([100])

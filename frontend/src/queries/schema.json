@@ -8031,6 +8031,9 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "dynamic_cohort_risk": {
+                    "$ref": "#/definitions/DynamicCohortExposureRisk"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -20121,6 +20124,34 @@
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
         },
+        "DynamicCohortExposureRisk": {
+            "additionalProperties": false,
+            "description": "Dynamic cohorts referenced in exposure criteria. Flag evaluation checks the cohort's filters against live person properties, while the exposure query reads the cohort's stored membership list, which only recalculates periodically. Users who qualify in the gap between recalculations are routed into a variant by the flag before the exposure query reflects them, so exposure counts drift — eventually surfacing as a sample ratio mismatch. Present on the response only when at least one referenced cohort is dynamic.",
+            "properties": {
+                "cohorts": {
+                    "items": {
+                        "$ref": "#/definitions/DynamicCohortReference"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["cohorts"],
+            "type": "object"
+        },
+        "DynamicCohortReference": {
+            "additionalProperties": false,
+            "description": "A dynamic cohort referenced by an experiment's exposure criteria.",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
+        },
         "ECODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
@@ -23378,6 +23409,9 @@
                 },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "dynamic_cohort_risk": {
+                    "$ref": "#/definitions/DynamicCohortExposureRisk"
                 },
                 "kind": {
                     "const": "ExperimentExposureQuery",
@@ -40321,6 +40355,9 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "dynamic_cohort_risk": {
+                            "$ref": "#/definitions/DynamicCohortExposureRisk"
                         },
                         "kind": {
                             "const": "ExperimentExposureQuery",
