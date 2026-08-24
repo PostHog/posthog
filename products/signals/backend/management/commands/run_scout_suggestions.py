@@ -13,6 +13,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 from asgiref.sync import async_to_sync
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.signals.backend.models import SignalScoutSuggestionSet
 from products.signals.backend.scout_harness.suggestions import (
     enabled_skill_names,
@@ -42,9 +44,11 @@ class Command(BaseCommand):
                 self.stdout.write(f"  team {run.team_id} (tier {run.tier})")
             return
 
-        team_id = options["team_id"]
-        if team_id is None:
+        if options["team_id"] is None:
             raise CommandError("--team-id is required unless --plan is given")
+        # The row and the planner state live on the canonical project, so a child-environment
+        # id must resolve before the stamp or it strands a per-environment row.
+        team_id = resolve_effective_team_id(options["team_id"])
 
         if not options["show"]:
             # Planner state, as a dispatched child would leave it: the coordinator does not redo

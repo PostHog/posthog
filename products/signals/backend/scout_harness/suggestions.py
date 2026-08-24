@@ -214,6 +214,17 @@ class PlannedSuggestionRun:
     tier: int
 
 
+@frozen(order=True)
+class _SortKey:
+    # Tier first, never-generated before generated, most overdue first, then the project someone
+    # looked at most recently, so when the cap bites the teams who will see the strip get
+    # refreshed first. Field order is the sort order.
+    tier: int
+    generated: int
+    overdue_negative_s: float
+    engagement_recency_s: float
+
+
 @frozen
 class _Candidate:
     team_id: int
@@ -223,11 +234,13 @@ class _Candidate:
     engagement_recency_s: float
 
     @property
-    def sort_key(self) -> tuple[int, int, float, float]:
-        # Tier first, never-generated before generated, most overdue first, then the project
-        # someone looked at most recently, so when the cap bites the teams who will see the strip
-        # get refreshed first.
-        return (self.tier, 0 if self.never_generated else 1, -self.overdue_s, self.engagement_recency_s)
+    def sort_key(self) -> _SortKey:
+        return _SortKey(
+            tier=self.tier,
+            generated=0 if self.never_generated else 1,
+            overdue_negative_s=-self.overdue_s,
+            engagement_recency_s=self.engagement_recency_s,
+        )
 
 
 def _root_team_q() -> Q:

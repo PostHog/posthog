@@ -22,6 +22,7 @@ class TestResolveSandboxAiProduct:
         [
             ("signals_scout", "scout", "signals_scout"),
             ("signals_scout", "scout:web-analytics", "signals_scout"),
+            ("scout_suggestions", "scout_suggestions", "signals"),
             ("signal_report", "research", "signals_research"),
             ("signal_report", "implementation", "signals_implementation"),
             ("signal_report", "repo_selection", "signals_repo_selection"),
