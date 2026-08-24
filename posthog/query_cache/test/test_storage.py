@@ -16,6 +16,7 @@ from posthog.query_cache import (
     storage as qc_storage,
 )
 from posthog.query_cache.serialization import QUERY_CACHE_SPLIT_MAGIC, encode_split_cached_response
+from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 from posthog.query_cache.storage import (
     S3_POINTER_MAGIC,
     ZSTD_FRAME_MAGIC,
@@ -261,6 +262,16 @@ class TestQueryCacheS3Routing(BaseTest):
         entry = cache.lookup().entry
         assert entry is not None
         assert entry.as_full_response() == newer
+
+        # A lost reply makes the redis client retry the swap script after it already landed.
+        # The retry must report swapped even though `expected` no longer matches, because a
+        # False return sends the upload down the superseded path, which deletes the blob the
+        # live entry now points at.
+        raw_pointer = _redis_raw(cache_key)
+        assert raw_pointer is not None
+        tracker = TeamCacheSizeTracker(team_id=self.team.pk)
+        assert tracker.replace_value(cache_key, raw_pointer, ttl=600, expected=b"stale-inline-bytes") is True
+        assert _redis_raw(cache_key) == raw_pointer
 
     def test_on_mode_large_result_round_trips_via_pointer(self):
         cache_key = f"s3_on_large_{self.team.pk}"
