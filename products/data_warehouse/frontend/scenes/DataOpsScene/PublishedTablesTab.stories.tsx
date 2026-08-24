@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { PublishedTableApi } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -48,6 +50,7 @@ const meta: Meta<typeof PublishedTablesTab> = {
     title: 'Scenes-App/Data Warehouse/Data Ops/Published tables',
     component: PublishedTablesTab,
     parameters: {
+        featureFlags: [FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES],
         mockDate: '2026-08-24T17:00:00Z',
         viewMode: 'story',
         testOptions: {

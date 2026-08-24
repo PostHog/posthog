@@ -4,10 +4,12 @@ import { loaders } from 'kea-loaders'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
@@ -168,6 +170,7 @@ export interface viewsTabLogicMeta {
         viewsLoading: (dataWarehouseSavedQueriesLoading: boolean) => boolean
         enrichedMaterializedViews: (
             dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
+            featureFlags: FeatureFlagsSet,
             materializedViewDependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>,
             runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
         ) => DataWarehouseSavedQuery[]
@@ -360,14 +363,20 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
     selectors({
         viewsLoading: [(s) => [s.dataWarehouseSavedQueriesLoading], (loading: boolean): boolean => loading],
         enrichedMaterializedViews: [
-            (s) => [s.dataWarehouseSavedQueries, s.materializedViewDependenciesMap, s.runHistoryMap],
+            (s) => [s.dataWarehouseSavedQueries, s.featureFlags, s.materializedViewDependenciesMap, s.runHistoryMap],
             (
                 queries: DataWarehouseSavedQuery[],
+                featureFlags: FeatureFlagsSet,
                 dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>,
                 runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
             ): DataWarehouseSavedQuery[] => {
                 return queries
-                    .filter((q) => q.is_materialized)
+                    .filter(
+                        (query) =>
+                            query.is_materialized &&
+                            (featureFlags[FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES] ||
+                                query.origin !== DataWarehouseSavedQueryOrigin.MANAGED_WAREHOUSE)
+                    )
                     .map((query) => ({
                         ...query,
                         upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
