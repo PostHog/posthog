@@ -11,7 +11,6 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import EventSource
@@ -27,6 +26,7 @@ from posthog.tasks.alerts.trends import (
 )
 
 from products.alerts.backend.evaluation.contract import (
+    AlertExecutionSettings,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -52,7 +52,7 @@ class TrendsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self, alert: AlertConfiguration, insight: Insight, query: Any, settings: AlertExecutionSettings
     ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
@@ -92,7 +92,7 @@ class TrendsExtractor:
                     if is_non_time_series
                     else _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 )
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(alert, insight, settings, filters_override)
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -111,7 +111,7 @@ class TrendsExtractor:
                 # When the current interval is incomplete we compare the previous interval
                 # against the one before it, so we need the extra lookback interval.
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(alert, insight, settings, filters_override)
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -128,7 +128,7 @@ class TrendsExtractor:
                 if is_non_time_series:
                     raise ValueError("Relative alerts not supported for non time series trends")
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
-                calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
+                calculation_result = self._calculate(alert, insight, settings, filters_override)
                 if (
                     empty := self._empty_result(
                         calculation_result, alert, has_breakdown, interval_type, value_formatter
@@ -162,13 +162,14 @@ class TrendsExtractor:
         self,
         alert: AlertConfiguration,
         insight: Insight,
-        execution_mode: ExecutionMode,
+        settings: AlertExecutionSettings,
         filters_override: dict | None,
     ) -> InsightResult:
         return calculate_for_query_based_insight(
             insight,
             team=alert.team,
-            execution_mode=execution_mode,
+            execution_mode=settings.execution_mode,
+            max_cache_age_seconds=settings.max_cache_age_seconds,
             # Scheduled alert check (no request user); attribute the read to the alert owner so
             # warehouse HogQL access control resolves against their access.
             user=alert.created_by,

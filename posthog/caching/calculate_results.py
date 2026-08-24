@@ -88,6 +88,7 @@ def calculate_for_query_based_insight(
     tile_filters_override: Optional[dict] = None,
     query_override: Optional[dict] = None,
     cache_age_seconds: Optional[int] = None,
+    max_cache_age_seconds: Optional[int] = None,
     analytics_props: Optional[AnalyticsProps] = None,
     allow_raw_results: bool = False,
 ) -> "InsightResult":
@@ -126,6 +127,7 @@ def calculate_for_query_based_insight(
         # QUERY_ASYNC provides extended max execution time for insight queries
         limit_context=LimitContext.QUERY_ASYNC,
         cache_age_seconds=cache_age_seconds,
+        max_cache_age_seconds=max_cache_age_seconds,
         analytics_props=analytics_props,
         allow_raw_results=allow_raw_results,
     )

@@ -2,11 +2,11 @@ from typing import Any
 
 from posthog.schema import InsightThreshold, MetricsAlertConfig, MetricsQuery
 
-from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 
 from products.alerts.backend.evaluation.contract import (
+    AlertExecutionSettings,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -38,7 +38,7 @@ class MetricsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self, alert: AlertConfiguration, insight: Insight, query: Any, settings: AlertExecutionSettings
     ) -> ExtractionResult:
         MetricsQuery.model_validate(query)
         if not (alert.config and alert.config.get("type") == "MetricsAlertConfig"):
@@ -59,7 +59,8 @@ class MetricsExtractor:
         calculation_result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
-            execution_mode=execution_mode,
+            execution_mode=settings.execution_mode,
+            max_cache_age_seconds=settings.max_cache_age_seconds,
             # Scheduled alert check (no request user); attribute the read to the alert owner.
             user=alert.created_by,
             analytics_props={"source": EventSource.ALERT},

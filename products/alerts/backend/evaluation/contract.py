@@ -5,10 +5,12 @@ from typing import Any, Protocol
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.scheduling import cadence_seconds, to_calendar_interval
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -101,6 +103,36 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
+@frozen
+class AlertExecutionSettings:
+    """Execution mode plus the cache-age ceiling that bounds it.
+
+    ``max_cache_age_seconds`` is not optional garnish: dropping it when threading the mode into
+    ``calculate_for_query_based_insight`` lets a check evaluate a result older than the cadence
+    that asked for it. Grouped with the mode so a call site has to discard it visibly.
+    """
+
+    execution_mode: ExecutionMode
+    max_cache_age_seconds: int | None
+
+
+def execution_settings_for_alert(
+    interval: IntervalType | None, *, high_frequency: bool, cadence: str | None
+) -> AlertExecutionSettings:
+    """Resolve how fresh an alert check's query result has to be.
+
+    The mode alone keys freshness off the insight's bucket granularity, which says nothing about
+    how often the alert runs. A single-number insight carries the schema's default ``day`` however
+    short its date range, so its check would accept a six-hour-old value. The ceiling adds the
+    guarantee the cadence implies — never evaluate a result older than the interval we check on —
+    and only ever tightens, so a query whose own policy is already stricter keeps it.
+    """
+    return AlertExecutionSettings(
+        execution_mode=execution_mode_for_alert(interval, high_frequency=high_frequency),
+        max_cache_age_seconds=cadence_seconds(to_calendar_interval(cadence)) if cadence else None,
+    )
+
+
 @dataclass
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
@@ -116,10 +148,10 @@ class SimulationContext:
 
 
 class Extractor(Protocol):
-    # The dispatcher resolves execution_mode once (via execution_mode_for_alert) and passes it in, so
+    # The dispatcher resolves settings once (via execution_settings_for_alert) and passes them in, so
     # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: object, execution_mode: ExecutionMode
+        self, alert: AlertConfiguration, insight: Insight, query: object, settings: AlertExecutionSettings
     ) -> ExtractionResult: ...
 
 

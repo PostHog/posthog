@@ -4,7 +4,15 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
+from posthog.schema import (
+    AlertState,
+    ChartDisplayType,
+    DateRange,
+    EventsNode,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+)
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.instance_setting import set_instance_setting
@@ -68,6 +76,50 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
                 "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1}}},
             },
         ).json()
+
+    def test_hourly_alert_on_single_number_insight_outlives_its_cache(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        # A single-number insight carries the schema's default `day` interval however short its date
+        # range, and its check reuses the insight's own query (so the same cache entry). That bought
+        # a cached value a six-hour staleness window, and an hourly check kept re-reading a number
+        # from hours earlier. The cadence ceiling is what forces the recompute.
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$exception")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+            dateRange=DateRange(date_from="-1h"),
+        ).model_dump()
+        insight = self.dashboard_api.create_insight(data={"name": "errors last hour", "query": query_dict})[1]
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "errors last hour",
+                "insight": insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "hourly",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1}}},
+            },
+        ).json()
+
+        # Quiet hour: this check caches a below-threshold value.
+        with freeze_time("2024-06-02T08:55:00.000Z"):
+            run_alert_check(alert["id"])
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.NOT_FIRING
+
+        with freeze_time("2024-06-02T10:00:00.000Z"):
+            for distinct_id in range(3):
+                _create_event(team=self.team, event="$exception", distinct_id=str(distinct_id))
+            flush_persons_and_events()
+
+        # 70 minutes on, past one cadence: the check must see the new events, not the cached zero.
+        with freeze_time("2024-06-02T10:05:00.000Z"):
+            run_alert_check(alert["id"])
+
+        check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert check.calculated_value == 3
+        assert check.state == AlertState.FIRING
 
     def test_alert_is_set_to_not_firing_when_threshold_changes(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock

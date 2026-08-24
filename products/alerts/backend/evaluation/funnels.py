@@ -2,12 +2,16 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, FunnelsAlertConfig, FunnelsQuery, IntervalType
 
-from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
 from posthog.tasks.alerts.trends import query_excludes_incomplete_periods
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError, ExtractionResult, lookback_intervals_for
+from products.alerts.backend.evaluation.contract import (
+    AlertExecutionSettings,
+    AlertExtractionError,
+    ExtractionResult,
+    lookback_intervals_for,
+)
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -43,7 +47,7 @@ class FunnelsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self, alert: AlertConfiguration, insight: Insight, query: Any, settings: AlertExecutionSettings
     ) -> ExtractionResult:
         funnels_query = FunnelsQuery.model_validate(query)
         viz = funnels_query.funnelsFilter.funnelVizType if funnels_query.funnelsFilter else None
@@ -75,7 +79,8 @@ class FunnelsExtractor:
         calculation_result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
-            execution_mode=execution_mode,
+            execution_mode=settings.execution_mode,
+            max_cache_age_seconds=settings.max_cache_age_seconds,
             user=alert.created_by,
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},

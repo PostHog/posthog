@@ -6,7 +6,7 @@ from posthog.schema import HogQLAlertConfig
 from posthog.api.services.query import ExecutionMode
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import AlertExecutionSettings, AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
 from products.alerts.backend.evaluation.hogql import (
     LAST_ROW_MAX_ROWS,
@@ -16,7 +16,9 @@ from products.alerts.backend.evaluation.hogql import (
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 ZSCORE = {"type": "zscore", "threshold": 0.9, "window": 5}
-EXEC_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+EXEC_SETTINGS = AlertExecutionSettings(
+    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, max_cache_age_seconds=None
+)
 
 # zscore floors min-samples at 31, so STABLE_HISTORY is exactly the detector minimum. Non-zero
 # variance gives the detector a baseline to flag a spike against.
@@ -36,7 +38,7 @@ def _extract(values, *, columns=None, rows_config=None, detector_config=ZSCORE):
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns)
         return HogQLDetectorExtractor().extract(
-            _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_MODE
+            _alert(rows_config, detector_config), MagicMock(), MagicMock(), EXEC_SETTINGS
         )
 
 
@@ -147,7 +149,7 @@ def test_extract_hogql_detector_series_is_alert_less():
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=[[v] for v in [*STABLE_HISTORY, 100.0]], columns=None)
         result = extract_hogql_detector_series(
-            MagicMock(), MagicMock(), config, ZSCORE, user=None, execution_mode=EXEC_MODE
+            MagicMock(), MagicMock(), config, ZSCORE, user=None, settings=EXEC_SETTINGS
         )
     assert len(result.series[0].points) == _compute_min_samples_for_detector(ZSCORE)  # bounded to the minimum
     assert evaluate_with_detector(result, ZSCORE).value == 100.0

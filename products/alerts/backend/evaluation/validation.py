@@ -21,11 +21,12 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.tasks.alerts.utils import REAL_TIME_CADENCE_MINUTES, WRAPPER_NODE_KINDS, is_non_time_series_trend
+from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
+from products.alerts.backend.scheduling import CADENCE_MINUTES, to_calendar_interval
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -212,17 +213,8 @@ _ALERT_CONFIG_VALIDATORS: dict[str, Callable[[_AlertConfigValidationContext], No
 }
 
 
-# Twin of CADENCE_DURATION_MINUTES / INSIGHT_INTERVAL_DURATION_MINUTES in
+# Twin of INSIGHT_INTERVAL_DURATION_MINUTES in
 # products/alerts/frontend/logic/alertIntervalHelpers.ts — keep the two in sync.
-_CADENCE_DURATION_MINUTES: dict[AlertCalculationInterval, float] = {
-    AlertCalculationInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
-    AlertCalculationInterval.EVERY_15_MINUTES: 15,
-    AlertCalculationInterval.HOURLY: 60,
-    AlertCalculationInterval.DAILY: 60 * 24,
-    AlertCalculationInterval.WEEKLY: 60 * 24 * 7,
-    AlertCalculationInterval.MONTHLY: 60 * 24 * 30,
-}
-
 _INTERVAL_DURATION_MINUTES: dict[IntervalType, float] = {
     IntervalType.SECOND: 1 / 60,
     IntervalType.MINUTE: 1,
@@ -239,7 +231,7 @@ def _cadence_finer_than_interval(cadence: AlertCalculationInterval, insight_inte
     interval_minutes = _INTERVAL_DURATION_MINUTES.get(
         insight_interval or IntervalType.DAY, _INTERVAL_DURATION_MINUTES[IntervalType.DAY]
     )
-    return _CADENCE_DURATION_MINUTES[cadence] < interval_minutes
+    return CADENCE_MINUTES[to_calendar_interval(cadence.value)] < interval_minutes
 
 
 def _threshold_has_upper_bound(threshold_config: dict | None) -> bool:

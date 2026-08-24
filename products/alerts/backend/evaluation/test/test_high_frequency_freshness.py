@@ -20,9 +20,13 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 
-from products.alerts.backend.evaluation.contract import execution_mode_for_alert
+from products.alerts.backend.evaluation.contract import (
+    AlertExecutionSettings,
+    execution_mode_for_alert,
+    execution_settings_for_alert,
+)
 from products.alerts.backend.evaluation.detector import extract_detector_series
-from products.alerts.backend.evaluation.dispatcher import _resolve_execution_mode
+from products.alerts.backend.evaluation.dispatcher import _resolve_execution_settings
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
@@ -86,9 +90,27 @@ def test_is_high_frequency_interval_property(interval, expected):
     assert AlertConfiguration(calculation_interval=interval).is_high_frequency_interval is expected
 
 
-# The freshness decision lives in the dispatcher's _resolve_execution_mode — one site for every kind.
-# Only trends/detector escalate on hourly buckets (real time axis); funnels/hogql have none, so for
-# them the every-15-minutes cadence is the only fresh-recompute trigger.
+# The ceiling is the cadence expressed in seconds. That equality is what the freshness guarantee
+# rests on, so it's asserted rather than left to the map: reading CADENCE_MINUTES without converting
+# would bound an hourly check at 60 seconds. A null cadence (nullable column) declines to bound.
+@pytest.mark.parametrize(
+    "cadence,expected_seconds",
+    [
+        (AlertCalculationInterval.HOURLY, 60 * 60),
+        (AlertCalculationInterval.DAILY, 24 * 60 * 60),
+        (None, None),
+    ],
+)
+def test_execution_settings_ceiling_is_one_cadence(cadence, expected_seconds):
+    settings = execution_settings_for_alert(
+        IntervalType.DAY, high_frequency=False, cadence=cadence.value if cadence else None
+    )
+    assert settings.max_cache_age_seconds == expected_seconds
+
+
+# The freshness decision lives in the dispatcher's _resolve_execution_settings — one site for every
+# kind. Only trends/detector escalate on hourly buckets (real time axis); funnels/hogql have none, so
+# for them the every-15-minutes cadence is the only fresh-recompute trigger.
 @pytest.mark.parametrize(
     "kind,interval,high_frequency,expected",
     [
@@ -103,34 +125,35 @@ def test_is_high_frequency_interval_property(interval, expected):
         (NodeKind.HOG_QL_QUERY, None, True, ALWAYS),
     ],
 )
-def test_resolve_execution_mode(kind, interval, high_frequency, expected):
+def test_resolve_execution_settings(kind, interval, high_frequency, expected):
     alert = MagicMock()
     alert.is_high_frequency_interval = high_frequency
+    alert.calculation_interval = AlertCalculationInterval.DAILY.value
     query = {"kind": kind, "interval": interval} if interval is not None else {"kind": kind}
-    assert _resolve_execution_mode(alert, kind, query) == expected
+    assert _resolve_execution_settings(alert, kind, query).execution_mode == expected
 
 
-def _trends_forward(mode):
-    TrendsExtractor().extract(_trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), mode)
+def _trends_forward(settings):
+    TrendsExtractor().extract(_trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), settings)
 
 
-def _detector_forward(mode):
-    extract_detector_series(MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, mode)
+def _detector_forward(settings):
+    extract_detector_series(MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, settings)
 
 
-def _funnels_forward(mode):
+def _funnels_forward(settings):
     alert = MagicMock()
     alert.config = {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None}
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     query = {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "step_a"}]}
-    FunnelsExtractor().extract(alert, MagicMock(), query, mode)
+    FunnelsExtractor().extract(alert, MagicMock(), query, settings)
 
 
-def _hogql_forward(mode):
+def _hogql_forward(settings):
     alert = MagicMock()
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
-    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode)
+    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), settings)
 
 
 # (calc-path to patch, the result that path returns, a thunk that drives the extractor for one kind).
@@ -162,11 +185,20 @@ EXTRACTOR_FORWARDING_CASES = [
 ]
 
 
-# Every extractor forwards the mode it's handed (the dispatcher decides it) straight to the query layer.
-@pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
+# Every extractor forwards the settings it's handed (the dispatcher decides them) straight to the
+# query layer. The ceiling has to travel with the mode: an extractor that forwards one and drops the
+# other silently lets its checks evaluate a result older than the cadence that asked for it.
+@pytest.mark.parametrize(
+    "settings",
+    [
+        AlertExecutionSettings(execution_mode=ALWAYS, max_cache_age_seconds=None),
+        AlertExecutionSettings(execution_mode=IF_STALE, max_cache_age_seconds=60 * 60),
+    ],
+)
 @pytest.mark.parametrize("calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
-def test_extractor_forwards_execution_mode(calc_path, calc_result, forward, mode):
+def test_extractor_forwards_execution_settings(calc_path, calc_result, forward, settings):
     with patch(calc_path) as mock_calc:
         mock_calc.return_value = calc_result
-        forward(mode)
-        assert mock_calc.call_args.kwargs["execution_mode"] == mode
+        forward(settings)
+        assert mock_calc.call_args.kwargs["execution_mode"] == settings.execution_mode
+        assert mock_calc.call_args.kwargs["max_cache_age_seconds"] == settings.max_cache_age_seconds

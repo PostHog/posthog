@@ -3,9 +3,14 @@ from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, _create
 
 from posthog.api.services.query import ExecutionMode
 
+from products.alerts.backend.evaluation.contract import AlertExecutionSettings
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
+
+_IF_STALE = AlertExecutionSettings(
+    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, max_cache_age_seconds=None
+)
 
 
 class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesMixin):
@@ -27,9 +32,7 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
             config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
             calculation_interval="daily",
         )
-        result = HogQLExtractor().extract(
-            alert, insight, hogql_source, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        )
+        result = HogQLExtractor().extract(alert, insight, hogql_source, _IF_STALE)
         assert len(result.series) == 1
         return result.series[0].points[result.series[0].current_index].value
 

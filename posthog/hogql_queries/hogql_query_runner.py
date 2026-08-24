@@ -103,6 +103,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        max_cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> HogQLQueryResponse | CachedHogQLQueryResponse | CacheMissResponse | QueryStatusResponse:
         self._validate_direct_connection(user=user, force=True)
@@ -113,6 +114,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
+            max_cache_age_seconds=max_cache_age_seconds,
             analytics_props=analytics_props,
         )
 

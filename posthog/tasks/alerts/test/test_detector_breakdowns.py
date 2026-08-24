@@ -22,6 +22,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 
+from products.alerts.backend.evaluation.contract import AlertExecutionSettings
 from products.alerts.backend.evaluation.detector import (
     evaluate_with_detector,
     extract_detector_series,
@@ -30,6 +31,10 @@ from products.alerts.backend.evaluation.detector import (
 from products.alerts.backend.evaluation.dispatcher import check_detector_alert
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
+
+_CACHE_FRIENDLY_SETTINGS = AlertExecutionSettings(
+    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, max_cache_age_seconds=None
+)
 
 
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:
@@ -260,7 +265,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
             alert.team,
             _make_query_without_breakdown(),
             ZSCORE_DETECTOR_CONFIG,
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            _CACHE_FRIENDLY_SETTINGS,
         )
         assert extraction.series == []
         assert extraction.empty_query_result is True
@@ -294,7 +299,7 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
             alert.team,
             query,
             ZSCORE_DETECTOR_CONFIG,
-            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            _CACHE_FRIENDLY_SETTINGS,
         )
         assert extraction.series == []
         assert extraction.empty_query_result is False
