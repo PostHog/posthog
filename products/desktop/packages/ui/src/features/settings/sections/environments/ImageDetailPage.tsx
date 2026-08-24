@@ -165,8 +165,11 @@ export function ImageDetailPage({
         {/* A definite height: the editor fills its parent and scrolls inside,
             so min/max alone would clip instead of scroll. */}
         <div className="h-[380px] overflow-hidden rounded-(--radius-3) border border-(--gray-5)">
+          {/* Seed from the server value, not the live-edited spec: feeding
+              edits back as content would recreate the editor each keystroke
+              and lose the caret. Edits are captured through onContentChange. */}
           <CodeMirrorEditor
-            content={specYaml}
+            content={current.spec_yaml ?? ""}
             filePath="image-spec.yaml"
             onContentChange={setSpec}
           />
