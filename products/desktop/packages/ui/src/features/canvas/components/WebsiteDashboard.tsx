@@ -14,7 +14,7 @@ import { useEffect, useRef } from "react";
 export function WebsiteDashboard({ dashboardId }: { dashboardId: string }) {
   const editing = useIsDashboardEditing(dashboardId);
   const { dashboard } = useDashboard(dashboardId);
-  const viewedDashboardIdRef = useRef<string>();
+  const viewedDashboardIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (!dashboard || viewedDashboardIdRef.current === dashboard.id) return;
