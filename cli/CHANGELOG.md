@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.15.0 — 2026-08-24
+
+### Minor changes
+
+- [30bb8706d09](https://github.com/PostHog/posthog/commit/30bb8706d09854256be3dbe2be6ccd62c8f4a993) Read iOS release metadata from Info.plist files — Thanks @marandaneto!
+
+## 0.14.1 — 2026-08-23
+
+### Patch changes
+
+- [5e488e12013](https://github.com/PostHog/posthog/commit/5e488e120131361723c3b86cc98dcd3d7e814322) Accept sourcemaps that use the camel-case `chunkId` field when cloning or uploading Hermes sourcemaps. — Thanks @marandaneto!
+
 ## 0.14.0 — 2026-08-21
 
 ### Minor changes

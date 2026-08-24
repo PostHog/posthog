@@ -660,16 +660,6 @@ def _public_url(path: str) -> str:
     return absolute_uri(path)
 
 
-def workspace_org_ids(slack_team_id: str) -> set:
-    """Organizations connected to this Slack workspace — the scope a Slack identity may
-    resolve a PostHog user within."""
-    return set(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
-            "team__organization_id", flat=True
-        )
-    )
-
-
 def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
     """Whether the Slack identity reading this can open a PostHog Code link.
 
@@ -678,7 +668,7 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
     flag-service error means no link rather than one that dead-ends.
     """
     from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+    from products.tasks.backend.facade.access import get_desktop_access_decision  # noqa: PLC0415
 
     if not slack_user_id:
         return False
@@ -686,9 +676,11 @@ def viewer_has_code_access(integration: Integration, slack_user_id: str | None) 
         user = find_linked_posthog_user(
             slack_user_id=slack_user_id,
             slack_team_id=integration.integration_id,
-            candidate_org_ids=workspace_org_ids(integration.integration_id),
+            candidate_org_ids={integration.team.organization_id},
         )
-        return user is not None and has_tasks_access(user)
+        if user is None:
+            return False
+        return get_desktop_access_decision(user, integration.team.organization).allowed
     except Exception:
         logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
         return False

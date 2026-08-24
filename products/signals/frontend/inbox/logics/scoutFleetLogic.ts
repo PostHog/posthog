@@ -37,7 +37,7 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import { compareScoutsByName, groupScouts, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import { compareScoutsByName, scoutGroup, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 import {
@@ -117,7 +117,6 @@ export interface scoutFleetLogicValues {
     lastRunAt: string | null
     manualRunScoutIds: string[]
     rollups: Map<string, ScoutRollup>
-    rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
     runningChatType: ScoutChatType | null
     runsWindow: {
@@ -314,10 +313,6 @@ export interface scoutFleetLogicMeta {
             scoutSearch: string,
             scoutEnabledFilter: ScoutEnabledFilter
         ) => ScoutRosterRow[]
-        rosterGroupCounts: (
-            scoutConfigs: SignalScoutConfigApi[] | null,
-            rollups: Map<string, ScoutRollup>
-        ) => Record<ScoutGroupKey, number>
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -682,30 +677,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
-            },
-        ],
-        /**
-         * Group sizes over the whole fleet, unnarrowed by search — the roster header states how many
-         * scouts need a decision, and that number must not move as you type into the search box.
-         */
-        rosterGroupCounts: [
-            (s) => [s.scoutConfigs, s.rollups],
-            (
-                scoutConfigs: SignalScoutConfig[] | null,
-                rollups: Map<string, ScoutRollup>
-            ): Record<ScoutGroupKey, number> => {
-                const counts: Record<ScoutGroupKey, number> = {
-                    needs_you: 0,
-                    working: 0,
-                    watching: 0,
-                    dry_run: 0,
-                    settling_in: 0,
-                    off: 0,
-                }
-                for (const bucket of groupScouts(scoutConfigs ?? [], rollups, new Date())) {
-                    counts[bucket.key] = bucket.configs.length
-                }
-                return counts
             },
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend

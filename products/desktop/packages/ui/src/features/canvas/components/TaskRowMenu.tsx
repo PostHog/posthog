@@ -3,6 +3,7 @@ import {
   CaretRightIcon,
   DotsThreeIcon,
   FolderSimpleIcon,
+  MagnifyingGlassIcon,
   PencilSimpleIcon,
   PushPinIcon,
   PushPinSlashIcon,
@@ -28,32 +29,40 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
+import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
   type MenuFlyoutItem,
   MenuSubFlyout,
   SearchableMenuFlyout,
 } from "@posthog/ui/primitives/SearchableMenuFlyout";
-import { type ComponentType, type ReactNode, useMemo, useState } from "react";
+import {
+  type ComponentType,
+  type ReactElement,
+  type ReactNode,
+  useMemo,
+  useState,
+} from "react";
 
 /**
  * What a row's menu can do. The row owns the handlers because they're the same
  * ones its list already has (pin, archive, delete, rename inline); only filing —
  * which needs the channel list and a mutation — belongs to the menu.
  *
- * Canvases share this menu but not all of it: they can be pinned and deleted,
- * and they can't be filed to a space or given a command-centre cell, both of
- * which are task-shaped. `kind` is what decides, so a canvas gets a menu of the
- * actions it has rather than a full one with half its items dead.
+ * Canvases share this menu but not all of it: they can be added to the command
+ * centre, pinned, and deleted, but they can't be filed to another space.
+ * `kind` decides which remaining actions apply.
  */
 export interface TaskRowMenuProps {
   kind: "task" | "canvas";
   id: string;
   title: string;
   isPinned: boolean;
+  task?: Task;
   /** The channel this task is already filed to, ticked in "File to…". */
   channelId?: string;
   /** Absent when the command centre is full, which disables the item. */
@@ -96,6 +105,24 @@ const DROPDOWN_PARTS: MenuParts = {
   SubTrigger: DropdownMenuSubTrigger,
 };
 
+function TaskAnalysisMenuItem({
+  Item,
+  task,
+}: {
+  Item: MenuParts["Item"];
+  task: Task;
+}): ReactElement | null {
+  const { canAnalyze, isPending, run } = useTaskAnalysis(task);
+  if (!canAnalyze) return null;
+
+  return (
+    <Item disabled={isPending} onClick={run}>
+      <MagnifyingGlassIcon size={14} />
+      {isPending ? "Analyzing…" : "Run analysis"}
+    </Item>
+  );
+}
+
 /**
  * The row's actions, in the order the native menu used: the edits, then the
  * places a task can be sent, then the destructive one last.
@@ -115,6 +142,7 @@ function TaskRowMenuItems({
     import.meta.env.DEV,
   );
   const isTask = menu.kind === "task";
+  const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
   const { channels } = useChannels({ enabled: bluebirdEnabled && isTask });
   const fileToChannel = useFileTaskToChannel();
 
@@ -141,21 +169,20 @@ function TaskRowMenuItems({
           Rename
         </Item>
       )}
+      {analysisTask && <TaskAnalysisMenuItem Item={Item} task={analysisTask} />}
       {menu.onStop && (
         <Item onClick={menu.onStop}>
           <StopCircle size={14} />
           Stop task
         </Item>
       )}
-      {isTask && (
-        <Item
-          disabled={!menu.onAddToCommandCenter}
-          onClick={menu.onAddToCommandCenter}
-        >
-          <SquaresFourIcon size={14} />
-          Add to Command Center
-        </Item>
-      )}
+      <Item
+        disabled={!menu.onAddToCommandCenter}
+        onClick={menu.onAddToCommandCenter}
+      >
+        <SquaresFourIcon size={14} />
+        Add to Command Center…
+      </Item>
       {isTask && channelItems.length > 0 && (
         <Sub>
           <SubTrigger>

@@ -111,7 +111,7 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
       type="button"
       onClick={() =>
         navigate({
-          to: "/code/inbox/runs/$reportId",
+          to: "/inbox/runs/$reportId",
           params: { reportId: report.id },
         })
       }

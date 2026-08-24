@@ -359,8 +359,8 @@ importers:
         specifier: ^1.60.0
         version: 1.60.0
       '@posthog/rollup-plugin':
-        specifier: ^1.5.0
-        version: 1.5.0(rollup@4.62.2)
+        specifier: ^1.5.1
+        version: 1.5.1(rollup@4.62.2)
       '@storybook/addon-a11y':
         specifier: 10.4.1
         version: 10.4.1(storybook@10.4.1(@testing-library/dom@10.4.1)(@types/react@19.2.17)(prettier@3.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
@@ -6285,8 +6285,8 @@ packages:
   '@posthog/browser-common@0.5.0':
     resolution: {integrity: sha512-8DaxVZS1bQPbA514RePurLNbYjei3P4jhnC206DwVv5XThmZM3QdlsXenI2ujE3pLbgQ79hYn9o1Kda8I3WK/Q==}
 
-  '@posthog/cli@0.13.0':
-    resolution: {integrity: sha512-ZP7ZLmFyjLakGjkDzm3/Eu5XvonY4pFD1SOtMc5TjkwYS6TmihuuLp0iDp+X7Pd9xFI0eLtBpfV/G9HI/XRZbg==}
+  '@posthog/cli@0.14.1':
+    resolution: {integrity: sha512-gTzcKpl9TZLf0LrlLHEjChlPc9LIK1gdQG0alMnX6+b+W1mTD+6nTN0W/MeEzjT4DiKDeK8FPhc1n7dT1tWKFw==}
     engines: {node: '>=14.14', npm: '>=6'}
     hasBin: true
 
@@ -6335,8 +6335,8 @@ packages:
       react: 19.2.6
       react-native: '*'
 
-  '@posthog/rollup-plugin@1.5.0':
-    resolution: {integrity: sha512-URh8xLLJW2jPwYpEk/Nx+uVfTjHNtRXmm2JtWJHLik+X0LIAuZkyyA0njdInnDDep5T8ufU7HEkg4RuIdxk9VA==}
+  '@posthog/rollup-plugin@1.5.1':
+    resolution: {integrity: sha512-4ZNhhgnMEdRXP5YlLngHEwaaobrpNhHMT7JY4kZ1uLjGeURRbq7OjWNNg2MGN6iJgR8iIbvbt4Kho1WxflCz6A==}
     peerDependencies:
       rollup: 4.59.0
 
@@ -21014,7 +21014,7 @@ snapshots:
       '@posthog/core': 1.48.5
       '@posthog/types': 1.405.0
 
-  '@posthog/cli@0.13.0':
+  '@posthog/cli@0.14.1':
     dependencies:
       detect-libc: 2.1.2
 
@@ -21092,9 +21092,9 @@ snapshots:
       react: 19.2.6
       react-native: 0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6)
 
-  '@posthog/rollup-plugin@1.5.0(rollup@4.62.2)':
+  '@posthog/rollup-plugin@1.5.1(rollup@4.62.2)':
     dependencies:
-      '@posthog/cli': 0.13.0
+      '@posthog/cli': 0.14.1
       '@posthog/plugin-utils': 1.2.0
       magic-string: 0.30.21
       rollup: 4.62.2

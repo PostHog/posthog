@@ -1,5 +1,6 @@
 import {
   BellIcon,
+  BookOpenTextIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
@@ -7,15 +8,16 @@ import {
 } from "@phosphor-icons/react";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
+import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
 import {
-  getRailPane,
-  type NavRailPane,
-} from "@posthog/ui/features/canvas/railPane";
-import {
-  keepListForRoute,
   showChannelList,
+  showChannelPane,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  type RailVisit,
+  useRailHistoryStore,
+} from "@posthog/ui/features/canvas/stores/railHistoryStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -29,13 +31,15 @@ import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
-  navigateToCanvas,
   navigateToChannel,
+  navigateToCommandCenter,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
-  navigateToWebsiteCommandCenter,
+  navigateToSpaces,
+  navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
 
 export interface RailCounts {
@@ -49,14 +53,22 @@ export interface RailDestination {
   label: string;
   analyticsId: SidebarNavItem;
   Icon: ComponentType<IconProps>;
-  /** Every pick routes. The rail's selected state is read back off the route,
-   *  so a destination that changed nothing in the URL could never be left. */
+  /** Where the destination lands with nothing remembered. */
   onPick: () => void;
+  /**
+   * What a click on the destination you are already on does, when that differs
+   * from landing on its root. Defaults to `onPick`.
+   */
+  onReclick?: () => void;
   customizableId?: CustomizableNavItemId;
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: { loops: boolean }) => boolean;
+  enabled?: (flags: {
+    home: boolean;
+    loops: boolean;
+    context: boolean;
+  }) => boolean;
 }
 
 /**
@@ -65,18 +77,44 @@ export interface RailDestination {
  * to put it in, so leaving one is part of the pick.
  */
 export function showSpaces(): void {
-  showChannelList();
-  if (getRailPane() === "spaces") return;
-
   const channelId = useCurrentChannelStore.getState().currentChannelId;
   if (!channelId) {
-    navigateToCanvas();
+    showChannelList();
+    navigateToSpaces();
     return;
   }
-  // Arriving at a space pulls the slider to that space. This pick asked for the
-  // list, so latch it across the navigation it is about to make.
-  keepListForRoute(channelId);
+  showChannelList(channelId);
   navigateToChannel(channelId);
+}
+
+/** Put a destination back the way you left it, sidebar pane included. */
+function restoreVisit(visit: RailVisit): void {
+  const spaces = visit.spaces;
+  if (spaces) {
+    if (!spaces.listOpen) showChannelPane();
+    // An unscoped space route (the index, an unfiled task) has no channel to
+    // hold the list across, but the list was open and stays open.
+    else showChannelList(spaces.spaceId);
+  }
+  void getRouterOrNull()?.navigate({ href: visit.href });
+}
+
+/**
+ * Act on a rail click: return to where the destination was, or land on its root
+ * when there is nothing to return to. Clicking the destination you are already
+ * on never restores — you are looking at it.
+ */
+export function pickRailDestination(
+  destination: RailDestination,
+  current: NavRailPane,
+): void {
+  if (destination.pane === current) {
+    (destination.onReclick ?? destination.onPick)();
+    return;
+  }
+  const visit = useRailHistoryStore.getState().lastByPane[destination.pane];
+  if (visit) restoreVisit(visit);
+  else destination.onPick();
 }
 
 export const RAIL_DESTINATIONS: readonly RailDestination[] = [
@@ -86,6 +124,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     analyticsId: "home",
     Icon: HouseSimple,
     onPick: navigateToHome,
+    enabled: (flags) => flags.home,
   },
   {
     pane: "spaces",
@@ -93,6 +132,9 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     analyticsId: "spaces",
     Icon: SpacesIcon,
     onPick: showSpaces,
+    // Already in Spaces, so the pick is asking for the one thing above the
+    // space you are in: the list.
+    onReclick: showChannelList,
   },
   {
     pane: "activity",
@@ -119,7 +161,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     label: "Command Center",
     analyticsId: "command_center",
     Icon: Lightning,
-    onPick: navigateToWebsiteCommandCenter,
+    onPick: navigateToCommandCenter,
     count: (counts) => counts.commandCenter,
     countTone: "neutral",
   },
@@ -132,6 +174,15 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: () => navigateToLoops(),
     enabled: (flags) => flags.loops,
   },
+  {
+    pane: "context",
+    customizableId: "contexts",
+    label: "Context",
+    analyticsId: "contexts",
+    Icon: BookOpenTextIcon,
+    onPick: navigateToSpacesContext,
+    enabled: (flags) => flags.context,
+  },
 ];
 
 // Deliberately not the shared `orderedNavItems`: its adjacency rule pins
@@ -139,15 +190,19 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
 export function visibleRailDestinations({
   overrides,
   order,
+  home,
   loops,
+  context,
 }: {
   overrides: NavItemOverrides;
   order: readonly CustomizableNavItemId[];
+  home: boolean;
   loops: boolean;
+  context: boolean;
 }): readonly RailDestination[] {
   const shown = RAIL_DESTINATIONS.filter(
     ({ customizableId, enabled }) =>
-      (enabled?.({ loops }) ?? true) &&
+      (enabled?.({ home, loops, context }) ?? true) &&
       (!customizableId || isNavItemVisible(overrides, customizableId)),
   );
   if (order.length === 0) return shown;
