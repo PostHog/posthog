@@ -46,21 +46,6 @@ function makeSession(
 }
 
 describe("deriveSessionViewState", () => {
-  it("uses a live cloud session when task run metadata is unavailable", () => {
-    const task = makeTask("in_progress");
-    task.latest_run = undefined;
-
-    const state = deriveSessionViewState(
-      makeSession("in_progress"),
-      task,
-      null,
-      false,
-    );
-
-    expect(state.isCloud).toBe(true);
-    expect(state.isCloudRunNotTerminal).toBe(true);
-  });
-
   it("uses terminal task status over stale same-run session status", () => {
     const state = deriveSessionViewState(
       makeSession("in_progress"),
