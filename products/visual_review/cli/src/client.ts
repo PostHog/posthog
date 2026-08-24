@@ -10,6 +10,7 @@ import type {
     CreateRunInputApi,
     CreateRunResultApi,
     FinalizeResultApi,
+    PaginatedSnapshotListApi,
     RunApi,
     SnapshotApi,
     SnapshotManifestItemApi,
@@ -200,10 +201,15 @@ export class VisualReviewClient {
     }
 
     /**
-     * Get snapshots for a run.
+     * Get snapshots for a run. The endpoint is paginated and orders actionable results
+     * (changed / new / removed) ahead of unchanged ones, so the first page names
+     * everything that needs review unless a run has more than `limit` of them.
      */
-    async getRunSnapshots(runId: string): Promise<SnapshotApi[]> {
-        return this.request<SnapshotApi[]>(`/visual_review/runs/${runId}/snapshots/`)
+    async getRunSnapshots(runId: string, limit = 100): Promise<SnapshotApi[]> {
+        const page = await this.request<PaginatedSnapshotListApi>(
+            `/visual_review/runs/${runId}/snapshots/?limit=${limit}`
+        )
+        return page.results
     }
 
     /**

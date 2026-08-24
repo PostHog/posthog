@@ -373,6 +373,52 @@ def _state_claim_candidates_sql(sync_type_scope: str = "") -> str:
     """
 
 
+def _stranded_candidate_runs_sql() -> str:
+    """Candidate selection for the stranded-run sweep: aggregate first, then gate per run.
+
+    The bounded non-terminal scan collapses into (run, team, schema) groups
+    BEFORE the lease and failed-run gates, so each gate runs as one index probe
+    per candidate run. Gating the raw batch rows instead made the planner turn
+    the failed-run NOT EXISTS into a hash anti-join whose hash side is every
+    failed batch in the pruning window — that side scales with failure storms
+    (millions of rows, rebuilt every sweep) while the probes scale with the
+    candidate-run count.
+
+    The ``OFFSET 0`` in the failed-run gate is an optimization fence: without
+    it the planner flattens the subquery back into that same hash anti-join.
+    It changes no semantics; the plan-shape test pins the probe.
+    """
+    return f"""
+        WITH stranded_runs AS (
+            SELECT b.run_uuid, b.team_id, b.schema_id, MIN(b.created_at) AS oldest_created_at
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+              AND b.created_at <= now() - make_interval(secs => %(stale)s)
+              AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
+            GROUP BY b.run_uuid, b.team_id, b.schema_id
+        )
+        SELECT r.run_uuid, r.team_id, r.schema_id
+        FROM stranded_runs r
+        WHERE NOT EXISTS (
+              SELECT 1 FROM {LEASE_TABLE} l
+              WHERE l.team_id = r.team_id AND l.schema_id = r.schema_id
+                AND l.expires_at > now()
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM {BATCH_TABLE} bf
+              WHERE bf.run_uuid = r.run_uuid
+                AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND bf.latest_state = 'failed'
+              OFFSET 0
+          )
+        -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
+        -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
+        -- always land in it, and successive sweeps make deterministic forward progress.
+        ORDER BY r.oldest_created_at ASC
+        LIMIT %(limit)s
+    """
+
+
 def _stale_executing_sql(scope_sql: str = "") -> str:
     """Shared body of the stale-executing sweep (async consumer and its sync ops twin).
 
@@ -1222,37 +1268,18 @@ class BatchQueue:
         working the group (making progress, or the recovery sweep reclaims it on lease expiry), so those
         are excluded. Runs with a ``failed`` batch are excluded — ``get_failed_runs`` owns those.
 
-        Seeded from the cheap denormalized-state index (oldest-batch-first, so the bounded candidate
-        window always holds the longest-stranded runs rather than an arbitrary set), then the full-run
-        lateral confirms staleness, so a slow-but-live run (recent success, momentarily between lease
+        Seeded from the bounded non-terminal scan aggregated into runs, gated per run
+        (oldest-batch-first, so the bounded candidate window always holds the
+        longest-stranded runs rather than an arbitrary set — see
+        :func:`_stranded_candidate_runs_sql`), then the full-run lateral confirms
+        staleness, so a slow-but-live run (recent success, momentarily between lease
         renewals) is not swept.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
                 WITH candidates AS (
-                    SELECT b.run_uuid, b.team_id, b.schema_id
-                    FROM {BATCH_TABLE} b
-                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND b.created_at <= now() - make_interval(secs => %(stale)s)
-                      AND b.latest_state IN ('pending', 'waiting', 'waiting_retry', 'executing')
-                      AND NOT EXISTS (
-                          SELECT 1 FROM {LEASE_TABLE} l
-                          WHERE l.team_id = b.team_id AND l.schema_id = b.schema_id
-                            AND l.expires_at > now()
-                      )
-                      AND NOT EXISTS (
-                          SELECT 1 FROM {BATCH_TABLE} bf
-                          WHERE bf.run_uuid = b.run_uuid
-                            AND bf.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                            AND bf.latest_state = 'failed'
-                      )
-                    -- Oldest-batch-first, so the window can't be starved by an arbitrary set of
-                    -- not-yet-stale runs the outer HAVING later rejects: the longest-stranded runs
-                    -- always land in it, and successive sweeps make deterministic forward progress.
-                    GROUP BY b.run_uuid, b.team_id, b.schema_id
-                    ORDER BY MIN(b.created_at) ASC
-                    LIMIT %(limit)s
+                    {_stranded_candidate_runs_sql()}
                 )
                 SELECT
                     b.run_uuid,
@@ -1311,6 +1338,30 @@ class BatchQueue:
         if row is None or row[0] is None:
             return None
         return float(row[0])
+
+    @staticmethod
+    async def get_claimable_batch_count(conn: psycopg.AsyncConnection[Any]) -> int:
+        """How many batches are state-eligible for claiming right now (queue depth).
+
+        The depth companion to :meth:`get_oldest_unclaimed_batch_age_seconds`:
+        the claim's per-run, schema-busy, and lease gates are deliberately not
+        applied (they need per-row probes; this must stay one cheap partial-index
+        scan), and neither is the retry-backoff gate (it needs the fleet's backoff
+        config, and this probe stays parameter-free), so the count reads slightly
+        high. Bounded by ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim
+        query can see.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT count(*)
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+                  AND b.latest_state IN ('pending', 'waiting_retry')
+                """
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
 
     @staticmethod
     def get_oldest_non_terminal_batch_age_seconds(

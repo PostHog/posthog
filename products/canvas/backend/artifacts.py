@@ -135,7 +135,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
         response["Content-Type"] = content_type
-        return _with_artifact_headers(response, etag)
+        return _with_artifact_headers(response, etag, build.manifest)
 
     try:
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
@@ -149,10 +149,10 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
-    return _with_artifact_headers(response, etag)
+    return _with_artifact_headers(response, etag, build.manifest)
 
 
-def _with_artifact_headers(response: HttpResponse, etag: str) -> HttpResponse:
+def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict) -> HttpResponse:
     response["ETag"] = etag
     response["Cache-Control"] = "private, max-age=31536000, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
@@ -165,6 +165,7 @@ def _with_artifact_headers(response: HttpResponse, etag: str) -> HttpResponse:
     response["Access-Control-Allow-Origin"] = "*"
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
-    response["Content-Security-Policy"] = artifact_csp()
+    network_origins = ((manifest.get("capabilities") or {}).get("network") or {}).get("origins") or []
+    response["Content-Security-Policy"] = artifact_csp(network_origins)
     response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     return response

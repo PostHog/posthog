@@ -31,13 +31,13 @@ from products.review_hog.backend.reviewer.constants import (
     MAX_CONCURRENT_SANDBOXES,
     VALIDATION_MAX_ATTEMPTS,
 )
+from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
     DedupResult,
     FetchPRDataInput,
-    FinalizeStatusCommentInput,
     GenerateSchemasInput,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -47,6 +47,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RemoveTriggerLabelInput,
     ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
@@ -71,6 +72,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
     select_perspectives_activity,
@@ -355,6 +357,39 @@ class ReviewPRWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: ReviewPRWorkflowInputs) -> str:
+        completed = False
+        try:
+            result = await self._run(inputs)
+            completed = True
+            return result
+        finally:
+            info = workflow.info()
+            retry = info.retry_policy
+            terminal = (
+                completed or retry is None or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
+            )
+            if (
+                workflow.patched("remove-reviewhog-trigger-label-2026-08")
+                and terminal
+                and inputs.trigger_source == TRIGGER_LABEL
+                and inputs.pr_number is not None
+            ):
+                try:
+                    await workflow.execute_activity(
+                        remove_trigger_label_activity,
+                        RemoveTriggerLabelInput(
+                            team_id=inputs.team_id,
+                            owner=inputs.owner,
+                            repo=inputs.repo,
+                            pr_number=inputs.pr_number,
+                        ),
+                        start_to_close_timeout=_QUICK_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.warning("Could not remove the ReviewHog trigger label")
+
+    async def _run(self, inputs: ReviewPRWorkflowInputs) -> str:
         repository = inputs.repository
         target = f"PR #{inputs.pr_number}" if inputs.pr_number is not None else f"branch '{inputs.head_branch}'"
         workflow.logger.info(f"ReviewHog · reviewing {target} · {repository}")

@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.apps import apps
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -27,7 +29,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     WarehouseColumnAnnotation,
-    WarehouseColumnStatistics,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -424,8 +425,11 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
                 "amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
             },
         )
+        # Fetched at runtime: the model no longer crosses the facade, and this test only needs a row
+        # in place so the merge path has something to read.
+        column_statistics_model = apps.get_model("warehouse_sources", "WarehouseColumnStatistics")
         with team_scope(self.team.id, canonical=True):
-            WarehouseColumnStatistics.objects.create(
+            column_statistics_model.objects.create(
                 team=self.team,
                 table=table,
                 column_name="id",

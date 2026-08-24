@@ -32,6 +32,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.tasks import exporter
+from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -39,8 +40,8 @@ from products.exports.backend.facade.api import EXPORT_WORKFLOW_TIMEOUT
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import FAILURE_TYPE_SYSTEM, FAILURE_TYPE_USER
 from products.exports.backend.tasks.image_exporter import export_image
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -744,26 +745,68 @@ class TestExports(APIBaseTest):
         self.assertIsNone(recent_export.exception)
         self.assertIsNone(completed_export.exception)
 
+    DATASET_EXPORT_CONTEXT = {
+        "kind": DATASET_EXPORT_KIND,
+        "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
+        "dataset_revision": 1,
+    }
+    VIDEO_EXPORT_CONTEXT = {"session_recording_id": "01890a0e-0000-0000-0000-000000000000"}
+
     @parameterized.expand(
         [
+            # A png still answers to the HogQL query timeout it inherits from the Celery exporter.
             (
-                "standard_export_timeout",
+                "png_past_query_timeout",
+                ExportedAsset.ExportFormat.PNG,
+                None,
+                timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
+                True,
+            ),
+            (
+                "dataset_within_workflow_timeout",
+                ExportedAsset.ExportFormat.JSONL,
+                DATASET_EXPORT_CONTEXT,
                 timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
                 False,
             ),
-            ("dataset_workflow_timeout", EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=31), True),
+            (
+                "dataset_past_workflow_timeout",
+                ExportedAsset.ExportFormat.JSONL,
+                DATASET_EXPORT_CONTEXT,
+                EXPORT_WORKFLOW_TIMEOUT + timedelta(seconds=31),
+                True,
+            ),
+            # A video render legitimately runs well past the query timeout, so measuring it against
+            # that timeout reports long recordings as failed while they are still rendering.
+            (
+                "video_within_workflow_timeout",
+                ExportedAsset.ExportFormat.MP4,
+                VIDEO_EXPORT_CONTEXT,
+                timedelta(seconds=HOGQL_INCREASED_MAX_EXECUTION_TIME + 31),
+                False,
+            ),
+            (
+                "video_past_workflow_timeout",
+                ExportedAsset.ExportFormat.MP4,
+                VIDEO_EXPORT_CONTEXT,
+                RASTERIZE_WORKFLOW_TIMEOUT + timedelta(seconds=31),
+                True,
+            ),
         ]
     )
-    def test_list_uses_the_dataset_workflow_timeout(self, _name, age: timedelta, expected_failed: bool) -> None:
+    def test_stuck_threshold_matches_the_rendering_pipeline(
+        self,
+        _name,
+        export_format: str,
+        export_context: Optional[dict],
+        age: timedelta,
+        expected_failed: bool,
+    ) -> None:
         with freeze_time(now() - age):
-            dataset_export = ExportedAsset.objects.create(
+            export = ExportedAsset.objects.create(
                 team=self.team,
-                export_format=ExportedAsset.ExportFormat.JSONL,
-                export_context={
-                    "kind": DATASET_EXPORT_KIND,
-                    "dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5",
-                    "dataset_revision": 1,
-                },
+                export_format=export_format,
+                export_context=export_context,
                 created_by=self.user,
             )
 
@@ -771,7 +814,28 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results_by_id = {result["id"]: result for result in response.json()["results"]}
-        self.assertEqual(results_by_id[dataset_export.id]["exception"] is not None, expected_failed)
+        self.assertEqual(results_by_id[export.id]["exception"] is not None, expected_failed)
+
+    def test_listing_stuck_exports_emits_no_analytics_events(self) -> None:
+        """Reporting stuck exports is a read path, so polling the list must not emit events.
+
+        An event emitted while serializing fires once per asset per request for as long as the row
+        stays incomplete, so the count reflects how often clients poll rather than how many exports
+        failed.
+        """
+        with freeze_time(now() - RASTERIZE_WORKFLOW_TIMEOUT - timedelta(minutes=1)):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.MP4,
+                export_context=self.VIDEO_EXPORT_CONTEXT,
+                created_by=self.user,
+            )
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([call for call in mock_capture.call_args_list if "export" in str(call)], [])
 
     def test_retrieve_shows_stuck_export_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):

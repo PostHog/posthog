@@ -2,9 +2,11 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
 import {
     LemonButton,
     LemonBanner,
+    LemonDropdown,
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSelect,
@@ -71,7 +73,7 @@ const SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
     { value: 'avg', label: 'Average' },
-    { value: 'count', label: 'Count' },
+    { value: 'count', label: 'Series count' },
     { value: 'p95', label: 'p95' },
     { value: 'rate', label: 'Rate (/s)' },
     { value: 'increase', label: 'Increase' },
@@ -133,8 +135,6 @@ export const MetricsViewer = (): JSX.Element => {
         viewMode,
         statSummary,
         groupByKeys,
-        attributeKeyOptions,
-        attributeKeyOptionsLoading,
         filterGroup,
         attributeEndpointFilters,
         chartSeries,
@@ -157,9 +157,6 @@ export const MetricsViewer = (): JSX.Element => {
         setDateTo,
         setViewMode,
         setStatSummary,
-        setGroupByKeys,
-        setGroupBySearch,
-        loadAttributeKeyOptions,
         setFilterGroup,
         setLiveRefresh,
         fetchQueryResults,
@@ -229,125 +226,129 @@ export const MetricsViewer = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end gap-2">
-                <div className="flex flex-col gap-1">
-                    <MetricNameFilter
-                        value={metricName}
-                        onChange={setMetricName}
-                        disabled={!!metricsViewerDisabledReason}
-                        disabledReason={metricsViewerDisabledReason}
-                    />
-                    {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
-                        <span className="text-xs text-secondary">
-                            {selectedMetricType} — {recommendedAggregation} recommended
-                        </span>
-                    )}
+            <div className="flex flex-col gap-2">
+                {/* The filter bar is the primary control, mirroring logs and traces. */}
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                    <div className="flex flex-1 flex-wrap items-center gap-2 min-w-[16rem]">
+                        <div className="flex flex-col gap-1">
+                            <MetricNameFilter
+                                value={metricName}
+                                onChange={setMetricName}
+                                disabled={!!metricsViewerDisabledReason}
+                                disabledReason={metricsViewerDisabledReason}
+                            />
+                            {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
+                                <span className="text-xs text-secondary">
+                                    {selectedMetricType} — {recommendedAggregation} recommended
+                                </span>
+                            )}
+                        </div>
+                        <UniversalFilters
+                            rootKey="metrics-viewer-filters"
+                            group={filterGroup.values[0] as UniversalFiltersGroup}
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
+                            endpointFilters={attributeEndpointFilters}
+                            onChange={(group) => {
+                                if (!metricsViewerDisabledReason) {
+                                    setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
+                                }
+                            }}
+                        >
+                            <MetricsViewerFilterBar disabledReason={metricsViewerDisabledReason} />
+                        </UniversalFilters>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <DateFilter
+                            size="small"
+                            dateFrom={dateFrom}
+                            dateTo={dateTo}
+                            dateOptions={DATE_OPTIONS}
+                            onChange={(changedDateFrom, changedDateTo) => {
+                                setDateFrom(changedDateFrom)
+                                setDateTo(changedDateTo)
+                            }}
+                            allowTimePrecision
+                            allowFixedRangeWithTime
+                            allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
+                            use24HourFormat
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <LemonSwitch
+                            label="Auto-refresh"
+                            checked={liveRefresh}
+                            onChange={setLiveRefresh}
+                            tooltip={`Refreshes every ${LIVE_REFRESH_MS / 1000}s`}
+                            bordered
+                            data-attr="metrics-viewer-live-toggle"
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                    </div>
                 </div>
-                <LemonSelect
-                    size="small"
-                    value={aggregation}
-                    options={AGGREGATION_OPTIONS}
-                    onChange={(value) => setAggregation(value as MetricAggregation)}
-                    data-attr="metrics-viewer-aggregation"
-                    disabledReason={metricsViewerDisabledReason}
-                />
-                <LemonInputSelect
-                    mode="multiple"
-                    size="small"
-                    allowCustomValues
-                    value={groupByKeys}
-                    onChange={setGroupByKeys}
-                    options={attributeKeyOptions}
-                    loading={attributeKeyOptionsLoading}
-                    onInputChange={setGroupBySearch}
-                    onFocus={() => loadAttributeKeyOptions({})}
-                    placeholder="Group by attribute…"
-                    className="min-w-[12rem]"
-                    data-attr="metrics-viewer-group-by"
-                    disabledReason={metricsViewerDisabledReason}
-                />
-                <UniversalFilters
-                    rootKey="metrics-viewer-filters"
-                    group={filterGroup.values[0] as UniversalFiltersGroup}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
-                    endpointFilters={attributeEndpointFilters}
-                    onChange={(group) => {
-                        if (!metricsViewerDisabledReason) {
-                            setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
-                        }
-                    }}
-                >
-                    <MetricsViewerFilterBar disabledReason={metricsViewerDisabledReason} />
-                </UniversalFilters>
-                <DateFilter
-                    size="small"
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    dateOptions={DATE_OPTIONS}
-                    onChange={(changedDateFrom, changedDateTo) => {
-                        setDateFrom(changedDateFrom)
-                        setDateTo(changedDateTo)
-                    }}
-                    allowTimePrecision
-                    allowFixedRangeWithTime
-                    allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
-                    use24HourFormat
-                    disabledReason={metricsViewerDisabledReason}
-                />
-                <LemonSegmentedButton
-                    size="small"
-                    value={viewMode}
-                    options={VIEW_MODE_OPTIONS}
-                    onChange={(value) => setViewMode(value)}
-                    disabledReason={metricsViewerDisabledReason ?? undefined}
-                />
-                {viewMode === 'stat' && (
-                    <LemonSelect
-                        size="small"
-                        value={statSummary}
-                        options={SUMMARY_OPTIONS}
-                        onChange={(value) => setStatSummary(value)}
-                        data-attr="metrics-viewer-stat-summary"
-                        disabledReason={metricsViewerDisabledReason}
-                    />
-                )}
-                <LemonSwitch
-                    label="Live"
-                    checked={liveRefresh}
-                    onChange={setLiveRefresh}
-                    tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
-                    bordered
-                    data-attr="metrics-viewer-live-toggle"
-                    disabledReason={metricsViewerDisabledReason}
-                />
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={() => saveAsInsight()}
-                    loading={savedInsightLoading}
-                    disabledReason={insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)}
-                >
-                    Save as insight
-                </LemonButton>
-                <LemonButton
-                    size="small"
-                    type="primary"
-                    onClick={() => addToDashboard()}
-                    loading={savedInsightLoading}
-                    disabledReason={insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)}
-                    data-attr="metrics-viewer-add-to-dashboard"
-                >
-                    Add to dashboard
-                </LemonButton>
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    onClick={openStarterDashboardModal}
-                    tooltip="Create a dashboard with one insight per metric, using each metric's recommended aggregation"
-                    data-attr="metrics-viewer-starter-dashboard"
-                >
-                    New service dashboard
-                </LemonButton>
+                {/* Aggregation, grouping, and view controls sit below the filter bar. */}
+                <div className="flex flex-wrap items-center gap-2 justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonSegmentedButton
+                            size="small"
+                            value={viewMode}
+                            options={VIEW_MODE_OPTIONS}
+                            onChange={(value) => setViewMode(value)}
+                            disabledReason={metricsViewerDisabledReason ?? undefined}
+                        />
+                        <LemonSelect
+                            size="small"
+                            value={aggregation}
+                            options={AGGREGATION_OPTIONS}
+                            onChange={(value) => setAggregation(value as MetricAggregation)}
+                            data-attr="metrics-viewer-aggregation"
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <MetricsGroupByButton disabledReason={metricsViewerDisabledReason} />
+                        {viewMode === 'stat' && (
+                            <LemonSelect
+                                size="small"
+                                value={statSummary}
+                                options={SUMMARY_OPTIONS}
+                                onChange={(value) => setStatSummary(value)}
+                                data-attr="metrics-viewer-stat-summary"
+                                disabledReason={metricsViewerDisabledReason}
+                            />
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={() => saveAsInsight()}
+                            loading={savedInsightLoading}
+                            disabledReason={
+                                insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)
+                            }
+                        >
+                            Save as insight
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            onClick={() => addToDashboard()}
+                            loading={savedInsightLoading}
+                            disabledReason={
+                                insightEditorDisabledReason ?? (!hasMetricName ? 'Pick a metric first' : undefined)
+                            }
+                            data-attr="metrics-viewer-add-to-dashboard"
+                        >
+                            Add to dashboard
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            onClick={openStarterDashboardModal}
+                            tooltip="Create a dashboard with one insight per metric, using each metric's recommended aggregation"
+                            data-attr="metrics-viewer-starter-dashboard"
+                        >
+                            New service dashboard
+                        </LemonButton>
+                    </div>
+                </div>
             </div>
             <MetricsStarterDashboardModal />
             {savedInsight && (
@@ -447,5 +448,66 @@ const MetricsViewerFilterBar = ({ disabledReason }: { disabledReason: string | n
                 disabledReason={disabledReason}
             />
         </div>
+    )
+}
+
+// Group by is a button that opens the attribute multiselect, so the filter bar stays the
+// primary control (mirrors how logs and traces keep grouping as a button, not the main bar).
+const MetricsGroupByButton = ({ disabledReason }: { disabledReason: string | null }): JSX.Element => {
+    const { groupByKeys, attributeKeyOptions, attributeKeyOptionsLoading } = useValues(metricsViewerLogic)
+    const { setGroupByKeys, setGroupBySearch, loadAttributeKeyOptions } = useActions(metricsViewerLogic)
+    const [open, setOpen] = useState<boolean>(false)
+
+    const label =
+        groupByKeys.length === 0
+            ? 'Group by'
+            : groupByKeys.length === 1
+              ? `Group by: ${groupByKeys[0]}`
+              : `Group by: ${groupByKeys.length} attributes`
+
+    return (
+        <LemonDropdown
+            visible={open}
+            closeOnClickInside={false}
+            onClickOutside={() => setOpen(false)}
+            overlay={
+                <div className="p-1 w-[18rem]">
+                    <LemonInputSelect
+                        mode="multiple"
+                        size="small"
+                        allowCustomValues
+                        value={groupByKeys}
+                        onChange={setGroupByKeys}
+                        options={attributeKeyOptions}
+                        loading={attributeKeyOptionsLoading}
+                        onInputChange={setGroupBySearch}
+                        onFocus={() => loadAttributeKeyOptions({})}
+                        placeholder="Group by attribute…"
+                        data-attr="metrics-viewer-group-by"
+                        disabledReason={disabledReason}
+                        autoFocus
+                    />
+                </div>
+            }
+        >
+            <LemonButton
+                size="small"
+                type="secondary"
+                active={open || groupByKeys.length > 0}
+                sideIcon={<IconChevronDown />}
+                onClick={() => {
+                    setOpen((wasOpen) => !wasOpen)
+                    loadAttributeKeyOptions({})
+                }}
+                disabledReason={disabledReason ?? undefined}
+                data-attr="metrics-viewer-group-by-button"
+                // Attribute keys can be long, so cap the trigger rather than let it push the row wide
+                truncate
+                className="max-w-[16rem]"
+                tooltip={groupByKeys.length > 0 ? groupByKeys.join(', ') : undefined}
+            >
+                {label}
+            </LemonButton>
+        </LemonDropdown>
     )
 }

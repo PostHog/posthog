@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconChevronDown, IconInfo } from '@posthog/icons'
@@ -14,18 +15,21 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { urls } from 'scenes/urls'
 
 import { Experiment } from '~/types'
+
+import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 
 import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
-import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
     ExperimentReplayMetricFilterMode,
@@ -39,6 +43,12 @@ import { VariantTag } from './VariantTag'
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
+
+// What the unfiltered list is, said once above it. The second sentence carries the part that
+// isn't guessable: exposure is resolved per person, matching who the analysis counts, so
+// sessions appear even when the exposure event fired server-side or in an earlier session.
+const POPULATION_CAPTION =
+    "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -167,8 +177,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         effectiveVariantKey,
         variantKeys,
         recordingsFilters,
-        exposureUnlinkable,
-        usingExposureFallback,
         effectiveMetricUuids,
         metricOptions,
         metricFilterMode,
@@ -185,7 +193,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         playlistFiltersChanged,
         recordingsLoaded,
         recordingOpened,
+        scannerCrossSellClicked,
     } = useActions(logic)
+    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
 
     // One object feeds both the playlist below and the findMounted lookup, because the logic's
     // kea key is derived from these props: hand-duplicating them at the two sites would let the
@@ -205,10 +215,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     if (!isLaunched(experiment)) {
         return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
-    }
-
-    if (exposureUnlinkable) {
-        return <LemonBanner type="warning">{EXPOSURE_UNLINKABLE_REASON}</LemonBanner>
     }
 
     // Selectable metrics render as checkboxes. The rest move to labelled sections that explain
@@ -231,11 +237,30 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         }
     }
 
+    const scannerSetupUrl = combineUrl(
+        urls.replayVisionScannerTemplate('new'),
+        experimentScannerParams({
+            experimentId: experiment.id as number,
+            variantKey: effectiveVariantKey,
+        })
+    ).url
+
     return (
         <div data-attr="experiment-recordings-tab">
-            {usingExposureFallback && (
-                <LemonBanner type="info" className="mb-2">
-                    {EXPOSURE_FALLBACK_NOTICE}
+            {scannerCrossSellEnabled && (
+                <LemonBanner
+                    type="info"
+                    className="mb-2"
+                    dismissKey="experiment-replay-vision-scanner-cross-sell"
+                    action={{
+                        children: 'Set up a scanner',
+                        to: scannerSetupUrl,
+                        onClick: () => scannerCrossSellClicked(),
+                        'data-attr': 'experiment-recordings-scanner-cross-sell',
+                    }}
+                >
+                    Replay vision can watch new recordings from this experiment for you. Scanners check each session and
+                    report what they find.
                 </LemonBanner>
             )}
             <div className="mb-2 flex flex-wrap gap-2">
@@ -326,24 +351,26 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}
-            {(sessionBucketRequest || metricFilterMode !== 'fired_all') && (
-                <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
-                    {!sessionBucketRequest ? (
-                        <span>{unappliedModeReason(metricFilterMode)}</span>
-                    ) : sessionBucketError !== null ? (
-                        <>
-                            <span>Couldn't work out which sessions match this filter: {sessionBucketError}</span>
-                            <LemonButton size="xsmall" type="secondary" onClick={() => loadSessionBucket()}>
-                                Try again
-                            </LemonButton>
-                        </>
-                    ) : sessionBucketLoading || !sessionBucket ? (
-                        <span>Finding matching sessions…</span>
-                    ) : (
-                        <span data-attr="experiment-recordings-bucket-caption">{bucketCaption(sessionBucket)}</span>
-                    )}
-                </div>
-            )}
+            <div className="mb-2 flex items-center gap-2 text-xs text-secondary">
+                {!sessionBucketRequest && metricFilterMode === 'fired_all' ? (
+                    effectiveMetricUuids.length === 0 ? (
+                        <span data-attr="experiment-recordings-population-caption">{POPULATION_CAPTION}</span>
+                    ) : null
+                ) : !sessionBucketRequest ? (
+                    <span>{unappliedModeReason(metricFilterMode)}</span>
+                ) : sessionBucketError !== null ? (
+                    <>
+                        <span>Couldn't work out which sessions match this filter: {sessionBucketError}</span>
+                        <LemonButton size="xsmall" type="secondary" onClick={() => loadSessionBucket()}>
+                            Try again
+                        </LemonButton>
+                    </>
+                ) : sessionBucketLoading || !sessionBucket ? (
+                    <span>Finding matching sessions…</span>
+                ) : (
+                    <span data-attr="experiment-recordings-bucket-caption">{bucketCaption(sessionBucket)}</span>
+                )}
+            </div>
             <ExperimentBehaviorComparison experiment={experiment} onWatchRecording={watchRecording} />
             <div className="SessionRecordingPlaylistHeightWrapper">
                 <SessionRecordingsPlaylist

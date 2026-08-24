@@ -44,6 +44,9 @@ from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQu
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
+    ErrorTrackingFingerprintProjectionQueryRunner,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_issue_correlation_query_runner import (
     ErrorTrackingIssueCorrelationQueryRunner,
 )
@@ -243,6 +246,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -260,6 +264,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -281,6 +286,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -299,6 +305,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 [
                     "id",
                     "status",
+                    "severity",
                     "name",
                     "description",
                     "assignee_user_id",
@@ -704,6 +711,35 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand(
         [
+            ("exact", PropertyOperator.EXACT, ErrorTrackingIssue.Severity.HIGH, (issue_id_one,)),
+            ("is_set", PropertyOperator.IS_SET, True, (issue_id_one,)),
+            ("is_not_set", PropertyOperator.IS_NOT_SET, True, (issue_id_two, issue_id_three)),
+        ]
+    )
+    @freeze_time("2022-01-10T12:11:00")
+    def test_issue_severity_filter(self, _name, operator, value, expected_ids):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(severity=ErrorTrackingIssue.Severity.HIGH)
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[ErrorTrackingIssueFilter(key="severity", value=value, operator=operator)],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual({result["id"] for result in results}, set(expected_ids))
+        for result in results:
+            expected_severity = ErrorTrackingIssue.Severity.HIGH if result["id"] == self.issue_id_one else None
+            self.assertEqual(result["severity"], expected_severity)
+
+    @parameterized.expand(
+        [
             (
                 "or_returns_union",
                 FilterLogicalOperator.OR_,
@@ -1051,6 +1087,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         for runner_class in (
             ErrorTrackingQueryRunner,
             ErrorTrackingBreakdownsQueryRunner,
+            ErrorTrackingFingerprintProjectionQueryRunner,
             ErrorTrackingIssueCorrelationQueryRunner,
             ErrorTrackingSimilarIssuesQueryRunner,
         ):

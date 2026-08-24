@@ -6,6 +6,8 @@ from .email_outbox_message import EmailOutboxMessage
 from .email_thread import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailThread,
+    EmailThreadAccountLink,
+    EmailThreadAccountMatchSource,
     EmailThreadMessage,
     EmailThreadMessageDirection,
     EmailThreadParticipant,
@@ -36,6 +38,8 @@ __all__ = [
     "EmailOutboxMessage",
     "EMAIL_THREAD_COMMENT_SCOPE",
     "EmailThread",
+    "EmailThreadAccountLink",
+    "EmailThreadAccountMatchSource",
     "EmailThreadMessage",
     "EmailThreadMessageDirection",
     "EmailThreadParticipant",

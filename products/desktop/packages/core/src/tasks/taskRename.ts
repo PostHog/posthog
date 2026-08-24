@@ -52,6 +52,17 @@ export function applyRenameToDetail<T extends TitledTask>(
   return { ...detail, title: newTitle, title_manually_set: true };
 }
 
+export function applyRenameToPage<
+  T extends TitledTask,
+  P extends { tasks: T[] },
+>(page: P | undefined, taskId: string, newTitle: string): P | undefined {
+  if (!page) {
+    return page;
+  }
+  const tasks = applyRenameToList(page.tasks, taskId, newTitle);
+  return tasks ? { ...page, tasks } : page;
+}
+
 export function rollbackListData<T extends TitledTask>(
   current: T[] | undefined,
   previous: T[],
@@ -74,6 +85,18 @@ export function rollbackSummaryData<T extends TitledSummary>(
     return previous;
   }
   return getTaskSummaryTitle(current, taskId) === newTitle ? previous : current;
+}
+
+export function rollbackPageData<P extends { tasks: TitledTask[] }>(
+  current: P | undefined,
+  previous: P,
+  taskId: string,
+  newTitle: string,
+): P {
+  if (!current) {
+    return previous;
+  }
+  return getTaskTitle(current.tasks, taskId) === newTitle ? previous : current;
 }
 
 export function rollbackDetailData<T extends TitledTask>(

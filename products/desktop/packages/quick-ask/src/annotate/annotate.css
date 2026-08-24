@@ -1,0 +1,360 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #101014;
+}
+
+:root {
+  --an-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --an-glass: rgba(24, 25, 30, 0.8);
+  --an-hairline: rgba(255, 255, 255, 0.14);
+  --an-fg: rgba(255, 255, 255, 0.92);
+  --an-fg-dim: rgba(255, 255, 255, 0.6);
+  --an-accent: #f7a501;
+}
+
+.an-root {
+  position: fixed;
+  inset: 0;
+  user-select: none;
+  font-family: var(--an-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.an-shot,
+.an-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Floating chrome ─────────────────────────────────── */
+
+.an-hint,
+.an-toolbar,
+.an-subbar {
+  position: fixed;
+  background: var(--an-glass);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  border: 1px solid var(--an-hairline);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 10px 34px rgba(0, 0, 0, 0.45);
+}
+
+.an-hint {
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--an-fg);
+  animation: an-hint-rise 0.26s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.an-hint-keys {
+  font-size: 11.5px;
+  color: var(--an-fg-dim);
+}
+
+.an-toolbar {
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  border-radius: 13px;
+  cursor: default;
+  animation: an-hint-rise 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  max-width: calc(100vw - 24px);
+}
+
+.an-size {
+  padding: 0 5px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--an-fg-dim);
+}
+
+/* Contextual options row under the main toolbar. */
+.an-subbar {
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 11px;
+  cursor: default;
+  animation: an-hint-rise 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.an-sub-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--an-fg-dim);
+  margin-right: 2px;
+}
+
+.an-sub-size {
+  font: 600 10px var(--an-font);
+  color: var(--an-fg-dim);
+}
+
+.an-sub-size-big {
+  font-size: 15px;
+}
+
+.an-sub-value {
+  min-width: 20px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--an-fg);
+}
+
+.an-subbar input[type="range"] {
+  width: 120px;
+  height: 3px;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.an-subbar input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes an-hint-rise {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(5px);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.an-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--an-hairline);
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+
+.an-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--an-fg-dim);
+  cursor: pointer;
+  transition:
+    color 0.1s,
+    background 0.1s;
+}
+
+.an-tool:hover:not(:disabled) {
+  color: var(--an-fg);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.an-tool:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.an-tool,
+.an-color,
+.an-cancel,
+.an-attach {
+  transition:
+    color 0.1s,
+    background 0.1s,
+    transform 0.12s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.an-tool:focus-visible,
+.an-color:focus-visible,
+.an-cancel:focus-visible,
+.an-attach:focus-visible {
+  outline: 2px solid rgba(247, 165, 1, 0.8);
+  outline-offset: 1px;
+}
+
+.an-tool:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.an-active {
+  color: var(--an-accent);
+  background: rgba(247, 165, 1, 0.16);
+}
+
+.an-active:hover:not(:disabled) {
+  color: var(--an-accent);
+  background: rgba(247, 165, 1, 0.22);
+}
+
+.an-color {
+  width: 16px;
+  height: 16px;
+  margin: 0 3px;
+  border: none;
+  border-radius: 50%;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition:
+    outline-color 0.1s,
+    transform 0.1s;
+}
+
+.an-color:hover {
+  transform: scale(1.15);
+}
+
+.an-color-on {
+  outline-color: rgba(255, 255, 255, 0.85);
+}
+
+.an-cancel,
+.an-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 13px;
+  border: none;
+  border-radius: 9px;
+  font: 600 12.5px var(--an-font);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.an-cancel {
+  background: transparent;
+  color: var(--an-fg-dim);
+}
+
+.an-cancel:hover {
+  color: var(--an-fg);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.an-attach {
+  background: var(--an-accent);
+  color: #1c1400;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.an-attach:hover {
+  background: #ffb92e;
+}
+
+.an-attach:active {
+  transform: scale(0.96);
+}
+
+.an-attach kbd {
+  font: 600 10px var(--an-font);
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.an-hint kbd {
+  font: 600 10.5px var(--an-font);
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--an-hairline);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--an-fg-dim);
+}
+
+/* ── Text tool ───────────────────────────────────────── */
+
+.an-text-input {
+  position: fixed;
+  min-width: 40px;
+  max-width: 60vw;
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  border-radius: 4px;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  padding: 1px 3px;
+  margin: -2px -4px;
+  line-height: 1.25;
+}
+
+.an-text-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* Background-on editing shows the pill exactly as it will export. */
+.an-text-solid {
+  margin: 0;
+  border: none;
+  border-radius: 7px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+.an-text-solid::placeholder {
+  color: var(--an-ph, rgba(255, 255, 255, 0.55));
+}
+
+.an-text-solid::selection {
+  background: var(--an-ph, rgba(255, 255, 255, 0.55));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .an-hint,
+  .an-toolbar,
+  .an-subbar {
+    animation: none;
+  }
+}

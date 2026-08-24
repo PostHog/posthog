@@ -51,6 +51,7 @@ def upsert_direct_clickhouse_table(
             external_data_source=source,
             columns=columns,
             options=options,
+            created_via=DataWarehouseTable.CreatedVia.SOURCE,
         )
 
     existing_table.name = schema_name

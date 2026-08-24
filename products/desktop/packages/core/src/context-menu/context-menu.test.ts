@@ -152,6 +152,23 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     );
   });
 
+  it("offers Hand off only to callers that mark it available", async () => {
+    // The API 404s a non-owner's handoff, so the item must stay hidden from one.
+    const owner = new FakeContextMenu();
+    const handedOff = makeService(owner).showTaskContextMenu({
+      ...baseTask,
+      canHandoff: true,
+    });
+    await owner.shown;
+    findItem(owner.lastItems, "Hand off…").click();
+    expect(await handedOff).toEqual({ action: { type: "handoff" } });
+
+    const viewer = new FakeContextMenu();
+    makeService(viewer).showTaskContextMenu(baseTask);
+    await viewer.shown;
+    expect(labels(viewer.lastItems)).not.toContain("Hand off…");
+  });
+
   it("can hide Archive prior tasks for task lists without that action", async () => {
     const menu = new FakeContextMenu();
     makeService(menu).showTaskContextMenu({
@@ -183,7 +200,7 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     await menu.shown;
     const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
     expect(labels(submenu)).toEqual([
-      "personal space",
+      "personal",
       "#beta",
       "#delta",
       "#alpha",
@@ -293,7 +310,7 @@ describe("ContextMenuService.showBulkTaskContextMenu", () => {
     });
     await menu.shown;
     const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
-    expect(labels(submenu)).toEqual(["#design", "personal space", "#support"]);
+    expect(labels(submenu)).toEqual(["#design", "personal", "#support"]);
   });
 
   it("gates archive on confirmation", async () => {
