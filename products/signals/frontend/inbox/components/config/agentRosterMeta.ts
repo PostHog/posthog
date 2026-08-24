@@ -66,15 +66,12 @@ export interface AgentRosterDefinition {
 
 export interface AgentRosterGroup {
     label: string
-    /** One line under the group heading saying what kind of source sits in it. */
-    description: string
     agents: AgentRosterDefinition[]
 }
 
 export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
     {
         label: 'PostHog data',
-        description: 'Signals from the PostHog products this project already uses.',
         agents: [
             {
                 source: 'error_tracking',
@@ -142,7 +139,6 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
     },
     {
         label: 'External sources',
-        description: 'Tools outside PostHog. Connect one to start watching it.',
         agents: [
             {
                 source: 'github',

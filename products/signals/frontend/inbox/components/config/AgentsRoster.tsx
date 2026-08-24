@@ -511,22 +511,9 @@ const AgentRow = memo(function AgentRow({
     )
 })
 
-/**
- * Heading for one group of sources. Styled like the section headers on the report list so the split
- * between PostHog products and connected tools reads as two sections, not as two more rows.
- */
+/** Heading for one group of sources, in the same type as the row titles so it reads as a section. */
 function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-secondary">
-                    {group.label}
-                </span>
-                <div className="h-px flex-1 bg-border-primary" />
-            </div>
-            <span className="text-xs text-tertiary">{group.description}</span>
-        </div>
-    )
+    return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
 }
 
 export function AgentsRoster(): JSX.Element {
@@ -777,18 +764,9 @@ export function AgentsRoster(): JSX.Element {
         ...group,
         agents: group.agents.filter((agent) => !agent.flag || featureFlags[agent.flag]),
     }))
-    const allAgents = visibleGroups.flatMap((group) => group.agents)
-    const armedCount = allAgents.filter((agent) => stateFor(agent.source).armed).length
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-1.5 text-xs text-muted">
-                <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />
-                <span>
-                    {armedCount} of {allAgents.length} sources on
-                </span>
-            </div>
-
             {visibleGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-2 pt-2">
                     <AgentRosterGroupHeader group={group} />
