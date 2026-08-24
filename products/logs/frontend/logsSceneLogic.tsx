@@ -340,6 +340,12 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         DEFAULT_UNIVERSAL_GROUP_FILTER
                     )
                     updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
+                    // Nothing writes these two any more, so they have to be deleted rather than left
+                    // alone: syncSearchParams only removes keys it is told about, and a param still in
+                    // the URL is read again on the next URL change, folding a selection back in on top
+                    // of whatever the rail did to it since.
+                    delete params.severityLevels
+                    delete params.serviceNames
                     updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                     updateSearchParams(params, 'facetNameSearch', values.facetNameSearch, '')
                     return params

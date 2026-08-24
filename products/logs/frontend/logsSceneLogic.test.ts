@@ -63,6 +63,20 @@ describe('logsSceneLogic', () => {
             expect(selectedServices()).toEqual(expected)
         })
 
+        it.each<[string, string]>([
+            ['severityLevels', '["error"]'],
+            ['serviceNames', '["api"]'],
+        ])('drops the %s param once it has been applied', async (param, urlValue) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { [param]: urlValue })
+            }).toFinishAllListeners()
+
+            // Left in place, the param is read again on every later URL change and folds its
+            // selection back in, contradicting whatever the rail did to it since.
+            expect(router.values.searchParams[param]).toBeUndefined()
+            expect(router.values.searchParams.filterGroup).not.toBeUndefined()
+        })
+
         it('filters out malformed JSON as invalid severity level', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/logs', { severityLevels: 'not-valid-json[' })
