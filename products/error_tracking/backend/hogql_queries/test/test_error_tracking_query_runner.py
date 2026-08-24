@@ -27,6 +27,7 @@ from posthog.schema import (
     EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -147,6 +148,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertIn("JSONExtractString(e.properties, '$exception_fingerprint')", response["hogql"])
         self.assertNotIn("mat_$exception_fingerprint", response["hogql"])
+
+    @parameterized.expand(
+        [
+            (PersonsOnEventsMode.DISABLED,),
+            (PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,),
+            (PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,),
+        ]
+    )
+    def test_user_aggregation_does_not_resolve_person_overrides(self, persons_on_events_mode):
+        self.team.modifiers = {"personsOnEventsMode": persons_on_events_mode}
+
+        response = self._calculate(withAggregations=True)
+
+        self.assertIn("e.event_person_id", response["hogql"])
+        self.assertNotIn("person_distinct_id_overrides", response["hogql"])
 
     def setUp(self):
         super().setUp()
