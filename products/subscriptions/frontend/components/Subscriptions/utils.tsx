@@ -66,7 +66,7 @@ export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_ty
     {
         value: TargetTypeEnumApi.Teams,
         label: 'Microsoft Teams',
-        icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4 object-contain" />,
+        icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />,
     },
 ]
 
