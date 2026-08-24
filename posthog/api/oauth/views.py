@@ -32,7 +32,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
-from oauthlib.oauth2 import InvalidGrantError
+from oauthlib.oauth2 import InvalidGrantError, InvalidRequestError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
@@ -1136,6 +1136,20 @@ class OAuthValidator(OAuth2Validator):
         request._posthog_impersonator_id = resolved
         return resolved
 
+    @staticmethod
+    def _validate_scoped_teams(scoped_teams):
+        """Reject a consented `scoped_teams` value that is not a list of integers.
+
+        `OAuthAccessToken.scoped_teams` is an `ArrayField(IntegerField())`, so a malformed
+        value reaches Postgres and raises `malformed array literal`, surfacing as an
+        unhandled 500. Fail with a 400 `invalid_request` instead.
+        """
+        if scoped_teams is None:
+            return None
+        if not isinstance(scoped_teams, list) or not all(isinstance(team_id, int) for team_id in scoped_teams):
+            raise InvalidRequestError(description="scoped_teams must be a list of integers.")
+        return scoped_teams
+
     def _get_scoped_teams_and_organizations(
         self,
         request,
@@ -1146,9 +1160,15 @@ class OAuthValidator(OAuth2Validator):
         scoped_teams = None
         scoped_organizations = None
 
-        if hasattr(request, "scoped_teams") and hasattr(request, "scoped_organizations"):
-            scoped_teams = request.scoped_teams
-            scoped_organizations = request.scoped_organizations
+        # Read the consented scope only from genuine instance attributes our authorize
+        # flow set together (see `OAuthAuthorizationView.post`). oauthlib's
+        # `Request.__getattr__` falls back to `_params`, the merged query string and request
+        # body, so `getattr` / `hasattr` on a `/oauth/token` request would trust a
+        # client-supplied body parameter and let it override the scope the user consented
+        # to. `__dict__` holds only values set via `setattr`, never the parameter bag.
+        if "_posthog_scoped_teams" in request.__dict__ and "_posthog_scoped_organizations" in request.__dict__:
+            scoped_teams = self._validate_scoped_teams(request.__dict__["_posthog_scoped_teams"])
+            scoped_organizations = request.__dict__["_posthog_scoped_organizations"]
         elif access_token:
             scoped_teams = access_token.scoped_teams
             scoped_organizations = access_token.scoped_organizations
@@ -1375,8 +1395,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 return block
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
-                credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
-                credentials["scoped_teams"] = []
+                credentials["_posthog_scoped_organizations"] = [str(org_id) for org_id in org_ids]
+                credentials["_posthog_scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1465,8 +1485,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             "redirect_uri": serializer.validated_data["redirect_uri"],
             "response_type": serializer.validated_data.get("response_type"),
             "state": serializer.validated_data.get("state"),
-            "scoped_organizations": serializer.validated_data.get("scoped_organizations"),
-            "scoped_teams": serializer.validated_data.get("scoped_teams"),
+            "_posthog_scoped_organizations": serializer.validated_data.get("scoped_organizations"),
+            "_posthog_scoped_teams": serializer.validated_data.get("scoped_teams"),
             "impersonated_by_id": _impersonator_id_for_request(request),
         }
 

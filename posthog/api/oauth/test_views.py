@@ -1105,6 +1105,34 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(refresh_token.scoped_teams, scoped_teams)
 
+    @parameterized.expand(
+        [
+            ("valid_int_array", [999999]),
+            ("malformed_string", "not-an-array"),
+        ]
+    )
+    def test_token_body_cannot_override_consented_scoped_teams(self, _name, injected_scoped_teams):
+        # Authorize with an all-access grant, so the consented scope is no team restriction.
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+        # A client injects scope parameters into the token request body. oauthlib merges
+        # them into the request parameter bag, but they must not reach the minted token.
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "code": code,
+                "scoped_teams": injected_scoped_teams,
+                "scoped_organizations": [str(self.organization.id)],
+            },
+        )
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        access_token = OAuthAccessToken.objects.get(token=token_response.json()["access_token"])
+        self.assertEqual(access_token.scoped_teams, [])
+
     def test_full_oauth_flow_preserves_scoped_organizations(self):
         scoped_organizations = [str(self.organization.id)]
 
