@@ -13,7 +13,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.squarespac
     ENDPOINTS,
     SQUARESPACE_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source import SquarespaceSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.source import (
+    SQUARESPACE_API_VERSION_V1,
+    SQUARESPACE_API_VERSION_V2,
+    SquarespaceSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.squarespace.squarespace import (
     SquarespaceResumeConfig,
 )
@@ -55,6 +59,21 @@ class TestSquarespaceSource:
         assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert api_key_field.required is True
         assert api_key_field.secret is True
+
+    def test_supported_versions_and_default(self) -> None:
+        # v2 is the newest generation and the default new sources start on; v1 stays supported so
+        # existing pins keep resolving. The generic registry test only checks invariants — this
+        # pins the specific labels so a reorder or a default flip-back is caught.
+        assert self.source.supported_versions == (SQUARESPACE_API_VERSION_V1, SQUARESPACE_API_VERSION_V2)
+        assert self.source.default_version == SQUARESPACE_API_VERSION_V2
+
+    @pytest.mark.parametrize("api_version", [SQUARESPACE_API_VERSION_V1, SQUARESPACE_API_VERSION_V2])
+    def test_get_schemas_table_set_is_version_independent(self, api_version: str) -> None:
+        # Discovery must expose the same tables under every pin — the source already rides each
+        # resource's newest route, so v1 and v2 build identical requests. Guards against a future
+        # version-conditional discovery silently dropping a table for an existing (v1) source.
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     def test_get_schemas_matches_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

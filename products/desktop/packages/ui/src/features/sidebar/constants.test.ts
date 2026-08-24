@@ -45,10 +45,13 @@ describe("orderedNavItems", () => {
     ]).map((item) => item.id);
 
     expect(ids.indexOf("activity")).toBe(ids.indexOf("inbox") + 1);
+    // "contexts" is absent from the persisted order (it shipped later), so it
+    // slots in after its default predecessor.
     expect(ids.filter((id) => id !== "activity")).toEqual([
       "inbox",
       "loops",
       "command-center",
+      "contexts",
       "support",
       "configure",
     ]);

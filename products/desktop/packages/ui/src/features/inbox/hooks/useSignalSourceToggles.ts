@@ -1,4 +1,8 @@
-import type { SignalSourceConfig } from "@posthog/api-client/posthog-client";
+import type {
+  ExternalDataSource,
+  SignalSourceConfig,
+} from "@posthog/api-client/posthog-client";
+import { effectiveGithubSourceRepos } from "@posthog/core/integrations/githubSourceRepos";
 import {
   ANALYTICS_EVENTS,
   EXTERNAL_INBOX_SOURCES,
@@ -163,18 +167,26 @@ export function useSignalSourceToggles() {
           requiresSetup: boolean;
           loading: boolean;
           syncStatus?: SignalSourceConfig["status"];
+          externalSource?: ExternalDataSource;
+          /** GitHub only: the repositories the warehouse source syncs. */
+          configuredRepos?: string[];
         }
       >
     > = {};
     for (const product of ALL_SOURCE_PRODUCTS) {
       const config = configs?.find((c) => c.source_product === product);
       if (isSetupSourceProduct(product)) {
-        const hasExternalSource = !!findExternalSource(product);
+        const externalSource = findExternalSource(product) ?? undefined;
         const isEnabled = serverValues[product];
         states[product] = {
-          requiresSetup: !hasExternalSource && !isEnabled,
+          requiresSetup: !externalSource && !isEnabled,
           loading: !!loadingSources[product],
           syncStatus: config?.status ?? null,
+          externalSource,
+          configuredRepos:
+            product === "github" && externalSource
+              ? effectiveGithubSourceRepos(externalSource.job_inputs)
+              : undefined,
         };
       } else {
         states[product] = {

@@ -157,6 +157,7 @@ export type SettingId =
     | 'error-tracking-integrations'
     | 'error-tracking-rate-limits'
     | 'error-tracking-releases'
+    | 'error-tracking-severity-rules'
     | 'error-tracking-spike-detection'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-symbol-sets'

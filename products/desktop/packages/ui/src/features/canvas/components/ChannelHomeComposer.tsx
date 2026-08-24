@@ -15,6 +15,8 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
+import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
+import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
@@ -103,6 +105,12 @@ export const ChannelHomeComposer = forwardRef<
 ) {
   const composerKey = channelId ?? contextKey ?? "composer";
   const sessionId = `channel-home:${composerKey}`;
+  const contextLayerEnabled = useContextLayerFlag();
+  const wiki = useChannelWikiContext(
+    channelId ?? "",
+    contextLayerEnabled && !!channelId,
+  );
+  const effectiveChannelContext = wiki.useLegacy ? channelContext : undefined;
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
   const { isOnline } = useConnectivity();
@@ -298,7 +306,9 @@ export const ChannelHomeComposer = forwardRef<
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     allowNoRepo: true,
-    channelContext,
+    channelContext: effectiveChannelContext,
+    channelContextPath: wiki.path,
+    submissionBlocked: wiki.blocked,
     channelName,
     channelId,
     channelContextId: channelId,
@@ -410,7 +420,10 @@ export const ChannelHomeComposer = forwardRef<
 
   return (
     <div className="relative flex w-full flex-col">
-      <div className="absolute bottom-full left-0 mb-2 flex items-center gap-2 rounded-sm bg-card">
+      {/* The row sits in normal flow above the input, mirroring the new-task
+          page's composer (the composer scrolls with the feed, so nothing may
+          float over the cards below). */}
+      <div className="mb-1 flex min-w-0 items-center gap-1">
         <WorkspaceModeSelect
           value={workspaceMode}
           onChange={setWorkspaceMode}

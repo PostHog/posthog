@@ -26,15 +26,18 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
+from posthog.cdp.internal_events import is_managed_alert_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
+    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     MappingsSerializer,
     compile_hog,
     generate_template_bytecode,
+    masked_secret_input_keys,
 )
 from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
 from posthog.exceptions_capture import capture_exception
@@ -154,6 +157,24 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     # values in `inputs`, and this snapshot feeds revision content, which must never carry secrets.
     split_content_secrets(snapshot)
     return snapshot
+
+
+def _named_warehouse_tables(entries: Any) -> list[Any]:
+    """The warehouse tables a filters blob actually names, ignoring the picker's placeholder row.
+
+    Matches the placeholder rule `HogFunctionFiltersSerializer.validate` applies moments later
+    (posthog/cdp/validation.py): it drops any entry named "Select a table" outright, regardless of
+    whether that entry also carries a `table_name`. Checking `table_name` alone here would accept
+    `{"name": "Select a table", "table_name": "x"}` — the serializer would still strip it a moment
+    later, leaving `data_warehouse: []` stored despite this check having passed.
+    """
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("table_name") and entry.get("name") != "Select a table"
+    ]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
@@ -479,9 +500,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             to_bool(data["enabled"]) if data.get("enabled") is not None else (instance.enabled if instance else False)
         )
         self.context["function_will_be_enabled"] = False if deleted else enabled
-        # Warehouse-table sources deliver the synced row under event.properties, so input templates
-        # may use the `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
-        self.context["is_dwh_source"] = data["filters"].get("source") == "data-warehouse-table"
+        # Warehouse sources deliver the row under event.properties, so input templates may use the
+        # `{record.x}` alias — flag it so the inputs serializer rewrites it on compile.
+        self.context["is_dwh_source"] = data["filters"].get("source") in DATA_WAREHOUSE_SOURCES
+        # Materialized views are a newer source than warehouse tables, so nothing was saved before
+        # the consumer matched on the selected table. That lets us require a selection here, where
+        # an empty list still has to mean "every table" for the older source.
+        #
+        # Counts entries that name a table rather than entries that exist: the filters serializer
+        # drops the picker's "Select a table" placeholder, so a placeholder-only list arrives here
+        # non-empty and leaves it empty, which the consumer reads as "every view".
+        if (
+            data["filters"].get("source") == "data-warehouse-view"
+            and self.context["function_will_be_enabled"]
+            and not _named_warehouse_tables(data["filters"].get("data_warehouse"))
+        ):
+            raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = None
@@ -540,6 +574,24 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
+
+        if not self.context.get("allow_managed_alert_destination"):
+            current_filters = self.instance.filters if isinstance(self.instance, HogFunction) else {}
+            proposed_filters = attrs.get("filters", current_filters)
+            current_is_managed = any(
+                is_managed_alert_internal_event(event_filter.get("id"))
+                for event_filter in (current_filters or {}).get("events", [])
+                if isinstance(event_filter, dict)
+            )
+            proposed_is_managed = any(
+                is_managed_alert_internal_event(event_filter.get("id"))
+                for event_filter in (proposed_filters or {}).get("events", [])
+                if isinstance(event_filter, dict)
+            )
+            if current_is_managed or proposed_is_managed:
+                raise serializers.ValidationError(
+                    {"filters": "Alert notification destinations are managed through the alert API."}
+                )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
@@ -837,6 +889,21 @@ class HogFunctionRearrangeSerializer(serializers.Serializer):
     )
 
 
+class HogFunctionMaskedSecretSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the hog function.")
+    name = serializers.CharField(help_text="Name of the hog function.")
+    type = serializers.CharField(help_text="Hog function type, for example 'destination'.")
+    enabled = serializers.BooleanField(help_text="Whether the hog function is enabled.")
+    input_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the live secret inputs to enter again. Only keys are returned, never values.",
+    )
+    draft_input_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Keys of the staged draft's secret inputs to enter again. Only keys are returned.",
+    )
+
+
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -866,6 +933,7 @@ class HogFunctionViewSet(
         "metrics_totals",
         "revisions",
         "revision_detail",
+        "masked_secrets",
     ]
     scope_object_write_actions = [
         "create",
@@ -1001,6 +1069,47 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id, team_id=self.team_id)
 
+    @extend_schema(
+        operation_id="hog_functions_masked_secrets_retrieve",
+        responses=HogFunctionMaskedSecretSerializer(many=True),
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[])
+    def masked_secrets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Hog functions storing the secret mask in place of a real credential.
+
+        Such a function authenticates against nothing and fails every send. The original value
+        cannot be restored from our side, so each listed input has to be entered again.
+        """
+        affected = []
+        # Access filtering runs only for the `list` action, and a detail route relies on object
+        # permissions instead - a collection action like this one gets neither. Without this a
+        # member restricted to some functions would learn which of the others hold a broken
+        # credential, and under which input keys.
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            self.get_queryset(), resource="hog_function"
+        )
+        # Only the columns the scan reads: the rest include large text/JSON fields (hog, bytecode,
+        # transpiled, draft, ...) that would be transferred and deserialized for every row for nothing.
+        scan = accessible.only("id", "name", "type", "enabled", "encrypted_inputs", "draft_encrypted_inputs")
+        for hog_function in scan.order_by("-updated_at").iterator(chunk_size=100):
+            input_keys = masked_secret_input_keys(hog_function.encrypted_inputs)
+            draft_input_keys = masked_secret_input_keys(hog_function.draft_encrypted_inputs)
+            if not input_keys and not draft_input_keys:
+                continue
+            affected.append(
+                {
+                    "id": hog_function.id,
+                    "name": hog_function.name or "",
+                    "type": hog_function.type or "",
+                    "enabled": hog_function.enabled,
+                    "input_keys": input_keys,
+                    "draft_input_keys": draft_input_keys,
+                }
+            )
+
+        return Response(HogFunctionMaskedSecretSerializer(affected, many=True).data)
+
     def _draft_test_configuration(self, hog_function: Optional[HogFunction]) -> dict:
         """The staged draft as a test-invocable configuration: live config with the draft's content
         fields on top, staged secrets rehydrated in plaintext so the test exercises what publish
@@ -1078,7 +1187,8 @@ class HogFunctionViewSet(
         transformations during ingestion, `site_*` transpiled to client-side
         JS). A re-enqueued invocation of one of those would never drain and
         wedges the partition, so a rerun of a non-rerunnable type is rejected
-        with a 400 here.
+        with a 400 here. A disabled function is rejected the same way: the
+        worker skips its invocations, so the rerun could never execute.
 
         Because rerun replays historical event/person/group data, it requires
         `person:read` and `group:read` on top of `hog_function:write`.
@@ -1094,6 +1204,10 @@ class HogFunctionViewSet(
                 },
                 status=400,
             )
+
+        # The worker skips invocations of disabled functions, so an enqueued re-run could never execute.
+        if not hog_function.enabled:
+            raise serializers.ValidationError("This function is disabled. Enable it to re-run invocations.")
 
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

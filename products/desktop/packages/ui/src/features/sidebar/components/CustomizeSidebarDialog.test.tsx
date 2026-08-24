@@ -174,6 +174,7 @@ describe("CustomizeSidebarSettings", () => {
       "inbox",
       "activity",
       "command-center",
+      "contexts",
       "support",
       "configure",
     ]);

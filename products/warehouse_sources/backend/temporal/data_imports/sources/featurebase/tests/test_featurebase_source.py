@@ -124,6 +124,14 @@ class TestFeaturebaseSource:
         assert any(key.startswith("403 Client Error") for key in errors)
         assert any(key.startswith("401 Client Error") for key in errors)
 
+    def test_retryable_errors_cover_exhausted_transient_failures(self) -> None:
+        errors = self.source.get_retryable_errors()
+        # The sentinel `_fetch_page` raises after exhausting its own 429/5xx retries.
+        assert any("Featurebase API error (retryable)" in error for error in errors)
+        # A read timeout or dropped connection surfaces as a raw requests exception whose
+        # message includes the connection pool host, not the sentinel above.
+        assert any("do.featurebase.app" in error for error in errors)
+
     def test_resumable_source_manager_bound_to_resume_config(self) -> None:
         with patch.object(ResumableSourceManager, "__init__", return_value=None) as init:
             self.source.get_resumable_source_manager(_make_inputs())

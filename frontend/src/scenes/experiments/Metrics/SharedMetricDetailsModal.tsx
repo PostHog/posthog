@@ -13,7 +13,8 @@ import { MetricEventDetails } from '../ExperimentForm/MetricsPanel/MetricEventDe
 import { MetricGoal } from '../ExperimentForm/MetricsPanel/MetricGoal'
 import { MetricOutlierHandling } from '../ExperimentForm/MetricsPanel/MetricOutlierHandling'
 import { MetricStepOrder } from '../ExperimentForm/MetricsPanel/MetricStepOrder'
-import { getDefaultMetricTitle, getMetricTag } from '../MetricsView/shared/utils'
+import { MetricTypeTag } from '../MetricsView/shared/MetricTypeTag'
+import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import { MetricContext } from './experimentMetricModalLogic'
 import { sharedMetricDetailsModalLogic } from './sharedMetricDetailsModalLogic'
 
@@ -40,9 +41,7 @@ function MetricSummary({ metric }: { metric: ExperimentMetric }): JSX.Element | 
                     </div>
                     <MetricEventDetails metric={metric} />
                     <div className="flex items-center mt-2 gap-1">
-                        <LemonTag type="muted" size="small">
-                            {getMetricTag(metric)}
-                        </LemonTag>
+                        <MetricTypeTag metric={metric} />
                         <LemonTag type="option" size="small">
                             Shared metric
                         </LemonTag>

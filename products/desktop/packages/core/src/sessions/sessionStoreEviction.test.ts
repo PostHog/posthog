@@ -51,6 +51,26 @@ describe("evictEvents / restoreEvents", () => {
     expect(Object.isFrozen(s.events[0])).toBe(true);
   });
 
+  it.each([
+    ["evictEvents", () => sessionStoreSetters.evictEvents(RUN)],
+    [
+      "restoreEvents",
+      () =>
+        sessionStoreSetters.restoreEvents(
+          RUN,
+          [{ ts: 2, message: {} } as unknown as AcpMessage],
+          7,
+        ),
+    ],
+  ])("%s retires the older-history paging index", (_name, transition) => {
+    seedWithEvents();
+    sessionStoreSetters.updateSession(RUN, { transcriptWindowStart: 10_000 });
+
+    transition();
+
+    expect(sessionStore.getState().sessions[RUN].transcriptWindowStart).toBe(0);
+  });
+
   it("appendEvents and replaceOptimisticWithEvent freeze each stored event", () => {
     seedWithEvents();
     sessionStoreSetters.replaceOptimisticWithEvent(RUN, {

@@ -175,6 +175,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # in-product deprecation warning; no per-source UI work.
     deprecated_versions: tuple[VersionDeprecation, ...] = ()
 
+    # How far back a first sync reaches, for a source that bounds one. A source that sets this
+    # reads `SourceInputs.history_start` instead of resolving a constant against the day it runs.
+    # See `sources/common/history_window.py`.
+    history_lookback: datetime.timedelta | None = None
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -245,6 +250,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
 
         return {}
+
+    def get_canonical_descriptions_for_table_prefix(self, table_prefix: str) -> CanonicalDescriptions:
+        """Curated descriptions adapted to one connected source's physical table names.
+
+        `get_canonical_descriptions` is keyed by source type, so a description that names a physical
+        table is written for a source connected without a table prefix, while `build_table_name`
+        prepends whatever prefix that source was given. Sources whose descriptions embed table names
+        override this to rebuild them for `table_prefix`; almost none do, so the default ignores it.
+        """
+
+        return self.get_canonical_descriptions()
 
     def get_schemas(
         self,

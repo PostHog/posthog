@@ -7,7 +7,12 @@ import {
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { buildRunCreateRequest, listRuntimeAdapters, modelsForRuntimeAdapter } from './composerModels'
+import {
+    buildRunCreateRequest,
+    getCapabilityLadder,
+    listRuntimeAdapters,
+    modelsForRuntimeAdapter,
+} from './composerModels'
 import { type PermissionMode } from './composerModes'
 
 describe('composerModels', () => {
@@ -83,6 +88,34 @@ describe('composerModels', () => {
         )
 
         expect((request as ClaudeTaskRunCreateSchemaApi).reasoning_effort).toBeUndefined()
+    })
+
+    // Every rung the Faster/Smarter slider offers has to be sendable. The ladder is a hardcoded progression, so a
+    // model the gateway has retired — or one that no longer takes the paired effort — must drop out of the stops
+    // rather than become a notch whose run the backend rejects.
+    it('keeps only the ladder rungs the catalogue still serves', () => {
+        const catalogue: ModelChoiceApi[] = [
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-sonnet-5',
+                display_name: 'Claude Sonnet 5',
+                supported_efforts: ['low', 'medium'],
+            },
+            {
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5',
+                display_name: 'Claude Opus 5',
+                supported_efforts: ['medium', 'high', 'xhigh'],
+            },
+        ]
+
+        // Dropped: sonnet at `high` (unsupported effort) and fable entirely (absent from the catalogue).
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Claude)).toEqual([
+            { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
+        ])
+        expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex)).toEqual([])
     })
 
     // The picker groups by harness and offers one row per runtime, so both have to come off the catalogue rather

@@ -210,6 +210,12 @@ ZENDESK_ENDPOINTS: dict[str, ZendeskEndpointConfig] = {
         # across the whole table.
         primary_key=["ticket_id", "id"],
         partition_key="created_at",
+        # No `incremental_start_param`: `/tickets/{id}/comments` takes no time filter, unlike the
+        # plain list endpoints. The cursor exists so the table merges on its primary key instead of
+        # being replaced, which is what lets the fan-out over tickets be bounded without dropping
+        # the comments that fall outside the bound.
+        incremental_fields=[_datetime_incremental_field("created_at")],
+        default_incremental_field="created_at",
         fanout=DependentEndpointConfig(
             parent_name=TICKET_COMMENTS_PARENT_NAME,
             resolve_param="ticket_id",

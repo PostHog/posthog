@@ -4,10 +4,12 @@ import {
   type SidebarNavItem,
 } from "@posthog/shared/analytics-events";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
   type CustomizableNavItemId,
@@ -15,14 +17,14 @@ import {
   orderedNavItems,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
-import { useSupportMyOpenCount } from "@posthog/ui/features/support/hooks/useSupportMyOpenCount";
 import {
   navigateToActivity,
   navigateToCommandCenter,
+  navigateToContext,
   navigateToInbox,
   navigateToLoops,
   navigateToSupport,
-  navigateToWebsiteCommandCenter,
+  navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
@@ -34,11 +36,12 @@ import type { ReactNode } from "react";
 import { ActivityItem } from "./items/ActivityItem";
 import { CommandCenterItem } from "./items/CommandCenterItem";
 import { ConfigureItem } from "./items/ConfigureItem";
+import { ContextItem } from "./items/ContextItem";
 import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
-import { SearchItem } from "./items/SearchItem";
 import { SupportItem } from "./items/SupportItem";
+import { SearchItem } from "./items/SearchItem";
 
 const SIDEBAR_INBOX_REFETCH_INTERVAL_MS = 60_000;
 
@@ -72,19 +75,13 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const contextEnabled = useContextLayerFlag();
   const supportEnabled = useSupportFlag();
-  // When this section renders inside the Channels space, the destinations that
-  // have a /website mirror stay in that space; everything else (and the whole
-  // section in the Code space) uses the canonical routes. Inbox and New task
-  // have no mirror yet, so they intentionally jump back to Code.
-  const inChannels = useRouterState({
-    select: (s) => s.location.pathname.startsWith("/website"),
+  const inSpaces = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/spaces"),
   });
-  const goNewTask = () =>
-    openTaskInput(inChannels ? { space: "website" } : undefined);
-  const goCommandCenter = inChannels
-    ? navigateToWebsiteCommandCenter
-    : navigateToCommandCenter;
+  const goContext = inSpaces ? navigateToSpacesContext : navigateToContext;
+  const goNewTask = () => openTaskInput();
 
   // Active flags are pure functions of the current view — mirror what
   // useSidebarData derives, without pulling in its task-loading.
@@ -94,6 +91,7 @@ export function SidebarNavSection({
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";
   const isCommandCenterActive = view.type === "command-center";
+  const isContextActive = view.type === "context";
   const isSupportActive = view.type === "support";
 
   // Open pull requests in the inbox — the main CTA, and the same count the inbox
@@ -108,9 +106,8 @@ export function SidebarNavSection({
   });
   const inboxPullRequestCount = inboxCounts.pulls;
 
-  const supportUnreadCount = useSupportMyOpenCount({
-    enabled: supportEnabled,
-  });
+  // My open tickets — the queue's default view, so the badge and the list agree.
+  const supportOpenCount = useSupportMyOpenCount({ enabled: supportEnabled });
 
   // Only subscribe to the task list when a parent hasn't already supplied the
   // count — keeps the standalone (Channels) render self-contained without
@@ -146,10 +143,11 @@ export function SidebarNavSection({
   const navItemAvailable: Record<CustomizableNavItemId, boolean> = {
     inbox: true,
     "command-center": true,
+    contexts: contextEnabled,
+    support: supportEnabled,
     activity: bluebirdEnabled,
     configure: true,
     loops: loopsEnabled,
-    support: supportEnabled,
   };
 
   // One renderer per customizable item, used for both the top level (depth 0)
@@ -170,7 +168,7 @@ export function SidebarNavSection({
       <CommandCenterItem
         depth={depth}
         isActive={isCommandCenterActive}
-        onClick={withNavTrack("command_center", goCommandCenter, depth)}
+        onClick={withNavTrack("command_center", navigateToCommandCenter, depth)}
         activeCount={commandCenterActiveCount}
       />
     ),
@@ -194,12 +192,19 @@ export function SidebarNavSection({
         onClick={withNavTrack("loops", navigateToLoops, depth)}
       />
     ),
+    contexts: (depth) => (
+      <ContextItem
+        depth={depth}
+        isActive={isContextActive}
+        onClick={withNavTrack("contexts", goContext, depth)}
+      />
+    ),
     support: (depth) => (
       <SupportItem
         depth={depth}
         isActive={isSupportActive}
         onClick={withNavTrack("support", navigateToSupport, depth)}
-        unreadCount={supportUnreadCount}
+        unreadCount={supportOpenCount}
       />
     ),
   };
