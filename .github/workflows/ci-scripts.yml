@@ -109,6 +109,9 @@ jobs:
               if: ${{ hashFiles('.github/scripts/turbo-discover.test.js') != '' }}
               run: node --test .github/scripts/turbo-discover.test.js .github/scripts/turbo-discover-staleness.test.js
 
+            - name: Turbo-discover sizing tests (Node)
+              run: node --test .github/scripts/turbo-discover-sizing.test.js
+
             - name: Selected Django shards tests (Node)
               run: node --test .github/scripts/selected-django-shards.test.js
 

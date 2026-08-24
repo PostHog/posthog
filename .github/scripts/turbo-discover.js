@@ -399,21 +399,21 @@ function loadTachModuleGraph() {
     }
 }
 
-function loadTestDurations() {
+// Strips non-finite values so a single corrupted entry can't NaN-poison the
+// matrix (Math.ceil(NaN) silently propagates through sort/compare, making a
+// product vanish from packing without an error). Returns null when the file is
+// absent or is not a JSON object.
+function loadDurationsFile(file) {
     let parsed
     try {
-        parsed = JSON.parse(fs.readFileSync('.test_durations', 'utf-8'))
+        parsed = JSON.parse(fs.readFileSync(file, 'utf-8'))
     } catch {
-        console.error('Warning: .test_durations not found, sharding disabled')
         return null
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        console.error('Warning: .test_durations is not a JSON object, sharding disabled')
+        console.error(`Warning: ${file} is not a JSON object, ignoring it`)
         return null
     }
-    // Strip non-finite values so a single corrupted entry can't NaN-poison the
-    // matrix (Math.ceil(NaN) silently propagates through sort/compare, making
-    // a product vanish from packing without an error).
     let dropped = 0
     for (const [k, v] of Object.entries(parsed)) {
         if (typeof v !== 'number' || !Number.isFinite(v)) {
@@ -422,9 +422,71 @@ function loadTestDurations() {
         }
     }
     if (dropped > 0) {
-        console.error(`Warning: dropped ${dropped} non-numeric entries from .test_durations`)
+        console.error(`Warning: dropped ${dropped} non-numeric entries from ${file}`)
     }
     return parsed
+}
+
+function loadTestDurations() {
+    const parsed = loadDurationsFile('.test_durations')
+    if (!parsed) {
+        console.error('Warning: .test_durations not usable, sharding disabled')
+    }
+    return parsed
+}
+
+// The per-segment plan files are scoped to the node ids one run's JUnit
+// actually recorded. Used here only as an allowlist: DJANGO_SEGMENTS stays the
+// definition of what a segment runs, and JUnit removes what did not run.
+const SEGMENT_PLAN_FILES = { Core: '.test_durations.core', Temporal: '.test_durations.temporal' }
+
+function loadRanNodeIds() {
+    const ran = {}
+    for (const [segment, file] of Object.entries(SEGMENT_PLAN_FILES)) {
+        // Cache-only files. Absent on a miss, and the pruned union covers that.
+        const parsed = loadDurationsFile(file)
+        if (parsed) {
+            ran[segment] = new Set(Object.keys(parsed))
+        }
+    }
+    return ran
+}
+
+const fileExistsCache = new Map()
+
+function nodeIdFileExists(nodeId) {
+    const file = nodeId.split('::')[0]
+    let exists = fileExistsCache.get(file)
+    if (exists === undefined) {
+        exists = fs.existsSync(file)
+        fileExistsCache.set(file, exists)
+    }
+    return exists
+}
+
+// Splitting is immune to dead entries — pytest-split drops unknown node ids
+// before it weights anything. Sizing is not: every total here is a raw sum
+// over the union, so dead seconds inflate the shard count with no symptom
+// other than fast green shards.
+function pruneDeadDurations(durations) {
+    if (!durations) {return durations}
+    const live = {}
+    let deadIds = 0
+    let deadSeconds = 0
+    for (const [nodeId, dur] of Object.entries(durations)) {
+        if (nodeIdFileExists(nodeId)) {
+            live[nodeId] = dur
+        } else {
+            deadIds++
+            deadSeconds += dur
+        }
+    }
+    if (deadIds > 0) {
+        console.error(
+            `  .test_durations: dropped ${deadIds} entries (${(deadSeconds / 60).toFixed(1)} min) for files no longer on disk`
+        )
+    }
+    return live
 }
 
 // Recursively collect test files (test_*.py / *_test.py) under a directory.
@@ -577,13 +639,17 @@ const DJANGO_SEGMENTS = {
     },
 }
 
-function getSegmentDuration(segment, durations) {
+// ranNodeIds, when given, restricts the sum to node ids a real run recorded.
+// The union keeps entries for tests another segment ran, so the prefix rules
+// alone over-count a segment by more than dead entries do.
+function getSegmentDuration(segment, durations, ranNodeIds = null) {
     if (!durations) {return 0}
     const { include, exclude } = DJANGO_SEGMENTS[segment]
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
         if (!include.some((p) => test.startsWith(p))) {continue}
         if (exclude.some((p) => test.startsWith(p))) {continue}
+        if (ranNodeIds && !ranNodeIds.has(test)) {continue}
         total += dur
     }
     return total
@@ -601,18 +667,19 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
-function buildDjangoShards(durations) {
+function buildDjangoShards(durations, ranNodeIds = {}) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
         const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[segment]
-        const duration = getSegmentDuration(segment, durations)
+        const ran = ranNodeIds[segment] || null
+        const duration = getSegmentDuration(segment, durations, ran)
         const shards = durations ? calculateShards(duration, overhead) : DJANGO_FALLBACK_SHARDS[segment]
         // calculateShards applies DJANGO_SAFETY_FACTOR — mirror it in the
         // wall estimate so the diagnostic matches the budget the shard count
         // actually targets (was previously under-reporting by ~30%).
         const wall = overhead + (duration * DJANGO_SAFETY_FACTOR) / shards
         result[segment] = { duration_seconds: duration, shards, estimated_wall_seconds: wall }
-        const source = durations ? 'auto' : 'fallback'
+        const source = durations ? (ran ? 'auto, junit-scoped' : 'auto, union') : 'fallback'
         console.error(
             `  Django ${segment}: ${(duration / 60).toFixed(1)} min total, ${shards} shards (${source}), ~${(wall / 60).toFixed(1)} min est. wall`
         )
@@ -699,6 +766,8 @@ function buildMatrix(products, durations) {
 // selected-django-shards.js reuses so narrowed runs share one budget.
 module.exports = {
     calculateShards,
+    pruneDeadDurations,
+    getSegmentDuration,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
@@ -868,10 +937,11 @@ if (process.env.TURBO_SCM_BASE) {
 console.error(`Products to test: ${JSON.stringify(products)}`)
 console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
 
-const durations = loadTestDurations()
+const durations = pruneDeadDurations(loadTestDurations())
+const ranNodeIds = loadRanNodeIds()
 
 console.error('\nDjango shard calculation:')
-const djangoShards = buildDjangoShards(durations)
+const djangoShards = buildDjangoShards(durations, ranNodeIds)
 
 const result = {
     matrix: buildMatrix(products, durations),
