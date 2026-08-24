@@ -47,7 +47,9 @@ export async function cleanupCodexHome(
  * CODEX_HOME at this app-private dir we feed our skills through the former while
  * the user's own Codex skills still load from the latter (it is keyed off
  * `$HOME`, not `$CODEX_HOME`). The user's real `~/.codex/config.toml` is copied
- * in so their Codex configuration still applies without Windows symlink privileges.
+ * in so their Codex configuration still applies without Windows symlink
+ * privileges, minus its `mcp_servers` tables: PostHog sessions only get the MCP
+ * servers PostHog injects per thread (see {@link stripMcpServers}).
  *
  * Returns the CODEX_HOME path to hand to the spawned process.
  */
@@ -81,7 +83,8 @@ export async function prepareCodexHome(options: {
   const userConfig = path.join(os.homedir(), ".codex", "config.toml");
   if (fs.existsSync(userConfig)) {
     try {
-      await fs.promises.copyFile(userConfig, privateConfig);
+      const config = await fs.promises.readFile(userConfig, "utf-8");
+      await fs.promises.writeFile(privateConfig, stripMcpServers(config));
     } catch (err) {
       options.log.warn("Failed to copy codex config into codex home", {
         error: err instanceof Error ? err.message : String(err),
@@ -90,4 +93,37 @@ export async function prepareCodexHome(options: {
   }
 
   return codexHome;
+}
+
+const MCP_SERVERS_HEADER = /^\[\[?\s*mcp_servers\s*(?:[.\]])/;
+const MCP_SERVERS_KEY = /^mcp_servers\s*[.=]/;
+
+/**
+ * Drops every `mcp_servers` definition from a codex config.toml: `[mcp_servers]`
+ * and `[mcp_servers.<name>...]` tables with their bodies, and top-level
+ * `mcp_servers.<name>... = ...` / `mcp_servers = {...}` keys. Everything else is
+ * returned byte for byte.
+ *
+ * The user's own MCP servers must not run inside PostHog sessions (an
+ * unauthenticated or broken one stalls every thread), and disabling them by
+ * name with `-c mcp_servers.<name>.enabled=false` is worse than useless: a
+ * per-thread `mcp_servers` override discards those flags, and a name without a
+ * matching table in the loaded config yields a transport-less table that codex
+ * rejects at startup.
+ */
+export function stripMcpServers(toml: string): string {
+  const kept: string[] = [];
+  let inMcpTable = false;
+  let inTable = false;
+  for (const line of toml.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("[")) {
+      inTable = true;
+      inMcpTable = MCP_SERVERS_HEADER.test(trimmed);
+    }
+    if (inMcpTable) continue;
+    if (!inTable && MCP_SERVERS_KEY.test(trimmed)) continue;
+    kept.push(line);
+  }
+  return kept.join("\n");
 }

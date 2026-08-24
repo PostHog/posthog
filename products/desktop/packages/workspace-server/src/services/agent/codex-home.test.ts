@@ -16,6 +16,7 @@ import {
   cleanupCodexHome,
   getCodexHomeDir,
   prepareCodexHome,
+  stripMcpServers,
 } from "./codex-home";
 
 const noopLog = { debug() {}, info() {}, warn() {}, error() {} };
@@ -84,11 +85,21 @@ describe("prepareCodexHome", () => {
     );
   });
 
-  it("copies the user's ~/.codex/config.toml when present", async () => {
+  it("copies the user's ~/.codex/config.toml without its mcp_servers tables", async () => {
     const codexConfigDir = path.join(testHome.dir, ".codex");
     await mkdir(codexConfigDir, { recursive: true });
     const configPath = path.join(codexConfigDir, "config.toml");
-    await writeFile(configPath, 'model = "gpt-5-codex"\n');
+    await writeFile(
+      configPath,
+      [
+        'model = "gpt-5-codex"',
+        "[mcp_servers.mem0]",
+        'url = "https://mcp.example.com/mcp/"',
+        '[projects."/repo"]',
+        'trust_level = "trusted"',
+        "",
+      ].join("\n"),
+    );
 
     const codexHome = await prepareCodexHome({
       appDataPath,
@@ -99,7 +110,7 @@ describe("prepareCodexHome", () => {
 
     const privateConfig = path.join(codexHome, "config.toml");
     expect(readFileSync(privateConfig, "utf-8")).toBe(
-      'model = "gpt-5-codex"\n',
+      'model = "gpt-5-codex"\n[projects."/repo"]\ntrust_level = "trusted"\n',
     );
   });
 
@@ -187,5 +198,71 @@ describe("prepareCodexHome", () => {
     }
 
     expect(existsSync(path.join(outside, "precious", "SKILL.md"))).toBe(true);
+  });
+});
+
+describe("stripMcpServers", () => {
+  it.each([
+    {
+      name: "drops a server table and its nested sub-tables",
+      toml: [
+        'model = "gpt-5"',
+        "[mcp_servers.node_repl]",
+        'command = "node"',
+        "[mcp_servers.node_repl.env]",
+        'FOO = "bar"',
+        "[features]",
+        "memories = true",
+      ],
+      expected: ['model = "gpt-5"', "[features]", "memories = true"],
+    },
+    {
+      name: "drops the parent table with dotted keys",
+      toml: [
+        "[mcp_servers]",
+        'mem0.url = "https://x/mcp"',
+        "[tui]",
+        "theme = 1",
+      ],
+      expected: ["[tui]", "theme = 1"],
+    },
+    {
+      name: "drops top-level inline and dotted keys",
+      toml: [
+        'mcp_servers = { mem0 = { url = "https://x/mcp" } }',
+        'mcp_servers.other.command = "x"',
+        'model = "gpt-5"',
+      ],
+      expected: ['model = "gpt-5"'],
+    },
+    {
+      name: "drops quoted and array-of-table headers",
+      toml: [
+        '[mcp_servers."my.server"]',
+        'command = "x"',
+        "[[mcp_servers.list]]",
+        'command = "y"',
+        '[projects."/repo"]',
+        'trust_level = "trusted"',
+      ],
+      expected: ['[projects."/repo"]', 'trust_level = "trusted"'],
+    },
+    {
+      name: "keeps keys that merely start with the prefix",
+      toml: ['mcp_servers_note = "keep"', "[mcp_servers_extra]", 'k = "v"'],
+      expected: ['mcp_servers_note = "keep"', "[mcp_servers_extra]", 'k = "v"'],
+    },
+    {
+      name: "keeps a dotted key inside another table",
+      toml: ["[tui]", 'mcp_servers.hint = "keep"'],
+      expected: ["[tui]", 'mcp_servers.hint = "keep"'],
+    },
+    {
+      name: "returns a config without mcp_servers unchanged",
+      toml: ['model = "gpt-5"', "[tui]", "theme = 1"],
+      expected: ['model = "gpt-5"', "[tui]", "theme = 1"],
+    },
+  ])("$name", ({ toml, expected }) => {
+    expect(stripMcpServers(toml.join("\n"))).toBe(expected.join("\n"));
   });
 });
