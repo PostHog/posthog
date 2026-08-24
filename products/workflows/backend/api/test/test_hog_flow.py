@@ -2902,8 +2902,8 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
         with patch(
-            "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons"
-        ) as mock_get_user_blast_radius_persons:
+            "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids"
+        ) as mock_get_batch_audience_person_ids:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
                 {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
@@ -2913,28 +2913,13 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_user_blast_radius_persons.assert_not_called()
+        mock_get_batch_audience_person_ids.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("flag_on_uses_workflows_query", True),
-            ("flag_off_uses_legacy_query", False),
-        ]
-    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_query_selection(self, _name, flag_enabled):
-        with (
-            patch(
-                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
-                return_value=flag_enabled,
-            ),
-            patch(
-                "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
-            ) as mock_workflows_query,
-            patch(
-                "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons", return_value=["id-1"]
-            ) as mock_legacy_query,
-        ):
+    def test_internal_user_blast_radius_persons_uses_workflows_query(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+        ) as mock_workflows_query:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
                 {"filters": {"properties": []}, "dedupe_key": "email"},
@@ -2944,27 +2929,22 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["users_affected"] == ["id-1"]
-        if flag_enabled:
-            mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
-            mock_legacy_query.assert_not_called()
-        else:
-            mock_legacy_query.assert_called_once_with(self.team, {"properties": []}, None, None)
-            mock_workflows_query.assert_not_called()
+        mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
 
     @parameterized.expand(
         [
-            ("flag_on_uses_deduped_count", True, 3),
-            ("flag_off_keeps_person_count", False, 5),
+            ("dedupe_key_uses_deduped_count", "email", 3),
+            ("no_dedupe_key_keeps_person_count", None, 5),
         ]
     )
-    def test_user_blast_radius_dedupe_key_affects_count(self, _name, flag_enabled, expected_affected):
+    def test_user_blast_radius_dedupe_key_affects_count(self, _name, dedupe_key, expected_affected):
         from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
+        payload: dict = {"filters": {"properties": []}}
+        if dedupe_key is not None:
+            payload["dedupe_key"] = dedupe_key
+
         with (
-            patch(
-                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
-                return_value=flag_enabled,
-            ),
             patch(
                 "products.workflows.backend.api.hog_flow.get_user_blast_radius",
                 return_value=BlastRadiusResult(affected=5, total=10),
@@ -2980,16 +2960,16 @@ class TestHogFlowAPI(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": []}, "dedupe_key": "email"},
+                payload,
             )
 
         assert response.status_code == 200, response.json()
         assert response.json()["affected"] == expected_affected
         assert response.json()["total"] == 10
         # The applied key is echoed so the frontend can label the count correctly
-        assert response.json()["dedupe_key"] == ("email" if flag_enabled else None)
-        if flag_enabled:
-            # The legacy person-count query is skipped — only the deduped count runs
+        assert response.json()["dedupe_key"] == dedupe_key
+        if dedupe_key is not None:
+            # The person-count query is skipped — only the deduped count runs
             mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
             mock_legacy_count.assert_not_called()
         else:
