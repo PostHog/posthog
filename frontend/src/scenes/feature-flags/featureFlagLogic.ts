@@ -123,6 +123,7 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
+import { ScheduleOccurrence, expandScheduleOccurrences } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
@@ -912,6 +913,7 @@ export interface featureFlagLogicValues {
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
     schedulePreset: PairedPresetKey | null
+    scheduleTimelineOccurrences: ScheduleOccurrence[]
     scheduledChange: ScheduledChangeType
     scheduledChangeLoading: boolean
     scheduledChangeOperation: ScheduledChangeOperationType
@@ -1943,6 +1945,10 @@ export interface featureFlagLogicMeta {
             pausedRecurringSchedules: ScheduledChangeType[],
             upcomingOneTimeSchedules: ScheduledChangeType[]
         ) => ScheduledChangeType[]
+        scheduleTimelineOccurrences: (
+            activeSchedules: ScheduledChangeType[],
+            featureFlag: FeatureFlagType
+        ) => ScheduleOccurrence[]
         emailDomain: (user: UserType | null) => string
         templates: (emailDomain: string) => Array<{
             description: string
@@ -4481,6 +4487,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 pausedRecurring: ScheduledChangeType[],
                 upcomingOneTime: ScheduledChangeType[]
             ) => [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
+        ],
+        scheduleTimelineOccurrences: [
+            (s) => [s.activeSchedules, s.featureFlag],
+            (activeSchedules: ScheduledChangeType[], featureFlag: FeatureFlagType): ScheduleOccurrence[] =>
+                expandScheduleOccurrences(activeSchedules, featureFlag, dayjs()),
         ],
         emailDomain: [
             (s) => [s.user],

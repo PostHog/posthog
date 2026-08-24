@@ -57,6 +57,8 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { groupFilters } from './FeatureFlags'
 import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
+import { maxRolloutPercentage } from './scheduleOccurrences'
+import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
@@ -457,6 +459,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         customPairDisableCronPreview,
         canCreatePairedSchedule,
         hasEarlyAccessFeatures,
+        scheduleTimelineOccurrences,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -992,6 +995,12 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     administrator to request editing rights.
                 </LemonBanner>
             )}
+
+            <ScheduleTimeline
+                occurrences={scheduleTimelineOccurrences}
+                currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
+                timezone={scheduleTimezone}
+            />
 
             {/* Schedule list */}
             {activeSchedules.length > 0 && (
