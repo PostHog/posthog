@@ -65,7 +65,7 @@ import {
   POSTHOG_PRODUCTS,
   type PostHogProductId,
 } from "../../posthog-products";
-import type { PostHogAPIConfig } from "../../types";
+import type { ContextWikiEnv, PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
 import {
   isCloudRun,
@@ -340,6 +340,8 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
@@ -2556,6 +2558,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const baseBranch = meta?.baseBranch;
     const environment = meta?.environment;
     const channelMode = meta?.channelMode;
+    const taskOriginProduct =
+      typeof meta?.taskOriginProduct === "string"
+        ? meta.taskOriginProduct
+        : undefined;
     const spokenNarration = resolveSpokenNarration(meta);
     const bedrockGatewayVariant = resolveBedrockGatewayVariant(meta);
     const requestFinish = this.buildRequestFinish(taskId, meta?.taskRunId);
@@ -2578,6 +2584,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           spokenNarration,
           background: meta?.mode === "background",
           peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
+          taskOriginProduct,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -2600,6 +2607,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const systemPrompt = buildSystemPrompt(meta?.systemPrompt, {
       spokenNarration,
+      contextWikiPath: this.options?.contextWiki?.path,
     });
 
     if (meta?.mcpToolApprovals) {
@@ -2670,6 +2678,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
       bedrockGatewayVariant,
+      contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {
         await this.client.sessionUpdate({
           sessionId,

@@ -28,6 +28,7 @@ import {
   parseMcpToolName,
   readMcpToolDescriptor,
   readPrUrls,
+  sleepWithBackoff,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -1693,6 +1694,34 @@ export class AgentServer {
     }
   }
 
+  /**
+   * The task's origin decides which origin-gated local tools load, so a transient failure here
+   * would silently drop report_insight from an analysis run. Retry, then give up so a task that
+   * genuinely does not exist still starts the session.
+   */
+  private async fetchTaskForSessionContext(
+    taskId: string,
+  ): Promise<Task | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.posthogAPI.getTask(taskId);
+      } catch (err) {
+        if (attempt === 2) {
+          this.logger.warn("Failed to fetch task for session context", {
+            taskId,
+            error: err,
+          });
+          return null;
+        }
+        await sleepWithBackoff(attempt, {
+          initialDelayMs: 250,
+          maxDelayMs: 1000,
+        });
+      }
+    }
+    return null;
+  }
+
   private async _doInitializeSession(
     payload: JwtPayload,
     sseController: SseController | null,
@@ -1730,13 +1759,7 @@ export class AgentServer {
           });
           return null;
         }),
-      this.posthogAPI.getTask(payload.task_id).catch((err) => {
-        this.logger.debug("Failed to fetch task for session context", {
-          taskId: payload.task_id,
-          error: err,
-        });
-        return null;
-      }),
+      this.fetchTaskForSessionContext(payload.task_id),
     ]);
     this.taskRepositories =
       preTask?.repositories ??
@@ -1945,6 +1968,9 @@ export class AgentServer {
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
+      ...(preTask?.origin_product && {
+        taskOriginProduct: preTask.origin_product,
+      }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -5031,9 +5057,9 @@ ${commonInstructions}
       baseBranch: this.config.baseBranch ?? null,
     });
     if (!owned) {
-      // Info, not debug: a wrongly rejected PR leaves the run with no PR until the
-      // webhook backstop binds it, and this line is the only trace of why.
-      this.logger.info(
+      // Keep the evidence available for diagnosing wrongly rejected PRs without
+      // surfacing every unrelated PR URL found in routine agent output.
+      this.logger.debug(
         "PR seen in output is not this run's, skipping attribution",
         {
           runId: payload.run_id,

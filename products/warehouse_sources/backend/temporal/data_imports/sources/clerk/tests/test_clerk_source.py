@@ -33,6 +33,8 @@ class TestClerkSource:
             "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections?limit=100",
             # `api_keys` endpoint, which Clerk rejects without a subject param on the list request.
             "400 Client Error: Bad Request for url: https://api.clerk.com/v1/api_keys?limit=100",
+            # `redirect_urls` endpoint, not available on the account's Clerk plan or instance.
+            "404 Client Error: Not Found for url: https://api.clerk.com/v1/redirect_urls?limit=100 | api error: code=resource_not_found",
         ],
     )
     def test_non_retryable_errors_matches_observed_error_message(self, observed_error):
@@ -58,6 +60,14 @@ class TestClerkSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    def test_non_retryable_errors_does_not_match_404_on_other_clerk_endpoints(self):
+        # A 404 from a different endpoint may be a genuinely missing record worth investigating, not
+        # the redirect_urls account limitation — the match must stay scoped to `redirect_urls`.
+        other_endpoint_error = "404 Client Error: Not Found for url: https://api.clerk.com/v1/users?limit=100"
+
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_endpoint_error for key in non_retryable_errors)
 
     def test_non_retryable_errors_does_not_match_422_on_other_clerk_endpoints(self):
         # A 422 from a different endpoint is a genuinely bad request worth investigating, not an

@@ -102,13 +102,6 @@ REPLAY_VISION_DEEP_SWEEP_FAILURES = Counter(
     "outcomes so a tick still counts exactly once there",
 )
 
-REPLAY_VISION_AUTO_MATERIALIZE_OUTCOMES = Counter(
-    "replay_vision_auto_materialize_outcomes_total",
-    "Event properties the auto-materializer saw, by what happened to them: candidate_logged (flag "
-    "off), deferred_to_acting_hour, materialized, or failed (the whole pass errored)",
-    ["outcome"],
-)
-
 REPLAY_VISION_DEEP_CANDIDATES = Counter(
     "replay_vision_deep_candidates_total",
     "Sessions the catch-up pass found that the frequent sweep had missed. This is the pass's whole "
@@ -233,11 +226,6 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
-
-
-def record_auto_materialize_outcome(outcome: str, count: int) -> None:
-    REPLAY_VISION_AUTO_MATERIALIZE_OUTCOMES.labels(outcome=outcome).inc(count)
-    _otel.record_counter_twin(REPLAY_VISION_AUTO_MATERIALIZE_OUTCOMES, count, {"outcome": outcome})
 
 
 def record_deep_candidates(count: int) -> None:
