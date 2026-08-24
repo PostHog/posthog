@@ -79,4 +79,27 @@ describe('destinationsIncidentReplayLogic', () => {
             },
         ])
     })
+
+    it('still surfaces the recovery path when the failed-count query errors', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': () => [500, { detail: 'Query timed out' }],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadAffectedDestinations()).toDispatchActions([
+            'loadAffectedDestinationsSuccess',
+        ])
+
+        expect(logic.values.affectedDestinations).toEqual([
+            {
+                id: MASKED_ONLY_ID,
+                name: 'Customer.io',
+                type: 'destination',
+                failedCount: 0,
+                needsCredentials: true,
+                enabled: true,
+            },
+        ])
+    })
 })

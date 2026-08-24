@@ -155,9 +155,14 @@ export const destinationsIncidentReplayLogic = kea<destinationsIncidentReplayLog
                     // traffic yet. One with failures but no mask has either had its credential
                     // entered again already, or broke for its own reasons - either way its failed
                     // invocations are still sitting there to replay.
+                    //
+                    // The masked-secrets lookup is the primary recovery signal and cheap, so its
+                    // failure still fails the load. The failed-count query is heavy and its window
+                    // grows daily, so a timeout on it must not hide the "Enter credentials" rows the
+                    // masked-secrets signal builds on its own.
                     const [maskedSecrets, failedCounts] = await Promise.all([
                         hogFunctionsMaskedSecretsRetrieve(projectId),
-                        loadFailedCountsByDestination(),
+                        loadFailedCountsByDestination().catch(() => new Map<string, number>()),
                     ])
 
                     const maskedIds = new Set(maskedSecrets.map((row) => String(row.id)))
