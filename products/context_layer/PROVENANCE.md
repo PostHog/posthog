@@ -41,23 +41,23 @@ Union, not intersection: a page carrying a fact from project 2 and a fact from p
 It has no database, so it cannot resolve a reference to a project.
 The split follows from that:
 
-| Check | Runs in |
-| --- | --- |
+| Check                                                            | Runs in                               |
+| ---------------------------------------------------------------- | ------------------------------------- |
 | `sources` is present and every entry parses as a typed reference | `scripts/lint`, and again server-side |
-| `visibility` is absent or unchanged from what the server wrote | `scripts/lint`, and again server-side |
-| Each reference resolves to something real, in this organization | server only, at land |
-| `visibility` recomputed and stamped | server only, at land |
+| `visibility` is absent or unchanged from what the server wrote   | `scripts/lint`, and again server-side |
+| Each reference resolves to something real, in this organization  | server only, at land                  |
+| `visibility` recomputed and stamped                              | server only, at land                  |
 
 ## Reference kinds
 
-| Reference | Resolves through | Projects |
-| --- | --- | --- |
-| `project:<id>` | itself | that project |
-| `space:<uuid>` | the channel's team | that project |
-| `task:<uuid>` | the task's team | that project |
-| `loop:<uuid>` | the loop's team | that project |
-| `event:<team_id>:<name>` | the definition's team | that project |
-| `scaffold` | nothing; server-written pages | none |
+| Reference                | Resolves through              | Projects     |
+| ------------------------ | ----------------------------- | ------------ |
+| `project:<id>`           | itself                        | that project |
+| `space:<uuid>`           | the channel's team            | that project |
+| `task:<uuid>`            | the task's team               | that project |
+| `loop:<uuid>`            | the loop's team               | that project |
+| `event:<team_id>:<name>` | the definition's team         | that project |
+| `scaffold`               | nothing; server-written pages | none         |
 
 A reference the server cannot resolve fails the land.
 Defaulting an unresolved reference to "no projects" would make every typo an organization-wide page, which is the leak this design exists to close.
