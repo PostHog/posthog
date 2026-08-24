@@ -26,7 +26,9 @@ export function ScoutNoteContent({ content }: { content: string }): JSX.Element 
     }
 
     return (
-        <div className="flex flex-col items-start gap-1">
+        <div className="flex flex-col gap-1">
+            {/* The body keeps the row's width, so a blockquote or a rule spans the note rather than
+                shrinking to its own content. Only the toggle sits at the start. */}
             <div id={bodyId} ref={bodyRef} tabIndex={-1}>
                 <LemonMarkdown className="text-xs text-secondary" disableImages>
                     {expanded ? content : preview}
@@ -36,6 +38,7 @@ export function ScoutNoteContent({ content }: { content: string }): JSX.Element 
                 <LemonButton
                     size="xsmall"
                     type="tertiary"
+                    className="self-start"
                     aria-expanded={expanded}
                     aria-controls={bodyId}
                     onClick={toggle}
