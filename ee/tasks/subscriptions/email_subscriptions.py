@@ -14,7 +14,6 @@ from ee.tasks.subscriptions.subscription_utils import (
     _has_asset_failed,
     failed_asset_details,
     next_delivery_date_display,
-    summary_skipped_over_budget_message,
 )
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +67,6 @@ def send_email_subscription_report(
     campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_{delivery_key}"
 
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
-    billing_url = absolute_uri(f"/organization/billing?{utm_tags}")
 
     if is_invite:
         invite_summary = (
@@ -101,9 +99,7 @@ def send_email_subscription_report(
             "total_asset_count": total_asset_count,
             "change_summary": change_summary,
             "summary_skipped_over_budget": summary_skipped_over_budget,
-            "summary_skipped_over_budget_message": summary_skipped_over_budget_message(
-                f'<a href="{billing_url}">Billing settings</a>'
-            ),
+            "billing_url": absolute_uri(f"/organization/billing?{utm_tags}"),
         },
     )
     message.add_recipient(email=email)

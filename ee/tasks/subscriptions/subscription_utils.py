@@ -89,8 +89,8 @@ def subscription_support_url(resource_url: str) -> str:
 
 def summary_skipped_over_budget_message(billing_settings_link: str) -> str:
     """Shown in place of the AI summary when the organization is over its AI credit budget.
-    `billing_settings_link` is the caller's own markup for a link to billing settings, because
-    Slack, Adaptive Cards and HTML email each spell a link differently."""
+    `billing_settings_link` is the caller's own markup for a link to billing settings, because Slack
+    mrkdwn and Adaptive Card markdown spell a link differently."""
     return (
         "AI summary skipped. Your organization has reached its AI credit usage limit. "
         f"Increase the limit in {billing_settings_link} to resume summaries."
