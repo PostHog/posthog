@@ -239,18 +239,6 @@ export function NavRail() {
         className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
-        {/* Search leads the rail. It used to hold the title bar's middle, which
-            the tab strip now owns; the rail is where it stays reachable, since
-            Cmd+B can take the sidebar away but never this column. The field's
-            placeholder and shortcut hint move into the tooltip. */}
-        <NavIcon
-          icon={<MagnifyingGlass size={16} />}
-          label="Search"
-          shortcut={formatHotkey(SHORTCUTS.COMMAND_MENU)}
-          isActive={false}
-          onClick={toggleCommandMenu}
-        />
-        <div className="my-0.5 w-5 shrink-0 border-border border-t" />
         {destinations.map((destination) => {
           const { pane, label, Icon, count, countTone } = destination;
           const isActive = railPane === pane;
@@ -286,6 +274,13 @@ export function NavRail() {
           );
         })}
         <div className="mt-auto flex flex-col items-center gap-1.5">
+          <NavIcon
+            icon={<MagnifyingGlass size={16} />}
+            label="Search"
+            shortcut={formatHotkey(SHORTCUTS.COMMAND_MENU)}
+            isActive={false}
+            onClick={toggleCommandMenu}
+          />
           {settingsVisible && (
             <NavIcon
               icon={<GearSix size={16} />}

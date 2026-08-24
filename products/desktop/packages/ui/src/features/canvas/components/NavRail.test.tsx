@@ -50,7 +50,11 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
 }));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
-  ProjectSwitcher: () => null,
+  ProjectSwitcher: () => (
+    <button type="button" aria-label="Project switcher">
+      Project switcher
+    </button>
+  ),
 }));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => mocks.openBrowserTab,
@@ -130,6 +134,20 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
+  });
+
+  it("keeps Search directly above Settings at the bottom of the rail", () => {
+    render(<NavRail />);
+
+    const buttonLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+
+    expect(buttonLabels.slice(-3)).toEqual([
+      "Search",
+      "Settings",
+      "Project switcher",
+    ]);
   });
 
   // The route is the whole answer, so a destination can never be lit over a
