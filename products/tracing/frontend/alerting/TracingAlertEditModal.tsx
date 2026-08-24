@@ -39,6 +39,7 @@ function TracingAlertEditModalContent({
 }): JSX.Element {
     const logicProps = { alert, onSubmitSuccess: onClose }
     const { alertFormChanged, isAlertFormSubmitting } = useValues(tracingAlertFormLogic(logicProps))
+    const { snoozingAlertIds } = useValues(tracingAlertingLogic)
     const { deleteAlert, toggleAlertEnabled, snoozeAlertUntil, unsnoozeAlert } = useActions(tracingAlertingLogic)
     const [activeTab, setActiveTab] = useState<'definition' | 'history'>('definition')
 
@@ -74,11 +75,19 @@ function TracingAlertEditModalContent({
                             Delete
                         </LemonButton>
                         {alert.state === TracingAlertConfigurationStateEnumApi.Snoozed ? (
-                            <LemonButton type="secondary" size="small" onClick={() => unsnoozeAlert(alert.id)}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => unsnoozeAlert(alert.id)}
+                                disabledReason={snoozingAlertIds.has(alert.id) ? 'Updating snooze' : undefined}
+                            >
                                 Unsnooze
                             </LemonButton>
                         ) : (
-                            <SnoozeButton onChange={(snoozeUntil) => snoozeAlertUntil(alert.id, snoozeUntil)} />
+                            <SnoozeButton
+                                onChange={(snoozeUntil) => snoozeAlertUntil(alert.id, snoozeUntil)}
+                                disabledReason={snoozingAlertIds.has(alert.id) ? 'Updating snooze' : undefined}
+                            />
                         )}
                     </div>
                 }
