@@ -318,27 +318,67 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "quantilesMerge": HogQLFunctionMeta("quantilesMerge", 1, 1, min_params=1, max_params=None, aggregate=True),
     "quantilesMergeIf": HogQLFunctionMeta("quantilesMergeIf", 2, 2, min_params=1, max_params=None, aggregate=True),
     "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, min_params=1, max_params=1, aggregate=True),
-    # "quantileExactIf": HogQLFunctionMeta("quantileExactIf", 2, 2, aggregate=True),
-    # "quantileExactLow": HogQLFunctionMeta("quantileExactLow", 1, 1, aggregate=True),
-    # "quantileExactLowIf": HogQLFunctionMeta("quantileExactLowIf", 2, 2, aggregate=True),
-    # "quantileExactHigh": HogQLFunctionMeta("quantileExactHigh", 1, 1, aggregate=True),
-    # "quantileExactHighIf": HogQLFunctionMeta("quantileExactHighIf", 2, 2, aggregate=True),
-    # "quantileExactWeighted": HogQLFunctionMeta("quantileExactWeighted", 1, 1, aggregate=True),
-    # "quantileExactWeightedIf": HogQLFunctionMeta("quantileExactWeightedIf", 2, 2, aggregate=True),
-    # "quantileTiming": HogQLFunctionMeta("quantileTiming", 1, 1, aggregate=True),
-    # "quantileTimingIf": HogQLFunctionMeta("quantileTimingIf", 2, 2, aggregate=True),
-    # "quantileTimingWeighted": HogQLFunctionMeta("quantileTimingWeighted", 1, 1, aggregate=True),
-    # "quantileTimingWeightedIf": HogQLFunctionMeta("quantileTimingWeightedIf", 2, 2, aggregate=True),
-    # "quantileDeterministic": HogQLFunctionMeta("quantileDeterministic", 1, 1, aggregate=True),
-    # "quantileDeterministicIf": HogQLFunctionMeta("quantileDeterministicIf", 2, 2, aggregate=True),
-    # "quantileTDigest": HogQLFunctionMeta("quantileTDigest", 1, 1, aggregate=True),
-    # "quantileTDigestIf": HogQLFunctionMeta("quantileTDigestIf", 2, 2, aggregate=True),
-    # "quantileTDigestWeighted": HogQLFunctionMeta("quantileTDigestWeighted", 1, 1, aggregate=True),
-    # "quantileTDigestWeightedIf": HogQLFunctionMeta("quantileTDigestWeightedIf", 2, 2, aggregate=True),
-    # "quantileBFloat16": HogQLFunctionMeta("quantileBFloat16", 1, 1, aggregate=True),
-    # "quantileBFloat16If": HogQLFunctionMeta("quantileBFloat16If", 2, 2, aggregate=True),
-    # "quantileBFloat16Weighted": HogQLFunctionMeta("quantileBFloat16Weighted", 1, 1, aggregate=True),
-    # "quantileBFloat16WeightedIf": HogQLFunctionMeta("quantileBFloat16WeightedIf", 2, 2, aggregate=True),
+    "quantileExactIf": HogQLFunctionMeta("quantileExactIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    "quantileExactLow": HogQLFunctionMeta("quantileExactLow", 1, 1, min_params=1, max_params=1, aggregate=True),
+    "quantileExactLowIf": HogQLFunctionMeta("quantileExactLowIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    "quantileExactHigh": HogQLFunctionMeta("quantileExactHigh", 1, 1, min_params=1, max_params=1, aggregate=True),
+    "quantileExactHighIf": HogQLFunctionMeta("quantileExactHighIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    # Exclusive/inclusive variants match Excel's PERCENTILE.EXC / PERCENTILE.INC.
+    "quantileExactExclusive": HogQLFunctionMeta(
+        "quantileExactExclusive", 1, 1, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileExactExclusiveIf": HogQLFunctionMeta(
+        "quantileExactExclusiveIf", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileExactInclusive": HogQLFunctionMeta(
+        "quantileExactInclusive", 1, 1, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileExactInclusiveIf": HogQLFunctionMeta(
+        "quantileExactInclusiveIf", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    # Weighted variants take a second value argument: the weight (the determinator for -Deterministic).
+    "quantileExactWeighted": HogQLFunctionMeta(
+        "quantileExactWeighted", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileExactWeightedIf": HogQLFunctionMeta(
+        "quantileExactWeightedIf", 3, 3, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileInterpolatedWeighted": HogQLFunctionMeta(
+        "quantileInterpolatedWeighted", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileInterpolatedWeightedIf": HogQLFunctionMeta(
+        "quantileInterpolatedWeightedIf", 3, 3, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileTiming": HogQLFunctionMeta("quantileTiming", 1, 1, min_params=1, max_params=1, aggregate=True),
+    "quantileTimingIf": HogQLFunctionMeta("quantileTimingIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    "quantileTimingWeighted": HogQLFunctionMeta(
+        "quantileTimingWeighted", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileTimingWeightedIf": HogQLFunctionMeta(
+        "quantileTimingWeightedIf", 3, 3, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileDeterministic": HogQLFunctionMeta(
+        "quantileDeterministic", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileDeterministicIf": HogQLFunctionMeta(
+        "quantileDeterministicIf", 3, 3, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileTDigest": HogQLFunctionMeta("quantileTDigest", 1, 1, min_params=1, max_params=1, aggregate=True),
+    "quantileTDigestIf": HogQLFunctionMeta("quantileTDigestIf", 2, 2, min_params=1, max_params=1, aggregate=True),
+    "quantileTDigestWeighted": HogQLFunctionMeta(
+        "quantileTDigestWeighted", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileTDigestWeightedIf": HogQLFunctionMeta(
+        "quantileTDigestWeightedIf", 3, 3, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileBFloat16": HogQLFunctionMeta("quantileBFloat16", 1, 1, min_params=1, max_params=1, aggregate=True),
+    "quantileBFloat16If": HogQLFunctionMeta("quantileBFloat16If", 2, 2, min_params=1, max_params=1, aggregate=True),
+    "quantileBFloat16Weighted": HogQLFunctionMeta(
+        "quantileBFloat16Weighted", 2, 2, min_params=1, max_params=1, aggregate=True
+    ),
+    "quantileBFloat16WeightedIf": HogQLFunctionMeta(
+        "quantileBFloat16WeightedIf", 3, 3, min_params=1, max_params=1, aggregate=True
+    ),
     "simpleLinearRegression": HogQLFunctionMeta("simpleLinearRegression", 2, 2, aggregate=True),
     "simpleLinearRegressionIf": HogQLFunctionMeta("simpleLinearRegressionIf", 3, 3, aggregate=True),
     # "stochasticLinearRegression": HogQLFunctionMeta("stochasticLinearRegression", 1, 1, aggregate=True),
