@@ -4545,6 +4545,17 @@ export const QueryIndexUsageApi = {
     Yes: 'yes',
 } as const
 
+export interface UnprunedTableScanApi {
+    end?: number | null
+    /** A predicate that would bound the partition key, ready to paste into the query. */
+    fix: string
+    message: string
+    /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
+    partition_key: string
+    start?: number | null
+    table_name: string
+}
+
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
@@ -4555,6 +4566,8 @@ export interface HogQLMetadataResponseApi {
     notices: HogQLNoticeApi[]
     query?: string | null
     table_names?: string[] | null
+    /** One entry per table scan with no bound on its partition key. Empty when every scan is bounded. */
+    unpruned_scans?: UnprunedTableScanApi[] | null
     warnings: HogQLNoticeApi[]
 }
 
