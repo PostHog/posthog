@@ -8,6 +8,7 @@ import {
     facetFilterTarget,
     facetSelection,
     setFacetIncluded,
+    setFacetSelection,
 } from './facetFilters'
 
 const NAMESPACE: FacetFilterTarget = {
@@ -183,6 +184,22 @@ describe('facetFilters', () => {
             const cycled = cycleFacetValue(corrupt, NAMESPACE, 'a')
             expect(facetSelection(cycled, NAMESPACE)).toEqual({ included: [], excluded: ['a'] })
             expect(innerValues(cycled)).toEqual([filterOf(NAMESPACE, PropertyOperator.IsNot, ['a'])])
+        })
+    })
+
+    describe('setFacetSelection', () => {
+        it('keeps a sibling group the facet does not own', () => {
+            const sibling = { type: FilterLogicalOperator.Or, values: [] } as UniversalFiltersGroup
+            const group: UniversalFiltersGroup = {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [] }, sibling],
+            }
+
+            const written = setFacetSelection(group, SERVICE_NAME_FILTER, { included: ['api'], excluded: [] })
+
+            expect(written.values).toHaveLength(2)
+            expect(written.values[1]).toEqual(sibling)
+            expect(facetSelection(written, SERVICE_NAME_FILTER)).toEqual({ included: ['api'], excluded: [] })
         })
     })
 

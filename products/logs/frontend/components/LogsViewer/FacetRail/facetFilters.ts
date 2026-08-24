@@ -98,7 +98,9 @@ export function facetSelection(group: UniversalFiltersGroup | undefined, target:
 /**
  * Replace a facet's selection, returning a new filterGroup. Both polarities are stored as one filter
  * each with an array value, `exact` and `is_not` (logs have no `in` operator); a filter is dropped
- * when its side of the selection empties. Filters the facet doesn't own carry through untouched.
+ * when its side of the selection empties. Filters the facet doesn't own carry through untouched, and
+ * so does the rest of the group's shape: the outer operator, and any sibling group past the first,
+ * which the patterns pivot relies on to keep its message predicate.
  */
 export function setFacetSelection(
     group: UniversalFiltersGroup | undefined,
@@ -113,7 +115,11 @@ export function setFacetSelection(
     if (selection.excluded.length > 0) {
         values.push({ ...target, operator: PropertyOperator.IsNot, value: selection.excluded })
     }
-    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
+    const inner = group?.values?.[0] as UniversalFiltersGroup | undefined
+    return {
+        type: group?.type ?? FilterLogicalOperator.And,
+        values: [{ type: inner?.type ?? FilterLogicalOperator.And, values }, ...(group?.values?.slice(1) ?? [])],
+    }
 }
 
 /** Replace a facet's included values, leaving its exclusions in place. */
