@@ -5427,7 +5427,7 @@ export namespace Schemas {
       /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
       filterTestAccounts?: boolean | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-      fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
+      fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | BehavioralPropertyFilter)[] | null;
       kind?: 'ActorsQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -5435,7 +5435,7 @@ export namespace Schemas {
       offset?: number | null;
       orderBy?: string[] | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-      properties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | PropertyGroupFilterValue | null;
+      properties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | BehavioralPropertyFilter)[] | PropertyGroupFilterValue | null;
       response?: ActorsQueryResponse | null;
       search?: string | null;
       select?: string[] | null;
