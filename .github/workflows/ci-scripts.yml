@@ -27,9 +27,10 @@ jobs:
             # the job. Check out only the trees the suite reads: most tests are
             # pure logic over path strings, but a few read the real repo to guard
             # against drift — trunk-impacted-targets.test.js walks proto/, rust/,
-            # nodejs/ and the workspace manifests, and report_test_timings imports
-            # tools/owners and finds the root by owners.yaml. A new test that reads
-            # another path must add it here.
+            # nodejs/ and every workspace package.json (the unanchored pattern
+            # pulls each manifest without its source tree), and
+            # report_test_timings imports tools/owners and finds the root by
+            # owners.yaml. A new test that reads another path must add it here.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
@@ -50,6 +51,7 @@ jobs:
                       /uv.lock
                       /tach.toml
                       /pyproject.toml
+                      package.json
                   sparse-checkout-cone-mode: false
 
             - name: Setup Node.js
@@ -79,6 +81,10 @@ jobs:
                   )
                   present=()
                   for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
+                  if [ "${#present[@]}" -eq 0 ]; then
+                      echo "None of the listed test files exist; skipping instead of letting pytest discover the whole repo"
+                      exit 0
+                  fi
                   python3 -m pytest "${present[@]}" -v -c /dev/null -p no:cacheprovider --noconftest
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
@@ -103,4 +109,8 @@ jobs:
                   )
                   present=()
                   for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
+                  if [ "${#present[@]}" -eq 0 ]; then
+                      echo "None of the listed test files exist; skipping instead of letting node --test discover the whole repo"
+                      exit 0
+                  fi
                   node --test "${present[@]}"
