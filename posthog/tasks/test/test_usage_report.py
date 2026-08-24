@@ -4737,8 +4737,11 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_credits_only_counts_posthog_code_events(self, mock_region: MagicMock) -> None:
-        """The posthog_code query only counts generations tagged ai_product='posthog_code'."""
-        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+        """posthog_code counts only its own generations; workflow origins split out to the workflow counter."""
+        from posthog.tasks.usage_report import (
+            get_teams_with_posthog_code_credits_used_in_period,
+            get_teams_with_workflow_ai_credits_used_in_period,
+        )
 
         mock_region.return_value = "US"
         self._setup_teams()
@@ -4796,12 +4799,34 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             },
         )
 
+        # Workflow-created task run: excluded here, billed under the workflow counter at 20% markup.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_workflow",
+            timestamp=period.start + relativedelta(hours=4),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_workflow",
+                "$ai_total_cost_usd": 5.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_code",
+                "task_origin_product": "workflow",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
         flush_persons_and_events()
 
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
 
-        # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
+        # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200. Only the first event counts.
         self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 200)])
+
+        workflow_result = get_teams_with_workflow_ai_credits_used_in_period(period.start, period.end)
+
+        # workflow AI credits bill at 20% markup: 5.0 USD * 100 * 1.2 = 600
+        self.assertEqual(workflow_result, [(self.org_1_team_1.id, 600)])
 
     @parameterized.expand(
         [
@@ -4860,6 +4885,54 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertFalse(has_non_zero_usage(UsageReportCounters(**zero)))
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "posthog_code_credits_used_in_period": 5})))
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_workflow_ai_credits_requires_posthog_code_ai_product(self, mock_region: MagicMock) -> None:
+        from posthog.tasks.usage_report import (
+            get_teams_with_ai_credits_used_in_period,
+            get_teams_with_workflow_ai_credits_used_in_period,
+        )
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        # A Max generation carrying a workflow task origin must bill once, under Max only.
+        _create_event(
+            event="$ai_generation",
+            team=analytics_team,
+            distinct_id="user_max_workflow",
+            timestamp=period.start + relativedelta(hours=1),
+            properties={
+                "team_id": self.org_1_team_1.id,
+                "$ai_trace_id": "trace_max_workflow",
+                "$ai_total_cost_usd": 1.0,
+                "$ai_billable": True,
+                "ai_product": "posthog_ai",
+                "task_origin_product": "workflow",
+                "$group_1": "https://us.posthog.com",
+            },
+        )
+
+        flush_persons_and_events()
+
+        self.assertEqual(get_teams_with_workflow_ai_credits_used_in_period(period.start, period.end), [])
+        self.assertEqual(
+            get_teams_with_ai_credits_used_in_period(period.start, period.end), [(self.org_1_team_1.id, 120)]
+        )
+
+    def test_has_non_zero_usage_counts_workflow_ai_credits(self) -> None:
+        import dataclasses
+
+        from posthog.tasks.usage_report import UsageReportCounters, has_non_zero_usage
+
+        zero = {field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+
+        self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "workflow_ai_credits_used_in_period": 5})))
 
 
 class TestTaskSandboxUsageReport(APIBaseTest):

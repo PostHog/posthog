@@ -332,6 +332,9 @@ class UsageReportCounters:
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
+    # LLM credits of workflow-created agent tasks ($ai_generation with ai_product='posthog_code'
+    # and task_origin_product='workflow'), billed at 20% markup under the workflows product
+    workflow_ai_credits_used_in_period: int
 
     # Logs
     logs_bytes_in_period: int
@@ -1661,6 +1664,9 @@ def get_teams_with_ai_event_count_in_period(
 AI_COST_MARKUP_PERCENT = 0.2
 # PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
+# Workflow-created agent tasks bill under the workflows product at PostHog AI's markup.
+# Kept as a separate constant so the two levers can move independently.
+WORKFLOW_AI_COST_MARKUP_PERCENT = 0.2
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
@@ -1690,6 +1696,13 @@ POSTHOG_AI_PRODUCTS = [
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis",)
 POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
+# Mirrors Task.OriginProduct.WORKFLOW as a string literal, like UNBILLED_TASK_ORIGIN_PRODUCTS
+# does for task_analysis: tasks-product models do not cross the facade boundary.
+WORKFLOW_TASK_ORIGIN_PRODUCTS = ("workflow",)
+# Origins carved out of the posthog_code counter: PostHog-funded origins are never billed;
+# workflow origins bill under the workflow counter instead, so each generation bills exactly once.
+POSTHOG_CODE_EXCLUDED_TASK_ORIGIN_PRODUCTS = (*UNBILLED_TASK_ORIGIN_PRODUCTS, *WORKFLOW_TASK_ORIGIN_PRODUCTS)
+
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
     """Resolve the $group_N index that holds the customer cloud URL for the internal AI events team."""
@@ -1716,6 +1729,8 @@ def _get_teams_with_ai_credits_for_products(
     usage_report_tag: str,
     product_tag: Product = Product.MAX_AI,
     markup_percent: float = AI_COST_MARKUP_PERCENT,
+    required_task_origin_products: tuple[str, ...] | None = None,
+    excluded_task_origin_products: tuple[str, ...] = UNBILLED_TASK_ORIGIN_PRODUCTS,
 ) -> list[tuple[int, int]]:
     """
     Shared implementation for AI billing credit aggregation, whitelisting on the
@@ -1744,6 +1759,11 @@ def _get_teams_with_ai_credits_for_products(
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
     We filter by the configured `instance` group column, which contains the region URL.
+
+    Task-origin filters: `excluded_task_origin_products` drops origins that must not bill on this
+    counter (PostHog-funded origins, or origins billed on another product's counter).
+    `required_task_origin_products`, when set, keeps only those origins. Events without the
+    property yield '', so they pass the exclusion and fail any required filter.
     """
     region = get_instance_region()
 
@@ -1787,6 +1807,11 @@ def _get_teams_with_ai_credits_for_products(
     )
     task_origin_expr, _ = get_property_string_expr(
         "events", "task_origin_product", "'task_origin_product'", "properties", use_new_events_schema=use_new
+    )
+
+    # ClickHouse rejects `IN ()`, so the required-origin filter is injected only when set.
+    required_task_origin_filter = (
+        f"AND {task_origin_expr} IN %(required_task_origins)s" if required_task_origin_products else ""
     )
 
     with tags_context(
@@ -1868,9 +1893,11 @@ def _get_teams_with_ai_credits_for_products(
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
                         AND {ai_product_expr} IN %(ai_products)s
-                        -- PostHog-funded task origins (e.g. task_analysis runs) are never billed
-                        -- to the customer. Events without the property yield '' and pass.
-                        AND {task_origin_expr} NOT IN %(unbilled_task_origins)s
+                        -- Origin filters are param-driven per counter: excluded origins never bill
+                        -- here (PostHog-funded, or billed on another product's counter); a required
+                        -- filter keeps only that counter's origins. See the docstring.
+                        AND {task_origin_expr} NOT IN %(excluded_task_origins)s
+                        {required_task_origin_filter}
                 )
                 WHERE
                     ai_billable = 1
@@ -1904,7 +1931,8 @@ def _get_teams_with_ai_credits_for_products(
                 "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
-                "unbilled_task_origins": UNBILLED_TASK_ORIGIN_PRODUCTS,
+                "excluded_task_origins": tuple(excluded_task_origin_products),
+                "required_task_origins": tuple(required_task_origin_products or ()),
                 **region_filter_params,
             },
             workload=Workload.OFFLINE,
@@ -1977,6 +2005,7 @@ def get_teams_with_posthog_code_credits_used_in_period(
     """PostHog Desktop billing credits — only events tagged with ai_product='posthog_code'.
 
     Billed as pure pass-through of model costs (no markup), unlike PostHog AI's 20%.
+    Workflow-origin task runs are excluded: they bill under the workflow AI credits counter.
     """
     return _get_teams_with_ai_credits_for_products(
         begin,
@@ -1985,6 +2014,30 @@ def get_teams_with_posthog_code_credits_used_in_period(
         usage_report_tag="posthog_code_credits",
         product_tag=Product.POSTHOG_CODE,
         markup_percent=POSTHOG_CODE_COST_MARKUP_PERCENT,
+        excluded_task_origin_products=POSTHOG_CODE_EXCLUDED_TASK_ORIGIN_PRODUCTS,
+    )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_ai_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """Workflows billing credits: LLM spend of agent tasks created by the workflows product.
+
+    Same gateway product as PostHog Desktop (ai_product='posthog_code'), split out by
+    task_origin_product='workflow' and billed at 20% markup under workflows. The posthog_code
+    counter excludes these origins, so each generation bills exactly once.
+    """
+    return _get_teams_with_ai_credits_for_products(
+        begin,
+        end,
+        ai_products=POSTHOG_CODE_AI_PRODUCTS,
+        usage_report_tag="workflow_ai_credits",
+        product_tag=Product.WORKFLOWS,
+        markup_percent=WORKFLOW_AI_COST_MARKUP_PERCENT,
+        required_task_origin_products=WORKFLOW_TASK_ORIGIN_PRODUCTS,
     )
 
 
@@ -2783,6 +2836,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
         or report.workflow_billable_invocations_in_period > 0
+        or report.workflow_ai_credits_used_in_period > 0
         or report.replay_vision_credits_used_in_period > 0
     )
 
@@ -3084,6 +3138,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_workflow_billable_invocations_in_period": get_teams_with_workflow_billable_invocations_in_period(
             period_start, period_end
         ),
+        "teams_with_workflow_ai_credits_used_in_period": get_teams_with_workflow_ai_credits_used_in_period(
+            period_start, period_end
+        ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],
         "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
@@ -3315,6 +3372,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
             team.id, 0
         ),
+        workflow_ai_credits_used_in_period=all_data["teams_with_workflow_ai_credits_used_in_period"].get(team.id, 0),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
