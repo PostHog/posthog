@@ -69,6 +69,13 @@ export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
 export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
 
 /**
+ * The global reports inbox: one sectioned, keyboard-triageable page for every
+ * report, reclaiming the inbox nav slot from the channel-reports takeover.
+ * The per-space sidebar list stays the working set beside it.
+ */
+export const REPORTS_INBOX_FLAG = "posthog-desktop-reports-inbox";
+
+/**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
  * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
  * to its Bedrock backend; `control` sends nothing and the gateway keeps its
