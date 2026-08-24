@@ -12,7 +12,6 @@ fn record() -> BillingUsageRecord {
         unit: "request".to_string(),
         quantity: 2,
         timestamp_ms: 1_700_000_000_000,
-        dimensions: Default::default(),
     }
 }
 
@@ -67,7 +66,10 @@ fn rejects_quantities_that_are_not_positive() {
 /// records, and a rejected record is usage nobody is billed for.
 #[test]
 fn accepts_a_record_id_long_enough_for_a_composed_identity() {
-    for (length, expected) in [(512, Ok(())), (513, Err(ValidationError::TooLong("record_id")))] {
+    for (length, expected) in [
+        (512, Ok(())),
+        (513, Err(ValidationError::TooLong("record_id"))),
+    ] {
         let mut candidate = record();
         candidate.record_id = "r".repeat(length);
         let result = KafkaBillingUsageRecord::from_proto(candidate, Uuid::new_v4(), Utc::now());

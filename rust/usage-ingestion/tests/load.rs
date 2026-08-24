@@ -46,12 +46,7 @@ fn record(run: &str, index: usize, retry: bool) -> BillingUsageRecord {
         usage_key: usage_key.to_string(),
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
-        timestamp_ms: BASE_TIMESTAMP_MS
-            + event_offset_ms
-            + if retry { RETRY_OFFSET_MS } else { 0 },
-        dimensions: [("region".to_string(), format!("region-{}", index % 3))]
-            .into_iter()
-            .collect(),
+        timestamp_ms: BASE_TIMESTAMP_MS + event_offset_ms + if retry { RETRY_OFFSET_MS } else { 0 },
     }
 }
 
