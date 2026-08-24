@@ -34,7 +34,8 @@ export function EnvironmentEditPage({
   onDone,
   onBuildNewImage,
 }: EnvironmentEditPageProps) {
-  const { images, isLoading, customImagesDisabled } = useSandboxCustomImages();
+  const { images, isLoading, customImagesEnabled, customImagesDisabled } =
+    useSandboxCustomImages();
 
   if (isLoading) {
     return (
@@ -48,7 +49,7 @@ export function EnvironmentEditPage({
     <LoadedEditPage
       environment={environment}
       images={images}
-      customImages={!customImagesDisabled}
+      customImages={customImagesEnabled && !customImagesDisabled}
       onDone={onDone}
       onBuildNewImage={onBuildNewImage}
     />
