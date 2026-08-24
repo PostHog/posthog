@@ -125,6 +125,20 @@ describe('instrumentationChecklistLogic', () => {
         expect(logic.values.checklistCardState).toBe('passing')
     })
 
+    it('loads when the feature flag arrives in the same tick as mount', async () => {
+        setFlag(false)
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+        // No awaiting: this is the cold-page ordering, where flags land while a mount-time load
+        // would still be in flight. A load started before the flag resolves returns null and blocks
+        // the retry, so the card would sit hidden behind a skeleton that never resolves.
+        setFlag(true)
+
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+        expect(mockRetrieve).toHaveBeenCalledTimes(1)
+        expect(logic.values.checklistCardState).toBe('passing')
+    })
+
     it('leaves every consumer on generic copy when the request fails, with nothing surfaced', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         mockRetrieve.mockRejectedValue({ status: 500, detail: 'Something broke' })

@@ -260,7 +260,12 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
             restoreCheck: ({ check }) => writeCheck(check, aiObservabilityInstrumentationChecklistRestoreCreate),
         }
     }),
-    afterMount(({ actions }) => {
-        actions.loadInstrumentationChecklist()
+    afterMount(({ actions, values }) => {
+        // Loading before the flag resolves would hold `checklistLoading` true while the request
+        // short-circuits to null, and the setFeatureFlags listener would then skip its own retry,
+        // leaving the card hidden for good. On a cold page the flag arriving starts the first load.
+        if (values.checklistEnabled) {
+            actions.loadInstrumentationChecklist()
+        }
     }),
 ])
