@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.dataclasses import frozen
 
@@ -23,9 +23,15 @@ class GongEndpointConfig:
     uses_date_window: bool = False
     # `/v2/calls/extensive` is a POST endpoint whose filter, content selector, and pagination
     # cursor live in a JSON body, and whose rows wrap the call fields in a `metaData` object
-    # alongside `parties` (participants) and CRM `context`. Requires the broader
+    # alongside the enrichment blocks the content selector asked for. Requires the broader
     # `api:calls:read:extensive` scope.
     uses_extensive: bool = False
+    # `contentSelector` sent to `/v2/calls/extensive`. Gong omits every enrichment block that is
+    # not explicitly requested here, so this decides which sibling keys of `metaData` come back.
+    extensive_content_selector: Optional[dict[str, Any]] = None
+    # Sibling keys of `metaData` to keep as nested columns on the flattened row. Must line up with
+    # what `extensive_content_selector` requests, or the columns arrive permanently null.
+    extensive_row_keys: tuple[str, ...] = ()
     # `POST /v2/calls/transcript` answers with `callId` and `transcript` and nothing else. Endpoints
     # that set this are driven off the `/v2/calls` list for the same window instead: each page of
     # calls supplies the `callIds` filter for one transcript request, and the call's `started`
@@ -76,6 +82,50 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         uses_date_window=True,
         uses_extensive=True,
         capture_http_samples=False,
+        extensive_content_selector={
+            "context": "Extended",
+            "exposedFields": {"parties": True},
+        },
+        extensive_row_keys=("parties", "context"),
+        incremental_fields=[
+            {
+                "label": "started",
+                "type": IncrementalFieldType.DateTime,
+                "field": "started",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Gong's Call Spotlight summaries, from the same `/v2/calls/extensive` endpoint under the same
+    # scope as `calls_extensive` but with the `content` block of the selector requested instead of
+    # participants and CRM links. Kept as its own table because a call's AI-generated summary is
+    # far more sensitive than the metadata in the other call tables, so it should stay opt-in
+    # rather than appear in a table a user already enabled for something else.
+    "calls_content": GongEndpointConfig(
+        name="calls_content",
+        path="/v2/calls/extensive",
+        response_key="calls",
+        primary_key="id",
+        partition_key="started",
+        supports_incremental=True,
+        uses_date_window=True,
+        uses_extensive=True,
+        capture_http_samples=False,
+        extensive_content_selector={
+            # No CRM context or participants — `calls_extensive` already covers those, and asking
+            # for them again would double the payload for data this table does not expose.
+            "context": "None",
+            "exposedFields": {
+                "content": {
+                    "brief": True,
+                    "keyPoints": True,
+                    "highlights": True,
+                    "callOutcome": True,
+                    "outline": True,
+                }
+            },
+        },
+        extensive_row_keys=("content",),
         incremental_fields=[
             {
                 "label": "started",
