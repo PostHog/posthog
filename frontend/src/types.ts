@@ -609,12 +609,7 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
-    has_saml: boolean
-    has_scim?: boolean
     scim_base_url?: string
-    has_id_jag?: boolean
-    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
-    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {

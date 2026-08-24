@@ -1,10 +1,16 @@
 import { FileTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import type { SignalReport } from "@posthog/shared/types";
+import {
+  AskAboutSelection,
+  quoteSelection,
+} from "@posthog/ui/features/inbox/components/AskAboutSelection";
 import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
-import { ReportDecisionSection } from "@posthog/ui/features/inbox/components/ReportDecisionSection";
+import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
+import { useCallback, useEffect, useRef } from "react";
 
 interface ReportDetailProps {
   reportId: string;
@@ -19,7 +25,7 @@ interface ReportDetailProps {
 export function ReportDetail({
   reportId,
   cachedReport = null,
-  backTo = "/code/inbox/reports",
+  backTo = "/inbox/reports",
   backLabel = "Back to reports",
   statusRedirect = true,
 }: ReportDetailProps) {
@@ -44,9 +50,14 @@ export function ReportDetail({
 }
 
 /**
- * A report reads as: the story (summary + charts), then its one ask (the
- * decision block), then the evidence. Pipeline machinery (runs, activity
- * logs, reviewer reasoning) deliberately doesn't render.
+ * A report reads story-first: the summary and charts, then the evidence.
+ * The document stays pure content while its conversation owns follow-up
+ * actions. Pipeline machinery (runs, activity logs, reviewer reasoning)
+ * deliberately doesn't render.
+ *
+ * The report owns its own scroll so the chat dock can sit full-height beside
+ * it: reading and asking share one screen, and highlighting a passage quotes
+ * it into the chat.
  */
 function ReportDetailContent({
   report,
@@ -57,21 +68,41 @@ function ReportDetailContent({
   backTo: string;
   backLabel: string;
 }) {
+  const chatOpen = useReportChatPanelStore((s) => s.open);
+  const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
+  const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setChatOpen(true);
+  }, [setChatOpen]);
+
+  const handleAsk = useCallback(
+    (text: string) => {
+      setPendingQuote(report.id, quoteSelection(text));
+      setChatOpen(true);
+    },
+    [report.id, setPendingQuote, setChatOpen],
+  );
+
   return (
-    <InboxDetailFrame
-      report={report}
-      backTo={backTo}
-      backLabel={backLabel}
-      fallbackTitle="Untitled report"
-      primaryAction={<ReportDetailActions report={report} />}
-      summarySection={{ Icon: FileTextIcon, title: "Summary" }}
-      belowSummary={
-        <>
-          <ReportDecisionSection report={report} />
-          <ReportFeedbackFooter report={report} />
-        </>
-      }
-      evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
-    />
+    <div className="flex h-full min-h-0">
+      <div ref={contentRef} className="min-w-0 flex-1 overflow-y-auto">
+        <InboxDetailFrame
+          report={report}
+          backTo={backTo}
+          backLabel={backLabel}
+          fallbackTitle="Untitled report"
+          primaryAction={
+            <ReportDetailActions report={report} placement="header" />
+          }
+          summarySection={{ Icon: FileTextIcon, title: "Summary" }}
+          footer={<ReportFeedbackFooter report={report} />}
+          evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+        />
+      </div>
+      <AskAboutSelection containerRef={contentRef} onAsk={handleAsk} />
+      {chatOpen && <ReportChatSidebar report={report} />}
+    </div>
   );
 }

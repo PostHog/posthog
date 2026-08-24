@@ -1627,11 +1627,11 @@ export function TaskInput({
                         {activeReportAssociation.title || "Untitled report"}
                       </button>
                     </span>
-                    <Tooltip content="Exit Inbox mode">
+                    <Tooltip content="Exit Self-driving mode">
                       <button
                         type="button"
                         onClick={handleDismissReportAssociation}
-                        aria-label="Exit Inbox mode"
+                        aria-label="Exit Self-driving mode"
                         className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-blue-10 hover:bg-blue-4 hover:text-blue-12"
                       >
                         <X size={12} />
