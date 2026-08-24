@@ -67,7 +67,17 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         # then 404s (see `_is_scroll_expired`). `companies` is full-refresh, so a fresh
         # Temporal attempt opens a new scroll and restarts cleanly — transient and
         # self-recovering, not a real bug.
-        return {"Not Found for url: https://api.intercom.io/companies/scroll"}
+        #
+        # Opening a fresh scroll can also 400 with `scroll_exists` when another scroll is
+        # still open for the workspace (see `_is_scroll_exists`). `_open_companies_scroll`
+        # already backs off and retries that inline, but a lock held longer than the retry
+        # budget exhausts it and the raw error propagates — a fresh Temporal attempt opens
+        # cleanly once the stale scroll has expired, so this is the same self-recovering
+        # case as the 404 above, just surfaced later.
+        return {
+            "Not Found for url: https://api.intercom.io/companies/scroll",
+            "Bad Request for url: https://api.intercom.io/companies/scroll",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

@@ -32,6 +32,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     TRACE_ID_ALLOWLIST_KEY,
     get_target_descriptor,
 )
+from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks, build_langchain_chat_client
 
 logger = structlog.get_logger(__name__)
@@ -205,21 +206,8 @@ def _validate_agent_output(content: EvalReportContent) -> str | None:
 
 
 def run_eval_report_agent(
-    team_id: int,
-    evaluation_id: str,
-    evaluation_name: str,
-    evaluation_description: str,
-    evaluation_prompt: str,
-    evaluation_type: str,
-    period_start: str,
-    period_end: str,
-    previous_period_start: str,
-    report_prompt_guidance: str = "",
-    output_type: str = "boolean",
+    inputs: RunEvalReportAgentInput,
     evaluation_target: str = "generation",
-    report_id: str = "",
-    trace_id: str = "",
-    session_id: str = "",
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -236,12 +224,12 @@ def run_eval_report_agent(
     # Compute metrics first — we need them for both the final content AND the
     # fallback path, so guarantee they're ready before the agent even runs.
     metrics = _compute_metrics(
-        team_id,
-        evaluation_id,
-        period_start,
-        period_end,
-        previous_period_start,
-        output_type=output_type,
+        inputs.team_id,
+        inputs.evaluation_id,
+        inputs.period_start,
+        inputs.period_end,
+        inputs.previous_period_start,
+        output_type=inputs.output_type,
         evaluation_target=evaluation_target,
     )
 
@@ -254,18 +242,18 @@ def run_eval_report_agent(
         increment_errors("metrics_unavailable")
         logger.warning(
             "llma_eval_reports_metrics_unavailable",
-            team_id=team_id,
-            evaluation_id=evaluation_id,
+            team_id=inputs.team_id,
+            evaluation_id=inputs.evaluation_id,
         )
         return _metrics_unavailable_content(evaluation_target)
 
-    resolved_trace_id = trace_id or str(uuid.uuid4())
-    resolved_session_id = session_id or resolved_trace_id
-    resolved_distinct_id = team_distinct_id(team_id)
+    resolved_trace_id = inputs.trace_id or str(uuid.uuid4())
+    resolved_session_id = inputs.session_id or resolved_trace_id
+    resolved_distinct_id = team_distinct_id(inputs.team_id)
     observability_properties = {
-        "team_id": str(team_id),
-        "evaluation_id": evaluation_id,
-        **({"report_id": report_id} if report_id else {}),
+        "team_id": str(inputs.team_id),
+        "evaluation_id": inputs.evaluation_id,
+        **({"report_id": inputs.report_id} if inputs.report_id else {}),
     }
     llm = build_langchain_chat_client(
         EVAL_REPORT_AGENT_MODEL,
@@ -278,20 +266,20 @@ def run_eval_report_agent(
     )
 
     system_prompt = build_eval_report_system_prompt(
-        evaluation_name=evaluation_name,
-        evaluation_description=evaluation_description,
-        evaluation_type=evaluation_type,
+        evaluation_name=inputs.evaluation_name,
+        evaluation_description=inputs.evaluation_description,
+        evaluation_type=inputs.evaluation_type,
         evaluation_target=evaluation_target,
-        evaluation_prompt=evaluation_prompt,
-        output_type=output_type,
-        period_start=period_start,
-        period_end=period_end,
-        report_prompt_guidance=report_prompt_guidance,
+        evaluation_prompt=inputs.evaluation_prompt,
+        output_type=inputs.output_type,
+        period_start=inputs.period_start,
+        period_end=inputs.period_end,
+        report_prompt_guidance=inputs.report_prompt_guidance,
     )
 
     agent = create_react_agent(
         model=llm,
-        tools=get_eval_report_tools(evaluation_target, output_type),
+        tools=get_eval_report_tools(evaluation_target, inputs.output_type),
         prompt=system_prompt,
         state_schema=EvalReportAgentState,
     )
@@ -301,18 +289,18 @@ def run_eval_report_agent(
     # we overwrite with the trusted metrics after the agent finishes anyway.
     initial_state: dict[str, Any] = {
         "messages": [HumanMessage(content="Please generate the evaluation report.")],
-        "team_id": team_id,
-        "evaluation_id": evaluation_id,
-        "evaluation_name": evaluation_name,
-        "evaluation_description": evaluation_description,
-        "evaluation_prompt": evaluation_prompt,
-        "evaluation_type": evaluation_type,
+        "team_id": inputs.team_id,
+        "evaluation_id": inputs.evaluation_id,
+        "evaluation_name": inputs.evaluation_name,
+        "evaluation_description": inputs.evaluation_description,
+        "evaluation_prompt": inputs.evaluation_prompt,
+        "evaluation_type": inputs.evaluation_type,
         "evaluation_target": evaluation_target,
-        "output_type": output_type,
-        "period_start": period_start,
-        "period_end": period_end,
-        "previous_period_start": previous_period_start,
-        "report_prompt_guidance": report_prompt_guidance,
+        "output_type": inputs.output_type,
+        "period_start": inputs.period_start,
+        "period_end": inputs.period_end,
+        "previous_period_start": inputs.previous_period_start,
+        "report_prompt_guidance": inputs.report_prompt_guidance,
         "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
         TRACE_ID_ALLOWLIST_KEY: [],
         SESSION_ID_ALLOWLIST_KEY: [],
@@ -348,15 +336,15 @@ def run_eval_report_agent(
 
             logger.warning(
                 "llma_eval_reports_agent_validation_failed",
-                team_id=team_id,
-                evaluation_id=evaluation_id,
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
                 reason=validation_error,
                 title=content.title,
                 section_count=len(content.sections),
                 trace_id=resolved_trace_id,
                 session_id=resolved_session_id,
             )
-            return _fallback_content(evaluation_name, metrics, validation_error, evaluation_target)
+            return _fallback_content(inputs.evaluation_name, metrics, validation_error, evaluation_target)
 
         _append_references_section(content)
 
@@ -364,8 +352,8 @@ def run_eval_report_agent(
 
         logger.info(
             "llma_eval_reports_agent_completed",
-            team_id=team_id,
-            evaluation_id=evaluation_id,
+            team_id=inputs.team_id,
+            evaluation_id=inputs.evaluation_id,
             title=content.title,
             section_count=len(content.sections),
             citation_count=len(content.citations),
@@ -383,13 +371,13 @@ def run_eval_report_agent(
             "llma_eval_reports_agent_error",
             error=str(e),
             error_type=type(e).__name__,
-            team_id=team_id,
-            evaluation_id=evaluation_id,
+            team_id=inputs.team_id,
+            evaluation_id=inputs.evaluation_id,
             trace_id=resolved_trace_id,
             session_id=resolved_session_id,
         )
         return _fallback_content(
-            evaluation_name,
+            inputs.evaluation_name,
             metrics,
             f"agent raised {type(e).__name__}",
             evaluation_target,

@@ -149,6 +149,8 @@ export function createAiIngestionPipeline<
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
                     preservePartitionLocality,
+                    // createFetchPersonChunkStep below only reads persons.
+                    pipelineWritesPersons: false,
                 })
             )
             // Rate-limit non-cookieless events to overflow before parsing the body.

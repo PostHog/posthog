@@ -1,5 +1,6 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import {
+  type ChartHeadlineStat,
   planReportChart,
   type ReportChartData,
   type ReportChartOpenTarget,
@@ -157,6 +158,8 @@ interface ReportChartCardViewProps {
   state: ReportChartCardState;
   openTarget: ReportChartOpenTarget | null;
   onOpenExternal?: (url: string) => void;
+  /** Latest value + step change, shown on the right of the header. */
+  stat?: ChartHeadlineStat | null;
 }
 
 /** Pure card; the container resolves the query, plan, and open target. */
@@ -168,6 +171,7 @@ export function ReportChartCardView({
   state,
   openTarget,
   onOpenExternal = openExternalUrl,
+  stat,
 }: ReportChartCardViewProps) {
   const body = (() => {
     switch (state.kind) {
@@ -229,6 +233,26 @@ export function ReportChartCardView({
         <span className="min-w-0 break-words font-semibold text-[13px] text-gray-12">
           {title}
         </span>
+        {stat && (
+          <span
+            className="flex shrink-0 items-baseline gap-1.5"
+            data-testid="chart-headline-stat"
+          >
+            <span className="font-semibold text-[17px] text-gray-12 tabular-nums leading-none">
+              {stat.value}
+            </span>
+            {stat.delta && (
+              // The delta carries no metric polarity, so a rise here isn't
+              // necessarily good (errors, latency, cost all land in these
+              // cards). Stay neutral and let the arrow convey direction alone,
+              // matching how the main app leaves an unlabelled change uncolored.
+              <span className="font-medium text-(--gray-11) text-[11px] tabular-nums">
+                {stat.delta.direction === "up" ? "▲" : "▼"}
+                {stat.delta.label}
+              </span>
+            )}
+          </span>
+        )}
         {openTarget && (
           <Button
             type="button"

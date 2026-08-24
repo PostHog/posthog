@@ -3,6 +3,7 @@ from unittest import mock
 
 from django.apps import apps
 
+from parameterized import parameterized
 from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery, HogQLVariable
@@ -12,7 +13,9 @@ from products.managed_warehouse.backend.client import (
     _configure_s3_secrets,
     _s3_secrets_for_database,
     compile_hogql_to_ducklake_sql,
+    execute_ducklake_create_table,
     execute_ducklake_query,
+    make_duckgres_conninfo,
 )
 from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery
 
@@ -302,6 +305,20 @@ class TestDuckgresShadowCompilation:
         assert kwargs.get("user") is None
 
 
+class TestMakeDuckgresConninfoApplicationName:
+    @parameterized.expand(
+        [
+            ("default", {}, "posthog"),
+            ("explicit_override", {"application_name": "ducklake-register"}, "ducklake-register"),
+        ]
+    )
+    def test_application_name_on_org_root_path(self, _name, kwargs, expected):
+        with mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True):
+            conninfo = make_duckgres_conninfo(1, **kwargs)
+
+        assert f"application_name={expected}" in conninfo
+
+
 class TestExecuteDuckLakeQuery:
     def test_rejects_both_sql_and_query(self):
         with pytest.raises(ValueError, match="not both"):
@@ -403,3 +420,25 @@ class TestExecuteDuckLakeQuery:
 
         mock_config_for_org.assert_called_once_with("org-456")
         assert result.results == [[1]]
+        # Lets duckgres analytics tell this shadow-query caller apart from the
+        # materialization path and from customer connections.
+        conninfo = mock_psycopg.connect.call_args.args[0]
+        assert "application_name=endpoints-shadow" in conninfo
+
+
+class TestExecuteDuckLakeCreateTable:
+    @mock.patch("products.managed_warehouse.backend.client.psycopg")
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
+    def test_uses_materialization_application_name(self, _mock_dev_mode, mock_psycopg):
+        mock_cursor = mock.MagicMock()
+        mock_cursor.fetchone.return_value = (0,)
+        mock_conn = mock.MagicMock()
+        mock_conn.cursor.return_value.__enter__ = mock.Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+        mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
+        mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
+
+        execute_ducklake_create_table(1, "SELECT 1", "shadow", "model")
+
+        conninfo = mock_psycopg.connect.call_args_list[0].args[0]
+        assert "application_name=materialization" in conninfo

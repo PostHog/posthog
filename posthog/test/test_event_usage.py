@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -7,6 +8,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.event_usage import (
     EventSource,
@@ -17,6 +19,27 @@ from posthog.event_usage import (
     report_user_signed_up,
     sanitize_header_value,
 )
+from posthog.models.oauth import OAuthAccessToken
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV, SIGNALS_APP_CLIENT_ID_DEV
+
+# The MCP server's catch-all consumer, sent by every sandbox agent and by the agent PostHog
+# Desktop hosts locally.
+_POSTHOG_CODE_CONSUMER = "posthog-code"
+
+
+def _oauth_authenticator(
+    client_id: str, *, scope: str = "insight:read", consented: bool = True
+) -> OAuthAccessTokenAuthentication:
+    authenticator = OAuthAccessTokenAuthentication()
+    authenticator.access_token = cast(
+        OAuthAccessToken,
+        SimpleNamespace(
+            application=SimpleNamespace(client_id=client_id),
+            source_refresh_token_id="refresh-token-id" if consented else None,
+            scope=scope,
+        ),
+    )
+    return authenticator
 
 
 class TestReportUserAction(BaseTest):
@@ -261,7 +284,8 @@ class TestGetEventSource(BaseTest):
             ("cli_exact", "posthog-cli", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
-            ("hog_dev_subdomain", "posthog/desktop.hog.dev 0.1.0", EventSource.POSTHOG_CODE),
+            ("desktop_app_direct", "posthog/desktop.hog.dev 0.1.0", EventSource.DESKTOP),
+            ("mobile_app_direct", "posthog/mobile.hog.dev; version: 1.4.0", EventSource.MOBILE),
             ("hog_dev_complex", "posthog/my-app.hog.dev", EventSource.POSTHOG_CODE),
             ("mcp_server", "posthog/mcp-server 1.0", EventSource.MCP),
             ("unknown_ua_falls_through_to_api", "some-random-agent/1.0", EventSource.API),
@@ -295,10 +319,100 @@ class TestGetEventSource(BaseTest):
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
 
+    def test_posthog_ai_oauth_app_beats_the_mcp_header(self):
+        request = SimpleNamespace(
+            META={},
+            headers={"X-Posthog-Client": "mcp"},
+            successful_authenticator=_oauth_authenticator(POSTHOG_AI_APP_CLIENT_ID_DEV),
+        )
+        assert get_event_source(request) == EventSource.POSTHOG_AI
+
+    @parameterized.expand(
+        [
+            # Signals runs are sandbox coding agents, so they carry the posthog-code user-agent and
+            # declare the posthog-code consumer. Both would otherwise resolve to POSTHOG_CODE, which
+            # makes the Signals application the only thing that keeps them out of that bucket.
+            ("user_agent", {"user-agent": "posthog/code 1.0"}),
+            ("mcp_consumer", {"X-Posthog-Client": "mcp", "X-Posthog-Mcp-Consumer": _POSTHOG_CODE_CONSUMER}),
+        ]
+    )
+    def test_signals_oauth_app_beats_the_posthog_code_signals(self, _name, headers):
+        request = SimpleNamespace(
+            META={},
+            headers=headers,
+            successful_authenticator=_oauth_authenticator(
+                SIGNALS_APP_CLIENT_ID_DEV, scope="insight:read internal_run:read"
+            ),
+        )
+        assert get_event_source(request) == EventSource.SELF_DRIVING
+
+    @parameterized.expand(
+        [
+            # A first-party caller that declares no consumer is resolved from the grant alone, and
+            # only a token a person consented to in the browser is the interactive app.
+            ("consented_grant_is_the_app", "insight:read", True, EventSource.DESKTOP),
+            ("server_minted_token_is_not_the_app", "insight:read internal_run:read", True, EventSource.MCP),
+            ("no_consent_flow_behind_the_token", "insight:read", False, EventSource.MCP),
+        ]
+    )
+    def test_undeclared_first_party_consumer_resolves_from_the_grant(self, _name, scope, consented, expected):
+        request = SimpleNamespace(
+            META={},
+            headers={"X-Posthog-Client": "mcp"},
+            successful_authenticator=_oauth_authenticator(ARRAY_APP_CLIENT_ID_DEV, scope=scope, consented=consented),
+        )
+        assert get_event_source(request) == expected
+
+    def test_authenticator_without_access_token_falls_through_to_mcp(self):
+        request = SimpleNamespace(
+            META={}, headers={"X-Posthog-Client": "mcp"}, successful_authenticator=SimpleNamespace()
+        )
+        assert get_event_source(request) == EventSource.MCP
+
+    @parameterized.expand(
+        [
+            # The agent PostHog Desktop hosts locally authenticates with the same consented token
+            # as the app around it, so the declared consumer is what tells them apart. A grant that
+            # would otherwise read as the interactive app must not override it.
+            ("local_agent_in_desktop", _POSTHOG_CODE_CONSUMER, "insight:read", True, EventSource.POSTHOG_CODE),
+            ("sandbox_agent", _POSTHOG_CODE_CONSUMER, "insight:read internal_run:read", True, EventSource.POSTHOG_CODE),
+            ("slack_app", "slack", "insight:read internal_run:read", True, EventSource.SLACK),
+            ("posthog_ai_agent", "posthog_ai", "insight:read internal_run:read", True, EventSource.POSTHOG_AI),
+            ("unrecognized_consumer", "ops-agent", "insight:read internal_run:read", True, EventSource.MCP),
+        ]
+    )
+    def test_first_party_mcp_consumer_resolves_to_its_surface(self, _name, consumer, scope, consented, expected):
+        request = SimpleNamespace(
+            META={},
+            headers={"X-Posthog-Client": "mcp", "X-Posthog-Mcp-Consumer": consumer},
+            successful_authenticator=_oauth_authenticator(ARRAY_APP_CLIENT_ID_DEV, scope=scope, consented=consented),
+        )
+        assert get_event_source(request) == expected
+
+    def test_third_party_oauth_app_cannot_declare_a_posthog_surface(self):
+        # `X-Posthog-Mcp-Consumer` is set by the caller, so the first-party OAuth application is
+        # what makes it trustworthy. Without one, a self-declared surface must not be honored.
+        request = SimpleNamespace(
+            META={},
+            headers={"X-Posthog-Client": "mcp", "X-Posthog-Mcp-Consumer": "slack"},
+            successful_authenticator=_oauth_authenticator("some-third-party-client-id"),
+        )
+        assert get_event_source(request) == EventSource.MCP
+
+    def test_mcp_server_only_emits_sources_this_enum_knows(self):
+        # The MCP server stamps the same `source` property on its own events, so a value it emits
+        # that is not an EventSource drops out of every breakdown that joins the two. This list is
+        # EVENT_SOURCE in `services/mcp/src/lib/event-source.ts`, which its own test pins; removing
+        # a surface here without removing it there fails this.
+        mcp_server_sources = {"mcp", "cli", "wizard", "slack", "posthog_ai", "posthog_code", "self_driving"}
+        assert mcp_server_sources <= {source.value for source in EventSource}
+
     @parameterized.expand(
         [
             ("posthog_cli_consumer_is_cli", "posthog-cli", EventSource.CLI),
-            ("other_consumer_stays_mcp", "slack", EventSource.MCP),
+            ("unvouched_slack_stays_mcp", "slack", EventSource.MCP),
+            ("unvouched_posthog_ai_stays_mcp", "posthog_ai", EventSource.MCP),
+            ("unvouched_posthog_code_stays_mcp", "posthog-code", EventSource.MCP),
         ]
     )
     def test_mcp_consumer_header_source(self, _name, consumer, expected):

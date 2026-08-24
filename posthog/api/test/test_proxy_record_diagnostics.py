@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.api import proxy_record_diagnostics as diagnostics
 from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     CustomHostname,
@@ -122,6 +123,28 @@ class TestCheckCloudflare(TestCase):
         assert result.remediation is not None
         self.assertEqual(result.remediation.type, "retry")
         self.assertIsNone(info)
+
+    @parameterized.expand(
+        [
+            ("blocked", CustomHostnameStatus.BLOCKED, "zone hold"),
+            ("pending_blocked", CustomHostnameStatus.PENDING_BLOCKED, "zone hold"),
+            ("moved", CustomHostnameStatus.MOVED, "restore"),
+            ("pending_migration", CustomHostnameStatus.PENDING_MIGRATION, "restore"),
+        ]
+    )
+    @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
+    def test_fail_when_hostname_blocked_despite_active_cert(self, _name, status, remediation_word, get_mock):
+        # An active SSL certificate must not let a blocked or moved hostname pass the check.
+        info = _hostname_info(ssl_status=CustomHostnameSSLStatus.ACTIVE)
+        info.status = status
+        get_mock.return_value = info
+
+        result, _ = diagnostics._check_cloudflare(_record())
+
+        self.assertEqual(result.status, "failed")
+        assert result.remediation is not None
+        self.assertEqual(result.remediation.type, "config")
+        self.assertIn(remediation_word, result.remediation.summary)
 
     @patch("posthog.api.proxy_record_diagnostics.get_custom_hostname_by_domain")
     def test_fail_when_api_errors(self, get_mock):
@@ -255,6 +278,14 @@ class TestCheckLiveEvent(TestCase):
         self.assertEqual(result.status, "passed")
 
     @patch("posthog.api.proxy_record_diagnostics.pinned_request")
+    def test_403_with_cloudflare_1014_fails_with_authorization_message(self, post_mock):
+        # A 403 with Cloudflare error 1014 must fail the check with the authorization message.
+        post_mock.return_value = MagicMock(status_code=403, text="<h1>Error 1014</h1>")
+        result = diagnostics._check_live_event(_record())
+        self.assertEqual(result.status, "failed")
+        self.assertIn("1014", result.detail)
+
+    @patch("posthog.api.proxy_record_diagnostics.pinned_request")
     def test_ssrf_block_fails_the_check_instead_of_escaping(self, post_mock):
         # SSRFBlockedError is not a RequestException, so without its own handler it would
         # escape _check_live_event and surface as a 500 from the diagnose endpoint. A domain
@@ -280,7 +311,7 @@ PUBLIC_IP = ipaddress.ip_address("203.0.113.10")
 
 @patch(
     "posthog.api.proxy_record_diagnostics.validate_url_and_pin_ips",
-    return_value=(True, None, {PUBLIC_IP}),
+    return_value=PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={PUBLIC_IP}),
 )
 class TestCheckCertExpiry(TestCase):
     @parameterized.expand(
@@ -325,7 +356,9 @@ class TestCheckCertExpiry(TestCase):
 
     @patch("posthog.api.proxy_record_diagnostics.socket.create_connection")
     def test_warns_without_connecting_when_the_host_is_not_public(self, create_conn_mock, validate_mock):
-        validate_mock.return_value = (False, "Private IP address not allowed", set())
+        validate_mock.return_value = PinnedUrlVerdict(
+            allowed=False, reason="Private IP address not allowed", pinned_ips=set()
+        )
 
         result = diagnostics._check_cert_expiry(_record(), is_cloudflare=True)
 

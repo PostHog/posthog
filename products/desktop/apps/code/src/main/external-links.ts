@@ -14,6 +14,14 @@ function urlScheme(url: string): string {
   }
 }
 
+function urlHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "<unparseable>";
+  }
+}
+
 // `shell.openExternal` dispatches to whatever app the OS registered for the
 // scheme, so it must never receive a scheme outside the http/https/mailto
 // allowlist: renderer content (including sandboxed MCP apps) can reach these
@@ -101,6 +109,10 @@ export function setupExternalLinkHandlers(
   window.webContents.on("will-navigate", (event, url) => {
     if (isInAppNavigation(url, appHome)) return;
     event.preventDefault();
+    log.info("Cancelled main-frame navigation, opening externally", {
+      scheme: urlScheme(url),
+      host: urlHost(url),
+    });
     openExternalIfSafe(url);
   });
 

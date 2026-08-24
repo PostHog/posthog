@@ -48,7 +48,7 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
     "key_invalid": EvaluationErrorSpec(
         error_type="key_invalid",
         owner="user",
-        safe_message="The provider API key is disabled. Re-validate or replace the key.",
+        safe_message="The provider API key cannot be used. Re-validate or replace the key.",
         status_reason=EvaluationStatusReason.PROVIDER_KEY_INVALID,
         disables_evaluation=True,
     ),

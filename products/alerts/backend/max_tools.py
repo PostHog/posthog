@@ -26,7 +26,7 @@ from posthog.scopes import APIScopeObject
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool

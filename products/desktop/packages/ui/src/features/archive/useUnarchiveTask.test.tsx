@@ -17,9 +17,22 @@ const controller = vi.hoisted(() => ({
   runContextMenuAction: vi.fn(),
 }));
 
+const apiClient = vi.hoisted(() => ({ setTaskArchived: vi.fn() }));
+
 vi.mock("@posthog/di/react", () => ({
   useService: () => controller,
 }));
+
+const archiveSync = vi.hoisted(() => ({
+  forgetServerArchive: vi.fn(),
+  retryServerUnarchive: vi.fn(),
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => apiClient,
+}));
+
+vi.mock("@posthog/ui/features/archive/useServerArchiveSync", () => archiveSync);
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
@@ -116,6 +129,47 @@ describe("useUnarchiveTask", () => {
       }
     },
   );
+
+  it.each<[string, RestoreOutcome, boolean]>([
+    ["restored", { kind: "restored", navigateToTaskId: "t1" }, true],
+    ["error", { kind: "error", message: "nope" }, false],
+  ])(
+    // A task left archived server-side is hidden from every list, so the row
+    // would come back here and stay gone from the counts drawn off that list.
+    "restore() with outcome %s clears the task's server archive: %s",
+    async (_name, outcome, shouldClear) => {
+      controller.restore.mockResolvedValue(outcome);
+      const { result } = renderHook(() => useUnarchiveTask(), { wrapper });
+
+      await act(async () => {
+        await result.current.restore("t1", true);
+      });
+
+      if (shouldClear) {
+        expect(apiClient.setTaskArchived).toHaveBeenCalledWith("t1", false);
+      } else {
+        expect(apiClient.setTaskArchived).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("hands a clear the server refused to the sync pass to retry", async () => {
+    // Nothing else can find it: the reconciler reads task lists, and a task
+    // the server has archived is in none of them.
+    controller.restore.mockResolvedValue({
+      kind: "restored",
+      navigateToTaskId: "t1",
+    } as RestoreOutcome);
+    apiClient.setTaskArchived.mockRejectedValueOnce(new Error("offline"));
+    const { result } = renderHook(() => useUnarchiveTask(), { wrapper });
+
+    await act(async () => {
+      await result.current.restore("t1", true);
+    });
+
+    expect(archiveSync.retryServerUnarchive).toHaveBeenCalledWith("t1");
+    expect(archiveSync.forgetServerArchive).not.toHaveBeenCalled();
+  });
 
   it.each<[string, ContextMenuOutcome, boolean]>([
     ["noop", { kind: "noop" }, false],

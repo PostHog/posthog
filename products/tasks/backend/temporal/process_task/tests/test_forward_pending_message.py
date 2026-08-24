@@ -18,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuAttribution
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
@@ -142,7 +143,13 @@ class TestForwardPendingUserMessage(TestCase):
 
         def measure(*args):
             calls.append("measure")
-            return {"sb-fwd": (1_234_567, measured_at)}
+            return {
+                "sb-fwd": SandboxCpuAttribution(
+                    cpu_usage_usec=1_234_567,
+                    billed_cpu_usage_usec=1_500_000,
+                    measured_at=measured_at,
+                )
+            }
 
         def send(*args, **kwargs):
             calls.append("send")
@@ -157,6 +164,7 @@ class TestForwardPendingUserMessage(TestCase):
         assert session.user_attributed_at is not None
         assert session.last_user_activity_at is not None
         assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
         assert session.provider_cpu_usage_attribution_measured_at == measured_at
         assert calls == ["measure", "send"]
 

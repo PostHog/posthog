@@ -137,20 +137,6 @@ a loop's detail page.
 posthog-code://loop/abc123
 ```
 
-### `posthog-code://approval/<requestId>`
-
-Open the agent fleet approvals inbox focused on a specific tool-approval request.
-Emitted by the agent-runner on a gated tool call so non-PostHog-Code clients
-(Slack, MCP) can land on the approval; the request id alone resolves it.
-
-| Segment / Parameter | Required | Description |
-|---|---|---|
-| `<requestId>` | Yes | Agent tool-approval request id (e.g. `ar_...`). |
-
-```
-posthog-code://approval/ar_abc123
-```
-
 ### `posthog-code://canvas/<channelId>/<dashboardId>`
 
 Open a canvas (a dashboard inside a Channels-space channel) straight in the
@@ -255,7 +241,6 @@ In development the same payload is delivered to `http://localhost:8238/mcp-oauth
 | `inbox` | [packages/core/src/links/inbox-link.ts](../packages/core/src/links/inbox-link.ts) |
 | `scout` | [packages/core/src/links/scout-link.ts](../packages/core/src/links/scout-link.ts) |
 | `loop` | [packages/core/src/links/loop-link.ts](../packages/core/src/links/loop-link.ts) |
-| `approval` | [packages/core/src/links/approval-link.ts](../packages/core/src/links/approval-link.ts) |
 | `canvas` | [packages/core/src/links/canvas-link.ts](../packages/core/src/links/canvas-link.ts) |
 | `channel` | [packages/core/src/links/channel-link.ts](../packages/core/src/links/channel-link.ts) |
 | `new`, `plan`, `issue` | [packages/core/src/links/new-task-link.ts](../packages/core/src/links/new-task-link.ts) |

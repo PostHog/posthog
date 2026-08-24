@@ -11,6 +11,17 @@ from pydantic.fields import FieldInfo
 
 from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
 
+# ── Source-config steering keys ─────────────────────────────────────────────────
+# Public keys of `SignalSourceConfig.config` shared by every emission source. Defined here
+# (not in `emission/`) so the serializer can validate them without importing the emission
+# package, whose __init__ eagerly registers every emitter and must stay off the web path.
+
+STEERING_KEY = "steering"
+DEFAULT_NOT_ACTIONABLE_KEY = "default_not_actionable"
+# Server-side cap on steering text. The serializer rejects longer input; reads truncate
+# defensively so a row written by another path cannot bloat every gate prompt.
+STEERING_MAX_LENGTH = 2000
+
 
 class ContractModel(BaseModel):
     # Emitted payloads are validated against these models at the emit boundary; unknown fields are
@@ -128,6 +139,13 @@ class GithubIssueSignalExtra(SignalExtraBase):
     updated_at: str
     locked: bool
     state: str
+    # Defaulted, unlike the fields above: payloads emitted before these columns existed carry
+    # neither key, and an author is context for triage rather than something a signal needs.
+    author_login: str | None = None
+    # GitHub's own enum — OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR,
+    # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
+    # taxonomy instead of failing validation and dropping the signal.
+    author_association: str | None = None
 
 
 class GithubIssueSignalInput(SignalInputBase):

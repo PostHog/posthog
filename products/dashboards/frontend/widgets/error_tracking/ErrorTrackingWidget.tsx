@@ -1,9 +1,10 @@
 import { BindLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
+import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { SupermanHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -25,6 +26,8 @@ import type { WidgetIssueMetadataDelta } from './applyWidgetIssueMetadataChange'
 import { parseErrorTrackingWidgetConfig } from './errorTrackingWidgetConfigValidation'
 import { errorTrackingWidgetLogic } from './errorTrackingWidgetLogic'
 import { canConfigureErrorTrackingWidgetIssues } from './utils'
+
+const HedgehogSuperhero = pngHoggie(superheroPng)
 
 type ErrorTrackingWidgetResult = {
     results?: ErrorTrackingIssue[]
@@ -130,7 +133,7 @@ function ErrorTrackingWidgetBody({
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="error-tracking-widget-empty-state"
                     >
-                        <SupermanHog className="size-20 shrink-0" />
+                        <HedgehogSuperhero className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">All clear!</p>
                         <p className="m-0 text-sm text-muted">
                             No issues matched your filters. That's a good thing. Enjoy the quiet.

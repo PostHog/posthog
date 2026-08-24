@@ -24,8 +24,9 @@ function userMessage(
   id: string,
   content: string,
   pinToTop?: boolean,
+  timestamp = 0,
 ): Extract<ConversationItem, { type: "user_message" }> {
-  return { type: "user_message", id, content, timestamp: 0, pinToTop };
+  return { type: "user_message", id, content, timestamp, pinToTop };
 }
 
 describe("mergeConversationItems", () => {
@@ -56,16 +57,21 @@ describe("mergeConversationItems", () => {
     expect(result.map((i) => i.id)).toEqual(["opt", "setup"]);
   });
 
-  it("cloud: filters echoed user_message that matches optimistic content", () => {
+  it("cloud: stitches an echoed user_message into its optimistic row", () => {
     const result = mergeConversationItems({
       conversationItems: [
-        userMessage("echo", "hello"),
-        userMessage("other", "different"),
+        userMessage("echo", "hello", undefined, 100),
+        userMessage("other", "different", undefined, 200),
       ],
-      optimisticItems: [userMessage("opt", "hello")],
+      optimisticItems: [userMessage("opt", "hello", true, 300)],
       isCloud: true,
     });
     expect(result.map((i) => i.id)).toEqual(["opt", "other"]);
+    expect(result[0]).toMatchObject({
+      id: "opt",
+      timestamp: 100,
+      pinToTop: undefined,
+    });
   });
 
   it("cloud: dedupes the echoed prompt even when it carries an appended channel CONTEXT.md", () => {

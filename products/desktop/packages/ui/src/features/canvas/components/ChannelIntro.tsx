@@ -1,4 +1,5 @@
 import {
+  Button,
   Item,
   ItemContent,
   ItemDescription,
@@ -6,13 +7,14 @@ import {
   ItemTitle,
   Spinner,
 } from "@posthog/quill";
-import { getLocalDayDiff } from "@posthog/shared";
+import { EXTERNAL_LINKS, getLocalDayDiff } from "@posthog/shared";
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { mentionChipClass } from "@posthog/ui/features/canvas/components/MentionText";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Heading, Text } from "@radix-ui/themes";
-import { FileCheckCorner, FilePlusCorner, Info } from "lucide-react";
+import { FileCheckCorner, FilePlusCorner, Info, X } from "lucide-react";
 
 // "today" / "yesterday" / "on July 10" for the intro's creation line.
 function creationDatePhrase(iso: string): string {
@@ -37,19 +39,35 @@ export function ChannelIntro({
   channelName,
   contextMdState,
   onCreateContextMd,
+  onDismiss,
 }: {
   /** The backend channel row (creator + creation time). */
   channel: TaskChannel | undefined;
   channelName: string;
   contextMdState: ContextMdState;
   onCreateContextMd: () => void;
+  /** Renders a close button that hides the intro for this channel. */
+  onDismiss?: () => void;
 }) {
   const creator = channel?.created_by;
   const spacesLayout = useChannelsLayout();
   const noun = spacesLayout ? "space" : "channel";
 
   return (
-    <div className="flex w-full max-w-[70ch] flex-col gap-3 px-4 pt-8 pb-10">
+    // Width and horizontal padding come from the feed column that renders
+    // this, so the intro lines up with the composer and the cards below.
+    <div className="group/intro relative flex w-full flex-col gap-3 pt-2 pb-4">
+      {onDismiss && (
+        <Button
+          variant="default"
+          size="icon-sm"
+          aria-label="Dismiss intro"
+          className="absolute top-2 right-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/intro:opacity-100"
+          onClick={onDismiss}
+        >
+          <X size={14} />
+        </Button>
+      )}
       <div className="flex flex-col gap-0">
         <Heading className="font-bold text-2xl">{channelName}</Heading>
         {channel && (
@@ -58,9 +76,7 @@ export function ChannelIntro({
             <span className={mentionChipClass}>
               @{userDisplayName(creator ?? null)}
             </span>{" "}
-            created this {noun} {creationDatePhrase(channel.created_at)}. This
-            is the very beginning of the{" "}
-            <Text weight="bold">{channelName}</Text> {noun}.
+            created this {noun} {creationDatePhrase(channel.created_at)}.
           </Text>
         )}
       </div>
@@ -122,7 +138,12 @@ export function ChannelIntro({
         <Item
           className="w-full border-primary/50 hover:bg-fill-hover"
           variant="pressable"
-          render={<button type="button" onClick={() => {}} />}
+          render={
+            <button
+              type="button"
+              onClick={() => openExternalUrl(EXTERNAL_LINKS.docs)}
+            />
+          }
         >
           <ItemMedia variant="icon">
             <Info size={18} />

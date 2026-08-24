@@ -9,7 +9,8 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
-        "lodash.uniqby": "^4.7.0"
+        "lodash.uniqby": "^4.7.0",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@testing-library/react": "^14.3.1",

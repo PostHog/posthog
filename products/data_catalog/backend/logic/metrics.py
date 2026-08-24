@@ -9,7 +9,9 @@ measurement.
 """
 
 import re
+from functools import partial
 from typing import TYPE_CHECKING, Optional
+from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -17,11 +19,12 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
@@ -60,6 +63,22 @@ _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
 # name is in here because agents pick a metric by matching its name (see the information_schema.metrics
 # description), so moving an approved definition under a different name changes what the approval says.
 _APPROVAL_RELEVANT_FIELDS = frozenset({"name", "description", "unit"})
+
+# One bulk request holds a row lock per metric for the length of a single transaction, so the batch
+# is capped. A team's catalog is tens of metrics, well inside this.
+METRIC_BULK_MAX = 100
+
+BULK_SKIP_NOT_FOUND = "Not found"
+BULK_SKIP_ALREADY_APPROVED = "Already approved"
+BULK_SKIP_DRIFTED = "Drifted from its source insight"
+
+
+@frozen
+class MetricBulkSkip:
+    """A metric a bulk operation did not act on, and why."""
+
+    name: str
+    reason: str
 
 
 def _canonical_definition(
@@ -315,6 +334,13 @@ def update_metric(
     return metric
 
 
+def _apply_approval(metric: Metric, user: Optional[User]) -> None:
+    metric.status = MetricStatus.APPROVED
+    metric.approved_by = user
+    metric.approved_at = timezone.now()
+    metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
+
+
 def approve_metric(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
     with team_scope(metric.team_id), transaction.atomic():
@@ -331,10 +357,7 @@ def approve_metric(metric: Metric, user: Optional[User], request: "Request | Non
             raise MetricDrifted()
         if metric.status == MetricStatus.APPROVED:
             return metric
-        metric.status = MetricStatus.APPROVED
-        metric.approved_by = user
-        metric.approved_at = timezone.now()
-        metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
+        _apply_approval(metric, user)
     capture_metric_event(METRIC_APPROVED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
@@ -373,12 +396,126 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
     return metric
 
 
-def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
+def _apply_soft_delete(metric: Metric) -> None:
     metric.deleted = True
     metric.deleted_at = timezone.now()
+    metric.save(update_fields=["deleted", "deleted_at", "updated_at"])
+
+
+def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
     with team_scope(metric.team_id):
-        metric.save(update_fields=["deleted", "deleted_at", "updated_at"])
+        _apply_soft_delete(metric)
     capture_metric_event(METRIC_DELETED_EVENT, metric, team=metric.team, user=user, request=request)
+
+
+def _batch_team(metrics: list[Metric]) -> Team:
+    """The single team a bulk batch belongs to, loaded once so event capture doesn't refetch per metric."""
+    team_ids = {metric.team_id for metric in metrics}
+    if len(team_ids) > 1:
+        raise ValueError("A bulk metric operation must stay within one team.")
+    return Team.objects.get(pk=team_ids.pop())
+
+
+def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
+    """Re-read and row-lock the batch, keyed by id.
+
+    Locks in ``pk`` order so two concurrent bulk operations over overlapping rows queue behind each
+    other instead of deadlocking. A metric missing from the result was deleted between resolution and
+    the lock.
+    """
+    locked = (
+        Metric.objects.for_team(team_id)
+        .filter(pk__in=[metric.pk for metric in metrics], deleted=False)
+        # Cache owner and created_by so serializing the approve response reads them off the row
+        # instead of one posthog_user lookup per metric. Both FKs are nullable, so select_related
+        # is a LEFT OUTER JOIN; Postgres rejects FOR UPDATE on the nullable side of an outer join,
+        # so scope the lock to the Metric row with of=("self",) (which also keeps the lock off
+        # posthog_user).
+        .select_for_update(of=("self",))
+        .select_related("owner", "created_by")
+        .order_by("pk")
+    )
+    return {metric.id: metric for metric in locked}
+
+
+def _locked_match(locked: dict[UUID, Metric], requested: Metric) -> Optional[Metric]:
+    """The locked row that still holds the name the caller asked for, or None.
+
+    Callers address a metric by name, and a name is freed for reuse. A row renamed between name
+    resolution and the lock is no longer the metric that was requested, so the batch leaves it alone
+    rather than acting on it under a name nobody sent.
+    """
+    metric = locked.get(requested.id)
+    if metric is None or metric.name != requested.name:
+        return None
+    return metric
+
+
+def _capture_after_commit(
+    event: str, metrics: list[Metric], *, team: Team, user: Optional[User], request: "Request | None"
+) -> None:
+    for metric in metrics:
+        transaction.on_commit(partial(capture_metric_event, event, metric, team=team, user=user, request=request))
+
+
+def bulk_approve_metrics(
+    metrics: list[Metric], user: Optional[User], request: "Request | None" = None
+) -> tuple[list[Metric], list[MetricBulkSkip]]:
+    """Approve every approvable metric in one transaction, reporting the rest as skipped with a reason.
+
+    Drift is checked against the locked rows, so a metric that drifted or was approved between the
+    caller rendering it and this call is skipped rather than approved. Response order follows the
+    request.
+    """
+    if not metrics:
+        return [], []
+    team = _batch_team(metrics)
+    approved: list[Metric] = []
+    skipped: list[MetricBulkSkip] = []
+
+    with team_scope(team.id), transaction.atomic():
+        locked = _lock_batch(team.id, metrics)
+        drifted = compute_drift(locked.values())
+        for requested in metrics:
+            metric = _locked_match(locked, requested)
+            if metric is None:
+                skipped.append(MetricBulkSkip(name=requested.name, reason=BULK_SKIP_NOT_FOUND))
+            elif drifted[metric.id]:
+                skipped.append(MetricBulkSkip(name=metric.name, reason=BULK_SKIP_DRIFTED))
+            elif metric.status == MetricStatus.APPROVED:
+                skipped.append(MetricBulkSkip(name=metric.name, reason=BULK_SKIP_ALREADY_APPROVED))
+            else:
+                # Per-instance save, never a queryset UPDATE: the audit trail only fires in save().
+                _apply_approval(metric, user)
+                approved.append(metric)
+        _capture_after_commit(METRIC_APPROVED_EVENT, approved, team=team, user=user, request=request)
+
+    return approved, skipped
+
+
+def bulk_soft_delete_metrics(
+    metrics: list[Metric], user: Optional[User] = None, request: "Request | None" = None
+) -> tuple[list[Metric], list[MetricBulkSkip]]:
+    """Soft-delete a batch in one transaction, freeing their names for reuse."""
+    if not metrics:
+        return [], []
+    team = _batch_team(metrics)
+    deleted: list[Metric] = []
+    skipped: list[MetricBulkSkip] = []
+
+    with team_scope(team.id), transaction.atomic():
+        # Same pk lock order as bulk_approve_metrics, so a mixed approve/delete pair can't deadlock.
+        locked = _lock_batch(team.id, metrics)
+        for requested in metrics:
+            metric = _locked_match(locked, requested)
+            if metric is None:
+                skipped.append(MetricBulkSkip(name=requested.name, reason=BULK_SKIP_NOT_FOUND))
+                continue
+            _apply_soft_delete(metric)
+            deleted.append(metric)
+        _capture_after_commit(METRIC_DELETED_EVENT, deleted, team=team, user=user, request=request)
+
+    return deleted, skipped
 
 
 def _reset_to_proposed(metric: Metric) -> None:

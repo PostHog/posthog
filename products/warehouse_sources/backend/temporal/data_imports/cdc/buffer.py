@@ -47,6 +47,8 @@ import pyarrow.parquet as pq
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
@@ -112,8 +114,15 @@ def build_buffer_file_name(start_seq: int, end_seq: int, file_index: int) -> str
     return f"{start_seq:0{_SEQ_WIDTH}d}-{end_seq:0{_SEQ_WIDTH}d}-{file_index:0{_INDEX_WIDTH}d}.parquet"
 
 
-def parse_buffer_file_name(file_name: str) -> tuple[int, int, int] | None:
-    """Parse `{start}-{end}-{index}.parquet` → (start_seq, end_seq, file_index).
+@frozen
+class BufferFileSpan:
+    start_seq: int
+    end_seq: int
+    file_index: int
+
+
+def parse_buffer_file_name(file_name: str) -> BufferFileSpan | None:
+    """Parse `{start}-{end}-{index}.parquet` into the batch's position span.
 
     Returns None for names that don't match the contract (foreign files are
     ignored, never treated as buffer data).
@@ -121,7 +130,11 @@ def parse_buffer_file_name(file_name: str) -> tuple[int, int, int] | None:
     match = _FILE_NAME_RE.fullmatch(file_name)
     if match is None:
         return None
-    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    return BufferFileSpan(
+        start_seq=int(match.group(1)),
+        end_seq=int(match.group(2)),
+        file_index=int(match.group(3)),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,8 +238,7 @@ class CDCBufferWriter:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
             if parsed is None:
                 continue
-            start_seq, _end_seq, _file_index = parsed
-            if start_seq >= restart_seq:
+            if parsed.start_seq >= restart_seq:
                 with suppress(Exception):
                     self._s3.rm(key)
                     removed += 1

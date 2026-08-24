@@ -3,8 +3,6 @@ import { extractCanvasInstructions } from "@posthog/ui/features/sessions/compone
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 
-export const PROMPT_RECALL_HINT_KEY = "recall-message-nav";
-
 export interface RecallableMessage {
   id: string;
   content: string;

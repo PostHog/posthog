@@ -273,6 +273,37 @@ class TestPgCDCStreamReaderReadChangesConnectionDropped:
         assert reader._conn is new_conn
         assert reader.last_rows_consumed == len(rows)
 
+    def test_read_changes_reconnects_after_mid_peek_internal_error_drop_before_first_row(self, params):
+        # Neon's walsender surfaces a lost connection to a safekeeper as a generic XX000
+        # InternalError_ rather than an OperationalError — the retry loop must catch this type too,
+        # or the drop escapes uncaught and fails the whole extraction instead of reconnecting.
+        rows = [("0/1", 1, b"a"), ("0/2", 1, b"b")]
+        reader, fake_cursor = self._reader_reading(
+            params,
+            [
+                psycopg.errors.InternalError_(
+                    "[walsender] Failed to read WAL (req_lsn=0/1000000, len=8192): failed to connect "
+                    "to safekeeper-1.cell-1.us-east-1.aws.neon.tech:6401 to fetch WAL: poll error: "
+                    "server closed the connection unexpectedly"
+                ),
+                iter(rows),
+            ],
+        )
+        new_conn = mock.MagicMock()
+        new_conn.cursor.return_value.__enter__.return_value = fake_cursor
+        reconnect = mock.MagicMock(return_value=new_conn)
+        with (
+            patch.object(reader, "_open_streaming_connection", reconnect),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader.time.sleep"
+            ),
+        ):
+            list(reader.read_changes(upto_nchanges=10))
+
+        reconnect.assert_called_once()
+        assert reader._conn is new_conn
+        assert reader.last_rows_consumed == len(rows)
+
     def test_read_changes_does_not_retry_drop_after_row_yielded(self, params):
         # Once a row has been yielded the caller has buffered events, so a re-peek would duplicate
         # them — the drop must surface and let Temporal replay the whole run from the last confirmed

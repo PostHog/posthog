@@ -11,6 +11,7 @@ import {
     LemonModal,
     LemonSearchableSelect,
     LemonSelect,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -55,37 +56,64 @@ const TARGET_TYPE_OPTIONS: { value: CustomPropertyTargetType; label: string }[] 
     { value: 'group', label: 'Group' },
 ]
 
-// The table an existing source reads, shown as text because the binding is create-only. Links to the
-// table's own page, where its sync history and import errors are.
-function ReadOnlyWarehouseTable({
+// What an existing source reads, shown as text because the binding is create-only. Links to the table
+// or view's own page, where its run history and errors are.
+function ReadOnlyWarehouseSource({
     entityPlural,
+    isView,
     tableName,
-    schemaUrl,
+    sourceUrl,
 }: {
     entityPlural: string
+    isView: boolean
     tableName: string | null
-    schemaUrl: string | null
+    sourceUrl: string | null
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
-            <LemonLabel>Warehouse table</LemonLabel>
+            <LemonLabel>{isView ? 'Materialized view' : 'Warehouse table'}</LemonLabel>
             {tableName ? (
-                schemaUrl ? (
-                    <Link to={schemaUrl} target="_blank" targetBlankIcon>
+                <span className="flex items-center gap-2">
+                    {sourceUrl ? (
+                        <Link to={sourceUrl} target="_blank" targetBlankIcon>
+                            <code>{tableName}</code>
+                        </Link>
+                    ) : (
                         <code>{tableName}</code>
-                    </Link>
-                ) : (
-                    <code>{tableName}</code>
-                )
+                    )}
+                    <LemonTag type="muted">{isView ? 'View' : 'Table'}</LemonTag>
+                </span>
             ) : (
                 <span className="text-secondary">
-                    This table isn't available. It may have been deleted, or you may not have access to the source it
-                    belongs to.
+                    This {isView ? 'view' : 'table'} isn't available. It may have been deleted, or you may not have
+                    access to it.
                 </span>
             )}
             <span className="text-secondary text-xs">
-                Rows from this table update matching {entityPlural} on every sync. You can't change the table after the
-                property is created.
+                Rows from here update matching {entityPlural} on every run. You can't change what a property reads after
+                it's created.
+            </span>
+        </div>
+    )
+}
+
+// The group type an existing group property attaches to. Create-only on the backend, so it's shown as
+// text — but it still has to be shown, since it's part of what the property is.
+function ReadOnlyGroupType({ label, loading }: { label: string | null; loading: boolean }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <LemonLabel>Group type</LemonLabel>
+            {loading ? (
+                <LemonSkeleton className="h-4 w-24" />
+            ) : label ? (
+                <span>{label}</span>
+            ) : (
+                <span className="text-secondary">
+                    This group type isn't available. It may have been removed from the project.
+                </span>
+            )}
+            <span className="text-secondary text-xs">
+                You can't change the group type after the property is created.
             </span>
         </div>
     )
@@ -137,27 +165,30 @@ function ReadOnlyColumnMappings({
 function PersonSourceEditor(): JSX.Element {
     const {
         customPropertyForm,
-        warehouseTables,
+        warehouseSourceOptions,
         warehouseTablesLoading,
+        savedQueriesLoading,
         editingDefinition,
         columnMappingWarnings,
         selectedTableColumns,
         selectedTableColumnsLoading,
-        hasSyncedWarehouseTables,
+        hasWarehouseSourceOptions,
+        mappableColumns,
     } = useValues(customPropertyDefinitionsLogic)
-    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables } =
+    const { setCustomPropertyFormValue, loadSelectedTableColumns, loadWarehouseTables, mapAllColumns } =
         useActions(customPropertyDefinitionsLogic)
-    const { groupTypes } = useValues(groupsModel)
+    const { groupTypes, groupTypesLoading } = useValues(groupsModel)
 
     const isGroup = customPropertyForm.targetType === 'group'
     const entityLabel = isGroup ? 'group' : 'person'
     const entityPlural = isGroup ? 'groups' : 'people'
     const existingSource = editingDefinition?.source
     const hasExistingSource = !!existingSource
-    // Deliberately not derived from `warehouseTables` — the picker's search narrows that list, and a
-    // search with no matches would otherwise collapse the whole editor into the empty-state banner,
-    // taking the search box with it. The picker shows its own "no options matching" instead.
-    const noTables = hasSyncedWarehouseTables === false
+    // Deliberately not derived from the picker's options — its search narrows that list, and a search
+    // with no matches would otherwise collapse the whole editor into the empty-state banner, taking the
+    // search box with it. The picker shows its own "no options matching" instead.
+    const noSources = hasWarehouseSourceOptions === false
+    const existingBindsAView = !!existingSource?.saved_query && !existingSource?.external_data_schema
     const mappings = customPropertyForm.columnMappings
     const setMappings = (next: typeof mappings): void => setCustomPropertyFormValue('columnMappings', next)
     const columnByName = new Map(selectedTableColumns.map((column) => [column.name, column]))
@@ -173,55 +204,82 @@ function PersonSourceEditor(): JSX.Element {
             </span>
         ),
     }))
+    const keyColumnLabel = isGroup ? 'group key column' : 'distinct ID column'
+    // Bulk mapping needs the key column chosen first, since that is what it excludes. Naming the
+    // reason in the disabled state keeps a wide table from being mapped with its identifier in it.
+    const mapAllDisabledReason = !customPropertyForm.warehouseSource
+        ? 'Select a table or view first'
+        : selectedTableColumnsLoading
+          ? 'Loading columns'
+          : !customPropertyForm.keyColumn?.trim()
+            ? `Choose the ${keyColumnLabel} first`
+            : !mappableColumns.length
+              ? 'Every column is mapped already'
+              : undefined
+    const warningCount = columnMappingWarnings.filter(Boolean).length
     const groupTypeOptions = Array.from(groupTypes.values()).map((groupType) => ({
         value: groupType.group_type_index,
         label: groupType.name_singular || groupType.group_type,
     }))
+    const selectedGroupTypeLabel =
+        groupTypeOptions.find((option) => option.value === customPropertyForm.groupTypeIndex)?.label ?? null
 
-    // Only block on missing tables while creating a source — an existing source still needs its
-    // key column and enabled switch editable even if its table was later deleted or filtered out.
-    if (noTables && !hasExistingSource) {
+    // Only block on missing sources while creating a property — an existing source still needs its key
+    // column and enabled switch editable even if what it reads was later deleted or filtered out.
+    if (noSources && !hasExistingSource) {
         return (
             <LemonBanner type="info">
-                No synced data warehouse tables found. Connect and sync a source (e.g. your users table) first, then it
-                can feed person properties.
+                No data warehouse tables or materialized views found. Connect and sync a source, or materialize a view,
+                then it can feed {entityLabel} properties.
             </LemonBanner>
         )
     }
 
     return (
         <>
-            {isGroup && !hasExistingSource && (
-                <LemonField name="groupTypeIndex" label="Group type" help="Which group type this property attaches to.">
-                    {({ value, onChange }) => (
-                        <LemonSelect
-                            value={value}
-                            onChange={onChange}
-                            options={groupTypeOptions}
-                            placeholder="Select a group type"
-                            fullWidth
-                        />
-                    )}
-                </LemonField>
-            )}
+            {/* group_type_index is create-only on the backend, so on edit it's read-only text rather
+                than a picker whose value would be dropped. */}
+            {isGroup &&
+                (editingDefinition ? (
+                    <ReadOnlyGroupType label={selectedGroupTypeLabel} loading={groupTypesLoading} />
+                ) : (
+                    <LemonField
+                        name="groupTypeIndex"
+                        label="Group type"
+                        help="Which group type this property attaches to."
+                    >
+                        {({ value, onChange }) => (
+                            <LemonSelect
+                                value={value}
+                                onChange={onChange}
+                                options={groupTypeOptions}
+                                placeholder="Select a group type"
+                                fullWidth
+                            />
+                        )}
+                    </LemonField>
+                ))}
             {hasExistingSource ? (
-                <ReadOnlyWarehouseTable
+                <ReadOnlyWarehouseSource
                     entityPlural={entityPlural}
-                    tableName={existingSource?.table_name ?? null}
-                    schemaUrl={
-                        existingSource?.external_data_source && existingSource.external_data_schema
-                            ? urls.dataWarehouseSourceSchema(
-                                  existingSource.external_data_source,
-                                  existingSource.external_data_schema
-                              )
-                            : null
+                    isView={existingBindsAView}
+                    tableName={existingSource?.saved_query_name ?? existingSource?.table_name ?? null}
+                    sourceUrl={
+                        existingBindsAView && existingSource?.saved_query
+                            ? urls.sqlEditor({ view_id: existingSource.saved_query })
+                            : existingSource?.external_data_source && existingSource.external_data_schema
+                              ? urls.dataWarehouseSourceSchema(
+                                    existingSource.external_data_source,
+                                    existingSource.external_data_schema
+                                )
+                              : null
                     }
                 />
             ) : (
                 <LemonField
-                    name="warehouseTable"
-                    label="Warehouse table"
-                    help={`Rows from this synced table are upserted onto matching ${entityLabel}s. Type to search all synced tables.`}
+                    name="warehouseSource"
+                    label="Warehouse source"
+                    help={`Rows from this table or view are written onto matching ${entityLabel}s. Type to search synced tables and materialized views.`}
                 >
                     {({ value, onChange }) => (
                         <LemonInputSelect
@@ -230,23 +288,30 @@ function PersonSourceEditor(): JSX.Element {
                             onChange={(newValues) => {
                                 const newValue = newValues[0] ?? null
                                 onChange(newValue)
-                                // Columns are table-specific, so a table change invalidates the picks and
-                                // loads the new table's columns for the pickers below.
+                                // Columns belong to one source, so a change invalidates the picks and
+                                // loads the new source's columns for the pickers below.
                                 setCustomPropertyFormValue('keyColumn', null)
                                 setMappings(mappings.map((mapping) => ({ ...mapping, column: '', description: '' })))
-                                // Also load on clear (tableId null) so the pickers below drop the previous
-                                // table's stale columns; the loader returns an empty list for null.
-                                loadSelectedTableColumns({ tableId: newValue })
+                                // Also load on clear (null) so the pickers below drop the previous source's
+                                // stale columns; the loader returns an empty list for null.
+                                loadSelectedTableColumns({ source: newValue })
                             }}
-                            // Search runs on the backend so the whole synced catalog is reachable, not just
-                            // the first page loaded into the picker.
+                            // Table search runs on the backend so the whole synced catalog is reachable,
+                            // not just the first page loaded into the picker. Views are all loaded already,
+                            // so the picker filters those itself.
                             onInputChange={(search) => loadWarehouseTables({ search })}
-                            options={warehouseTables.map((table) => ({
-                                key: table.id,
-                                label: table.hogql_name || table.name,
+                            options={warehouseSourceOptions.map((option) => ({
+                                key: option.value,
+                                label: option.label,
+                                labelComponent: (
+                                    <span className="flex items-center gap-2">
+                                        <span>{option.label}</span>
+                                        <LemonTag type="muted">{option.kind === 'view' ? 'View' : 'Table'}</LemonTag>
+                                    </span>
+                                ),
                             }))}
-                            loading={warehouseTablesLoading}
-                            placeholder="Select a warehouse table"
+                            loading={warehouseTablesLoading || savedQueriesLoading}
+                            placeholder="Select a table or view"
                         />
                     )}
                 </LemonField>
@@ -340,18 +405,37 @@ function PersonSourceEditor(): JSX.Element {
                             )}
                         </div>
                     ))}
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
-                    >
-                        Add mapping
-                    </LemonButton>
+                    {warningCount > 0 && (
+                        <span className="text-warning text-xs">
+                            {warningCount === 1
+                                ? '1 mapped property needs a look before you save.'
+                                : `${warningCount} mapped properties need a look before you save.`}
+                        </span>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            onClick={() => setMappings([...mappings, { column: '', property: '', description: '' }])}
+                        >
+                            Add mapping
+                        </LemonButton>
+                        <LemonButton type="secondary" onClick={mapAllColumns} disabledReason={mapAllDisabledReason}>
+                            {mappableColumns.length > 0
+                                ? `Map ${mappableColumns.length} more columns`
+                                : 'Map all columns'}
+                        </LemonButton>
+                    </div>
+                    <span className="text-secondary text-xs">
+                        Mapping every column keeps the warehouse column names. The {keyColumnLabel} is left out, because
+                        its values identify the {entityLabel} rather than describing it. Nothing is saved until you
+                        create the property, so you can edit or remove any row first.
+                    </span>
                 </div>
             )}
             <LemonField
                 name="isEnabled"
-                help={`When on, this table's syncs update the mapped ${entityLabel} properties, and each sync backfills changed rows. Turn it off to stop updating those properties without deleting the mapping; values already synced stay.`}
+                help={`When on, every run of the table or view updates the mapped ${entityLabel} properties, and each run writes the rows that changed. Turn it off to stop updating those properties without deleting the mapping. Values already written stay.`}
             >
                 {({ value, onChange }) => (
                     <LemonSwitch
@@ -361,7 +445,7 @@ function PersonSourceEditor(): JSX.Element {
                             <span className="flex items-center gap-1">
                                 Sync enabled
                                 <Tooltip
-                                    title={`Keeps the mapped ${entityLabel} properties updated from this warehouse table on every sync. Disabling stops updates; it doesn't remove values already written.`}
+                                    title={`Keeps the mapped ${entityLabel} properties updated on every run of what this property reads. Disabling stops updates. It doesn't remove values already written.`}
                                 >
                                     <IconInfo className="text-secondary" />
                                 </Tooltip>

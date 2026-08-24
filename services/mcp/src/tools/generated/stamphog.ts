@@ -238,6 +238,7 @@ const stamphogReviewRunsList = (): ToolBase<
                 pr_number: params.pr_number,
                 repository: params.repository,
                 status: params.status,
+                trigger: params.trigger,
             },
         })
         const filtered = {

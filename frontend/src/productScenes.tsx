@@ -88,6 +88,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     ErrorTrackingFingerprint: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
+    Experiments: () => import('../../products/experiments/frontend/scenes/ExperimentsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
@@ -133,6 +134,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
+    StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
+    StamphogDigests: () => import('../../products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
     StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
     StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
     StreamlitAppEdit: () => import('../../products/streamlit_apps/frontend/StreamlitAppEdit'),

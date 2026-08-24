@@ -100,6 +100,7 @@ class TestSandboxWarmerWarm(APIBaseTest):
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
             patch(f"{WARM}.is_team_limited", return_value=False),
+            patch("products.tasks.backend.models.settings.TEST", False),
         ):
             result = SandboxWarmer(task, user=self.user).warm()
             m_workflow.assert_not_called()

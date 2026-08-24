@@ -44,7 +44,6 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -79,6 +78,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerModel,
     ScannerProvider,
     ScannerType,
+    apply_experiment_targeting,
 )
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
@@ -97,6 +97,7 @@ from products.replay_vision.backend.quota import (
     current_period_bounds,
     spend_projection,
 )
+from products.replay_vision.backend.scanner_access import is_experiment_accessible
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
     MAX_TAG_LENGTH,
@@ -107,10 +108,23 @@ from products.replay_vision.backend.scanner_draft import DraftError, draft_scann
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
+from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
+
+
+def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
+    # Exposure is derived from experiment_targeting at scan time, never persisted in the query blob:
+    # writable exposure there would bypass experiment_targeting's access check and let an editor run
+    # the exposure filter under the creator's access.
+    if query.get("experiment_exposure") is not None:
+        raise serializers.ValidationError(
+            "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
+        )
+
 
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
@@ -197,23 +211,21 @@ class FeedbackThemesSerializer(serializers.Serializer):
 
 
 class ScannerExperimentTargetingSerializer(serializers.Serializer):
-    """The experiment a scanner's targeting watches. Metadata only; scanning never reads it."""
+    """The experiment a scanner watches. Scans derive their person-scoped exposure filter from
+    this blob at query time, so it is the only place an experiment can enter a scanner's
+    targeting — which is what lets the write-side access check and read-side redaction cover it."""
 
     experiment_id = serializers.IntegerField(
         min_value=1,
         help_text="The experiment the scanner watches.",
     )
-    variant_keys = serializers.ListField(
-        child=serializers.CharField(max_length=400, allow_blank=False),
-        allow_empty=True,
-        max_length=50,
-        help_text="Targeted experiment variants. Empty means every variant.",
-    )
-    use_exposure_fallback = serializers.BooleanField(
-        help_text=(
-            "True when the exposure event is captured server-side and the query filters on the "
-            "`$feature/<flag_key>` property instead."
-        ),
+    variant = serializers.CharField(
+        max_length=400,
+        allow_blank=False,
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="Narrow to sessions of people exposed to this variant. Null means every variant.",
     )
 
 
@@ -525,22 +537,32 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._reject_scanner_type_change(attrs)
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
+        self._drop_redacted_targeting_clear(attrs)
         return attrs
+
+    def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
+        # to_representation redacts experiment_targeting to null for callers denied the experiment,
+        # and the editor form writes the whole object back on save. Without this, any save by such
+        # a caller would carry experiment_targeting=None and silently clear targeting they can't
+        # see. Dropping the key treats it as untouched; a caller who can view the experiment can
+        # still clear it explicitly.
+        if (
+            "experiment_targeting" in attrs
+            and attrs["experiment_targeting"] is None
+            and self.instance is not None
+            and self.instance.experiment_targeting
+            and not self._can_view_targeted_experiment(self.instance.experiment_targeting)
+        ):
+            attrs.pop("experiment_targeting")
 
     def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         # The field already validated the blob's shape; this adds the access check, which needs the
         # request context the field lacks. Filtered by the caller's experiment access (not just the
         # team) so a scanner-editor can't confirm an experiment they can't view exists — a denied or
-        # cross-team id reads as not-found. Falls back to team scoping when there's no request context.
+        # cross-team id reads as not-found.
         if value is None:
             return None
-        team_experiments = Experiment.objects.filter(team=self.context["get_team"]())
-        accessible = (
-            self.user_access_control.filter_queryset_by_access_level(team_experiments)
-            if self.user_access_control
-            else team_experiments
-        )
-        if not accessible.filter(id=value["experiment_id"]).exists():
+        if not self._can_view_targeted_experiment(value):
             raise serializers.ValidationError("Experiment not found in this project.")
         return value
 
@@ -586,6 +608,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             RecordingsQuery.model_validate(attrs["query"])
         except PydanticValidationError:
             raise serializers.ValidationError({"query": "Recording filter is invalid."})
+        _reject_direct_experiment_exposure(attrs["query"])
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
         attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
         if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
@@ -616,13 +639,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         get_team = self.context.get("get_team")
         if get_team is None:  # no request context (e.g. internal serialization); don't over-redact
             return True
-        team_experiments = Experiment.objects.filter(team=get_team())
-        accessible = (
-            self.user_access_control.filter_queryset_by_access_level(team_experiments)
-            if self.user_access_control
-            else team_experiments
-        )
-        return accessible.filter(id=experiment_id).exists()
+        return is_experiment_accessible(self.user_access_control, get_team().id, experiment_id)
 
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
@@ -642,7 +659,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 self._reraise_unique_name_violation(e)
             self._attempt_set_tags(tags, scanner)
         _refresh_estimate_fail_soft(scanner)
-        # Every scanner starts with a built-in daily digest so the overview has a summary to show.
+        # Every scanner starts with a built-in featured digest so the overview has a summary to show.
         provision_scanner_digest(scanner, user)
         report_user_action(
             user,
@@ -845,22 +862,12 @@ class ReplayScannerFilter(django_filters.FilterSet):
         # _can_view_targeted_experiment: without it, a scanner-viewer could pass ?experiment_id= to
         # confirm (by match count and returned scanner names) that a scanner targets an experiment
         # they can't otherwise see. An inaccessible or nonexistent id reads as no matches.
-        if not self._caller_accessible_experiments().filter(id=experiment_id).exists():
+        # Reuse the viewset's resolved team and access control rather than reparsing the URL:
+        # view.team_id handles @current and token-derived teams, and user_access_control is already built.
+        view = self.request.parser_context.get("view") if self.request else None
+        if view is None or not is_experiment_accessible(view.user_access_control, view.team_id, experiment_id):
             return queryset.none()
         return queryset.filter(experiment_targeting__experiment_id=experiment_id)
-
-    def _caller_accessible_experiments(self) -> QuerySet[Experiment]:
-        # Reuse the viewset's resolved team and access control rather than reparsing the URL:
-        # view.team_id handles @current and token-derived teams, and user_access_control is already
-        # built. The scanner queryset is already scoped to this same team.
-        view = self.request.parser_context.get("view") if self.request else None
-        if view is None:
-            return Experiment.objects.none()
-        team_experiments = Experiment.objects.filter(team_id=view.team_id)
-        access = view.user_access_control
-        if access is None:
-            return team_experiments
-        return access.filter_queryset_by_access_level(team_experiments)
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -1082,11 +1089,22 @@ class EstimateRequestSerializer(serializers.Serializer):
         help_text="Proposed model; determines `credits_per_observation` in the response.",
     )
 
+    experiment_targeting = ScannerExperimentTargetingField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Proposed experiment targeting, merged into the query as its exposure filter the same "
+            "way a saved scanner derives it. The estimate then runs as the requesting user."
+        ),
+    )
+
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
             RecordingsQuery.model_validate(value)
         except PydanticValidationError:
             raise serializers.ValidationError("Recording filter is invalid.")
+        _reject_direct_experiment_exposure(value)
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 
@@ -1255,10 +1273,13 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Why the draft picked this scanner type and configuration, addressed to the user.",
     )
-    query = serializers.JSONField(
-        allow_null=True,
-        help_text="Drafted `RecordingsQuery` narrowing which sessions get scanned, holding one event filter "
-        "picked from the team's real events; null when no event clearly matched the goal.",
+    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            allow_null=True,
+            help_text=(
+                "`RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session."
+            ),
+        )
     )
 
 
@@ -1358,6 +1379,22 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     )
 
 
+class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
+    """Response of GET /vision/scanners/:id/self_driving_stats/."""
+
+    signals_emitted = serializers.IntegerField(
+        help_text="Signals this scanner has pushed into the Signals inbox, all time."
+    )
+    reports_contributed = serializers.IntegerField(
+        help_text=(
+            "Signal reports that include at least one of this scanner's signals. Reports usually "
+            "aggregate signals from several sources, so this counts contributions, not sole causes."
+        )
+    )
+    prs_opened = serializers.IntegerField(help_text="Implementation PRs opened by self-driving on those reports.")
+    prs_merged = serializers.IntegerField(help_text="Of the opened PRs, how many have merged.")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1379,7 +1416,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
-    scope_object_read_actions = ["list", "retrieve", "creators", "stats"]
+    scope_object_read_actions = ["list", "retrieve", "creators", "stats", "self_driving_stats"]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1752,6 +1789,33 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             raise ValidationError(str(exc)) from exc
         return Response(ScannerImpactSerializer(instance=impact).data)
 
+    @extend_schema(responses={200: ScannerSelfDrivingStatsSerializer})
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="self_driving_stats",
+        required_scopes=["replay_scanner:read", "task:read"],
+    )
+    def self_driving_stats(self, request: Request, **kwargs: Any) -> Response:
+        """What self-driving did with this scanner's signals: reports contributed to and PRs opened."""
+        scanner = self.get_object()
+        outcomes = get_outcomes_for_signal_source_slice(
+            team=self.team,
+            source_product=VISION_SIGNALS_SOURCE_PRODUCT,
+            source_type=VISION_SIGNALS_SOURCE_TYPE,
+            extra_equals={"scanner_id": str(scanner.id)},
+        )
+        return Response(
+            ScannerSelfDrivingStatsSerializer(
+                instance={
+                    "signals_emitted": outcomes.signal_count,
+                    "reports_contributed": outcomes.report_count,
+                    "prs_opened": outcomes.pr_count,
+                    "prs_merged": outcomes.merged_pr_count,
+                }
+            ).data
+        )
+
     @extend_schema(
         request=AffectedCohortRequestSerializer,
         responses={201: AffectedCohortResponseSerializer},
@@ -1843,14 +1907,26 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
                 raise serializers.ValidationError({"scanner_id": "No scanner with this id exists in this project."})
 
+        # A denied experiment must read the same as a nonexistent one, mirroring
+        # validate_experiment_targeting: the query runner's own access check answers with a 403,
+        # which would confirm to a scanner-editor that a hidden experiment id exists.
+        targeting = body.validated_data.get("experiment_targeting")
+        if targeting is not None and not is_experiment_accessible(
+            self.user_access_control, self.team_id, targeting["experiment_id"]
+        ):
+            raise serializers.ValidationError({"experiment_targeting": "Experiment not found in this project."})
+
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
-        recordings_query = RecordingsQuery.model_validate(query_dict)
+        recordings_query = apply_experiment_targeting(RecordingsQuery.model_validate(query_dict), targeting)
 
         estimate = estimate_scanner_session_volume(
             team=self.team,
             query=recordings_query,
+            # The exposure filter's access check runs as the requesting user, so a preview can't
+            # count exposed sessions of an experiment the caller is denied.
+            user=cast(User, request.user),
             sampling_mode=body.validated_data["sampling_mode"],
             budget=PREVIEW_ESTIMATE_BUDGET,
         )
@@ -1969,21 +2045,47 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = DraftScannerRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
 
+        goal = body.validated_data["goal"]
+        # The goal is customer text, so only its length goes into telemetry.
+        draft_properties: dict[str, Any] = {"goal_length": len(goal), "team_id": self.team_id}
+
         try:
             drafted = draft_scanner_from_goal(
                 team=self.team,
                 user=cast(User, request.user),
-                goal=body.validated_data["goal"],
+                goal=goal,
                 user_access_control=self.user_access_control,
                 # Core memory's own API is INTERNAL (session-only), so scoped tokens must not
                 # receive its content through the draft either.
                 include_business_context=get_authenticator_scopes(request.successful_authenticator) is None,
             )
         except DraftError:
+            # Report failures too, so model errors don't read as user abandonment.
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_scanner_drafted",
+                {**draft_properties, "success": False},
+                team=self.team,
+                request=request,
+            )
             return Response(
                 {"detail": "Couldn't draft a scanner right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
+
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_drafted",
+            {
+                **draft_properties,
+                "success": True,
+                "scanner_type": drafted.scanner_type,
+                # Whether the goal mapped to a real event filter or fell back to no targeting.
+                "has_query": bool(drafted.query),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             DraftScannerResponseSerializer(

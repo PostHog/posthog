@@ -14,6 +14,7 @@ from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
 from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.schema_enums import ProductKey
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
@@ -74,7 +75,16 @@ def _is_in_temporal() -> bool:
         return False
 
 
-@dataclasses.dataclass
+@frozen
+class ConcurrencySlot:
+    """An acquired concurrency slot: the Redis sorted-set key and the member to remove on release."""
+
+    running_tasks_key: str
+    task_id: str
+
+
+# Mutable by design: tests inject fake clocks by assigning get_time and sleep after construction
+@dataclasses.dataclass(frozen=False)
 class RateLimit:
     """
     Ensures that only max_concurrency of tasks_name are executed at a given time.
@@ -99,18 +109,18 @@ class RateLimit:
     def run(self, *args, **kwargs):
         applicable = not self.applicable or self.applicable(*args, **kwargs)
 
-        if applicable:
-            running_task_key, task_id = self.use(*args, **kwargs)
+        slot = self.use(*args, **kwargs) if applicable else None
 
         try:
             yield
         finally:
-            if applicable and running_task_key and task_id:
-                self.release(running_task_key, task_id)
+            if slot is not None:
+                self.release(slot)
 
-    def use(self, *args, **kwargs) -> tuple[Optional[str], Optional[str]]:
+    def use(self, *args, **kwargs) -> Optional[ConcurrencySlot]:
         """
         Acquire the resource before execution or throw exception.
+        Returns None when the limiter let the caller through without taking a slot (bypass).
         """
         wait_deadline = self.get_time() + self.retry_timeout
         task_name = self.get_task_name(*args, **kwargs)
@@ -172,7 +182,7 @@ class RateLimit:
                     result=result,
                     product=product_label,
                 ).inc()
-                return None, None
+                return None
 
             if self.retry and self.get_time() < wait_deadline:
                 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
@@ -203,13 +213,13 @@ class RateLimit:
                 f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
             )
 
-        return running_tasks_key, task_id
+        return ConcurrencySlot(running_tasks_key=running_tasks_key, task_id=task_id)
 
-    def release(self, running_task_key, task_id):
+    def release(self, slot: ConcurrencySlot) -> None:
         """
         Release the resource, when the execution finishes.
         """
-        self.redis_client.zrem(running_task_key, task_id)
+        self.redis_client.zrem(slot.running_tasks_key, slot.task_id)
 
     def wrap(self, task_func):
         @wraps(task_func)

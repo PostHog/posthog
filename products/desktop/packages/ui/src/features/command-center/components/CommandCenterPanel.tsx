@@ -6,12 +6,25 @@ import {
   GitFork,
   Lightning,
   Plus,
+  Shapes,
   Terminal,
   X,
 } from "@phosphor-icons/react";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Spinner as QuillSpinner,
+  Text as QuillText,
+} from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
+import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
+import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
@@ -19,7 +32,8 @@ import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { secureRandomString } from "@posthog/ui/utils/random";
-import { Flex, Spinner, Text } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
@@ -33,7 +47,6 @@ import type {
   CellStatus,
   CommandCenterCellData,
 } from "../hooks/useCommandCenterData";
-import { useElementOrientation } from "../hooks/useElementOrientation";
 import { getTerminalCellStateKey } from "../terminalCells";
 import { CommandCenterPRButton } from "./CommandCenterPRButton";
 import { TaskSelector } from "./TaskSelector";
@@ -221,32 +234,133 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   );
 }
 
-const BRAINROT_LANDSCAPE_URL =
-  "https://res.cloudinary.com/dmukukwp6/video/upload/brainrot_landscape_051f419306.mp4";
-const BRAINROT_PORTRAIT_URL =
-  "https://res.cloudinary.com/dmukukwp6/video/upload/brainrot_portrait_0f14096e6a.mp4";
+const BRAINROT_PLAYLIST_IDS = [
+  "PLnOY1RYHjDfw2joBxUPADaadeX5IradbH",
+  "PLSzOLzwLMqSM",
+];
+const BRAINROT_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
+// Player errors like 153 arrive as onError messages, but the widget can stay
+// silent when the embed document itself fails to load or boot. Silence after
+// load is the only renderer-visible signal of that failure.
+const BRAINROT_WIDGET_SILENCE_TIMEOUT_MS = 15_000;
+
+function brainrotEmbedUrl(playlistId: string): string {
+  // loop=1 duplicates the setLoop postMessage call, so looping survives when
+  // the widget's postMessage channel is unavailable.
+  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0&loop=1`;
+}
+
+function pickBrainrotEmbedUrl(): string {
+  const playlistId =
+    BRAINROT_PLAYLIST_IDS[
+      Math.floor(Math.random() * BRAINROT_PLAYLIST_IDS.length)
+    ];
+  return brainrotEmbedUrl(playlistId);
+}
 
 function BrainrotCell({ cellIndex }: { cellIndex: number }) {
   const clearCell = useCommandCenterStore((s) => s.clearCell);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const orientation = useElementOrientation(stageRef);
-  const src =
-    orientation === "portrait" ? BRAINROT_PORTRAIT_URL : BRAINROT_LANDSCAPE_URL;
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const randomizedRef = useRef(false);
+  const errorTrackedRef = useRef(false);
+  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
+  // Lazy initializer so the playlist choice is made once per mount.
+  const [embedUrl] = useState(pickBrainrotEmbedUrl);
+
+  const postToPlayer = useCallback((func: string, args: unknown[]) => {
+    iframeRef.current?.contentWindow?.postMessage(
+      JSON.stringify({ event: "command", func, args }),
+      BRAINROT_EMBED_ORIGIN,
+    );
+  }, []);
+
+  useEffect(() => {
+    // The embed widget only reports the playlist contents over postMessage
+    // after a "listening" handshake (sent in handleLoad). That report is the
+    // keyless way to learn the playlist length, so the jump to a random video
+    // has to happen here rather than via a URL parameter.
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== BRAINROT_EMBED_ORIGIN) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      if (typeof event.data !== "string") return;
+      let message: { event?: unknown; info?: unknown };
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+      if (message.event === "onError" && !errorTrackedRef.current) {
+        errorTrackedRef.current = true;
+        const code =
+          typeof message.info === "number"
+            ? message.info
+            : Number(message.info);
+        track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+          error_code: Number.isFinite(code) ? code : null,
+          reason: "player_error",
+        });
+      }
+      const playlist =
+        typeof message.info === "object" && message.info !== null
+          ? (message.info as { playlist?: unknown }).playlist
+          : undefined;
+      if (
+        randomizedRef.current ||
+        !Array.isArray(playlist) ||
+        playlist.length === 0
+      ) {
+        return;
+      }
+      randomizedRef.current = true;
+      postToPlayer("playVideoAt", [
+        Math.floor(Math.random() * playlist.length),
+      ]);
+      postToPlayer("setLoop", [true]);
+    };
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+    };
+  }, [postToPlayer]);
+
+  const handleLoad = useCallback(() => {
+    setLoading(false);
+    iframeRef.current?.contentWindow?.postMessage(
+      JSON.stringify({
+        event: "listening",
+        id: `brainrot-${cellIndex}`,
+        channel: "widget",
+      }),
+      BRAINROT_EMBED_ORIGIN,
+    );
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+    silenceTimeoutRef.current = setTimeout(() => {
+      silenceTimeoutRef.current = null;
+      track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+        error_code: null,
+        reason: "no_widget_messages",
+      });
+    }, BRAINROT_WIDGET_SILENCE_TIMEOUT_MS);
+  }, [cellIndex]);
 
   return (
-    <Flex direction="column" height="100%">
-      <Flex
-        align="center"
-        gap="2"
-        px="2"
-        py="1"
-        className="shrink-0 border-gray-6 border-b"
-      >
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-gray-6 border-b px-2 py-1">
         <Lightning size={12} weight="fill" className="shrink-0 text-amber-9" />
-        <Text className="min-w-0 flex-1 truncate font-medium text-[12px]">
+        <QuillText className="min-w-0 flex-1 truncate font-medium text-[12px]">
           Brainrot
-        </Text>
+        </QuillText>
         <button
           type="button"
           onClick={() => clearCell(cellIndex)}
@@ -255,30 +369,24 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
         >
           <X size={12} />
         </button>
-      </Flex>
-      <div
-        ref={stageRef}
-        className="relative min-h-0 flex-1 overflow-hidden bg-black"
-      >
-        <video
-          key={orientation}
-          src={src}
-          aria-label="Brainrot"
-          autoPlay
-          loop
-          muted
-          playsInline
-          onLoadStart={() => setLoading(true)}
-          onCanPlay={() => setLoading(false)}
-          className="h-full w-full object-contain"
+      </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+        <iframe
+          ref={iframeRef}
+          src={embedUrl}
+          title="Brainrot"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowFullScreen
+          onLoad={handleLoad}
+          className="h-full w-full border-0"
         />
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <Spinner size="3" />
+            <QuillSpinner className="h-6 w-6" />
           </div>
         )}
       </div>
-    </Flex>
+    </div>
   );
 }
 
@@ -334,6 +442,95 @@ function TerminalCell({
         <ShellTerminal cwd={cwd} stateKey={stateKey} />
       </Flex>
     </Flex>
+  );
+}
+
+function CanvasCell({
+  cellIndex,
+  canvasId,
+}: {
+  cellIndex: number;
+  canvasId: string;
+}) {
+  const clearCell = useCommandCenterStore((s) => s.clearCell);
+  const { dashboard, isLoading } = useDashboard(canvasId);
+  const navigate = useNavigate();
+  const canvasKind = dashboard?.kind;
+
+  useEffect(() => {
+    if (!canvasKind) return;
+    track(ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED, {
+      dashboard_id: canvasId,
+      canvas_kind: canvasKind,
+    });
+  }, [canvasId, canvasKind]);
+
+  const handleOpen = useCallback(() => {
+    if (!dashboard) return;
+    void navigate({
+      to: "/spaces/$channelId/dashboards/$dashboardId",
+      params: { channelId: dashboard.channelId, dashboardId: canvasId },
+    });
+  }, [canvasId, dashboard, navigate]);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-gray-6 border-b px-2 py-1">
+        <Shapes size={12} className="shrink-0 text-violet-9" />
+        <QuillText
+          className="min-w-0 flex-1 truncate font-medium text-[12px]"
+          title={dashboard?.name}
+        >
+          {dashboard?.name ??
+            (isLoading ? "Loading canvas…" : "Canvas unavailable")}
+        </QuillText>
+        {dashboard && (
+          <button
+            type="button"
+            onClick={handleOpen}
+            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+            title="Open canvas"
+          >
+            <ArrowsOut size={12} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => clearCell(cellIndex)}
+          className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+          title="Remove from grid"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center">
+            <QuillSpinner className="h-6 w-6" />
+          </div>
+        ) : dashboard?.kind === "grid" ? (
+          <GridCanvasView canvasId={canvasId} interactive={false} />
+        ) : dashboard ? (
+          <FreeformCanvasView
+            threadId={`dashboard:${canvasId}`}
+            interactive={false}
+            embedded
+          />
+        ) : (
+          <Empty className="h-full border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Shapes size={20} />
+              </EmptyMedia>
+              <EmptyTitle>Canvas unavailable</EmptyTitle>
+              <EmptyDescription>
+                This canvas is no longer available.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -417,6 +614,10 @@ export function CommandCenterPanel({
 }: CommandCenterPanelProps) {
   if (cell.isBrainrot) {
     return <BrainrotCell cellIndex={cell.cellIndex} />;
+  }
+
+  if (cell.canvasId) {
+    return <CanvasCell cellIndex={cell.cellIndex} canvasId={cell.canvasId} />;
   }
 
   if (cell.terminalId) {

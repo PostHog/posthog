@@ -161,9 +161,11 @@ export function sanitizeInputs(
         let value = input?.value
 
         if (secret) {
-            // If set this means we haven't changed the value
+            // The value was not retyped, so keep the stored secret. Leave value undefined - it is
+            // dropped from the JSON payload, and a placeholder here can be encrypted as the new
+            // secret if the backend does not strip it.
             sanitizedInputs[inputSchema.key] = {
-                value: '********', // Don't send the actual value
+                value: undefined,
                 secret: true,
             }
             return
@@ -2069,7 +2071,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 actions.setConfigurationValues({
                     ...config,
                     enabled: values.configuration.enabled,
-                    filters: config.filters ?? values.configuration.filters,
+                    filters: values.configuration.filters ?? config.filters,
                     // NOTE: Technically mapping should also be sanitized against the template mappings but this is a bit of a pain
                     mappings: values.configuration.mappings?.length ? values.configuration.mappings : config.mappings,
                     // Keep some existing things when manually resetting the template

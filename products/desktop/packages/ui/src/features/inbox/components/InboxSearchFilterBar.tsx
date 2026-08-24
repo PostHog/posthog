@@ -9,14 +9,14 @@ import {
 import {
   INBOX_PRIORITY_OPTIONS,
   INBOX_SORT_OPTIONS,
-  INBOX_SOURCE_OPTIONS,
   inboxPriorityFilterLabel,
   inboxSortOptionKey,
   inboxSourceFilterLabel,
 } from "@posthog/ui/features/inbox/filterOptions";
+import { useInboxSourceFilterOptions } from "@posthog/ui/features/inbox/hooks/useInboxSourceFilterOptions";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { Flex, Popover } from "@radix-ui/themes";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useMemo } from "react";
 
 interface InboxSearchFilterBarProps {
   searchPlaceholder?: string;
@@ -47,6 +47,12 @@ export function InboxSearchFilterBar({
   const togglePriority = useInboxSignalsFilterStore((s) => s.togglePriority);
   const setPriorityFilter = useInboxSignalsFilterStore(
     (s) => s.setPriorityFilter,
+  );
+
+  const sourceOptions = useInboxSourceFilterOptions(sourceProductFilter);
+  const selectedSources = useMemo(
+    () => new Set(sourceProductFilter),
+    [sourceProductFilter],
   );
 
   const activeSort = INBOX_SORT_OPTIONS.find(
@@ -83,8 +89,8 @@ export function InboxSearchFilterBar({
             active={sourceProductFilter.length === 0}
             onClick={clearSourceProductFilter}
           />
-          {INBOX_SOURCE_OPTIONS.map((option) => {
-            const isActive = sourceProductFilter.includes(option.value);
+          {sourceOptions.map((option) => {
+            const isActive = selectedSources.has(option.value);
             return (
               <button
                 key={option.value}
@@ -226,7 +232,9 @@ function InboxFilterPopover({
         align="start"
         side="bottom"
         sideOffset={6}
-        className="min-w-[220px] p-1.5"
+        // Option lists can outgrow the viewport (sources especially), so the
+        // panel scrolls inside whatever room the popper has below the trigger.
+        className="max-h-[min(22rem,calc(var(--available-height,22rem)-1rem))] min-w-[220px] overflow-y-auto p-1.5"
       >
         {children}
       </Popover.Content>

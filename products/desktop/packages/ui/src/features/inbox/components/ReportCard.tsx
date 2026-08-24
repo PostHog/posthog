@@ -7,6 +7,7 @@ import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
+  isStatusRedundantWithActionability,
   parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
@@ -187,9 +188,10 @@ export function ReportCardView(props: ReportCardViewProps) {
               </>
             ) : (
               <>
-                {(!isReady || !report.actionability) && (
-                  <SignalReportStatusBadge status={report.status} />
-                )}
+                {!isStatusRedundantWithActionability(
+                  report.status,
+                  report.actionability,
+                ) && <SignalReportStatusBadge status={report.status} />}
                 {report.actionability && (
                   <SignalReportActionabilityBadge
                     actionability={report.actionability}
@@ -244,7 +246,7 @@ export function ReportCardView(props: ReportCardViewProps) {
   ) : (
     <>
       <SuggestedReviewerAvatarStack
-        reportId={report.id}
+        report={report}
         artefacts={props.artefacts}
       />
       <UiButton
@@ -323,11 +325,11 @@ export function ReportCard(props: ReportCardProps) {
 
   const detailRoute = isArchived
     ? {
-        to: "/code/inbox/dismissed/$reportId" as const,
+        to: "/inbox/dismissed/$reportId" as const,
         params: { reportId: report.id },
       }
     : {
-        to: "/code/inbox/reports/$reportId" as const,
+        to: "/inbox/reports/$reportId" as const,
         params: { reportId: report.id },
       };
   const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(

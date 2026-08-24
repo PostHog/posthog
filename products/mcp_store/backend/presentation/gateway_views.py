@@ -957,6 +957,7 @@ class MCPGatewayServerViewSet(
                 "is_team_enabled": server.is_team_enabled,
             },
             team=self.team,
+            request=self.request,
         )
 
     def perform_destroy(self, instance: MCPGatewayServer) -> None:
@@ -977,6 +978,7 @@ class MCPGatewayServerViewSet(
             "mcp_gateway server removed",
             properties=properties,
             team=self.team,
+            request=self.request,
         )
 
     def _resolve_scope(self, data: dict) -> tuple[str, User | None, MCPServiceAccount | None]:
@@ -1128,6 +1130,7 @@ class MCPGatewayServerViewSet(
             "mcp_gateway server toggled",
             properties={"server_url": server.url, "enabled": enabled},
             team=self.team,
+            request=request,
         )
         return Response(MCPGatewayServerSerializer(server, context=self.get_serializer_context()).data)
 
@@ -1191,6 +1194,7 @@ class MCPGatewayServerViewSet(
                 "tool_count": len(data["policies"]),
             },
             team=self.team,
+            request=request,
         )
 
         rows = self._resolve_policies_for_scope(server, scope_type, scope_user, scope_account)
@@ -1262,6 +1266,7 @@ class MCPServiceAccountViewSet(
             "mcp_gateway agent updated",
             properties={"handle": account.handle, "status": account.status},
             team=self.team,
+            request=self.request,
         )
 
     @validated_request(
@@ -1384,6 +1389,7 @@ class MCPServiceAccountViewSet(
                 "all_members": bool(data.get("all")),
             },
             team=self.team,
+            request=request,
         )
         prefetch_related_objects([account], self._server_access_prefetch())
         return Response(MCPServiceAccountSerializer(account, context=self.get_serializer_context()).data)
@@ -1410,6 +1416,7 @@ class MCPOrgRuleViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.Mode
             "mcp_gateway rule created",
             properties={"rule_name": rule.name, "effect": rule.effect},
             team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
@@ -1420,6 +1427,7 @@ class MCPOrgRuleViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.Mode
             "mcp_gateway rule updated",
             properties={"rule_name": rule.name, "enabled": rule.enabled},
             team=self.team,
+            request=self.request,
         )
 
     def perform_destroy(self, instance: MCPOrgRule) -> None:
@@ -1429,6 +1437,7 @@ class MCPOrgRuleViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewsets.Mode
             "mcp_gateway rule deleted",
             properties={"rule_name": instance.name},
             team=self.team,
+            request=self.request,
         )
         instance.delete()
 
@@ -1540,6 +1549,7 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
                 "mcp_gateway custom servers toggled",
                 properties={"allow_custom_servers": data["allow_custom_servers"]},
                 team=self.team,
+                request=request,
             )
         if "allow_member_agent_access" in data:
             report_user_action(
@@ -1547,6 +1557,7 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
                 "mcp_gateway member agent access toggled",
                 properties={"allow_member_agent_access": data["allow_member_agent_access"]},
                 team=self.team,
+                request=request,
             )
         return Response(self._serialize_config(config))
 
@@ -1571,6 +1582,7 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             "mcp_gateway all servers toggled",
             properties={"enabled": enabled},
             team=self.team,
+            request=request,
         )
         return Response(self._serialize_config(config))
 
@@ -1596,6 +1608,7 @@ class MCPGatewayConfigViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             "mcp_gateway preset applied",
             properties={"audience": audience, "preset": preset},
             team=self.team,
+            request=request,
         )
         return Response(self._serialize_config(config))
 
@@ -1703,5 +1716,6 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
             "mcp_gateway member access changed",
             properties={"server_name": server.name, "enabled": data["enabled"]},
             team=self.team,
+            request=request,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)

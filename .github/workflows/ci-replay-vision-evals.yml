@@ -1,0 +1,198 @@
+# Golden-dataset eval for Replay Vision scanner prompts (products/replay_vision/evals).
+#
+# Manual dispatch only, deliberately. The suite re-runs production scans over real dogfood session
+# recordings, so a run spends secrets and LLM calls, and the number it returns moves on its own:
+# Gemini is nondeterministic and the dataset is re-sampled per run. That makes the score a
+# directional signal rather than a merge gate, which is not worth attaching to every push.
+#
+# The dataset is collected fresh on the ephemeral runner each run, which re-verifies AI
+# data-processing consent; it is never cached, uploaded as an artifact, or otherwise persisted.
+# Only aggregate scores reach the public job log and step summary.
+# If any required secret is missing the job skips green with a warning, so a fork or a
+# not-yet-configured environment is unaffected.
+name: Replay Vision Evals
+
+on:
+    workflow_dispatch:
+        inputs:
+            per_type:
+                description: 'Cases to collect per scanner type'
+                default: '5'
+                type: string
+            trials:
+                description: 'Trials per case, for variance on Gemini nondeterminism'
+                default: '1'
+                type: string
+
+permissions:
+    contents: read
+
+env:
+    DATASET_DIR: /tmp/replay-vision-golden-dataset
+
+jobs:
+    golden-eval:
+        name: Golden-dataset scanner eval
+        timeout-minutes: 60
+        runs-on: ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        steps:
+            - name: Check required secrets
+              id: gate
+              # All five up front: one rotated key must not boot the Docker stack and collect a
+              # dataset before failing inside the eval.
+              env:
+                  REPLAY_VISION_EVAL_POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+              run: |
+                  missing=""
+                  for name in REPLAY_VISION_EVAL_POSTHOG_API_KEY GEMINI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY BRAINTRUST_API_KEY; do
+                      [ -n "${!name}" ] || missing="$missing $name"
+                  done
+                  if [ -n "$missing" ]; then
+                      echo "enabled=false" >> "$GITHUB_OUTPUT"
+                      echo "::warning::Missing secrets:$missing; skipping the golden-dataset eval"
+                  else
+                      echo "enabled=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.gate.outputs.enabled == 'true'
+
+            - name: Log in to Docker Hub
+              if: steps.gate.outputs.enabled == 'true' && env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Start stack with Docker Compose
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch --down
+
+            - name: Wait for Docker services
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
+
+            - name: Set up Python
+              if: steps.gate.outputs.enabled == 'true'
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              if: steps.gate.outputs.enabled == 'true'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: false
+
+            - name: Install python dependencies
+              if: steps.gate.outputs.enabled == 'true'
+              shell: bash
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              if: steps.gate.outputs.enabled == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
+            - name: Install sqlx-cli
+              if: steps.gate.outputs.enabled == 'true'
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Add service hostnames to /etc/hosts
+              if: steps.gate.outputs.enabled == 'true'
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+
+            - name: Collect golden dataset
+              if: steps.gate.outputs.enabled == 'true'
+              shell: bash
+              env:
+                  POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  # Django refuses to boot with the checked-in SECRET_KEY unless DEBUG is set.
+                  DEBUG: '1'
+                  # Through env, not inline ${{ }}, so a dispatch input can never inject into the shell.
+                  PER_TYPE: ${{ inputs.per_type }}
+              run: |
+                  # To the runner-local file only, never the public job log: the collector emits
+                  # session and observation ids for missing-event and failed cases.
+                  python -m products.replay_vision.evals.collect \
+                      --project-id 2 \
+                      --per-type "$PER_TYPE" \
+                      --output "$DATASET_DIR" > /tmp/collect-output.log 2>&1 || {
+                      status=$?
+                      echo "collect exited with status $status; collector output stays off the public log"
+                      exit "$status"
+                  }
+                  # An empty dataset (expired assets, warehouse lag) must fail loudly, not score green over nothing.
+                  python - <<'EOF'
+                  import json, os, pathlib, sys
+                  cases = json.loads((pathlib.Path(os.environ["DATASET_DIR"]) / "manifest.json").read_text())["cases"]
+                  print(f"{len(cases)} cases in the collected dataset")
+                  sys.exit(1 if not cases else 0)
+                  EOF
+
+            - name: Run scanner quality suite
+              if: steps.gate.outputs.enabled == 'true'
+              shell: bash
+              env:
+                  REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  # The one-shot preflight name for a plain Anthropic key (used directly, no gateway).
+                  LLM_GATEWAY_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  # The summary_alignment judge (autoevals) calls its model with the OpenAI client.
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  TRIALS: ${{ inputs.trials }}
+              run: |
+                  # To the runner-local file only, never the public job log: the eval calls run_scan
+                  # directly, without the activity-level exception sanitizer, so a provider error can
+                  # echo prompt and session-derived request content. The summary step publishes the
+                  # safe aggregate lines.
+                  python -m products.posthog_ai.eval_harness.harness eval_scanner_quality \
+                      --trials "$TRIALS" > /tmp/eval-output.log 2>&1
+
+            - name: Publish score summary
+              # Publish whatever the run produced, including on failure; the suite is private, so
+              # scores exist only in this runner's local logs.
+              if: always() && steps.gate.outputs.enabled == 'true'
+              shell: bash
+              run: |
+                  # tee: the same sanitized lines double as the job log's only eval output.
+                  {
+                      echo "## Replay Vision scanner eval"
+                      echo ""
+                      echo "Scores compare fresh scans against recorded outputs and human thumbs labels."
+                      echo "Directional signal only: Gemini is nondeterministic and the dataset is re-sampled per run."
+                      echo ""
+                      echo '```'
+                      # Only the stable aggregate lines: this summary is public, and case payloads
+                      # (session-derived content) must never leave the runner even if the harness's
+                      # console output grows. CASE lines stay out too: their names carry observation ids.
+                      # The indented PostHog line links the /ai-evals experiment the harness published
+                      # this run's scores to. It is safe to publish: the URL carries the project id and
+                      # a per-run random experiment UUID, nothing case-derived.
+                      grep -E '^(SUITE|EXPERIMENT DONE|Sandboxed eval summary|Status:|Suites:|Cases:|Mean score:|Score gate:|Duration:| +PostHog: )' \
+                          /tmp/eval-output.log 2>/dev/null || echo "no eval output produced"
+                      echo '```'
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - name: Remove dataset
+              # The runner is ephemeral anyway; this just makes the no-persistence guarantee explicit.
+              if: always()
+              run: rm -rf "$DATASET_DIR"

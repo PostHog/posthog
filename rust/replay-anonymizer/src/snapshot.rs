@@ -291,9 +291,9 @@ pub fn anonymize_kafka_payload_timed(
 
 /// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well.
 ///
-/// A remote image's `src` becomes a ref, and its original URL comes back in `meta.urls`. The
-/// caller passes those to the fetch lane. `None` leaves a remote image on the media placeholder,
-/// which is what every other entry point here does.
+/// A remote image keeps its placeholder while a namespaced sibling attribute carries its ref. Its
+/// original URL comes back in `meta.urls`, which the caller passes to the fetch lane. `None` omits
+/// the sibling ref and leaves the placeholder unchanged.
 pub fn anonymize_kafka_payload_collecting(
     allow: &AllowLists,
     payload: &mut [u8],

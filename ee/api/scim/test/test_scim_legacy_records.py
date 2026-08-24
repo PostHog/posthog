@@ -54,8 +54,8 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
         self.legacy_record = self._provision_keyed_on_domain(self.provisioned, "already.okta.username", self.domain)
         backfill_scim_provisioned_user_config(apps, SimpleNamespace(connection=connection))
 
-        # The IdP keeps calling the URL it was configured with, which is the domain's id.
-        self.scim_url = f"/scim/v2/{self.domain.id}"
+        assert self.config.scim_slug != self.domain.id
+        self.scim_url = f"/scim/v2/{self.config.scim_slug}"
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.plain}")
 
     def _provision_keyed_on_domain(self, user: User, username: str, domain: OrganizationDomain) -> SCIMProvisionedUser:
@@ -67,8 +67,7 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             active=True,
         )
 
-    def test_the_url_the_idp_was_configured_with_still_authenticates(self):
-        assert self.config.scim_slug == str(self.domain.id)
+    def test_the_config_url_authenticates(self):
         assert self.client.get(f"{self.scim_url}/Users").status_code == status.HTTP_200_OK
 
     def test_record_keeps_its_username(self):
@@ -179,15 +178,13 @@ class TestSCIMRecordsWrittenBeforeConfigs(APILicensedTest):
             organization=self.organization,
             scim_enabled=True,
             scim_bearer_token=second_token.hashed,
-            scim_slug="second-config-slug",
-            saml_relay_state="second-config-relay",
         )
         self.domain.identity_provider_config = second_config
         self.domain.save()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second_token.plain}")
 
-        read = self.client.get(f"/scim/v2/second-config-slug/Users/{self.provisioned.id}")
-        deprovision = self.client.delete(f"/scim/v2/second-config-slug/Users/{self.provisioned.id}")
+        read = self.client.get(f"/scim/v2/{second_config.scim_slug}/Users/{self.provisioned.id}")
+        deprovision = self.client.delete(f"/scim/v2/{second_config.scim_slug}/Users/{self.provisioned.id}")
 
         assert read.json()["userName"] == "already@example.com"  # its own view of the user, not the other config's
         assert deprovision.status_code == status.HTTP_204_NO_CONTENT

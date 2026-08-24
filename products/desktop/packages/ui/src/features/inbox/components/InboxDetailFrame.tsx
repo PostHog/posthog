@@ -1,5 +1,6 @@
 import type { IconProps } from "@phosphor-icons/react";
 import { renderableReportChartIds } from "@posthog/core/inbox/reportCharts";
+import { isStatusRedundantWithActionability } from "@posthog/core/inbox/reportPresentation";
 import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
@@ -29,7 +30,7 @@ import { type ComponentType, type ReactNode, useState } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
-  /** List route for the back-link (e.g. "/code/inbox/pulls"). */
+  /** List route for the back-link (e.g. "/inbox/pulls"). */
   backTo: InboxListRoute;
   backLabel: string;
   /**
@@ -126,15 +127,16 @@ export function InboxDetailFrame({
               <SignalReportPriorityBadge priority={report.priority} />
             )}
             {/*
-              "Ready" is the default terminal state, so showing it everywhere
-              just adds noise. When the report has been classified by the
-              Responder, surface the actionability verdict (Actionable / Needs
-              input / Not actionable) in that slot instead. Other statuses
-              (in-progress, candidate, failed, …) still surface as a badge.
+              When the report has been classified by the Responder, the
+              actionability verdict (Actionable / Needs input / Not actionable)
+              takes the status badge's slot where the status would only repeat
+              it. Other statuses (in-progress, candidate, failed, …) still
+              surface as a badge.
              */}
-            {(report.status !== "ready" || !report.actionability) && (
-              <SignalReportStatusBadge status={report.status} />
-            )}
+            {!isStatusRedundantWithActionability(
+              report.status,
+              report.actionability,
+            ) && <SignalReportStatusBadge status={report.status} />}
             {report.actionability && (
               <SignalReportActionabilityBadge
                 actionability={report.actionability}

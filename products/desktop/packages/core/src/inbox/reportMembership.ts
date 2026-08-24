@@ -117,24 +117,24 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 
 /**
  * Canonical inbox tab list routes. Use these constants instead of hard-coding
- * `/code/inbox/pulls` etc., so renames stay in one place.
+ * `/inbox/pulls` etc., so renames stay in one place.
  *
- * Detail routes (`/code/inbox/<tab>/$reportId`) stay as TanStack Router
+ * Detail routes (`/inbox/<tab>/$reportId`) stay as TanStack Router
  * literals at call sites – TanStack's typed-link API needs them as literal
  * strings to infer params.
  */
 export const INBOX_TAB_LIST_ROUTE: Record<
   InboxTabKey,
-  `/code/inbox/${InboxTabKey}`
+  `/inbox/${InboxTabKey}`
 > = {
-  pulls: "/code/inbox/pulls",
-  reports: "/code/inbox/reports",
-  runs: "/code/inbox/runs",
-  dismissed: "/code/inbox/dismissed",
+  pulls: "/inbox/pulls",
+  reports: "/inbox/reports",
+  runs: "/inbox/runs",
+  dismissed: "/inbox/dismissed",
 };
 
 const INBOX_DETAIL_PATH_RE = new RegExp(
-  `^/code/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
+  `^/inbox/(${INBOX_TAB_KEYS.join("|")})/[^/]+$`,
 );
 
 export function isInboxDetailPath(pathname: string): boolean {

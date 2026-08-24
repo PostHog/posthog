@@ -3986,6 +3986,8 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
             ("is_calculating", "is_calculating", True),
             ("count", "count", 100),
             ("version", "version", 2),
+            ("last_import_total_count", "last_import_total_count", 5),
+            ("last_import_unmatched_count", "last_import_unmatched_count", 3),
         ]
     )
     @patch("django.db.transaction.on_commit", lambda fn: fn())

@@ -13,8 +13,18 @@ jobs:
         name: shellcheck
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # The runner image ships shellcheck, so apt is only a fallback. apt has
+            # no retries and a 120s per-fetch timeout by default, and a stalled
+            # mirror can hold this job past its timeout, which the merge queue
+            # reads as a failed required check.
             - name: Install shellcheck
-              run: sudo apt update && sudo apt install -y shellcheck
+              run: |
+                  if command -v shellcheck >/dev/null; then
+                      shellcheck --version
+                      exit 0
+                  fi
+                  sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+                  sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y shellcheck
             - name: Check secrets scripts
               run: cd bin && shellcheck deploy-hobby
 

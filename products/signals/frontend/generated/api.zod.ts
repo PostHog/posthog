@@ -336,6 +336,7 @@ export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -416,12 +417,35 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                         .describe(
                                             "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                         ),
+                                    thread_reports: zod
+                                        .boolean()
+                                        .default(
+                                            signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
+                                        )
+                                        .describe(
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                        ),
                                 }),
                                 zod.null(),
                             ])
                             .optional()
                             .describe(
                                 'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                            ),
+                        webhook: zod
+                            .union([
+                                zod.object({
+                                    hog_function_id: zod
+                                        .string()
+                                        .describe(
+                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
                     })
                     .optional()
@@ -506,6 +530,7 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -549,12 +574,33 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -628,6 +674,7 @@ export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -679,12 +726,33 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -1359,7 +1427,12 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
         ),
     enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
+    config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+        ),
 })
 
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
@@ -1442,7 +1515,12 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
         ),
     enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
+    config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+        ),
 })
 
 export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1527,7 +1605,12 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             '\* `session_analysis_cluster` - Session analysis cluster\n\* `evaluation_report` - Evaluation report\n\* `issue` - Issue\n\* `ticket` - Ticket\n\* `issue_created` - Issue created\n\* `issue_reopened` - Issue reopened\n\* `issue_spiking` - Issue spiking\n\* `cross_source_issue` - Cross source issue\n\* `alert_state_change` - Alert state change\n\* `health_issue` - Health issue\n\* `endpoint_execution_failed` - Endpoint execution failed\n\* `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded\n\* `scanner_finding` - Scanner finding\n\* `anomaly_investigation` - Anomaly investigation\n\* `ci_flaky_check` - CI flaky check\n\* `ci_broken_default_branch` - CI broken default branch\n\* `ci_duration_regression` - CI duration regression'
         ),
     enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
+    config: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis."
+        ),
 })
 
 /**

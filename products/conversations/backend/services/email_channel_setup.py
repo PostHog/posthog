@@ -19,7 +19,7 @@ from products.conversations.backend.models import (
     EmailChannelSetup,
     EmailChannelSetupProvider,
 )
-from products.conversations.backend.services.email_thread_ingestion import ParsedInboundEmail
+from products.conversations.backend.services.email_thread_ingestion import ParsedEmail
 
 _GOOGLE_FORWARDING_SENDER = "forwarding-noreply@google.com"
 _GOOGLE_DKIM_DOMAIN = "google.com"
@@ -196,14 +196,14 @@ def process_forwarding_challenges(
     return ForwardingChallengeResult.CONSUMED if saw_bound_challenge else ForwardingChallengeResult.NOT_CHALLENGE
 
 
-def _google_source_email(email: ParsedInboundEmail) -> str | None:
+def _google_source_email(email: ParsedEmail) -> str | None:
     match = _GOOGLE_FORWARDING_SUBJECT_RE.fullmatch(email.subject.strip())
     if match is None:
         return None
     return match.group("source").lower()
 
 
-def _validated_google_action(email: ParsedInboundEmail) -> str | None:
+def _validated_google_action(email: ParsedEmail) -> str | None:
     candidates: set[str] = set()
     for raw_candidate in _HTTPS_URL_RE.findall(f"{email.body_plain}\n{email.stripped_text}"):
         candidate = unescape(raw_candidate).rstrip(".,);]}")
@@ -228,7 +228,7 @@ def _validated_google_action(email: ParsedInboundEmail) -> str | None:
     return next(iter(candidates))
 
 
-def _is_google_authenticated(email: ParsedInboundEmail) -> bool:
+def _is_google_authenticated(email: ParsedEmail) -> bool:
     return (
         email.sender.email == _GOOGLE_FORWARDING_SENDER
         and email.sender_authenticated
@@ -241,7 +241,7 @@ def capture_google_forwarding_confirmation(
     *,
     team_id: int,
     channel: EmailChannel,
-    email: ParsedInboundEmail,
+    email: ParsedEmail,
 ) -> bool:
     if channel.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
         return False

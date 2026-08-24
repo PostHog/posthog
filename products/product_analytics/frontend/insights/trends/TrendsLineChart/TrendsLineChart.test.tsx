@@ -186,7 +186,7 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Formula (A*2) · Spike')).toContain('6')
         })
 
-        it('shows current and previous period rows in compare mode', async () => {
+        it('dates the previous period row in compare mode', async () => {
             renderInsight({
                 query: buildTrendsQuery({
                     compareFilter: { compare: true },
@@ -199,8 +199,10 @@ describe('TrendsLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
+            // Index 2 is 12 Jun in the current period, so 5 Jun can only come from the previous one.
             expect(tooltip.row('Current')).toContain('134')
-            expect(tooltip.row('Previous')).toContain('100')
+            expect(tooltip.row('5 Jun')).toContain('100')
+            expect(tooltip.element.textContent).not.toContain('Previous')
         })
 
         it('uses context.formatCompareLabel to override Current/Previous in compare mode', async () => {

@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AccountsTableAccountFieldColumn,
+    AccountsTableAccountFieldFilter,
     AccountsTableAccountIdFilter,
     AccountsTableAggregateMetric,
     AccountsTableAssignedToFilter,
@@ -115,7 +116,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     else filter_.userIds
                     if isinstance(filter_, AccountsTableAssignedToFilter)
                     else filter_.values or []
-                    if isinstance(filter_, AccountsTableCustomPropertyFilter)
+                    if isinstance(filter_, AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)
                     else []
                 )
                 if len(filter_values) > ACCOUNTS_TABLE_MAX_FILTER_VALUES:
@@ -138,6 +139,14 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters.append(contracts.AccountTableUnassignedFilter())
                 elif isinstance(filter_, AccountsTableAccountIdFilter):
                     filters.append(contracts.AccountTableAccountIdFilter(account_id=UUID(filter_.accountId)))
+                elif isinstance(filter_, AccountsTableAccountFieldFilter):
+                    filters.append(
+                        contracts.AccountTableFieldFilter(
+                            field=contracts.AccountTableField(filter_.field.value),
+                            operator=contracts.AccountTableFieldOperator(filter_.operator.value),
+                            values=tuple(filter_.values or ()),
+                        )
+                    )
                 elif isinstance(filter_, AccountsTableCustomPropertyFilter):
                     filters.append(
                         contracts.AccountTableCustomPropertyFilter(
@@ -233,6 +242,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                     filters=filters,
                     metrics=self._metrics(),
                     include_churned=bool(self.query.includeChurned),
+                    include_ignored=bool(self.query.includeIgnored),
                 )
                 return AccountsTableQueryResponse(
                     results=[],
@@ -250,6 +260,7 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
                 offset=offset,
                 limit=limit,
                 include_churned=bool(self.query.includeChurned),
+                include_ignored=bool(self.query.includeIgnored),
             )
         except api.InvalidAccountTableColumn as error:
             raise ValidationError(str(error)) from error

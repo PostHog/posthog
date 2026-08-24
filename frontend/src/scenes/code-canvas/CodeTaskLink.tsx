@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconLaptop } from '@posthog/icons'
@@ -10,38 +12,33 @@ import { DESKTOP_SCHEME } from './desktopScheme'
 
 export interface CodeTaskLinkProps {
     taskId: string
-    commentId?: string
-    commentScope?: string
-    commentItemId?: string
 }
 
 export const scene: SceneExport<CodeTaskLinkProps> = {
     component: CodeTaskLink,
-    paramsToProps: ({ params: { taskId }, searchParams }) => ({
+    paramsToProps: ({ params: { taskId } }) => ({
         taskId: taskId ?? '',
-        commentId: searchParams.comment || undefined,
-        commentScope: searchParams.scope || undefined,
-        commentItemId: searchParams.item || undefined,
     }),
 }
 
-function taskDeepLink({ taskId, commentId, commentScope, commentItemId }: CodeTaskLinkProps): string {
+export function taskDeepLink(taskId: string, searchParams: Record<string, unknown>): string {
     const params = new URLSearchParams()
-    if (commentId) {
-        params.set('comment', commentId)
+    if (typeof searchParams.comment === 'string') {
+        params.set('comment', searchParams.comment)
     }
-    if (commentScope) {
-        params.set('scope', commentScope)
+    if (typeof searchParams.scope === 'string') {
+        params.set('scope', searchParams.scope)
     }
-    if (commentItemId) {
-        params.set('item', commentItemId)
+    if (typeof searchParams.item === 'string') {
+        params.set('item', searchParams.item)
     }
     const query = params.toString()
     return `${DESKTOP_SCHEME}://task/${encodeURIComponent(taskId)}${query ? `?${query}` : ''}`
 }
 
-export function CodeTaskLink(props: CodeTaskLinkProps): JSX.Element {
-    const deepLink = props.taskId ? taskDeepLink(props) : null
+export function CodeTaskLink({ taskId }: CodeTaskLinkProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    const deepLink = taskId ? taskDeepLink(taskId, searchParams) : null
 
     useEffect(() => {
         if (deepLink) {

@@ -41,23 +41,31 @@ def make_duckgres_conninfo(
     *,
     organization_id: str | None = None,
     service_credential: ServiceCredential | None = None,
+    application_name: str = "posthog",
 ) -> str:
     """Build a psycopg conninfo for a team's duckgres server.
 
-    Default (no ``service_credential``): the org-root username/password from
-    the stored ``DuckgresServer`` row — the transitional path used by the SQL
-    editor and materialization until they move to minted credentials.
+    Default (no ``service_credential``): use the username/password from the
+    stored ``DuckgresServer`` row. Materialization and internal warehouse
+    helpers inherit the permissions of that login.
 
     With ``service_credential``: connect with a CP-issued, org-scoped
     per-credential grant (``svc_…`` credential_id + secret), short-lived and
     disposable. This is what background jobs (dagster) should present; see
     ``products/managed_warehouse/backend/service_credentials.py``.
     Host/port/database/sslmode come ENTIRELY from the credential's
-    CP-issued ``connect`` block — this branch never reads the stored
-    ``DuckgresServer`` row (the row is being deleted as a host store).
+    CP-issued ``connect`` block, so this branch is independent of the stored
+    ``DuckgresServer`` row.
     Service credentials are only mintable for a provisioned production
-    warehouse, so dev-mode is rejected loudly rather than silently
-    downgraded to root.
+    warehouse, so dev-mode is rejected rather than silently using the
+    environment-configured login.
+
+    ``application_name`` is forwarded to duckgres as a standard libpq startup
+    param and echoed into its analytics events, so callers should pass a
+    caller-identifying slug (e.g. ``"ducklake-register"``) instead of relying
+    on the ``"posthog"`` default — that default only distinguishes PostHog's
+    own connections in aggregate from customer clients (psql, their own
+    application_name).
     """
     from products.managed_warehouse.backend.common import _duckgres_dev_config, _get_org_id_for_team
 
@@ -80,6 +88,7 @@ def make_duckgres_conninfo(
             sslcert="/tmp/no.txt",
             sslkey="/tmp/no.txt",
             sslrootcert="/tmp/no.txt",
+            application_name=application_name,
         )
 
     if is_dev_mode():
@@ -97,6 +106,7 @@ def make_duckgres_conninfo(
         sslcert="/tmp/no.txt",
         sslkey="/tmp/no.txt",
         sslrootcert="/tmp/no.txt",
+        application_name=application_name,
     )
 
 
@@ -298,7 +308,7 @@ def execute_ducklake_query(
 
     assert sql is not None
 
-    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id, application_name="endpoints-shadow")
     _connect_start = time.monotonic()
     with psycopg.connect(conninfo) as conn:
         connect_ms = (time.monotonic() - _connect_start) * 1000
@@ -368,7 +378,7 @@ def execute_ducklake_create_table(
     safe_schema = sanitize_ducklake_identifier(schema_name, default_prefix="shadow")
     safe_table = sanitize_ducklake_identifier(table_name, default_prefix="model")
     qualified = psql.Identifier(safe_schema, safe_table)
-    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id)
+    conninfo = make_duckgres_conninfo(team_id, organization_id=organization_id, application_name="materialization")
     # capture previous table size before replacing — best-effort, don't block materialization
     previous_file_size_bytes = _calculate_table_size(conninfo, safe_schema, safe_table)
     with psycopg.connect(conninfo) as conn:

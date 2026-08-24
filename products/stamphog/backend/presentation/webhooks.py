@@ -15,7 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
-from products.stamphog.backend.tasks.tasks import process_installation_event, process_pull_request_event
+from products.stamphog.backend.facade.tasks import process_installation_event, process_pull_request_event
 
 logger = structlog.get_logger(__name__)
 

@@ -39,6 +39,9 @@ from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
+    TASK_RUN_TYPE_REPO_SELECTION,
+    TASK_RUN_TYPE_RESEARCH,
+    TASK_RUN_TYPE_SCOUT,
     append_task_run_artefact,
     record_implementation_task,
     record_report_task,
@@ -586,6 +589,7 @@ class TestSignalReportListAPI(APIBaseTest):
         pr_url: str | None = None,
         output: dict | None = None,
         relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
+        state: dict | None = None,
     ) -> "tuple[Task, TaskRun]":
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -607,6 +611,7 @@ class TestSignalReportListAPI(APIBaseTest):
             task=task,
             status=TaskRun.Status.COMPLETED,
             output=run_output,
+            state=state or {},
         )
         return task, run
 
@@ -678,6 +683,51 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
         assert row["implementation_pr_url"] == expected_url
+
+    @parameterized.expand(
+        [
+            ("research", TASK_RUN_TYPE_RESEARCH, "research"),
+            ("repo_selection", TASK_RUN_TYPE_REPO_SELECTION, "repo_selection"),
+            ("scout", TASK_RUN_TYPE_SCOUT, "scout:some-skill"),
+        ]
+    )
+    def test_implementation_pr_url_ignores_pr_recorded_on_non_code_run(self, _name, relationship, ai_stage):
+        # A research run checks GitHub for in-flight work and the agent-server can record a PR it
+        # merely read as the run's own. That must never surface as the report's PR, on the list, the
+        # detail view, or the "has PR" filter the Pull requests tab counts.
+        report = self._create_report()
+        self._create_implementation_task_with_run(
+            report,
+            pr_url="https://github.com/o/r/pull/99",
+            relationship=relationship,
+            state={"ai_stage": ai_stage},
+        )
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true")).json()
+
+        assert row["implementation_pr_url"] is None
+        assert detail["implementation_pr_url"] is None
+        assert with_pr["count"] == 0
+
+    def test_implementation_pr_url_prefers_real_pr_over_one_read_by_research(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(
+            report,
+            pr_url="https://github.com/o/r/pull/99",
+            relationship=TASK_RUN_TYPE_RESEARCH,
+            state={"ai_stage": "research"},
+        )
+        self._create_implementation_task_with_run(
+            report, pr_url="https://github.com/o/r/pull/100", state={"ai_stage": "implementation"}
+        )
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true")).json()
+
+        assert row["implementation_pr_url"] == "https://github.com/o/r/pull/100"
+        assert with_pr["count"] == 1
 
     @parameterized.expand(
         [

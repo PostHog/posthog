@@ -310,7 +310,7 @@ export function WelcomeScreen({ onNext }: WelcomeScreenProps) {
             message="Let's get you set up! It only takes a minute."
           />
           <StepActions delay={0.25}>
-            <Button size="3" onClick={onNext}>
+            <Button size="3" onClick={() => onNext()}>
               Start shipping
               <ArrowRight size={16} weight="bold" />
             </Button>

@@ -4,12 +4,16 @@ on:
     push:
         branches:
             - master
-    # paths mirror the changes job's dorny filter, which still gates push events.
+    # Narrower than the changes job's dorny filter, which also gates push events.
+    # A skills edit changes a COPY payload rather than a build instruction, so it
+    # cannot break the image build, and the :sha image a PR build pushes is never
+    # pulled by anything. `ci-agent-skills.yml` already builds the same skills on
+    # the same PR. Master keeps rebuilding on skills changes through the filter
+    # below, so the :master image production resolves still gets current skills.
     pull_request:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - 'products/tasks/backend/sandbox/images/**'
-            - 'products/*/skills/**'
             - 'products/posthog_ai/scripts/**'
             # The notebook image bakes this package and stamps its content hash.
             - 'products/notebooks/backend/sandbox/kernel/**'
@@ -20,7 +24,13 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository_owner == 'PostHog'
+        # A fork PR runs in the base repo, so `repository_owner` does not exclude it,
+        # but its read-only GITHUB_TOKEN cannot push to ghcr.io. Skipping here leaves
+        # `sandbox_image` unset so both build jobs skip too, which keeps a fork off
+        # the skills build it would only pay for to fail at the push.
+        if: |
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
@@ -40,7 +50,9 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  # Keep in sync with the trigger-level pull_request paths above.
+                  # Wider than the trigger-level pull_request paths above, because
+                  # this also gates push events, where a skills change does have to
+                  # rebuild the image that :master serves.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
@@ -54,7 +66,8 @@ jobs:
         needs: changes
         name: Build agent skills from source
         if: |
-            github.repository_owner == 'PostHog' && (
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -168,7 +181,8 @@ jobs:
         needs: [changes, build_skills]
         name: Build and push Tasks Sandbox container image
         if: |
-            github.repository_owner == 'PostHog' && (
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -224,6 +238,7 @@ jobs:
                     id: build
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -238,6 +253,7 @@ jobs:
                     id: build-notebook
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -250,6 +266,7 @@ jobs:
                     id: build-streamlit
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -262,6 +279,7 @@ jobs:
                     id: build-pi
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
                         buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -275,6 +293,7 @@ jobs:
                     id: build-vm
                     uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
                     with:
+                        project: vpl2362h0x # tasks-sandbox-images
                         context: . # use local checkout (includes downloaded artifact)
                         file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
                         buildx-fallback: false # the fallback is so slow it's better to just fail

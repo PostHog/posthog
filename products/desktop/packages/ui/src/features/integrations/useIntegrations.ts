@@ -71,12 +71,24 @@ async function refetchRepositoryKeys(
   );
 }
 
-export function useIntegrations() {
+export interface IntegrationsQueryOptions {
+  /**
+   * Settings surfaces pass an interval so an uninstall on GitHub or Slack shows up while someone
+   * is looking at the page; every other caller keeps the default one-shot fetch.
+   */
+  refetchInterval?: number;
+}
+
+export function useIntegrations(options: IntegrationsQueryOptions = {}) {
   const setIntegrations = useIntegrationStore((state) => state.setIntegrations);
 
   const query = useAuthenticatedQuery(
     integrationKeys.list(),
     (client) => client.getIntegrations() as Promise<Integration[]>,
+    {
+      refetchInterval: options.refetchInterval ?? false,
+      refetchOnWindowFocus: true,
+    },
   );
 
   useEffect(() => {
@@ -103,13 +115,24 @@ function useAllGithubRepositories(githubIntegrations: Integration[]) {
       staleTime: 5 * 60 * 1000,
       meta: AUTH_SCOPED_QUERY_META,
     })),
-    combine: combineGithubRepositories,
+    combine: (results) =>
+      combineGithubRepositories(
+        results,
+        githubIntegrations.map((integration) => integration.id),
+      ),
   });
 }
 
-export function useUserGithubIntegrations() {
-  return useAuthenticatedQuery(userGithubIntegrationKeys.list(), (client) =>
-    client.getGithubUserIntegrations(),
+export function useUserGithubIntegrations(
+  options: IntegrationsQueryOptions = {},
+) {
+  return useAuthenticatedQuery(
+    userGithubIntegrationKeys.list(),
+    (client) => client.getGithubUserIntegrations(),
+    {
+      refetchInterval: options.refetchInterval ?? false,
+      refetchOnWindowFocus: true,
+    },
   );
 }
 
@@ -564,8 +587,11 @@ export function useRepositoryIntegration() {
     useIntegrationSelectors();
   const [isRefreshingRepos, setIsRefreshingRepos] = useState(false);
 
-  const { repositoryMap, isPending: reposPending } =
-    useAllGithubRepositories(githubIntegrations);
+  const {
+    repositoryMap,
+    isPending: reposPending,
+    failedIntegrationIds,
+  } = useAllGithubRepositories(githubIntegrations);
 
   const repositories = useMemo(
     () => Object.keys(repositoryMap),
@@ -609,5 +635,6 @@ export function useRepositoryIntegration() {
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
+    failedIntegrationIds,
   };
 }

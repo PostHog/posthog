@@ -145,6 +145,7 @@ export const sessionStoreSetters = {
       if (session && session.events.length > 0) {
         session.events = [];
         session.processedLineCount = 0;
+        session.transcriptWindowStart = 0;
       }
     });
   },
@@ -152,6 +153,10 @@ export const sessionStoreSetters = {
   /**
    * Replace a session's transcript in place (rehydration after eviction),
    * preserving its live status/config. No-op if the session is gone.
+   *
+   * The restore reads a whole log rather than a window, so it also retires any
+   * paging index: left behind, it would offer to prepend chain entries the
+   * restored transcript already holds.
    */
   restoreEvents: (
     taskRunId: string,
@@ -164,6 +169,7 @@ export const sessionStoreSetters = {
         for (const event of events) Object.freeze(event);
         session.events = events;
         session.processedLineCount = lineCount;
+        session.transcriptWindowStart = 0;
       }
     });
   },

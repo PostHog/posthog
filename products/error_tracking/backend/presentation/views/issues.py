@@ -25,7 +25,7 @@ from products.error_tracking.backend.facade import (
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
-    ErrorTrackingExternalReferenceSerializer,
+    ErrorTrackingExternalReferenceResultSerializer,
 )
 
 IssueNotFoundError = facade_api.IssueNotFoundError
@@ -76,7 +76,7 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     description = serializers.CharField(allow_null=True)
     first_seen = serializers.DateTimeField(allow_null=True)
     assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
-    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    external_issues = ErrorTrackingExternalReferenceResultSerializer(many=True)
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
 
 

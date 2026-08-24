@@ -1,3 +1,4 @@
+import os
 import time
 import datetime as dt
 from collections.abc import Mapping
@@ -84,6 +85,10 @@ def sandbox_runtime_label(use_vm_sandbox: bool) -> str:
     return "vm" if use_vm_sandbox else "gvisor"
 
 
+def modal_sandbox_backend_label() -> str:
+    return "v2" if os.environ.get("MODAL_SANDBOX_V2") == "1" else "v1"
+
+
 def record_network_enforcement(stage: str, runtime: str, layer: str, outcome: str) -> None:
     try:
         client = posthoganalytics.default_client
@@ -103,6 +108,25 @@ def _runtime_adapter_label(value: str | None) -> str:
     if not value:
         return "unknown"
     return value if value in _ALLOWED_RUNTIME_ADAPTERS else "other"
+
+
+def resume_mode_label(*, handoff_resumed: bool, using_modal_snapshot: bool) -> str:
+    if handoff_resumed:
+        return "handoff_and_snapshot" if using_modal_snapshot else "handoff"
+    return "snapshot_only" if using_modal_snapshot else "neither"
+
+
+def increment_resume_mode(mode: str, *, origin_product: str | None) -> None:
+    try:
+        _metric_meter({"mode": mode, "origin_product": origin_product or "unknown"}).create_counter(
+            "tasks_process_resume_mode",
+            "Resuming process-task runs by the resume state available at provision time. "
+            "handoff labels record that a handoff was requested, not that its git checkpoint "
+            "was captured. neither means no snapshot and no handoff state accompanied the "
+            "resume, so the agent's prior working tree could not be restored.",
+        ).add(1)
+    except Exception:
+        pass
 
 
 def increment_snapshot_usage(
@@ -224,13 +248,32 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
-def record_sandbox_created(runtime: str, image_kind: str, image_fallback: bool, latency_ms: int | None) -> None:
+def increment_pr_babysit_snapshot(outcome: str, *, pr_state: str = "unknown") -> None:
+    try:
+        meter = _metric_meter({"outcome": outcome, "pr_state": pr_state})
+        meter.create_counter(
+            "tasks_pr_babysit_snapshot",
+            "PR babysit snapshot fetches for the PR follow-up loop, by outcome",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_sandbox_created(
+    runtime: str,
+    image_kind: str,
+    image_fallback: bool,
+    latency_ms: int | None,
+    *,
+    sandbox_backend: str,
+) -> None:
     try:
         meter = _metric_meter(
             {
                 "runtime": runtime,
                 "image_kind": image_kind,
                 "image_fallback": _bool_label(image_fallback),
+                "sandbox_backend": sandbox_backend,
             }
         )
         meter.create_counter(
@@ -270,6 +313,31 @@ def record_agent_server_session_init_ms(
             "Latency for get_sandbox_for_repository sub-steps",
             unit="ms",
         ).record(dt.timedelta(milliseconds=session_init_ms))
+    except Exception:
+        pass
+
+
+def increment_agent_server_readiness_retry(
+    attempt: int,
+    outcome: str,
+    *,
+    boot_path: str,
+    origin_product: str | None,
+    runtime: str,
+) -> None:
+    try:
+        _metric_meter(
+            {
+                "attempt": attempt,
+                "outcome": outcome,
+                "boot_path": boot_path,
+                "origin_product": origin_product or "unknown",
+                "runtime": runtime,
+            }
+        ).create_counter(
+            "tasks_process_agent_server_readiness_retry",
+            "Agent-server readiness retries that re-enter the start path",
+        ).add(1)
     except Exception:
         pass
 
@@ -315,12 +383,14 @@ class StepTimer:
         *,
         origin_product: str | None = None,
         runtime: str | None = None,
+        sandbox_backend: str | None = None,
     ) -> None:
         self.step = step
         self.used_snapshot = used_snapshot
         self.boot_path = boot_path
         self.origin_product = origin_product
         self.runtime = runtime
+        self.sandbox_backend = sandbox_backend
         # Elapsed wall-clock of the step, readable after the context exits so callers
         # can thread the same number into activity outputs / analytics events.
         self.elapsed_ms: int | None = None
@@ -352,6 +422,8 @@ class StepTimer:
             attributes["origin_product"] = self.origin_product
         if self.runtime is not None:
             attributes["runtime"] = self.runtime
+        if self.sandbox_backend is not None:
+            attributes["sandbox_backend"] = self.sandbox_backend
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(

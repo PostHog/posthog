@@ -197,6 +197,49 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         return [card for card in data["cards"] if kind is None or card["kind"] == kind]
 
     @patch.object(session_event_deltas, "MIN_ARM_PERSONS", 20)
+    def test_arms_that_behave_the_same_earn_no_finding_cards(self) -> None:
+        # The A/A case, under the real evidence floors: arms doing the same things with a person
+        # or two of sampling jitter must leave every finding shelf empty. This is the tripwire for
+        # threshold work — a change that lets jitter card fails here, on whichever shelf it leaks
+        # onto, before it ships noise as findings.
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm(
+            "control",
+            [["pricing_faq", "purchase"]] * 10
+            + [["pricing_faq"]] * 8
+            + [["checkout_start", "$exception"]] * 5
+            + [["$rageclick"]] * 3
+            + [[]] * 4,
+        )
+        self._arm(
+            "test",
+            [["pricing_faq", "purchase"]] * 11
+            + [["pricing_faq"]] * 7
+            + [["checkout_start", "$exception"]] * 6
+            + [["$rageclick"]] * 2
+            + [[]] * 4,
+        )
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert self._cards(data, "behavior") == []
+        assert self._cards(data, "friction") == []
+        assert self._cards(data, "variant_only") == []
+        # Shortcuts survive an empty shelf: they offer to show a metric event happening rather
+        # than claiming a difference, so "nothing to find" must not take them down too.
+        assert [(card["event"], card["variant"]) for card in self._cards(data, "metric")] == [
+            ("purchase", "control"),
+            ("purchase", "test"),
+        ]
+        # Not the too-early empty state: both arms are populated, there is genuinely nothing to
+        # find, and the frontend words those two cases differently.
+        assert data["too_early"] is False
+        assert [(arm["key"], arm["persons"]) for arm in data["arms"]] == [("control", 30), ("test", 30)]
+        # A clean shelf reports a clean caveat: no card was deduped away.
+        assert data["dropped_duplicate_cards"] == 0
+
+    @patch.object(session_event_deltas, "MIN_ARM_PERSONS", 20)
     def test_cards_rank_by_separation_and_leave_out_what_the_arms_share(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         # The test variant sees pricing_faq far more and reaches checkout far less. `noise` differs
@@ -478,6 +521,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             ("purchase", "control"),
             ("purchase", "test"),
         ]
+        # The drop is counted, so the telemetry the threshold is tuned from can see how often the
+        # rule fires on real shelves.
+        assert data["dropped_duplicate_cards"] == 1
 
     @rank_anything
     def test_a_cards_highlights_name_which_of_its_recordings_to_open_first(self) -> None:
@@ -534,6 +580,27 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
             (on_point, "1 rage click, 1 error, 1 dead click, did this 5 times"),
             (noisy, "1 rage click, 6 errors, 1 dead click, did this 2 times"),
         ]
+
+    @rank_anything
+    def test_a_broken_session_is_not_offered_as_a_highlight(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [[]] * 2)
+        # A hundred errors without a single rage click is a client stuck in a loop, not a person
+        # hitting a hundred problems. Damping keeps it from winning on volume, but it still wins
+        # ties on signal kinds, so without an exclusion it fronts every card its session backs.
+        broken = self._session(variants=["test"], events=["pricing_faq", "pricing_faq"] + ["$exception"] * 100)
+        # The same error volume with a rage click is a person suffering through it, which is what a
+        # friction highlight exists to show: the rage click is the act no loop performs.
+        frustrated = self._session(variants=["test"], events=["pricing_faq", "$rageclick"] + ["$exception"] * 100)
+        on_point = self._session(variants=["test"], events=["pricing_faq", "$rageclick"])
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        card = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
+        assert [highlight["session_id"] for highlight in card["highlights"]] == [frustrated, on_point]
+        # Excluded from the highlights only: the recording still belongs to the card's playlist.
+        assert broken in card["session_ids"]
 
     @rank_anything
     def test_the_same_recording_does_not_lead_every_card(self) -> None:
@@ -791,6 +858,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         card = next(card for card in self._cards(data, "behavior") if card["event"] == "pricing_faq")
         assert card["session_ids"] == [allowed]
         assert card["recording_count"] == 1
+        # The cut leaves no trace: acknowledging it would tell the viewer that recordings denied
+        # to them ran through this experiment.
+        assert "recordings_excluded_by_access" not in data
 
     @rank_anything
     def test_a_card_the_viewer_can_still_watch_survives_its_duplicate_being_cut(self) -> None:

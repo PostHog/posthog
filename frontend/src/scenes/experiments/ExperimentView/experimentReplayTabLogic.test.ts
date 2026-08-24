@@ -71,6 +71,7 @@ const DELTA_RESPONSE = {
     events_truncated: false,
     min_arm_persons: 50,
     max_card_recordings: 20,
+    dropped_duplicate_cards: 0,
     too_early: false,
 }
 

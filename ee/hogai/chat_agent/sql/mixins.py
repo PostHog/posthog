@@ -36,7 +36,7 @@ from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.core.mixins import AssistantContextMixin

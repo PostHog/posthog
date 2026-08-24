@@ -15,9 +15,44 @@
             "description": "Filter tasks to a channel's feed.",
             "type": "string"
         },
+        "ci_status": {
+            "description": "Filter tasks by the CI check rollup on their most recent run's pull request, as last observed from GitHub. 'none' means the PR has no checks.\n\n* `passing` - passing\n* `failing` - failing\n* `pending` - pending\n* `none` - none",
+            "enum": ["passing", "failing", "pending", "none"],
+            "type": "string"
+        },
+        "commented_by": {
+            "description": "Filter to tasks carrying a thread comment written by this user ID.",
+            "type": "number"
+        },
         "created_by": {
             "description": "Filter by creator user ID",
             "type": "number"
+        },
+        "exclude_origin_product": {
+            "description": "Exclude tasks with this origin product from the results\n\n* `onboarding` - Onboarding\n* `error_tracking` - Error Tracking\n* `eval_clusters` - Eval Clusters\n* `user_created` - User Created\n* `slack` - Slack\n* `support_queue` - Support Queue\n* `session_summaries` - Session Summaries\n* `posthog_ai` - PostHog AI\n* `experiments` - Experiments\n* `signal_report` - Signal Report\n* `signals_scout` - Signals Scout\n* `support_reply` - Support Reply\n* `hogdesk` - HogDesk\n* `review_hog` - ReviewHog\n* `image_builder` - Image Builder\n* `loop` - Loop\n* `mcp_analytics` - MCP Analytics\n* `signals_chat` - Signals Chat\n* `task_analysis` - Task Analysis\n* `workflow` - Workflow",
+            "enum": [
+                "onboarding",
+                "error_tracking",
+                "eval_clusters",
+                "user_created",
+                "slack",
+                "support_queue",
+                "session_summaries",
+                "posthog_ai",
+                "experiments",
+                "signal_report",
+                "signals_scout",
+                "support_reply",
+                "hogdesk",
+                "review_hog",
+                "image_builder",
+                "loop",
+                "mcp_analytics",
+                "signals_chat",
+                "task_analysis",
+                "workflow"
+            ],
+            "type": "string"
         },
         "internal": {
             "description": "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all",
@@ -31,11 +66,20 @@
             "minimum": 1,
             "type": "number"
         },
+        "mentions": {
+            "description": "Filter to tasks whose thread mentions this user ID.",
+            "type": "number"
+        },
         "offset": {
             "default": 0,
             "description": "The initial index from which to return the results.",
             "minimum": 0,
             "type": "number"
+        },
+        "ordering": {
+            "description": "Sort order. '-last_activity_at' is newest activity first, where activity means a thread message or a run starting, streaming, or finishing. Defaults to '-created_at'.\n\n* `-created_at` - -created_at\n* `-last_activity_at` - -last_activity_at",
+            "enum": ["-created_at", "-last_activity_at"],
+            "type": "string"
         },
         "organization": {
             "description": "Filter by repository organization",
@@ -45,6 +89,15 @@
         "origin_product": {
             "description": "Filter by origin product",
             "minLength": 1,
+            "type": "string"
+        },
+        "pinned": {
+            "description": "With true, only tasks the requesting user has pinned.",
+            "type": "boolean"
+        },
+        "pr_state": {
+            "description": "Filter tasks by the state of their most recent run's pull request, as last observed from GitHub (webhooks plus the CI follow-up snapshot).\n\n* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed",
+            "enum": ["open", "draft", "merged", "closed"],
             "type": "string"
         },
         "repository": {

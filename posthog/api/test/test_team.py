@@ -1420,6 +1420,32 @@ def team_api_test_factory():
             assert self.project.organization == other_org
             assert self.team.organization == other_org
 
+        def test_change_organization_reconciles_current_project_of_affected_users(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.user.current_team = self.team
+            self.user.current_organization = self.organization
+            self.user.save()
+            # This user stays behind in the source organization
+            outsider = User.objects.create_and_join(self.organization, "outsider@posthog.com", None)
+            outsider.current_team = self.team
+            outsider.current_organization = self.organization
+            outsider.save()
+
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+            assert res.status_code == status.HTTP_200_OK, res.json()
+
+            # A member of the target organization keeps the project and follows it across
+            self.user.refresh_from_db()
+            assert self.user.current_team == self.team
+            assert self.user.current_organization == other_org
+            # Everyone else loses the pointer instead of keeping a project they cannot reach
+            outsider.refresh_from_db()
+            assert outsider.current_team_id is None and outsider.current_organization_id is None
+
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
 

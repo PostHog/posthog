@@ -15,7 +15,14 @@ from django.db.models import Q
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import uuid7
 
-from .facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus, ReviewVerdict
+from .facade.enums import (
+    AudienceReason,
+    ChannelResolutionSource,
+    DigestRunStatus,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewVerdict,
+)
 
 
 # Lives on a separate product database (see products/db_routing.yaml), so it
@@ -104,6 +111,10 @@ class PullRequest(ProductTeamModel):
     # Digest bucket resolved by the audience cascade (see logic/audiences.py) — stamped only
     # when the merged PR is digest-eligible (stamphog approved a run); the digest filters on it.
     audience_key = models.CharField(max_length=255, blank=True)
+    # What the change does, in one sentence, copied from the run that approved the merged head.
+    # Written in the sandbox with the diff in hand, which the daily digest no longer has. Blank
+    # when the engine predates the field; the digest falls back to the PR title.
+    summary_line = models.CharField(max_length=200, blank=True, default="")
     digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="pull_requests")
     # The sticky comment is a PR-level artifact, upserted per PR across review runs.
     posted_comment_id = models.BigIntegerField(null=True)
@@ -137,6 +148,49 @@ class PullRequest(ProductTeamModel):
         return f"{self.repo_config.repository}#{self.pr_number}"
 
 
+class PullRequestAudience(ProductTeamModel):
+    """One digest audience a merged PR belongs to.
+
+    A PR reaches a team either because its author is on that team (`authored`) or because the team
+    owns files the PR changed (`owned`), so one merge can land in several digests. The claim marker
+    lives here rather than on the PullRequest: with several audiences per PR, a single `digest_run`
+    on the PR would let the first channel to claim it hide the merge from every other channel, and
+    one channel's failed post would strand the PR for all of them.
+
+    Membership is deliberately generous — any owning team gets a row. Whether the PR is actually
+    worth mentioning to that team is decided later, when the digest is summarized.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="audiences")
+    audience_key = models.CharField(max_length=255)
+    reason = models.CharField(max_length=32, choices=[(r.value, r.value) for r in AudienceReason])
+    # A sample of this team's changed paths, from the review's ownership resolution. The digest uses
+    # it to tell "this changed in your area" from a sweep that grazed two of your files, which it
+    # cannot judge from the PR alone. Empty for an authored audience or an engine without the field.
+    owned_files = models.JSONField(default=list)
+    # How many of the PR's changed files this team owns. Not len(owned_files) — that list is a
+    # capped sample, and a team owning most of a large change must not read as grazed by it.
+    owned_file_count = models.IntegerField(default=0)
+    digest_run = models.ForeignKey("DigestRun", on_delete=models.SET_NULL, null=True, related_name="audiences")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Inherit the base Meta so default_manager_name="all_teams" survives (see StamphogRepoConfig.Meta).
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "pull_request", "audience_key"], name="unique_stamphog_pr_audience"
+            ),
+        ]
+        indexes = [
+            # The daily claim: unposted audiences for one channel's key.
+            models.Index(fields=["team_id", "audience_key", "digest_run"], name="stamphog_audience_claim"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.audience_key} ({self.reason})"
+
+
 class ReviewRun(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     pull_request = models.ForeignKey(PullRequest, on_delete=models.CASCADE, related_name="review_runs")
@@ -155,6 +209,10 @@ class ReviewRun(ProductTeamModel):
     )
     gate_result = models.JSONField(null=True)
     output = models.JSONField(default=dict)
+    # One sentence on what the change does, from the reviewer's structured verdict. Its own field
+    # rather than a slice of `output`, which mixes reviewer stdout with PR patches and policy
+    # contents. Copied onto the PullRequest when the approved head is the one that merges.
+    change_summary = models.CharField(max_length=200, blank=True, default="")
     error = models.TextField(blank=True)
     # What we posted back to the SCM once the verdict was decided — recorded so a
     # re-review can find and update its own artifacts, and for audit. Populated by

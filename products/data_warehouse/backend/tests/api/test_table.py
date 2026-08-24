@@ -5,17 +5,43 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import boto3
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from rest_framework.test import APIRequestFactory
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
+from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer, resolve_created_via
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
+
+
+class TestResolveCreatedVia(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_transport_markers", {}, "api"),
+            ("mcp_server", {"user-agent": "posthog/mcp-server 1.0.0"}, "mcp"),
+            ("mcp_client_header", {"x-posthog-client": "mcp"}, "mcp"),
+            ("cli_wraps_mcp", {"user-agent": "posthog-cli"}, "mcp"),
+            ("wizard", {"user-agent": "posthog/wizard 1.0.0"}, "wizard"),
+            (
+                "wizard_running_self_driving",
+                {"user-agent": "posthog/wizard 1.0.0 (program: self-driving)"},
+                "self_driving",
+            ),
+            ("posthog_code", {"user-agent": "posthog/code 1.0.0"}, "self_driving"),
+            ("desktop_app", {"user-agent": "posthog/desktop.hog.dev 1.0.0"}, "self_driving"),
+            ("mobile_app", {"user-agent": "posthog/mobile.hog.dev 1.0.0"}, "self_driving"),
+            # Terraform has no attribution value of its own, so it counts as a plain API caller
+            # rather than silently borrowing an agent surface.
+            ("terraform", {"user-agent": "posthog/terraform-provider 1.0.0"}, "api"),
+        ]
+    )
+    def test_attributes_request_to_its_transport(self, _: str, headers: dict[str, str], expected: str):
+        assert resolve_created_via(APIRequestFactory().post("/", headers=headers)) == expected
 
 
 class TestTable(APIBaseTest):
@@ -145,7 +171,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_columns(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -186,7 +212,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=False,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_create_columns_invalid_schema(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -379,7 +405,7 @@ class TestTable(APIBaseTest):
         "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
-    @patch("posthog.tasks.warehouse.get_client")
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
     def test_table_name_duplicate(self, patch_get_columns, patch_validate_column_type, patch_get_client):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_tables/",
@@ -581,6 +607,56 @@ class TestTable(APIBaseTest):
         assert skipped["hogql_name"] == "googleanalytics.devices"
         assert skipped["columns"] == []
 
+    @parameterized.expand(
+        [
+            ("session_authenticated_ui", {}, "web"),
+            ("mcp_client_header", {"x-posthog-client": "mcp"}, "mcp"),
+            ("wizard_user_agent", {"user-agent": "posthog/wizard 1.0.0"}, "wizard"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+        return_value={"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}},
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_records_the_surface_the_request_came_from(
+        self, _: str, headers: dict[str, str], expected_created_via: str, patch_get_client, patch_get_columns
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
+            },
+            headers=headers,
+        )
+
+        assert response.status_code == 201
+        assert response.json()["created_via"] == expected_created_via
+        assert DataWarehouseTable.objects.get(id=response.json()["id"]).created_via == expected_created_via
+
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+        return_value={"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}},
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_ignores_a_client_supplied_created_via(self, patch_get_client, patch_get_columns):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "whatever",
+                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
+                "created_via": "wizard",
+            },
+        )
+
+        assert response.status_code == 201
+        assert DataWarehouseTable.objects.get(id=response.json()["id"]).created_via == "web"
+
     def test_create_table_with_internal_bucket_url(self):
         with override_settings(DATAWAREHOUSE_BUCKET_DOMAIN="somedomain.com"):
             response = self.client.post(
@@ -612,7 +688,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_existing_name(self):
         table = DataWarehouseTable.objects.create(
@@ -628,7 +704,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_same_name(self):
         table = DataWarehouseTable.objects.create(

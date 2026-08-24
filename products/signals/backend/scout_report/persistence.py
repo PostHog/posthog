@@ -175,6 +175,11 @@ def create_scout_report(
             signal_count=len(signals),
             total_weight=total_weight,
             charts=[chart.model_dump(mode="json") for chart in charts],
+            # Born directly in a user-visible status without passing through transition_to (which
+            # stamps this for pipeline reports), so the daily report limit counts it from creation.
+            first_visible_at=(
+                timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
+            ),
         )
         report_id = str(report.id)
         # Provenance: every authored report carries a note marking it scout-authored, attributed to

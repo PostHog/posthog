@@ -27,7 +27,7 @@ from posthog.auth import (
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -43,10 +43,19 @@ from ..marketplace.credentials import (
 )
 from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
+from .community_publish_services import (
+    CommunitySkillPublishError,
+    CommunitySkillPublishNotConfiguredError,
+    CommunitySkillPublishValidationError,
+    publish_skill_to_community,
+    publishable_tags,
+)
+from .community_skills import CommunitySkillFeatureFlagPermission
 from .skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     MAX_SKILL_FILE_BYTES,
     PUBLISH_CONTENT_FIELDS,
+    CommunitySkillPublishResultSerializer,
     LLMSkillBodyFetchQuerySerializer,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
@@ -61,6 +70,7 @@ from .skill_serializers import (
     LLMSkillMarketplaceCommandSerializer,
     LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
+    LLMSkillPublishToCommunitySerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
@@ -159,6 +169,44 @@ ALLOWED_LIST_ORDERINGS = frozenset(
 )
 
 
+class CommunityPublishFeatureFlagPermission(CommunitySkillFeatureFlagPermission):
+    """Gates publishing to the community marketplace, and nothing else on this viewset.
+
+    The Skills product is GA and the marketplace is not, so the flag can only bind to the one action —
+    otherwise the whole product goes dark, and without it publish goes live everywhere the moment the
+    GitHub App is installed and the 503 fail-safe stops firing.
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if getattr(view, "action", None) != "publish_to_community":
+            return True
+        return super().has_permission(request, view)
+
+
+class _CommunityPublishThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Publishing opens a pull request in a public repo, so the ceiling is "a handful, by hand", not
+    # the API-shaped hundreds-per-minute of BurstRateThrottle. That one also extends
+    # PersonalApiKeyRateThrottle, which ignores session traffic.
+    def get_cache_key(self, request, view):
+        # Per team, not per credential. The inherited key prefers the personal API key hash, so one
+        # member holding several keys would get a fresh budget with each of them — and the skill
+        # being published belongs to the team either way.
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is None:
+            return super().get_cache_key(request, view)
+        return self.cache_format % {"scope": self.scope, "ident": f"team-{team_id}"}
+
+
+class CommunityPublishBurstThrottle(_CommunityPublishThrottle):
+    scope = "community_skill_publish_burst"
+    rate = "6/hour"
+
+
+class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
+    scope = "community_skill_publish_sustained"
+    rate = "20/day"
+
+
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -169,12 +217,14 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [AccessControlPermission]
+    permission_classes = [AccessControlPermission, CommunityPublishFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
 
     def get_throttles(self):
+        if self.action == "publish_to_community":
+            return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -907,6 +957,90 @@ class LLMSkillViewSet(
             request=request,
         )
         return Response(self._serialize_skill(new_skill), status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=LLMSkillPublishToCommunitySerializer, responses={201: CommunitySkillPublishResultSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/publish-community",
+        required_scopes=["llm_skill:write"],
+    )
+    @llma_track_latency("llma_skills_publish_community")
+    @monitor(feature=None, endpoint="llma_skills_publish_community", method="POST")
+    def publish_to_community(self, request: Request, skill_name: str = "", **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        skill = get_skill_by_name_from_db(self.team, skill_name)
+        if skill is None:
+            return self._skill_not_found_response(skill_name)
+
+        payload = LLMSkillPublishToCommunitySerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        files = [{"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill.files.all()]
+        supplied_tags = payload.validated_data.get("tags")
+        # An explicit empty list means "publish with no tags", so fall back to the skill's own tags
+        # only when the caller omitted the field. Those are unvalidated metadata, unlike the ones the
+        # serializer checked, so they go through publishable_tags first.
+        if supplied_tags is None:
+            supplied_tags = publishable_tags((skill.metadata or {}).get("tags"))
+        # The LLMSkill name is the kebab slug; default the community display name to a title-cased form.
+        display_name = payload.validated_data.get("display_name") or skill.name.replace("-", " ").title()
+
+        try:
+            result = publish_skill_to_community(
+                slug=skill.name,
+                # Scopes the publish branch to this team, so one team cannot rewrite another team's
+                # open pull request for the same slug.
+                publisher_id=str(self.team.uuid),
+                name=display_name,
+                description=skill.description,
+                body=skill.body,
+                files=files or None,
+                tags=supplied_tags,
+                allowed_tools=skill.allowed_tools or [],
+                license=skill.license or "",
+                compatibility=skill.compatibility or "",
+                author_handle=payload.validated_data.get("author_handle", ""),
+            )
+        except CommunitySkillPublishNotConfiguredError:
+            return Response(
+                {"detail": "Publishing to the community is not available on this instance."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except CommunitySkillPublishValidationError as err:
+            # Nothing reached GitHub, and republishing the same skill fails the same way — the
+            # publisher has to edit it. That is a 400, not the 502 an unreachable GitHub gets.
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+        except CommunitySkillPublishError as err:
+            # The client sees the reason once; without this the server keeps no record of a publish
+            # that failed against GitHub.
+            logger.warning(
+                "llma_skill_publish_to_community_failed",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                skill_name=skill.name,
+                error=str(err),
+            )
+            return Response({"detail": str(err)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        props = {**_skill_analytics_props(skill), "community_pr_number": result["pr_number"]}
+        logger.info(
+            "llma_skill_published_to_community",
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            **props,
+        )
+        report_user_action(
+            cast(User, request.user),
+            "llma skill published to community",
+            props,
+            team=self.team,
+            request=request,
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         parameters=[LLMSkillFetchQuerySerializer],

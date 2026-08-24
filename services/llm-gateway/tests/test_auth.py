@@ -17,6 +17,7 @@ from llm_gateway.auth.service import (
     InvalidProjectScopeError,
     UnauthorizedProjectScopeError,
     extract_token,
+    upstream_auth_header,
 )
 
 
@@ -87,6 +88,25 @@ class TestExtractToken:
         request = MagicMock(spec=Request)
         request.headers = {}
         assert extract_token(request) is None
+
+
+class TestUpstreamAuthHeader:
+    @pytest.mark.parametrize(
+        "headers,expected",
+        [
+            pytest.param({"authorization": "Bearer tok"}, "Bearer tok", id="standard_bearer"),
+            pytest.param({"authorization": "bearer tok"}, "Bearer tok", id="lowercase_scheme_canonicalized"),
+            pytest.param({"authorization": "BEARER  tok"}, "Bearer tok", id="uppercase_scheme_canonicalized"),
+            pytest.param({"x-api-key": " tok "}, "Bearer tok", id="x_api_key_wrapped"),
+            pytest.param({"x-api-key": "key", "authorization": "Bearer other"}, "Bearer key", id="x_api_key_wins"),
+            pytest.param({"authorization": "Basic abc"}, "Basic abc", id="non_bearer_forwarded_verbatim"),
+            pytest.param({}, "", id="no_credential"),
+        ],
+    )
+    def test_forwarded_header(self, headers: dict[str, str], expected: str) -> None:
+        request = MagicMock(spec=Request)
+        request.headers = headers
+        assert upstream_auth_header(request) == expected
 
 
 def _token_row(**overrides) -> dict:

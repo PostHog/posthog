@@ -33,6 +33,7 @@ from llm_gateway.rate_limiting.cost_gauge_publisher import publish_product_cost_
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.cost_throttles import (
     ProductCostThrottle,
+    SandboxTaskCostThrottle,
     UserCostBurstThrottle,
     UserCostSustainedThrottle,
 )
@@ -40,6 +41,7 @@ from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
+from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.plan_resolver import PlanResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
 
@@ -198,6 +200,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
+            SandboxTaskCostThrottle(redis=app.state.redis),
         ],
         denial_capturer=denial_capturer,
     )
@@ -219,9 +222,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     )
 
     app.state.http_client = httpx.AsyncClient()
+    app.state.desktop_access_http_client = httpx.AsyncClient(
+        limits=httpx.Limits(
+            max_connections=settings.desktop_access_max_connections,
+            max_keepalive_connections=settings.desktop_access_max_connections,
+        )
+    )
     app.state.plan_resolver = PlanResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
+    )
+    app.state.desktop_access_resolver = DesktopAccessResolver(
+        redis=app.state.redis,
+        http_client=app.state.desktop_access_http_client,
     )
     app.state.quota_resolver = QuotaResolver(
         redis=app.state.redis,
@@ -272,6 +285,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await breaker_gauge_task
         except asyncio.CancelledError:
             pass
+    if app.state.desktop_access_http_client:
+        await app.state.desktop_access_http_client.aclose()
+        logger.info("Desktop access HTTP client closed")
     if app.state.http_client:
         await app.state.http_client.aclose()
         logger.info("HTTP client closed")

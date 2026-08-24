@@ -20,7 +20,12 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 1. **Record fetcher** — each source defines a `record_fetcher` callable on its config
 2. **Emitter** — transforms each record dict into a `SignalEmitterOutput` (or `None` to skip)
 3. **Summarization** — optionally summarizes long descriptions via LLM
-4. **Actionability filter** — optionally filters non-actionable records via LLM
+4. **Actionability filter** — optionally filters non-actionable records via LLM.
+   Teams can steer this gate per source via two keys on `SignalSourceConfig.config`: `steering` (plain-language rules injected into the canonical prompt) and `default_not_actionable` (flips the "when in doubt" posture from keep to filter).
+   See `steering.py` — the injection escapes braces and caps length so team text can never break the prompt's one-word output contract, and every canonical actionability prompt must keep the `When in doubt, classify as ACTIONABLE` posture line the injection anchors on.
+   The gate runs before a signal exists, so it sees only the description unless the record carries the verdict elsewhere.
+   A source whose verdict depends on metadata the description doesn't carry declares those `extra` keys in `actionability_context_fields`, and they arrive in a `<record_metadata>` block inside the description (see `github_issues.py`, which declares the issue author).
+   A steered gate gets all of `extra` in that block instead; a source declaring nothing keeps a byte-identical prompt.
 5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
 
 ### Registry
@@ -65,6 +70,10 @@ Users enable sources via the Inbox Sources modal.
    write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient), define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources), optionally define an LLM actionability prompt and/or a summarization prompt with threshold, and export the final config as a module-level constant.
    **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.) unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
+   The deliberate exception is the author of a record: `github_issues.py` carries `author_login` and `author_association`, because who filed a report is what separates a maintainer's bug report from a drive-by one on a public repo, and triage can't weigh the two without it.
+   Reach for the same pair on other issue-tracker sources, and keep it to the handle and the relationship — not emails, real names, or the rest of the nested user object.
+   A source that SELECTs a column carrying more identity than it keeps declares that column in `unloggable_fields`, which strips it from the record this pipeline logs when an emitter raises.
+   Identity keys are also excluded from lifecycle telemetry by `_TELEMETRY_EXCLUDED_EXTRA_KEYS` in `facade/api.py`, which otherwise copies every top-level scalar on `extra` into the emission events.
 2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
    For external sources, use the `ExternalDataSourceType` value as the source type.
    For internal sources, use a descriptive string identifier.
@@ -92,6 +101,9 @@ DEBUG=1 ./manage.py emit_signals_from_fixture --type zendesk --team-id 1 --fixtu
 `--type` accepts `zendesk`, `github`, `linear`, or `conversations`
 and maps to the matching auto-registered config in `registry.py`.
 The command requires `DEBUG=True` and is intended for local iteration only.
+
+Fixture runs (and `emit_signals_from_llm`) read the team's `SignalSourceConfig.config` steering keys exactly like production, so a team with `steering` or `default_not_actionable` set can filter records a plain run would keep.
+For an unsteered baseline, clear those keys on the source's config row first.
 
 ## Maintaining this file
 

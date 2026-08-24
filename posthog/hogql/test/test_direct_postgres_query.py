@@ -15,13 +15,15 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
-from posthog.hogql.direct_sql.postgres_adapter import (
+from posthog.hogql.direct_sql.pgwire import (
     LenientDirectPostgresDateLoader,
-    direct_postgres_session_setup_sql,
-    get_runtime_direct_postgres_connection_metadata,
     parse_lenient_direct_postgres_date,
     postgres_error_to_message,
     postgres_oid_to_clickhouse_type,
+)
+from posthog.hogql.direct_sql.postgres_adapter import (
+    direct_postgres_session_setup_sql,
+    get_runtime_direct_postgres_connection_metadata,
 )
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError

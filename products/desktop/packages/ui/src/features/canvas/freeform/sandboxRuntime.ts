@@ -244,16 +244,17 @@ export function buildSandboxDocument(
           shortId,
           dateRange: opts && opts.dateRange,
           variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
         }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
       // A built canvas needs \`capabilities.posthog.inlineQueries\` for this.
-      query: (queryOrHogql, params) =>
+      query: (queryOrHogql, params, opts) =>
         call(
           "query",
           typeof queryOrHogql === "string"
-            ? { hogql: queryOrHogql, params: params ?? {} }
-            : { query: queryOrHogql, params: params ?? {} },
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
@@ -263,6 +264,30 @@ export function buildSandboxDocument(
           return Promise.resolve({ ok: true });
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
+      },
+      // Durable key-value memory, declared in capabilities.posthog.state.
+      // Scope "user" (default) is private to this viewer; "shared" is one
+      // value per canvas, visible to the whole team. Values are JSON, capped
+      // at 64 KB serialized and 256 keys per scope; setting null deletes:
+      // \`ph.state.set("board", { columns: 3 }, { scope: "shared" })\`.
+      state: {
+        get: (key, opts) => call("stateGet", { key, scope: (opts && opts.scope) || "user" }),
+        set: (key, value, opts) =>
+          call("stateSet", { key, value: value === undefined ? null : value, scope: (opts && opts.scope) || "user" }),
+        list: (opts) => call("stateList", { scope: opts && opts.scope }),
+      },
+      // Write into PostHog as the viewer. Every verb must be declared in
+      // capabilities.posthog.actions; wire invocations to explicit user
+      // gestures (a button), never to load or render:
+      // \`ph.actions.invoke("tasks.create", { title, description })\`.
+      actions: {
+        invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
+      },
+      // Ask the authoring agent for a change; the host shows the exact prompt
+      // and asks the viewer to approve before anything is dispatched:
+      // \`ph.agent.request("Make the square blue")\`.
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
       },
       // Brokered by the host: PostHog-only https URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
@@ -486,6 +511,19 @@ export function buildSandboxDocument(
     const applyTheme = (theme) =>
       document.documentElement.classList.toggle("dark", theme === "dark");
 
+    window.addEventListener("keydown", (e) => {
+      if (!e.isTrusted || (!e.metaKey && !e.ctrlKey)) return;
+      post({
+        type: "keydown",
+        key: e.key,
+        code: e.code,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      });
+    });
+
     // --- error reporting (feeds the host's self-repair loop) ---
     const reportError = (message, stack) =>
       post({ type: "error", message: String(message ?? "Unknown error"), stack });
@@ -588,7 +626,16 @@ export function buildSandboxDocument(
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
-        if (seq === mountSeq) reportError(err && err.message, err && err.stack);
+        if (seq !== mountSeq) return;
+        let message = err && err.message;
+        // Chrome reports a failed CDN fetch of the code's imports as an opaque
+        // error naming the blob module; name the real dependency instead.
+        if (message && message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+          message = "Couldn't load the canvas libraries from esm.sh. " +
+            "Previewing an unbuilt canvas needs network access to https://esm.sh; " +
+            "published canvases are unaffected.";
+        }
+        reportError(message, err && err.stack);
       }
     };
 

@@ -214,6 +214,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     seekBackward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
+                allowRepeat: true,
             },
             arrowright: {
                 action: (e) => {
@@ -225,6 +226,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     seekForward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
+                allowRepeat: true,
             },
             ...speedHotkeys,
             ...(isFullScreen ? { escape: { action: () => setIsFullScreen(false) } } : {}),

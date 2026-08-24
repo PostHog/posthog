@@ -75,23 +75,33 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 logger = structlog.get_logger(__name__)
 
 
-def _setup_enabled(team: Team) -> bool:
-    """Evaluate the Setup flag once per team instance.
+def _setup_enabled(request: Request, team: Team) -> bool:
+    """Evaluate the Setup flag once per request.
 
-    Grouped on organization, matching how every other marketing-analytics flag is
-    evaluated, so a team can't disagree with its org. Cached on the instance because a
-    second call in the same request would fire a redundant `$feature_flag_called`.
+    Evaluated for the requesting person, because the flag's release conditions target
+    people and the frontend renders the Setup tab off that same per-person answer.
+    Evaluating it against anything else is how the tab ends up sitting on top of an
+    endpoint that 404s. The organization group still goes along, so a group release
+    condition matches too. Cached on the request because a second call in the same one
+    would fire a redundant `$feature_flag_called`.
     """
-    cached = getattr(team, "_ma_setup_flag", None)
+    cached = getattr(request, "_ma_setup_flag", None)
     if cached is not None:
         return cached
+    person_properties = {}
+    email = getattr(request.user, "email", None)
+    if email:
+        person_properties["email"] = email
     enabled = feature_enabled_or_false(
         "marketing-analytics-setup",
-        str(team.uuid),
+        # Service credentials authenticate as a synthetic user with no person behind them;
+        # the team UUID keeps the call well-formed, and a person condition won't match it.
+        getattr(request.user, "distinct_id", None) or str(team.uuid),
         groups={"organization": str(team.organization.id)},
+        person_properties=person_properties,
         group_properties={"organization": {"id": str(team.organization.id)}},
     )
-    team._ma_setup_flag = enabled  # type: ignore[attr-defined]
+    request._ma_setup_flag = enabled  # type: ignore[attr-defined]
     return enabled
 
 
@@ -701,6 +711,18 @@ class AttributionHealthEntrySerializer(serializers.Serializer):
     matched_pct = serializers.FloatField(help_text="Percentage of UTM events matched to this integration")
     sample_unmatched_utm_sources = UnmatchedUtmSampleSerializer(
         many=True, help_text="Sample of likely-yours unmatched utm_source values"
+    )
+    events_matched_paid_last_7d = serializers.IntegerField(
+        help_text=(
+            "Of the matched events, how many look paid: a cost-bearing utm_medium (cpc, cpm, cpv, cpa, ppc, "
+            "retargeting, or anything starting with 'paid') or a gclid/gad_source click id."
+        )
+    )
+    events_matched_tagged_medium_last_7d = serializers.IntegerField(
+        help_text=(
+            "Of the matched events, how many carry any utm_medium. Zero paid with a non-zero count here means "
+            "the traffic is tagged and organic; both zero means the team doesn't tag medium, which says nothing."
+        )
     )
 
 
@@ -1457,7 +1479,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["GET"], detail=False, url_path="setup_plan", required_scopes=["marketing_analytics:read"])
     def setup_plan(self, request: Request, *args, **kwargs) -> Response:
         # 404 rather than 403: an unreleased endpoint should look absent, not forbidden.
-        if not _setup_enabled(self.team):
+        if not _setup_enabled(request, self.team):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         date_from = request.validated_query_data["date_from"]
@@ -1513,7 +1535,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def apply_setup_ops(self, request: Request, *args, **kwargs) -> Response:
         # Same gate as setup_plan: the ops only come from a plan, so an unreleased
         # read side means there is nothing legitimate to apply.
-        if not _setup_enabled(self.team):
+        if not _setup_enabled(request, self.team):
             raise NotFound("Marketing analytics setup is not enabled for this project.")
 
         # Every op here writes a field the team PATCH puts in TEAM_CONFIG_ADMIN_FIELDS_SET,

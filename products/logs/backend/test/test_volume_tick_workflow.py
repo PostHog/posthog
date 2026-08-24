@@ -6,12 +6,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from temporalio import activity
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
@@ -21,6 +22,8 @@ from products.logs.backend.temporal.volume_tick.activities import (
     VolumeTickOutput,
     count_teams_with_logs,
     due_bucket_bounds,
+    teams_due_in_shard,
+    volume_tick_heartbeat_activity,
 )
 from products.logs.backend.temporal.volume_tick.constants import BUCKET_MINUTES, WORKFLOW_NAME
 from products.logs.backend.temporal.volume_tick.workflow import LogsVolumeTickWorkflow
@@ -139,3 +142,45 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
         assert after.total == before.total + 2
         # Only team_a's residue matches shard 1; team_b is in the window but in shard 2.
         assert after.due_in_shard == before.due_in_shard + 1
+
+
+class TestTeamsDueInShard(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("team_in_shard", [2], 2, [2]),
+            ("team_in_another_shard", [2], 0, []),
+            ("one_of_three", [1, 2, 3], 2, [2]),
+            ("same_residue_all_run", [2, 7, 12], 2, [2, 7, 12]),
+            ("empty_allowlist", [], 2, []),
+        ]
+    )
+    def test_only_teams_whose_residue_matches_the_minute_run(
+        self, _name: str, team_ids: list[int], minute_shard: int, expected: list[int]
+    ) -> None:
+        # A bucket stays due for every minute of the next one. Without this filter
+        # the tick would rerun the same scan once per minute, and the writer would
+        # file a duplicate generation each time.
+        assert teams_due_in_shard(team_ids, minute_shard) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "allowlist,measures_the_bucket",
+    # The second allowlist covers every residue mod BUCKET_MINUTES, so exactly one
+    # team is due whatever minute the test runs in.
+    [((), False), (tuple(range(1, BUCKET_MINUTES + 1)), True)],
+    ids=["empty_allowlist_skips", "allowlisted_team_is_measured"],
+)
+async def test_the_tick_measures_the_due_bucket_only_for_allowlisted_teams(
+    allowlist: tuple[int, ...], measures_the_bucket: bool
+) -> None:
+    # The allowlist is the whole safety story for this query: unset means the tick
+    # touches no team's data at all, rather than sweeping the fleet.
+    #
+    # ActivityEnvironment, not a direct call: the tick's metrics need an activity
+    # context to resolve a meter.
+    with patch("products.logs.backend.temporal.volume_tick.activities.TEAM_ALLOWLIST", allowlist):
+        output = await ActivityEnvironment().run(volume_tick_heartbeat_activity, VolumeTickInput())
+
+    assert (output.rollup_rows is not None) is measures_the_bucket
+    assert (output.rows_without_environment is not None) is measures_the_bucket

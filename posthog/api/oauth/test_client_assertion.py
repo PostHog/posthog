@@ -20,6 +20,7 @@ from posthog.api.oauth.client_assertion import (
     CLIENT_ASSERTION_TYPE_JWT_BEARER,
     MAX_ASSERTION_LIFETIME_SECONDS,
     ClientAssertionError,
+    ResolvedClientAssertion,
     extract_client_assertion,
     load_jwks,
     verify_client_assertion,
@@ -267,4 +268,6 @@ class TestClientAssertion(BaseTest):
         request = _drf_request(
             {"client_assertion": assertion, "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER}
         )
-        assert extract_client_assertion(request) == (assertion, CLIENT_ID)
+        assert extract_client_assertion(request) == ResolvedClientAssertion(
+            client_assertion=assertion, client_id=CLIENT_ID
+        )
