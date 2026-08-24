@@ -31,6 +31,7 @@ import {
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import {
+    filterTarget,
     logsSelection,
     mergeFilterIntoValues,
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
@@ -184,7 +185,7 @@ export const LogsFilterSearch = (): JSX.Element => {
             } else if (selection.kind === 'valueItem') {
                 setGroupValues(addLogsValueFilter(taxonomicGroup, value, item, filterGroup.values))
             } else if (selection.kind === 'focus') {
-                focusFilter(selection.index)
+                focusFilter(selection.target)
             } else {
                 addGroupFilter(taxonomicGroup, value, item)
             }
@@ -232,6 +233,7 @@ const FilterGroupValues = ({
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const { focusedFilter } = useValues(logsViewerFiltersLogic)
+    const { focusFilter } = useActions(logsViewerFiltersLogic)
 
     if (filterGroup.values.length === 0) {
         return null
@@ -240,21 +242,27 @@ const FilterGroupValues = ({
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                // A chip opens its editor when it mounts, so changing the key of the focused chip is
-                // what pops it open — the nonce makes focusing the same chip again a fresh mount.
-                const focusKey = focusable && focusedFilter?.index === index ? `${index}-${focusedFilter.nonce}` : index
+                const target = filterTarget(filterOrGroup)
+                const isFocused =
+                    focusable &&
+                    focusedFilter !== null &&
+                    target !== null &&
+                    target.type === focusedFilter.type &&
+                    target.key === focusedFilter.key
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
-                        key={focusKey}
+                        key={index}
                         index={index}
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        open={isFocused ? true : undefined}
+                        onOpenChange={isFocused ? (next) => (next ? undefined : focusFilter(null)) : undefined}
                     />
                 )
             })}

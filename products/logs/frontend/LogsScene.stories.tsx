@@ -491,8 +491,11 @@ export default {
         // while the handwritten ApiRequest helpers are environment-scoped.
         mswDecorator({
             get: {
-                // Environment-scoped: this pair is called by the taxonomic filter, not the generated client.
+                // Both prefixes, because both callers exist: the taxonomic filter asks the
+                // environment-scoped path, and facetPresenceLogic asks the project-scoped one through
+                // the generated client. Answering only one empties the other's list.
                 '/api/environments/:team_id/logs/attributes': attributesMock,
+                '/api/projects/:team_id/logs/attributes': attributesMock,
                 '/api/environments/:team_id/logs/values': valuesMock,
                 '/api/environments/:team_id/logs/has_logs': () => [200, { hasLogs: true }],
             },

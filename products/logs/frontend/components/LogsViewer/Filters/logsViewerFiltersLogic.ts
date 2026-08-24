@@ -35,6 +35,7 @@ import {
     facetSelection,
     setFacetIncluded,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { LogsFilterTarget } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
 
 export const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -153,10 +154,7 @@ export interface logsViewerFiltersLogicValues {
     dateRange: DateRange
     filterGroup: UniversalFiltersGroup
     filters: LogsViewerFilters
-    focusedFilter: {
-        index: number
-        nonce: number
-    } | null
+    focusedFilter: LogsFilterTarget | null
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
@@ -183,8 +181,8 @@ export interface logsViewerFiltersLogicActions {
         propertyType: PropertyFilterType
         value: string
     }
-    focusFilter: (index: number) => {
-        index: number
+    focusFilter: (target: LogsFilterTarget | null) => {
+        target: LogsFilterTarget | null
     }
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
@@ -256,8 +254,8 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         // setting individual filters
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
-        // Ask the chips bar to open one filter for editing, by its index in the editable filterGroup.
-        focusFilter: (index: number) => ({ index }),
+        // Ask the chips bar to open the filter on this attribute for editing.
+        focusFilter: (target: LogsFilterTarget | null) => ({ target }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -325,12 +323,13 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
             },
         ],
-        // The chips bar opens a filter's editor by remounting that chip, so focusing the same chip
-        // twice has to look like a state change: the nonce is what the chip's React key carries.
+        // The attribute whose chip the bar holds open, or null for none. Keyed on the attribute
+        // rather than a position: filters come and go, and a stale index would open whichever
+        // filter shifted into that slot.
         focusedFilter: [
-            null as { index: number; nonce: number } | null,
+            null as LogsFilterTarget | null,
             {
-                focusFilter: (state, { index }) => ({ index, nonce: (state?.nonce ?? 0) + 1 }),
+                focusFilter: (_, { target }) => target,
             },
         ],
         pinnedFilters: [
