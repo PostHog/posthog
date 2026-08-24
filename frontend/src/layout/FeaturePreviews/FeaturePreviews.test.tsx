@@ -125,6 +125,22 @@ describe('FeaturePreviews', () => {
         }
     )
 
+    test.each([
+        ['https://posthog.com/docs/customer-analytics', true],
+        ['', false],
+    ])('with documentationUrl=%s the "Learn more" link is shown: %s', (documentationUrl, expectedVisible) => {
+        setupMocks({ features: [{ ...BETA_FEATURE, documentationUrl }] })
+
+        render(<FeaturePreviews />)
+
+        const link = screen.queryByText('Learn more')
+        if (expectedVisible) {
+            expect(link).toBeInTheDocument()
+        } else {
+            expect(link).not.toBeInTheDocument()
+        }
+    })
+
     test('hides the banner when the instance has only concept previews, which this list does not render', () => {
         setupMocks({ cloud: false, features: [CONCEPT_FEATURE] })
 

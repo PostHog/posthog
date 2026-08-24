@@ -18,6 +18,7 @@ import type { SupportFormFields } from '../../lib/components/Support/supportLogi
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductCrossSellProperties } from '../../lib/utils/product-intents'
 import type { UserType } from '../../types'
+import { FEATURE_PREVIEW_GATES } from './featurePreviewGates'
 
 export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'flagKey'> {
     flagKey: string
@@ -329,9 +330,15 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                                 ? !!conceptEnrollments[flagKey]
                                 : !!storedPersonProps[`$feature_enrollment/${flagKey}`])
 
+                        // Records often ship with an empty docs URL or description. Fall back to the
+                        // product's own gate config so the card can still link out and explain itself.
+                        const gate = FEATURE_PREVIEW_GATES[flagKey]
+
                         return {
                             ...feature,
                             flagKey,
+                            documentationUrl: feature.documentationUrl || gate?.docsURL || '',
+                            description: feature.description || gate?.description || '',
                             // Use payload from early access feature, fallback to empty object
                             payload: ((feature as any).payload as Record<string, any> | undefined) || {},
                             enabled: !!flag || isConceptEnrolled,

@@ -236,6 +236,53 @@ describe('featurePreviewsLogic - submitConceptSurvey', () => {
     })
 })
 
+describe('featurePreviewsLogic - gate config fallback', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test('fills an empty docs URL and description from the product gate config', async () => {
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            { flagKey: 'customer-analytics-roadmap', stage: 'beta', documentationUrl: '', description: '' } as any,
+        ])
+
+        await expectLogic(logic).toMatchValues({
+            earlyAccessFeatures: [
+                expect.objectContaining({
+                    documentationUrl: 'https://posthog.com/docs/customer-analytics',
+                    description: expect.stringContaining('customers'),
+                }),
+            ],
+        })
+    })
+
+    test('keeps the record docs URL and description when they are set', async () => {
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            {
+                flagKey: 'customer-analytics-roadmap',
+                stage: 'beta',
+                documentationUrl: 'https://example.com/own-docs',
+                description: 'Record-provided description',
+            } as any,
+        ])
+
+        await expectLogic(logic).toMatchValues({
+            earlyAccessFeatures: [
+                expect.objectContaining({
+                    documentationUrl: 'https://example.com/own-docs',
+                    description: 'Record-provided description',
+                }),
+            ],
+        })
+    })
+})
+
 describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment (impersonated session)', () => {
     let logic: ReturnType<typeof featurePreviewsLogic.build>
     const mockUpdateEnrollment = jest.fn()
