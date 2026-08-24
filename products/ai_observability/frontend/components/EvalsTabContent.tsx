@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
-import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import type { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
@@ -49,17 +48,18 @@ function EvalsTabContentInner({
     distinctId?: string
     generationRunsLogic: BuiltLogic<generationEvaluationRunsLogicType>
 }): JSX.Element {
-    const { evaluations, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
     const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationRunsLogic)
-    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationRunsLogic)
+    const {
+        evaluations,
+        evaluationsLoading,
+        generationEvaluationRunsLoading,
+        runnableEvaluations,
+        selectedEvaluation,
+    } = useValues(generationRunsLogic)
 
-    const availableEvaluations = evaluations?.filter((e) => !e.deleted) || []
-    // Manual runs go through the generation workflow, so only generation-target evals
-    // can be triggered from here, and only when there is a generation to point them at.
-    const runnableEvaluations = generationEvent ? availableEvaluations.filter((e) => e.target === 'generation') : []
-    const hasNoEvaluations = !evaluationsLoading && availableEvaluations.length === 0
+    const hasNoEvaluations = !evaluationsLoading && !evaluations.some((e) => !e.deleted)
 
     return (
         <div className="py-4">
@@ -83,7 +83,7 @@ function EvalsTabContentInner({
                     ) : generationEvent ? (
                         <>
                             <LemonSelect
-                                value={selectedEvaluationId}
+                                value={selectedEvaluation?.id ?? null}
                                 onChange={setSelectedEvaluationId}
                                 options={runnableEvaluations.map((evaluation) => ({
                                     value: evaluation.id,
@@ -98,9 +98,9 @@ function EvalsTabContentInner({
                                 size="small"
                                 icon={<IconCheckCircle />}
                                 onClick={() => {
-                                    if (selectedEvaluationId) {
+                                    if (selectedEvaluation) {
                                         runEvaluation(
-                                            selectedEvaluationId,
+                                            selectedEvaluation.id,
                                             generationEvent.id,
                                             generationEvent.createdAt,
                                             generationEvent.event,
@@ -109,7 +109,7 @@ function EvalsTabContentInner({
                                     }
                                 }}
                                 loading={evaluationRunLoading}
-                                disabledReason={!selectedEvaluationId ? 'Select an evaluation first' : undefined}
+                                disabledReason={!selectedEvaluation ? 'Select an evaluation first' : undefined}
                                 data-attr="run-evaluation-manual"
                             >
                                 Run Evaluation

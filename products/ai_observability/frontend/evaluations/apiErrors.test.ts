@@ -1,8 +1,18 @@
-import { ApiError } from 'lib/api'
+import { ApiError, NetworkError } from 'lib/api'
 
-import { evaluationErrorMessage } from './apiErrors'
+import { evaluationErrorMessage, isRequestRejection } from './apiErrors'
 
-describe('evaluationErrorMessage', () => {
+describe('evaluation API errors', () => {
+    it.each<[string, unknown, boolean]>([
+        ['treats a validation rejection as answered', new ApiError('Non-OK response', 400, undefined, {}), true],
+        ['treats an access refusal as answered', new ApiError('Non-OK response', 403, undefined, {}), true],
+        ['leaves a server fault reportable', new ApiError('Non-OK response', 500, undefined, {}), false],
+        ['leaves a request the browser never sent reportable', new NetworkError('network'), false],
+        ['leaves a plain Error reportable', new Error('Something broke'), false],
+    ])('%s', (_, error, expected) => {
+        expect(isRequestRejection(error)).toBe(expected)
+    })
+
     it.each<[string, unknown, string]>([
         [
             'extracts a DRF field-level validation error',

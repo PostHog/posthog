@@ -99,7 +99,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {
                     "error": (
                         f"This evaluation runs on the whole {evaluation.target}, so it can't be re-run against a "
-                        "single generation."
+                        f"single generation. It runs automatically once the {evaluation.target} finishes."
                     )
                 },
                 status=400,

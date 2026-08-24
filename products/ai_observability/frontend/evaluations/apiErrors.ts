@@ -23,6 +23,16 @@ function firstStringIn(value: unknown): string | null {
     return null
 }
 
+/**
+ * Whether the backend turned the request down on its own merits (any 4xx) rather than failing.
+ * A rejection is an answer the caller asked for, so the caller should show its message and stop,
+ * instead of rethrowing into error tracking where a working guard reads as a defect. A 5xx has no
+ * message worth showing and is a real fault, so it stays reportable.
+ */
+export function isRequestRejection(error: unknown): boolean {
+    return error instanceof ApiError && error.status !== undefined && error.status < 500
+}
+
 export function evaluationErrorMessage(error: unknown, fallback: string): string {
     if (error instanceof ApiError) {
         // Prefer DRF's top-level detail so that APIException payloads like
