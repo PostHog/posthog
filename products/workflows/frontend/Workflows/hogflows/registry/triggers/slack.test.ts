@@ -7,7 +7,7 @@ import { getRegisteredTriggerTypes } from './triggerTypeRegistry'
 
 describe('slack message trigger', () => {
     const getTriggerType = (): ReturnType<typeof getRegisteredTriggerTypes>[number] => {
-        const triggerType = getRegisteredTriggerTypes().find((t) => t.value === 'internal-event')
+        const triggerType = getRegisteredTriggerTypes().find((t) => t.value === 'slack-message')
         if (!triggerType) {
             throw new Error('Slack message trigger type not registered')
         }
@@ -116,6 +116,22 @@ describe('slack message trigger', () => {
 
         it('is gated behind the slack-workflow-triggers feature flag', () => {
             expect(getTriggerType().featureFlag).toBe('slack-workflow-triggers')
+        })
+
+        it('does not claim an internal-event config for a different event', () => {
+            // The tile is one of several that can own an `internal-event` config, so it identifies
+            // itself by its own value. Naming it after the config type made it match every internal
+            // event, and a non-Slack trigger rendered with the Slack icon and Slack config panel.
+            expect(getTriggerType().value).not.toBe('internal-event')
+            expect(
+                getTriggerType().matchConfig!({
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$activity_log_entry_created', type: 'events' }],
+                    },
+                } as any)
+            ).toBe(false)
         })
 
         it('buildConfig produces a config recognized by matchConfig', () => {

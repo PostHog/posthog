@@ -195,7 +195,9 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
 }
 
 registerTriggerType({
-    value: 'internal-event',
+    // The tile's own identity, not the stored config type: `internal-event` carries every internal
+    // event, so naming the tile after it would make the Slack tile claim all of them.
+    value: 'slack-message',
     label: 'Slack message posted',
     icon: <IconSlack />,
     description: 'Trigger when someone posts in a Slack channel',
