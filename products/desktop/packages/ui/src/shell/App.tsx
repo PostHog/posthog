@@ -1,21 +1,20 @@
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { ToastProvider } from "@posthog/quill";
 import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { AiApprovalScreen } from "@posthog/ui/features/ai-approval/AiApprovalScreen";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import {
-  useAuthStateValue,
-  useCurrentUser,
-} from "@posthog/ui/features/auth/authQueries";
+import { useAuthStateValue } from "@posthog/ui/features/auth/authQueries";
 import { AuthScreen } from "@posthog/ui/features/auth/components/AuthScreen";
 import { InviteCodeScreen } from "@posthog/ui/features/auth/components/InviteCodeScreen";
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
 import { useAuthSession } from "@posthog/ui/features/auth/useAuthSession";
 import { useIsOrgAdmin } from "@posthog/ui/features/auth/useOrgRole";
 import { CanvasGenerationToaster } from "@posthog/ui/features/canvas/freeform/useCanvasGenerationToasts";
+import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { showChannelList } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useSpaceTreeStore } from "@posthog/ui/features/canvas/stores/spaceTreeStore";
+import { ConsentScreen } from "@posthog/ui/features/consent/ConsentScreen";
+import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalytics";
+import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
@@ -25,8 +24,8 @@ import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBann
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
 import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
-import { track } from "@posthog/ui/shell/analytics";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
+import { ensureSession } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
@@ -63,33 +62,32 @@ function App({ devToolbar }: AppProps) {
 
   const needsInviteCode =
     isAuthenticated && hasCodeAccess === false && hasCompletedOnboarding;
-  const isCheckingAccess =
-    isAuthenticated && hasCodeAccess === null && hasCompletedOnboarding;
-
   const authenticatedClient = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({
-    client: authenticatedClient,
-    enabled:
-      isAuthenticated && hasCompletedOnboarding && hasCodeAccess === true,
-    refetchOnWindowFocus: "always",
-  });
-  const currentOrg = currentUser?.organization;
-  const needsAiApproval =
+  const consent = useOrgConsent(isAuthenticated && hasCodeAccess === true);
+  const needsConsent =
     isAuthenticated &&
     hasCompletedOnboarding &&
     hasCodeAccess === true &&
-    currentOrg != null &&
-    currentOrg.is_ai_data_processing_approved !== true;
+    consent.status === "resolved" &&
+    !consent.satisfied;
+  const isCheckingAccess =
+    isAuthenticated &&
+    hasCompletedOnboarding &&
+    (hasCodeAccess === null ||
+      (hasCodeAccess === true && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;
+  useConsentAnalytics(
+    hasCompletedOnboarding ? consent : { status: "loading" },
+    isAdmin,
+    "standalone_gate",
+  );
 
-  const wasShowingAiGateRef = useRef(false);
-  useEffect(() => {
-    if (wasShowingAiGateRef.current && !needsAiApproval && currentOrg != null) {
-      track(ANALYTICS_EVENTS.AI_CONSENT_APPROVED);
-    }
-    wasShowingAiGateRef.current = needsAiApproval;
-  }, [needsAiApproval, currentOrg]);
+  const spacesLayoutEnabled = useChannelsLayout();
+  // Read through a ref so a flag arriving mid-startup cannot re-run the resolve and replace
+  // a route the user has already moved off.
+  const spacesLayoutEnabledRef = useRef(spacesLayoutEnabled);
+  spacesLayoutEnabledRef.current = spacesLayoutEnabled;
 
   const readyForMainApp =
     isBootstrapped &&
@@ -97,8 +95,15 @@ function App({ devToolbar }: AppProps) {
     hasCompletedOnboarding &&
     !isCheckingAccess &&
     !needsInviteCode &&
-    !needsAiApproval;
+    consent.status === "resolved" &&
+    consent.satisfied;
   const startupIdentity = getAuthIdentity(authState);
+
+  useEffect(() => {
+    if (consent.status !== "resolved" || !consent.satisfied) return;
+    if (!startupIdentity || !authenticatedClient) return;
+    void ensureSession(startupIdentity, authenticatedClient);
+  }, [consent, startupIdentity, authenticatedClient]);
 
   // Resolve and load the initial route before mounting the router. Reset when
   // the user leaves the main app so a later re-entry starts fresh.
@@ -117,6 +122,7 @@ function App({ devToolbar }: AppProps) {
         const { href, firstRun } = await resolveStartupLocation(
           startupIdentity,
           authenticatedClient,
+          spacesLayoutEnabledRef.current,
         );
         if (firstRun) {
           showChannelList(firstRun.generalChannelId);
@@ -173,7 +179,9 @@ function App({ devToolbar }: AppProps) {
           initial={{ opacity: 1 }}
           className="h-full"
         >
-          <OnboardingFlow />
+          <OnboardingFlow
+            onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.discord)}
+          />
         </motion.div>
       );
     }
@@ -198,16 +206,10 @@ function App({ devToolbar }: AppProps) {
       );
     }
 
-    if (needsAiApproval) {
+    if (consent.status === "error" || needsConsent) {
       return (
-        <motion.div
-          key="ai-approval"
-          initial={{ opacity: 1 }}
-          className="h-full"
-        >
-          <AiApprovalScreen
-            orgName={currentOrg?.name ?? null}
-            isAdmin={isAdmin}
+        <motion.div key="consent" initial={{ opacity: 1 }} className="h-full">
+          <ConsentScreen
             banner={<UpdateBanner variant="compact" />}
             onOpenSupport={() => openExternalUrl(EXTERNAL_LINKS.discord)}
             settingsDialog={<SettingsDialog />}

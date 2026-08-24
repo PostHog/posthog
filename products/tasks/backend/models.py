@@ -3458,6 +3458,17 @@ class CodeInviteRedemption(UUIDModel):
         return f"{self.user} redeemed {self.invite_code}"
 
 
+class DesktopBetaTermsAcceptance(models.Model):
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        db_constraint=False,
+    )
+    accepted_by_user_id = models.BigIntegerField()
+    accepted_at = models.DateTimeField(auto_now_add=True)
+
+
 # How long a single beacon keeps a device "present" before the row is treated as stale.
 # Clients beacon every ~30s; expiring after 60s gives them one missed POST of slack.
 TASK_PRESENCE_TTL_SECONDS = 60

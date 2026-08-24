@@ -70,6 +70,11 @@ export interface SandboxComputePricingApi {
     history: ComputeRateCardApi[]
 }
 
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
+}
+
 export interface LoopRepositoryEntryDTOApi {
     github_integration_id: number
     full_name: string
@@ -956,15 +961,6 @@ export const ActivityKindEnumApi = {
 } as const
 
 /**
- * * `desktop_canvas` - desktop_canvas
- */
-export type TargetScopeEnumApi = (typeof TargetScopeEnumApi)[keyof typeof TargetScopeEnumApi]
-
-export const TargetScopeEnumApi = {
-    DesktopCanvas: 'desktop_canvas',
-} as const
-
-/**
  * Response shape for one task in the requester's activity feed (one row per task).
  */
 export interface TaskActivityDTOApi {
@@ -998,15 +994,6 @@ export interface TaskActivityDTOApi {
     latest_comment_scope?: string | null
     /** @nullable */
     latest_comment_item_id?: string | null
-    /** The non-task surface this activity opens, when the task backs another shared artifact.
-     *
-     * * `desktop_canvas` - desktop_canvas */
-    target_scope?: TargetScopeEnumApi | null
-    /**
-     * Identifier of the activity target. Present together with target_scope.
-     * @nullable
-     */
-    target_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }

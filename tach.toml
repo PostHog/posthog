@@ -731,7 +731,6 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
-    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -840,6 +839,7 @@ path = "products.tasks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
     "products.context_layer",
     "products.error_tracking",
     "products.event_definitions",
@@ -877,14 +877,7 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.report_canvas.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
+    "backend\\.teaching.*",
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
 ]

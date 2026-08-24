@@ -19,6 +19,7 @@ import type {
     ChannelWriteApi,
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
+    DesktopBetaTermsAcceptanceDTOApi,
     LoopDTOApi,
     LoopFireResultApi,
     LoopPreviewDTOApi,
@@ -192,6 +193,34 @@ export const codeSandboxPricingList = async (options?: RequestInit): Promise<San
     return apiMutator<SandboxComputePricingApi>(getCodeSandboxPricingListUrl(), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDesktopBetaTermsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/desktop_beta_terms/`
+}
+
+export const desktopBetaTermsCreate = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DesktopBetaTermsAcceptanceDTOApi> => {
+    return apiMutator<DesktopBetaTermsAcceptanceDTOApi>(getDesktopBetaTermsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
     })
 }
 

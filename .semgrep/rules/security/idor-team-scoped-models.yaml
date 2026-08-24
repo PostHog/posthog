@@ -303,8 +303,6 @@ rules:
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
-                              |SignalReportCanvas
-                              |SignalReportCanvasGeneration
                               |SignalReportRefund
                               |SignalReportTask
                               |SignalRepositoryAreaActivity
@@ -670,8 +668,6 @@ rules:
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
-                        |SignalReportCanvas
-                        |SignalReportCanvasGeneration
                         |SignalReportRefund
                         |SignalReportTask
                         |SignalRepositoryAreaActivity
@@ -831,6 +827,7 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
@@ -904,6 +901,7 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle

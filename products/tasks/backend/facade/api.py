@@ -54,7 +54,6 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
-from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -104,6 +103,7 @@ from products.tasks.backend.models import (
     ChannelStar,
     CodeInvite,
     CodeInviteRedemption,
+    DesktopBetaTermsAcceptance,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -194,7 +194,6 @@ __all__ = [
     "create_channel_task",
     "create_task",
     "create_task_without_run",
-    "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
@@ -258,10 +257,7 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
-    "record_task_activity_for_users",
-    "set_task_activity_target",
     "signal_task_run_client_activity",
-    "update_shared_task_context",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -1463,66 +1459,6 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     )
 
 
-def create_shared_channel_task_without_run(
-    *,
-    team_id: int,
-    channel_id: str | UUID,
-    title: str,
-    description: str,
-    origin_product: "Task.OriginProduct",
-    state: dict[str, Any] | None = None,
-    signal_report_id: str | UUID | None = None,
-) -> UUID:
-    """Create a shared channel task without starting an agent run."""
-    channel = Channel.objects.filter(
-        id=channel_id,
-        team_id=team_id,
-        channel_type=Channel.ChannelType.PUBLIC,
-        deleted=False,
-    ).first()
-    if channel is None:
-        raise ValueError("Shared channel not found")
-    task = Task.objects.create(
-        team_id=team_id,
-        channel=channel,
-        title=title,
-        description=description,
-        origin_product=origin_product,
-        state=state or {},
-        signal_report_id=signal_report_id,
-    )
-    return task.id
-
-
-def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_ids: Collection[int], kind: str) -> None:
-    """Project one task into each recipient's personal Activity feed."""
-    activity_at = django_timezone.now()
-    for user_id in set(user_ids):
-        TaskActivity.record(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            kind=kind,
-            activity_at=activity_at,
-        )
-
-
-def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:
-    if scope != "desktop_canvas":
-        raise ValueError("Unsupported Activity target scope")
-    task = Task.objects.get(id=task_id, team_id=team_id)
-    task.state = {**(task.state or {}), "activity_target": {"scope": scope, "id": str(target_id)}}
-    task.save(update_fields=["state", "updated_at"])
-
-
-def update_shared_task_context(*, team_id: int, task_id: str | UUID, title: str, description: str) -> None:
-    Task.objects.filter(id=task_id, team_id=team_id).update(
-        title=title[:255],
-        description=description,
-        updated_at=django_timezone.now(),
-    )
-
-
 def create_run(
     task_id: str | UUID,
     *,
@@ -1725,6 +1661,22 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
 
 
 # --- Desktop invites ---
+
+
+def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    return contracts.DesktopBetaTermsAcceptanceDTO(
+        is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
+            organization_id=organization_id
+        ).exists()
+    )
+
+
+def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    DesktopBetaTermsAcceptance.objects.get_or_create(
+        organization_id=organization_id,
+        defaults={"accepted_by_user_id": user_id},
+    )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
@@ -7977,22 +7929,6 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
-@frozen
-class _ActivityTarget:
-    scope: str | None
-    id: str | None
-
-
-def _activity_target(task: Task) -> _ActivityTarget:
-    target = (task.state or {}).get("activity_target")
-    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
-        return _ActivityTarget(scope=None, id=None)
-    target_id = target.get("id")
-    if not isinstance(target_id, str) or not target_id:
-        return _ActivityTarget(scope=None, id=None)
-    return _ActivityTarget(scope="desktop_canvas", id=target_id)
-
-
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -8052,8 +7988,6 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
-                target_scope=_activity_target(row.task).scope,
-                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows

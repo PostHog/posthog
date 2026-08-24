@@ -14,6 +14,7 @@ from posthog.models.user import User
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding import _origin_key, _session_enabled, start_onboarding_session
+from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
 from products.tasks.backend.models import Task, TaskClientProvenance
 
 MODULE = "products.tasks.backend.facade.onboarding"
@@ -103,6 +104,19 @@ class TestOnboardingSessionIdempotency(TestCase):
         self.assertEqual(started, task_id)
         self.assertEqual(create_calls, 1)
 
+    def test_seeding_the_tour_failing_does_not_block_the_session(self) -> None:
+        task_id = uuid4()
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertNotIn("open_canvas", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.ensure_teaching_canvas", side_effect=RuntimeError("canvas app down")):
+            started, create_calls = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create_calls, 1)
+
     def test_an_invalid_managed_prompt_uses_the_bundled_prompt_and_captures_the_fallback(self) -> None:
         task_id = uuid4()
 
@@ -128,3 +142,18 @@ class TestOnboardingSessionIdempotency(TestCase):
             capture.call_args.kwargs["properties"]["missing_placeholders"],
             ("brief", "channel_id", "followup", "homepage"),
         )
+
+    def test_a_seeded_tour_reaches_the_prompt_with_both_ids(self) -> None:
+        task_id = uuid4()
+        teaching = TeachingCanvas(channel_id=self.channel_id, canvas_id=uuid4())
+
+        def succeed(**kwargs: Any) -> contracts.CreatedTaskDTO:
+            self.assertIn(f"channel_id `{teaching.channel_id}`", kwargs["description"])
+            self.assertIn(f"canvas_id `{teaching.canvas_id}`", kwargs["description"])
+            return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
+
+        with patch(f"{MODULE}.ensure_teaching_canvas", return_value=teaching):
+            started, create_calls = self._start(create_side_effect=succeed)
+
+        self.assertEqual(started, task_id)
+        self.assertEqual(create_calls, 1)

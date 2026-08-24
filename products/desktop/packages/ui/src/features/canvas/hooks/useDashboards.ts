@@ -242,8 +242,8 @@ export function useDashboardMutations() {
 
 /**
  * Create an empty canvas in a channel, enter edit mode, and navigate to it.
- * `opts.channelId` overrides the bound channel, for callers whose channel is
- * provisioned lazily and so has no id at render time (the "me" row).
+ * `opts.channelId` overrides the bound channel, for callers whose channel has no id at
+ * render time because the list has not loaded (the "me" row).
  */
 export function useCreateAndOpenDashboard(
   channelId: string | undefined,
