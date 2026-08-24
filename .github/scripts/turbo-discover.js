@@ -54,19 +54,22 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // products). Only large products split, so the constant carries a large
 // product's session: ~270 base + ~130 session.
 const PRODUCT_JOB_OVERHEAD_SECONDS = 400
+// The base alone, for packed buckets: their products are small, so the session
+// share is the per-product overhead below rather than a large suite's collection.
+const PRODUCT_JOB_BASE_OVERHEAD_SECONDS = 270
 // Sentinel entry the timing workflow writes into .test_durations after it scales
 // the product entries to their JUnit-measured totals (see
 // optimize_test_durations.py). Product jobs record call-only durations, which
 // under-report fixture-heavy suites several-fold (warehouse-sources: 16 min
 // recorded vs 38 min real), so unscaled sums must not be trusted as magnitudes.
-// The key is not a real file, so pruning drops it — read it before pruning. It
+// The key is not a real file, so pruning drops it: read it before pruning. It
 // survives the --store-durations round trip like any restored entry.
 const PRODUCTS_SCALED_MARKER = 'products/.junit-scaled'
 // Temporal tests of products NOT listed below run in Django CI's Temporal segment,
 // so they must not also count toward that product's own size.
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // Products that run their OWN temporal suite inside the product test job, so their
-// temporal durations count toward product sizing — otherwise a big suite lands in
+// temporal durations count toward product sizing, otherwise a big suite lands in
 // one unsharded bucket and times out.
 //
 // Every shard in backend CI already starts COMPOSE_PROFILES=temporal, in the django
@@ -492,7 +495,7 @@ function nodeIdFileExists(nodeId) {
     return exists
 }
 
-// Splitting is immune to dead entries — pytest-split drops unknown node ids
+// Splitting is immune to dead entries, because pytest-split drops unknown node ids
 // before it weights anything. Sizing is not: every total here is a raw sum
 // over the union, so dead seconds inflate the shard count with no symptom
 // other than fast green shards.
@@ -623,7 +626,8 @@ function productEffectiveCost(product, durations, productsScaled = false) {
 
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
 // effective cost descending so the largest products land first and small ones
-// fill the gaps. Each bucket caps at TARGET_WALL_SECONDS of effective cost.
+// fill the gaps. Each bucket caps at the wall target minus the base overhead the
+// job pays once, so the effective costs only compete for the remaining budget.
 function packProducts(products, durations, productsScaled = false) {
     const items = products
         .map((product) => ({ product, cost: productEffectiveCost(product, durations, productsScaled) }))
@@ -633,7 +637,7 @@ function packProducts(products, durations, productsScaled = false) {
     for (const { product, cost } of items) {
         let placed = false
         for (const bucket of buckets) {
-            if (bucket.cost + cost <= TARGET_WALL_SECONDS) {
+            if (bucket.cost + cost <= TARGET_WALL_SECONDS - PRODUCT_JOB_BASE_OVERHEAD_SECONDS) {
                 bucket.products.push(product)
                 bucket.cost += cost
                 placed = true
@@ -754,12 +758,12 @@ function buildMatrix(products, durations, productsScaled = false) {
         const { work, staleUnionWork, staleness } = resolveProductSizing(product, durations, productsScaled)
         if (staleUnionWork !== null) {
             console.error(
-                `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
+                `  ${product}: .test_durations stale, ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
                 `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(work / 60).toFixed(1)} min (was ${(staleUnionWork / 60).toFixed(1)} min)`
             )
             console.error(
                 `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
-                `test files covered in .test_durations. Duration estimates are unreliable — using fallback sharding.`
+                `test files covered in .test_durations. Duration estimates are unreliable, using fallback sharding.`
             )
         }
 
@@ -990,7 +994,7 @@ const rawDurations = loadTestDurations()
 // Read before pruning: the marker's key is not a real file, so pruning drops it.
 const productsScaled = Boolean(rawDurations && rawDurations[PRODUCTS_SCALED_MARKER])
 if (productsScaled) {
-    console.error('Product entries in .test_durations are junit-scaled — trusting their magnitudes')
+    console.error('Product entries in .test_durations are junit-scaled, trusting their magnitudes')
 }
 const durations = pruneDeadDurations(rawDurations)
 const ranNodeIds = loadRanNodeIds()
