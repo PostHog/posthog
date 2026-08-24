@@ -24,3 +24,22 @@ WORKOS_ENDPOINTS: dict[str, WorkOSEndpointConfig] = {
 }
 
 ENDPOINTS = tuple(WORKOS_ENDPOINTS.keys())
+
+WEBHOOK_EVENTS_BY_SCHEMA: dict[str, tuple[str, ...]] = {
+    "users": ("user.created", "user.updated", "user.deleted"),
+    "organizations": ("organization.created", "organization.updated", "organization.deleted"),
+    "connections": ("connection.activated", "connection.deactivated", "connection.deleted"),
+    "directories": ("dsync.activated", "dsync.deleted"),
+    "directory_users": ("dsync.user.created", "dsync.user.updated", "dsync.user.deleted"),
+    "directory_groups": (
+        "dsync.group.created",
+        "dsync.group.updated",
+        "dsync.group.deleted",
+        "dsync.group.user_added",
+        "dsync.group.user_removed",
+    ),
+}
+
+WEBHOOK_EVENT_TO_SCHEMA = {event: schema for schema, events in WEBHOOK_EVENTS_BY_SCHEMA.items() for event in events}
+WEBHOOK_SCHEMA_NAMES = frozenset(WEBHOOK_EVENTS_BY_SCHEMA)
+ALL_WEBHOOK_EVENTS = tuple(event for events in WEBHOOK_EVENTS_BY_SCHEMA.values() for event in events)

@@ -1,9 +1,18 @@
 import dataclasses
 from typing import Any, Optional
 
+import orjson
+import pyarrow as pa
+from asgiref.sync import async_to_sync
 from requests import Request, Response
 from requests.exceptions import RequestException
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -16,9 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import WORKOS_ENDPOINTS
 
 BASE_URL = "https://api.workos.com"
+WEBHOOK_ENDPOINTS_PATH = "/webhook_endpoints"
 
 
 @dataclasses.dataclass
@@ -157,12 +168,118 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         return False, str(e)
 
 
+def create_webhook(api_key: str, webhook_url: str, events: list[str]) -> WebhookCreationResult:
+    """Register a WorkOS webhook and retain its one-time signing secret."""
+    try:
+        response = make_tracked_session().post(
+            f"{BASE_URL}{WEBHOOK_ENDPOINTS_PATH}",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"endpoint_url": webhook_url, "events": events},
+            timeout=10,
+        )
+        response.raise_for_status()
+        signing_secret = response.json().get("secret")
+        if not signing_secret:
+            return WebhookCreationResult(
+                success=False,
+                error="WorkOS created the webhook but did not return a signing secret. Add the secret manually.",
+                pending_inputs=["signing_secret"],
+            )
+        return WebhookCreationResult(success=True, extra_inputs={"signing_secret": signing_secret})
+    except Exception as e:
+        return WebhookCreationResult(
+            success=False,
+            error=f"Failed to create the WorkOS webhook: {e}. Please create it manually in WorkOS.",
+        )
+
+
+def _webhook_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+
+def _matching_webhooks(api_key: str, webhook_url: str) -> list[dict[str, Any]]:
+    response = make_tracked_session().get(
+        f"{BASE_URL}{WEBHOOK_ENDPOINTS_PATH}", headers=_webhook_headers(api_key), timeout=10
+    )
+    response.raise_for_status()
+    body = response.json()
+    webhooks = body.get("data", []) if isinstance(body, dict) else []
+    return [webhook for webhook in webhooks if webhook.get("endpoint_url") == webhook_url]
+
+
+def get_webhook_info(api_key: str, webhook_url: str) -> ExternalWebhookInfo:
+    try:
+        matching = _matching_webhooks(api_key, webhook_url)
+        if not matching:
+            return ExternalWebhookInfo(exists=False)
+        return ExternalWebhookInfo(
+            exists=True,
+            url=webhook_url,
+            enabled_events=sorted({event for webhook in matching for event in webhook.get("events", [])}),
+            status=str(matching[0].get("status")) if matching[0].get("status") else None,
+            created_at=str(matching[0].get("created_at")) if matching[0].get("created_at") else None,
+        )
+    except Exception as e:
+        return ExternalWebhookInfo(exists=False, error=str(e))
+
+
+def delete_webhook(api_key: str, webhook_url: str) -> WebhookDeletionResult:
+    try:
+        session = make_tracked_session()
+        for webhook in _matching_webhooks(api_key, webhook_url):
+            webhook_id = webhook.get("id")
+            if webhook_id:
+                response = session.delete(
+                    f"{BASE_URL}{WEBHOOK_ENDPOINTS_PATH}/{webhook_id}",
+                    headers=_webhook_headers(api_key),
+                    timeout=10,
+                )
+                response.raise_for_status()
+        return WebhookDeletionResult(success=True)
+    except Exception as e:
+        return WebhookDeletionResult(success=False, error=f"Failed to delete the WorkOS webhook: {e}")
+
+
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    """Extract full WorkOS resources and preserve delete events as soft tombstones."""
+    rows_by_id: dict[str, tuple[str, dict[str, Any]]] = {}
+    rows = table.to_pylist()
+    for event in rows:
+        event_type = event.get("event")
+        data = event.get("data")
+        if isinstance(data, str):
+            try:
+                data = orjson.loads(data)
+            except orjson.JSONDecodeError:
+                continue
+        if not isinstance(event_type, str) or not isinstance(data, dict):
+            continue
+
+        # Membership events wrap the complete group beside the affected user.
+        resource = data.get("group") if event_type in {"dsync.group.user_added", "dsync.group.user_removed"} else data
+        if not isinstance(resource, dict) or not resource.get("id"):
+            continue
+
+        resource = dict(resource)
+        deleted = event_type.endswith(".deleted")
+        resource["_ph_deleted"] = deleted
+        resource["_ph_deleted_at"] = event.get("created_at") if deleted else None
+        raw_created_at = event.get("created_at")
+        created_at = raw_created_at if isinstance(raw_created_at, str) else ""
+        current = rows_by_id.get(str(resource["id"]))
+        if current is None or created_at >= current[0]:
+            rows_by_id[str(resource["id"])] = (created_at, resource)
+
+    return table_from_py_list([row for _, row in rows_by_id.values()])
+
+
 def workos_source(
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[WorkOSResumeConfig],
+    webhook_source_manager: Optional[WebhookSourceManager] = None,
 ) -> SourceResponse:
     endpoint_config = WORKOS_ENDPOINTS[endpoint]
 
@@ -196,6 +313,10 @@ def workos_source(
         if state and state.get("after"):
             resumable_source_manager.save_state(WorkOSResumeConfig(after=str(state["after"])))
 
+    webhook_enabled = (
+        async_to_sync(webhook_source_manager.webhook_enabled)() if webhook_source_manager is not None else False
+    )
+
     resource = rest_api_resource(
         config,
         team_id,
@@ -207,7 +328,11 @@ def workos_source(
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=lambda: (
+            webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+            if webhook_enabled and webhook_source_manager is not None
+            else resource
+        ),
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,

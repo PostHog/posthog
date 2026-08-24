@@ -1,4 +1,9 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -9,7 +14,14 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -18,9 +30,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workos import WorkOSSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import (
+    ALL_WEBHOOK_EVENTS,
+    ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.workos import (
     WorkOSResumeConfig,
+    create_webhook as create_workos_webhook,
+    delete_webhook as delete_workos_webhook,
+    get_webhook_info as get_workos_webhook_info,
     validate_credentials as validate_workos_credentials,
     workos_source,
 )
@@ -28,7 +47,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class WorkOSSource(ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig]):
+class WorkOSSource(
+    ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig],
+    WebhookSource[WorkOSSourceConfig],
+):
     api_docs_url = "https://workos.com/docs/reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -36,6 +58,16 @@ class WorkOSSource(ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WORKOS
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.workos.webhook_template import template
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return {name: name for name in WEBHOOK_SCHEMA_NAMES}
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -51,6 +83,7 @@ You can find your API key in the [WorkOS Dashboard](https://dashboard.workos.com
 The key starts with `sk_`.
 """,
             iconPath="/static/services/workos.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/workos",
             fields=cast(
                 list[FieldType],
                 [
@@ -62,6 +95,26 @@ The key starts with `sk_`.
                         placeholder="sk_...",
                         secret=True,
                     ),
+                ],
+            ),
+            webhookSetupCaption="""PostHog can create the WorkOS webhook automatically. To set it up manually:
+
+1. Open **Webhooks** in the WorkOS Dashboard.
+2. Create an endpoint and paste the webhook URL shown below.
+3. Select the events for the tables you sync.
+4. Copy the endpoint's signing secret into the field below.
+""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="whsec_...",
+                        secret=True,
+                    )
                 ],
             ),
         )
@@ -82,13 +135,13 @@ The key starts with `sk_`.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # WorkOS list endpoints expose no server-side timestamp filter, so only
-        # full refresh is supported.
+        # WorkOS list endpoints seed the table once; webhook mode handles later changes.
         schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
                 supports_append=False,
+                supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
                 incremental_fields=[],
             )
             for endpoint in list(ENDPOINTS)
@@ -122,6 +175,29 @@ The key starts with `sk_`.
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[WorkOSResumeConfig]:
         return ResumableSourceManager[WorkOSResumeConfig](inputs, WorkOSResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(
+        self, config: WorkOSSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
+        return create_workos_webhook(config.api_key, webhook_url, list(ALL_WEBHOOK_EVENTS))
+
+    def get_desired_webhook_events(
+        self, config: WorkOSSourceConfig, eligible_schema_names: list[str]
+    ) -> list[str] | None:
+        return list(ALL_WEBHOOK_EVENTS)
+
+    def get_external_webhook_info(
+        self, config: WorkOSSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> ExternalWebhookInfo:
+        return get_workos_webhook_info(config.api_key, webhook_url)
+
+    def delete_webhook(
+        self, config: WorkOSSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
+        return delete_workos_webhook(config.api_key, webhook_url)
+
     def source_for_pipeline(
         self,
         config: WorkOSSourceConfig,
@@ -134,4 +210,5 @@ The key starts with `sk_`.
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            webhook_source_manager=self.get_webhook_source_manager(inputs),
         )
