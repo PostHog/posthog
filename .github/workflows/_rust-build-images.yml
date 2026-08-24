@@ -147,7 +147,11 @@ jobs:
               env:
                   IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
               run: |
-                  echo "cache-key-prefix=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_OUTPUT"
+                  # Static namespace. sccache already keys every compile on its
+                  # real inputs (sources, extern rlibs, compiler, flags), so a
+                  # routine Cargo.lock bump no longer cold-starts the whole build.
+                  # Bump the suffix to force a cold rebuild by hand.
+                  echo "cache-key-prefix=cargo-v1" >> "$GITHUB_OUTPUT"
                   if [ "$IS_FORK_PR" = "true" ]; then
                       echo "Fork PR — skipping sccache credentials (build runs without remote cache)"
                       exit 0
