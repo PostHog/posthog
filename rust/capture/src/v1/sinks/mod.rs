@@ -201,6 +201,7 @@ fn load_sink_config(name: SinkName, env: &HashMap<String, String>) -> anyhow::Re
         }
     }
 
+    // nosemgrep: capture-config-via-config-resolution -- the sink half of config_resolution::resolve, which applies the fallback to what this returns
     let kafka = kafka::config::Config::init_from_hashmap(&kafka_map)
         .map_err(|e| anyhow::anyhow!("kafka config: {e}"))?;
 
