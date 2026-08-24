@@ -488,6 +488,28 @@ class TestSurvey(APIBaseTest):
 
         assert (str(survey.id) in payload_ids) is expected_in_payload
 
+    def test_sdk_payload_orders_surveys_by_creation_time(self) -> None:
+        # When several popover surveys match one user, the SDK shows one per cycle and breaks ties on
+        # payload order. Order must be deterministic so the same survey always wins the slot.
+        older = Survey.objects.create(
+            team=self.team,
+            name="Older survey",
+            type="popover",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+        )
+        newer = Survey.objects.create(
+            team=self.team,
+            name="Newer survey",
+            type="popover",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+        )
+
+        payload_ids = [str(item["id"]) for item in get_surveys_response(self.team)["surveys"]]
+
+        assert payload_ids.index(str(older.id)) < payload_ids.index(str(newer.id))
+
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
         self.team.save(update_fields=["survey_config"])

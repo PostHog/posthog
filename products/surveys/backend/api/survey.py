@@ -3514,7 +3514,12 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # external_survey case in their type enums at all.
         .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
+        .prefetch_related("actions")
+        # When several popover surveys match one user, the SDK shows only one per cycle and
+        # breaks ties on payload order. Without an explicit order Postgres decides that order,
+        # so which survey wins the slot is arbitrary and an edit can flip it. Order by creation
+        # time (immutable), with id as a stable final tie-break, so the winner is deterministic.
+        .order_by("created_at", "id"),
         many=True,
     ).data
 
