@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -113,6 +113,28 @@ describe("prepareCodexHome", () => {
       'model = "gpt-5-codex"\n[projects."/repo"]\ntrust_level = "trusted"\n',
     );
   });
+
+  it.skipIf(process.platform === "win32")(
+    "writes the copied config so only its owner can read it",
+    async () => {
+      const codexConfigDir = path.join(testHome.dir, ".codex");
+      await mkdir(codexConfigDir, { recursive: true });
+      await writeFile(
+        path.join(codexConfigDir, "config.toml"),
+        'model = "gpt-5-codex"\n',
+      );
+
+      const codexHome = await prepareCodexHome({
+        appDataPath,
+        taskRunId,
+        bundledSkillsDir,
+        log: noopLog,
+      });
+
+      const mode = statSync(path.join(codexHome, "config.toml")).mode & 0o777;
+      expect(mode).toBe(0o600);
+    },
+  );
 
   it("rebuilds the skills dir, dropping stale links", async () => {
     await createSkill(bundledSkillsDir, "first");
@@ -280,9 +302,12 @@ describe("stripMcpServers", () => {
       ],
     },
     {
-      name: "keeps dropping a server table across a multiline value",
+      name: "keeps dropping a server table across a wrapped value",
       toml: [
         "[mcp_servers.docs]",
+        "args = [",
+        '  ["--flag"],',
+        "]",
         'instructions = """',
         "[tui] is not a header here",
         '"""',
@@ -292,14 +317,22 @@ describe("stripMcpServers", () => {
       expected: ["[tui]", "theme = 1"],
     },
     {
-      name: "drops a top-level key together with its multiline value",
+      name: "drops a top-level key together with its wrapped value",
       toml: [
+        "mcp_servers.docs.args = [",
+        '  "--flag",',
+        "]",
         'mcp_servers.docs.instructions = """',
         "read me",
         '"""',
         'model = "gpt-5"',
       ],
       expected: ['model = "gpt-5"'],
+    },
+    {
+      name: "keeps a bracket inside a quoted value from opening a table",
+      toml: ["[mcp_servers.docs]", 'command = "["', "[tui]", "theme = 1"],
+      expected: ["[tui]", "theme = 1"],
     },
   ])("$name", ({ toml, expected }) => {
     expect(stripMcpServers(toml.join("\n"))).toBe(expected.join("\n"));

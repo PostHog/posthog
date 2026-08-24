@@ -84,7 +84,11 @@ export async function prepareCodexHome(options: {
   if (fs.existsSync(userConfig)) {
     try {
       const config = await fs.promises.readFile(userConfig, "utf-8");
-      await fs.promises.writeFile(privateConfig, stripMcpServers(config));
+      // The copy can still carry provider headers and environment values, and
+      // it lands in a world-readable directory, so keep it to the owner.
+      await fs.promises.writeFile(privateConfig, stripMcpServers(config), {
+        mode: 0o600,
+      });
     } catch (err) {
       options.log.warn("Failed to copy codex config into codex home", {
         error: err instanceof Error ? err.message : String(err),
@@ -115,55 +119,80 @@ export function stripMcpServers(toml: string): string {
   const kept: string[] = [];
   let inMcpTable = false;
   let inTable = false;
-  let openQuotes: string | null = null;
-  let dropRestOfString = false;
+  let value: OpenValue = { fence: null, depth: 0 };
+  let dropRestOfValue = false;
 
   for (const line of toml.split("\n")) {
-    // Inside a multiline string every line is content, so a `[mcp_servers` there
-    // is prose. Reading it as a header would drop the closing delimiter and hand
-    // codex a config it cannot parse.
-    const inString = openQuotes !== null;
+    // A line only carries structure when no value from an earlier line is still
+    // open. Otherwise it is content, and a `[mcp_servers` there is prose — reading
+    // it as a table header would hand codex a config it cannot parse.
+    const structural = value.fence === null && value.depth === 0;
     const trimmed = line.trim();
-    if (!inString && trimmed.startsWith("[")) {
+    if (structural && trimmed.startsWith("[")) {
       inTable = true;
       inMcpTable = MCP_SERVERS_HEADER.test(trimmed);
     }
-    const drop: boolean = inString
-      ? inMcpTable || dropRestOfString
-      : inMcpTable || (!inTable && MCP_SERVERS_KEY.test(trimmed));
+    const drop: boolean = structural
+      ? inMcpTable || (!inTable && MCP_SERVERS_KEY.test(trimmed))
+      : inMcpTable || dropRestOfValue;
 
-    openQuotes = advanceMultilineString(line, openQuotes);
-    // A dropped key whose value opens a multiline string takes the whole value.
-    dropRestOfString = drop && openQuotes !== null;
+    value = scanLine(line, value);
+    // A dropped key whose value wraps onto later lines takes the whole value.
+    dropRestOfValue = drop && (value.fence !== null || value.depth > 0);
     if (!drop) kept.push(line);
   }
   return kept.join("\n");
 }
 
 /**
- * Returns the multiline-string delimiter still open at the end of `line`, or
- * null when the line ends outside one. `open` carries that state in.
+ * A value left open at a line break: the multiline-string delimiter still to be
+ * closed, and how many `[` or `{` are still unclosed.
  */
-function advanceMultilineString(
-  line: string,
-  open: string | null,
-): string | null {
-  let quotes = open;
+interface OpenValue {
+  fence: string | null;
+  depth: number;
+}
+
+/** Returns the value left open at the end of `line`, given the one open at its start. */
+function scanLine(line: string, open: OpenValue): OpenValue {
+  let { fence, depth } = open;
   for (let i = 0; i < line.length; i++) {
-    if (quotes !== null) {
-      if (line.startsWith(quotes, i)) {
-        quotes = null;
+    if (fence !== null) {
+      if (line.startsWith(fence, i)) {
+        fence = null;
         i += 2;
       }
       continue;
     }
     if (line.startsWith('"""', i) || line.startsWith("'''", i)) {
-      quotes = line.slice(i, i + 3);
+      fence = line.slice(i, i + 3);
       i += 2;
+    } else if (line[i] === '"' || line[i] === "'") {
+      i = endOfString(line, i);
+    } else if (line[i] === "#") {
+      break; // A comment runs to the end of the line.
+    } else if (line[i] === "[" || line[i] === "{") {
+      depth += 1;
+    } else if (line[i] === "]" || line[i] === "}") {
+      depth = Math.max(0, depth - 1);
+    }
+  }
+  return { fence, depth };
+}
+
+/**
+ * Returns the index of the quote closing the single-line string that opens at
+ * `start`, or the end of the line when it is never closed.
+ */
+function endOfString(line: string, start: number): number {
+  const quote = line[start];
+  for (let i = start + 1; i < line.length; i++) {
+    // Only basic strings take backslash escapes; literal ones are verbatim.
+    if (quote === '"' && line[i] === "\\") {
+      i += 1;
       continue;
     }
-    // A comment runs to the end of the line, so nothing after it opens a string.
-    if (line[i] === "#") break;
+    if (line[i] === quote) return i;
   }
-  return quotes;
+  return line.length;
 }
