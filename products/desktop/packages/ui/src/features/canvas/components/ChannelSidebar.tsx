@@ -417,7 +417,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   }, [isPersonalChannel, rawFilters, sources, tab]);
   const filtersActive = hasActiveChannelItemFilters(filters);
 
-  const base = `/website/${channelId}`;
+  const base = `/spaces/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
   // navigating doesn't rebuild the list.
   const activeKey = useMemo(() => {
@@ -709,7 +709,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           isActive={pathname === `${base}/new`}
           onClick={() =>
             void navigate({
-              to: "/website/$channelId/new",
+              to: "/spaces/$channelId/new",
               params: { channelId },
             })
           }
@@ -721,14 +721,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           "home",
           base,
           () =>
-            void navigate({ to: "/website/$channelId", params: { channelId } }),
+            void navigate({ to: "/spaces/$channelId", params: { channelId } }),
         )}
         {sectionRow(
           "context",
           `${base}/context`,
           () =>
             void navigate({
-              to: "/website/$channelId/context",
+              to: "/spaces/$channelId/context",
               params: { channelId },
             }),
         )}
@@ -738,7 +738,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             `${base}/loops`,
             () =>
               void navigate({
-                to: "/website/$channelId/loops",
+                to: "/spaces/$channelId/loops",
                 params: { channelId },
               }),
           )}

@@ -4853,7 +4853,8 @@ describe("AgentServer HTTP Mode", () => {
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("gh pr create --draft`");
-      expect(prompt).not.toContain("--base");
+      // Scoped to the create command; other sections mention the flag legitimately.
+      expect(prompt).not.toContain("gh pr create --draft --base");
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 

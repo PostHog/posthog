@@ -90,12 +90,14 @@ interface UseTaskCreationOptions {
   customImageId?: string;
   signalReportId?: string;
   channelContext?: string;
+  channelContextPath?: string;
+  submissionBlocked?: boolean;
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
   /**
    * Desktop file-system folder id that owns the channel's CONTEXT.md (the
-   * `/website/$channelId` id, distinct from the feed `channelId`). Lets the
+   * `/spaces/$channelId` id, distinct from the feed `channelId`). Lets the
    * injected context address CONTEXT.md upkeep writes by a stable id.
    */
   channelContextId?: string;
@@ -197,6 +199,8 @@ export function useTaskCreation({
   customImageId,
   signalReportId,
   channelContext,
+  channelContextPath,
+  submissionBlocked = false,
   channelName,
   channelId,
   channelContextId,
@@ -234,11 +238,9 @@ export function useTaskCreation({
   // Used to name the task occupying a branch's worktree when reuse is blocked.
   const { data: tasks } = useTasks();
 
-  // Tasks created without a channel default into the user's private #me
-  // backend channel so they still surface in the Channels space instead of
-  // staying unfiled. The personal channel is per-user and provisioned lazily
-  // server-side on first list, so this can't collide across teammates. If it
-  // hasn't loaded yet the task is created unfiled, as before.
+  // Tasks created without a channel default into the user's private #me channel so they
+  // surface in the Channels space instead of staying unfiled. #me is per-user, so this
+  // cannot collide across teammates; before the list loads the task is created unfiled.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
@@ -251,7 +253,11 @@ export function useTaskCreation({
       ? !!selectedRepository
       : !!selectedDirectory;
   const canSubmitBase =
-    isAuthenticated && isOnline && hasRequiredPath && !isCreatingTask;
+    isAuthenticated &&
+    isOnline &&
+    hasRequiredPath &&
+    !isCreatingTask &&
+    !submissionBlocked;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(
@@ -402,6 +408,7 @@ export function useTaskCreation({
             signalReportId,
             additionalDirectories,
             channelContext,
+            channelContextPath,
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
@@ -527,6 +534,10 @@ export function useTaskCreation({
           }
 
           if (!result.success) {
+            track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+              error_type: "task_creation_failed",
+              failed_step: result.failedStep,
+            });
             // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
               useUsageLimitStore.getState().show();
@@ -549,6 +560,9 @@ export function useTaskCreation({
           }
           return result.success;
         } catch (error) {
+          track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
+            error_type: "unexpected_error",
+          });
           toastError("Failed to create task", error);
           log.error("Unexpected error during task creation", { error });
           if (pendingTaskKey) {
@@ -590,6 +604,7 @@ export function useTaskCreation({
       signalReportId,
       additionalDirectories,
       channelContext,
+      channelContextPath,
       channelName,
       channelId,
       channelContextId,

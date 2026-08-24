@@ -732,6 +732,74 @@ export interface PostHogObjectReferenceInput {
   source_message_id: string;
 }
 
+export interface ContextWikiTree {
+  head_sha: string;
+  paths: string[];
+}
+
+export interface ContextWikiPage {
+  path: string;
+  content: string;
+  head_sha: string;
+  updated_at: string;
+}
+
+export interface ContextWikiHealthFinding {
+  category: string;
+  path: string;
+  message: string;
+}
+
+export interface ContextWikiHealthReport {
+  head_sha: string;
+  findings: ContextWikiHealthFinding[];
+}
+
+export interface ChannelContextWikiPage {
+  path: string;
+}
+
+// Thrown when PUT /context_layer/pages/ rejects a write because the caller's
+// `base_head` is older than the wiki's current head. `currentHead` is the head
+// to re-read against before retrying.
+export class ContextWikiConflictError extends Error {
+  status = 409;
+  currentHead: string | null;
+  constructor(currentHead: string | null) {
+    super("The wiki changed since you started editing");
+    this.name = "ContextWikiConflictError";
+    this.currentHead = currentHead;
+  }
+}
+
+// Thrown when a page write fails the wiki's structure lint; `errors` lists the
+// violations for inline display.
+export class ContextWikiLintError extends Error {
+  status = 400;
+  errors: string[];
+  constructor(detail: string, errors: string[]) {
+    super(detail);
+    this.name = "ContextWikiLintError";
+    this.errors = errors;
+  }
+}
+
+// Thrown on 403: the organization has private projects, so its wiki is
+// deliberately unavailable. Distinct from 404 (wiki never enabled).
+export class ContextWikiUnavailableError extends Error {
+  status = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = "ContextWikiUnavailableError";
+  }
+}
+
+/** DRF error bodies carry the human-readable message in `detail`. */
+function readDetail(error: ApiRequestError): string {
+  const body = error.body as { detail?: string } | null;
+  return body?.detail ?? error.message;
+}
+
 export interface TaskArtifactUploadRequest {
   name: string;
   type: "output" | "user_attachment" | "skill_bundle";
@@ -1900,8 +1968,8 @@ export class PostHogAPIClient {
     });
   }
 
-  async approveAiDataProcessing(): Promise<void> {
-    const urlPath = `/api/organizations/@current/`;
+  async approveAiDataProcessing(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
     await this.api.fetcher.fetch({
       method: "patch",
@@ -1911,6 +1979,40 @@ export class PostHogAPIClient {
         body: JSON.stringify({ is_ai_data_processing_approved: true }),
       },
     });
+  }
+
+  async areDesktopBetaTermsAccepted(organizationId: string): Promise<boolean> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to check Desktop beta terms: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      is_desktop_beta_terms_accepted: boolean;
+    };
+    return data.is_desktop_beta_terms_accepted;
+  }
+
+  async acceptDesktopBetaTerms(organizationId: string): Promise<void> {
+    const urlPath = `/api/organizations/${organizationId}/desktop_beta_terms/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to accept Desktop beta terms: ${response.statusText}`,
+      );
+    }
   }
 
   async getProject(projectId: number) {
@@ -2722,8 +2824,8 @@ export class PostHogAPIClient {
   // Task channels + threads. Not in the generated OpenAPI client yet, so these
   // go through the raw fetcher like the desktop file-system endpoints above.
 
-  // List backend task channels: all public channels plus the requester's
-  // personal "#me" channel (provisioned lazily server-side on first list).
+  // All public channels plus the requester's #me. Creates nothing: startup provisions the
+  // default spaces, which is what lets a caller gate on one already existing.
   async getTaskChannels(): Promise<TaskChannel[]> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
@@ -2790,6 +2892,24 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ProvisionedTaskChannels;
+  }
+
+  /**
+   * Opens the first-run agent session in #general. Reads the company's homepage, so it takes a
+   * few seconds; callers fire it without awaiting. Resolves false when no session was started,
+   * which is the normal path while the spaces rollout has not reached this user.
+   */
+  async startOnboardingSession(): Promise<string | null> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { task_id?: string | null };
+    return data.task_id ?? null;
   }
 
   async updateTaskChannelRepositories(
@@ -2941,6 +3061,129 @@ export class PostHogAPIClient {
       returned: all.length,
     });
     return all;
+  }
+
+  // ---- Organization context wiki (context_layer) ------------------------
+  // Org-scoped: the wiki is one repo per organization, shared across projects.
+  // 404 means the wiki was never enabled; 403 means it exists but is dark
+  // because the organization has private projects.
+
+  // GET with the wiki's shared read semantics: 404 (never enabled or missing
+  // page) reads as null, 403 (privacy guard) as ContextWikiUnavailableError.
+  private async getContextWikiResource<T>(urlPath: string): Promise<T | null> {
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as T;
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        if (error.status === 404) return null;
+        if (error.status === 403) {
+          throw new ContextWikiUnavailableError(readDetail(error));
+        }
+      }
+      throw error;
+    }
+  }
+
+  async getContextWikiTree(): Promise<ContextWikiTree | null> {
+    return this.getContextWikiResource<ContextWikiTree>(
+      `/api/organizations/@current/context_layer/tree/`,
+    );
+  }
+
+  async getContextWikiPage(path: string): Promise<ContextWikiPage | null> {
+    return this.getContextWikiResource<ContextWikiPage>(
+      `/api/organizations/@current/context_layer/pages/?path=${encodeURIComponent(path)}`,
+    );
+  }
+
+  async getContextWikiHealthReport(): Promise<ContextWikiHealthReport | null> {
+    return this.getContextWikiResource<ContextWikiHealthReport>(
+      `/api/organizations/@current/context_layer/wiki/report/`,
+    );
+  }
+
+  async getChannelContextWikiPage(
+    channelId: string,
+  ): Promise<ChannelContextWikiPage | null> {
+    return this.getContextWikiResource<ChannelContextWikiPage>(
+      `/api/organizations/@current/context_layer/channel-pages/${encodeURIComponent(channelId)}/`,
+    );
+  }
+
+  /**
+   * Full-content page write guarded by `baseHead` optimistic concurrency.
+   * The server holds a per-org writer lock shared with agent commit landings;
+   * a lock-busy 429 surfaces as ApiRequestError and is safe to retry with the
+   * same base head — callers configure that retry (see
+   * `useContextWikiPageMutation`). 409 (stale base head) and 400 (lint) are
+   * the actionable failures.
+   */
+  async putContextWikiPage(input: {
+    path: string;
+    content: string;
+    baseHead: string;
+  }): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/pages/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "put",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify({
+            path: input.path,
+            content: input.content,
+            base_head: input.baseHead,
+          }),
+        },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (!(error instanceof ApiRequestError)) throw error;
+      if (error.status === 409) {
+        const body = error.body as { current_head?: string } | null;
+        throw new ContextWikiConflictError(body?.current_head ?? null);
+      }
+      if (error.status === 400) {
+        const body = error.body as {
+          detail?: string;
+          errors?: string[];
+        } | null;
+        throw new ContextWikiLintError(
+          body?.detail ?? "The change violates the wiki structure.",
+          body?.errors ?? [],
+        );
+      }
+      if (error.status === 403) {
+        throw new ContextWikiUnavailableError(readDetail(error));
+      }
+      throw error;
+    }
+  }
+
+  async enableContextWiki(): Promise<{ head_sha: string }> {
+    const urlPath = `/api/organizations/@current/context_layer/enable/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: { body: JSON.stringify({}) },
+      });
+      return (await response.json()) as { head_sha: string };
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        throw new Error(
+          `Failed to enable the context wiki: ${readDetail(error)}`,
+        );
+      }
+      throw error;
+    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being
