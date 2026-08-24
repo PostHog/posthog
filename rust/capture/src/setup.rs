@@ -159,7 +159,7 @@ pub async fn build_components(
     });
 
     // Before anything reads a broker address: the switch rewrites the hosts and
-    // TLS of every producer destination, so it has to land while they are still
+    // TLS of every event destination, so it has to land while they are still
     // plain config.
     let emergency_kafka_fallback = EmergencyKafkaFallback::from_env(&sink_env)
         .unwrap_or_else(|e| panic!("invalid configuration: {e:#}"));

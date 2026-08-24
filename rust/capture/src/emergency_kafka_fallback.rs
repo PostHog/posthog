@@ -1,30 +1,33 @@
-//! Emergency switch that repoints every Kafka producer in the process at a
+//! Emergency switch that repoints capture-analytics' Kafka producers at a
 //! backup cluster.
 //!
-//! Every deployment carries the backup connection settings dormant. Arming
-//! [`TRIGGER_VAR`] swaps hosts and TLS on every producer destination at
+//! The deployment carries the backup connection settings dormant. Arming
+//! [`TRIGGER_VAR`] swaps hosts and TLS on the analytics event destinations at
 //! config-resolution time, before anything is built. Topic names, acks,
 //! retries, timeouts and client ids are untouched: the backup cluster carries
 //! identically-named topics, so only the connection changes.
+//!
+//! Scoped to the analytics event path. The traces and metrics producers, which
+//! only capture-logs builds, keep their configured cluster.
 
 use std::collections::HashMap;
 
 use metrics::gauge;
 use tracing::error;
 
-use crate::config::{Config, KafkaConfig};
+use crate::config::Config;
 use crate::v1::sinks::Sinks;
 
 /// Arms the switch. Unset or empty means normal operation; any value other
 /// than [`TRIGGER_VALUE`] refuses to boot.
-pub const TRIGGER_VAR: &str = "CAPTURE_EMERGENCY_KAFKA_FALLBACK";
+pub const TRIGGER_VAR: &str = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK";
 
 /// Comma-separated broker list of the backup cluster. Required while the
 /// switch is armed, ignored otherwise.
-pub const HOSTS_VAR: &str = "CAPTURE_EMERGENCY_BACKUP_KAFKA_HOSTS";
+pub const HOSTS_VAR: &str = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_BACKUP_HOSTS";
 
 /// TLS for the backup cluster. Defaults to false.
-pub const TLS_VAR: &str = "CAPTURE_EMERGENCY_BACKUP_KAFKA_TLS";
+pub const TLS_VAR: &str = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_BACKUP_TLS";
 
 /// The one accepted value of [`TRIGGER_VAR`]. Deliberately not truthy, so no
 /// stray "1"/"true"/"yes" can move a whole fleet's traffic by accident.
@@ -80,25 +83,18 @@ impl EmergencyKafkaFallback {
         }))
     }
 
-    /// Repoint every producer destination `config` resolves, except the v1
-    /// sinks, which parse their own env namespace later — see
+    /// Repoint the v0 event sink and the ingestion warnings emitter. The v1
+    /// sinks parse their own env namespace later — see
     /// [`Self::apply_to_v1_sinks`].
+    ///
+    /// The traces and metrics cluster overrides are deliberately left alone:
+    /// only capture-logs builds those producers, and the switch does not reach
+    /// that deployment.
     pub fn apply(&self, config: &mut Config) {
-        self.apply_to_kafka(&mut config.kafka);
+        config.kafka.kafka_hosts = self.hosts.clone();
+        config.kafka.kafka_tls = self.tls;
         config.capture_ingestion_warnings_kafka_hosts = self.hosts.clone();
         config.capture_ingestion_warnings_kafka_tls = self.tls;
-    }
-
-    /// The `KAFKA_*` block, shared with capture-logs: its traces and metrics
-    /// producers read the per-cluster overrides, which are set here rather than
-    /// cleared so they cannot inherit a primary-cluster value.
-    pub fn apply_to_kafka(&self, kafka: &mut KafkaConfig) {
-        kafka.kafka_hosts = self.hosts.clone();
-        kafka.kafka_tls = self.tls;
-        kafka.kafka_traces_hosts = Some(self.hosts.clone());
-        kafka.kafka_traces_tls = Some(self.tls);
-        kafka.kafka_metrics_hosts = Some(self.hosts.clone());
-        kafka.kafka_metrics_tls = Some(self.tls);
     }
 
     /// The v1 sink configs, loaded from `CAPTURE_V1_SINK_*` after `Config`.
@@ -116,8 +112,8 @@ impl EmergencyKafkaFallback {
         error!(
             backup_kafka_hosts = self.hosts.as_str(),
             backup_kafka_tls = self.tls,
-            "EMERGENCY KAFKA FALLBACK ACTIVE: every producer in this process is pointed at the \
-             backup cluster. Unset {TRIGGER_VAR} and restart to return to the primary cluster."
+            "EMERGENCY KAFKA FALLBACK ACTIVE: every event producer in this process is pointed at \
+             the backup cluster. Unset {TRIGGER_VAR} and restart to return to the primary cluster."
         );
     }
 }
@@ -166,6 +162,15 @@ mod tests {
         envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
     }
 
+    fn active_fallback() -> EmergencyKafkaFallback {
+        EmergencyKafkaFallback::from_env(&env(&[
+            (TRIGGER_VAR, TRIGGER_VALUE),
+            (HOSTS_VAR, BACKUP_HOSTS),
+        ]))
+        .unwrap()
+        .expect("the magic value must arm the switch")
+    }
+
     fn primary_v1_sinks() -> Sinks {
         let sink_env = env(&[
             ("CAPTURE_V1_SINK_MSK_KAFKA_HOSTS", PRIMARY_HOSTS),
@@ -209,13 +214,8 @@ mod tests {
     }
 
     #[test]
-    fn the_magic_value_repoints_every_producer_destination() {
-        let fallback = EmergencyKafkaFallback::from_env(&env(&[
-            (TRIGGER_VAR, TRIGGER_VALUE),
-            (HOSTS_VAR, BACKUP_HOSTS),
-        ]))
-        .unwrap()
-        .expect("the magic value must arm the switch");
+    fn the_magic_value_repoints_every_event_producer() {
+        let fallback = active_fallback();
 
         let mut config = primary_config();
         fallback.apply(&mut config);
@@ -224,16 +224,6 @@ mod tests {
 
         assert_eq!(config.kafka.kafka_hosts, BACKUP_HOSTS);
         assert!(!config.kafka.kafka_tls);
-        assert_eq!(
-            config.kafka.kafka_traces_hosts.as_deref(),
-            Some(BACKUP_HOSTS)
-        );
-        assert_eq!(config.kafka.kafka_traces_tls, Some(false));
-        assert_eq!(
-            config.kafka.kafka_metrics_hosts.as_deref(),
-            Some(BACKUP_HOSTS)
-        );
-        assert_eq!(config.kafka.kafka_metrics_tls, Some(false));
         assert_eq!(config.capture_ingestion_warnings_kafka_hosts, BACKUP_HOSTS);
         assert!(!config.capture_ingestion_warnings_kafka_tls);
 
@@ -246,6 +236,26 @@ mod tests {
         assert_eq!(config.kafka.kafka_topic, "events_plugin_ingestion");
         assert_eq!(sink.kafka.topic_main, "events_main");
         assert_eq!(sink.kafka.acks, "all");
+    }
+
+    /// Only capture-logs builds the traces and metrics producers, and the
+    /// switch does not reach that deployment. Repointing them here would move
+    /// nothing while implying otherwise.
+    #[test]
+    fn traces_and_metrics_clusters_are_left_alone() {
+        let mut config = primary_config();
+        active_fallback().apply(&mut config);
+
+        assert_eq!(
+            config.kafka.kafka_traces_hosts.as_deref(),
+            Some(PRIMARY_HOSTS)
+        );
+        assert_eq!(config.kafka.kafka_traces_tls, Some(true));
+        assert_eq!(
+            config.kafka.kafka_metrics_hosts.as_deref(),
+            Some(PRIMARY_HOSTS)
+        );
+        assert_eq!(config.kafka.kafka_metrics_tls, Some(true));
     }
 
     #[test]
