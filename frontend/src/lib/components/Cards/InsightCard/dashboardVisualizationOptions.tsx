@@ -7,7 +7,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { Node } from '~/queries/schema/schema-general'
+import { hasBreakdownFilter } from '~/queries/utils'
 import { isDataVisualizationNode } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { SqlVisualizationPicker } from './SqlVisualizationPicker'
 
@@ -16,20 +18,49 @@ import { SqlVisualizationPicker } from './SqlVisualizationPicker'
 const TRENDS_SECTION: LemonMenuItems = [
     {
         title: 'Chart type',
-        items: [
-            {
-                label: () => (
-                    <ChartFilter
-                        fullWidth
-                        allowEditingWithOverrides
-                        className="pb-2 px-2"
-                        dataAttr="dashboard-insight-visualization-picker"
-                    />
-                ),
-            },
-        ],
+        items: [{ label: () => <TrendsChartFilter /> }],
     },
 ]
+
+// Picking one of these rewrites more than the chart type: the editor drops the breakdown a type
+// cannot draw, and a box plot drops the formulas too. The editor shows that and offers Discard. A
+// card saves straight away with no undo, onto an insight every dashboard shares, so it refuses
+// instead and sends the user where the change is visible and reversible.
+const CLEARS_BREAKDOWN = [
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.Metric,
+    ChartDisplayType.CalendarHeatmap,
+    ChartDisplayType.BoxPlot,
+]
+
+function TrendsChartFilter(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { breakdownFilter, formula } = useValues(insightVizDataLogic(insightProps))
+    const hasBreakdown = hasBreakdownFilter(breakdownFilter)
+
+    const disabledReasonFor = (displayType: ChartDisplayType): string | undefined => {
+        if (displayType === ChartDisplayType.WorldMap && hasBreakdown) {
+            return 'A world map breaks down by country. Open the insight to replace the breakdown.'
+        }
+        if (CLEARS_BREAKDOWN.includes(displayType) && hasBreakdown) {
+            return 'This chart type cannot show a breakdown. Open the insight to remove it first.'
+        }
+        if (displayType === ChartDisplayType.BoxPlot && formula) {
+            return 'A box plot cannot use a formula. Open the insight to remove it first.'
+        }
+        return undefined
+    }
+
+    return (
+        <ChartFilter
+            fullWidth
+            allowEditingWithOverrides
+            className="pb-2 px-2"
+            dataAttr="dashboard-insight-visualization-picker"
+            disabledReasonFor={disabledReasonFor}
+        />
+    )
+}
 
 // Only insight types whose chart type is a single dropdown get a picker. Funnels, retention and paths
 // each pick a chart through their own bespoke control, so they get nothing here. `supportsDisplay` is

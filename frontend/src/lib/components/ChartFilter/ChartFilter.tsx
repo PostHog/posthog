@@ -25,9 +25,10 @@ interface ChartFilterProps {
     fullWidth?: boolean
     className?: string
     /** Dashboard filters make an insight refuse edits, because what is on screen is not what is
-     * saved. The chart type is the exception: it is read off the insight, not off the filtered
-     * result, so a surface that only changes it can opt out. */
+     * saved. A surface that saves nothing derived from the filtered result can opt out. */
     allowEditingWithOverrides?: boolean
+    /** Extra reason a surface cannot offer a type, checked before this list's own reasons. */
+    disabledReasonFor?: (displayType: ChartDisplayType) => string | undefined
     /** Defaults to the editor's value. Override it so a surface can be told apart in analytics. */
     dataAttr?: string
 }
@@ -36,6 +37,7 @@ export function ChartFilter({
     fullWidth,
     className,
     allowEditingWithOverrides,
+    disabledReasonFor,
     dataAttr = 'chart-filter',
 }: ChartFilterProps = {}): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
@@ -237,6 +239,15 @@ export function ChartFilter({
         },
     ]
 
+    const withSurfaceReason = options.map((group) => ({
+        ...group,
+        options: group.options.map((option) =>
+            'value' in option
+                ? { ...option, disabledReason: disabledReasonFor?.(option.value) ?? option.disabledReason }
+                : option
+        ),
+    }))
+
     return (
         <LemonSelect
             key="2"
@@ -250,7 +261,7 @@ export function ChartFilter({
             optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
             data-attr={dataAttr}
-            options={options}
+            options={withSurfaceReason}
             size="small"
             disabledReason={allowEditingWithOverrides ? undefined : editingDisabledReason}
         />
