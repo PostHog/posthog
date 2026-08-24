@@ -35,6 +35,27 @@ MAX_WORKFLOW_EMAIL_SENDERS = 10
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
 MASKED_SECRET_VALUE = "********"
 
+
+def masked_secret_input_keys(stored_inputs: object) -> list[str]:
+    """Input keys whose stored secret is the mask rather than a real credential.
+
+    Such an input authenticates against nothing, and the original value is gone, so only the
+    owner can restore it. The match cannot be a SQL predicate: the storage column is Fernet
+    encrypted, and Fernet embeds a random IV, so the same plaintext encrypts differently every
+    write. Callers have to decrypt and inspect.
+
+    A row encrypted under a key we no longer hold decrypts to the raw ciphertext string rather
+    than a dict, because the field swallows the failure, so the shape is checked, not assumed.
+    """
+    if not isinstance(stored_inputs, dict):
+        return []
+    return sorted(
+        key
+        for key, entry in stored_inputs.items()
+        if isinstance(entry, dict) and entry.get("value") == MASKED_SECRET_VALUE
+    )
+
+
 # Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
 # is what the send path enforces after rendering. Keep the two in sync.
 FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')

@@ -73,7 +73,7 @@ const SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
     { value: 'avg', label: 'Average' },
-    { value: 'count', label: 'Count' },
+    { value: 'count', label: 'Series count' },
     { value: 'p95', label: 'p95' },
     { value: 'rate', label: 'Rate (/s)' },
     { value: 'increase', label: 'Increase' },
@@ -274,10 +274,10 @@ export const MetricsViewer = (): JSX.Element => {
                             disabledReason={metricsViewerDisabledReason}
                         />
                         <LemonSwitch
-                            label="Live"
+                            label="Auto-refresh"
                             checked={liveRefresh}
                             onChange={setLiveRefresh}
-                            tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
+                            tooltip={`Refreshes every ${LIVE_REFRESH_MS / 1000}s`}
                             bordered
                             data-attr="metrics-viewer-live-toggle"
                             disabledReason={metricsViewerDisabledReason}

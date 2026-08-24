@@ -1,10 +1,11 @@
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 
-import { FetchCandidate } from './collected-urls-record'
+import { FetchCandidate, RepublishReason, serializeFrontierRecord } from './collected-urls-record'
+import type { ImageFetchResult } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
 
-/** One delay topic. Every record in it waits the same period, so the records leave in the order they become ready. */
 export interface DelayTier {
     topic: string
     delayMs: number
@@ -12,91 +13,98 @@ export interface DelayTier {
 
 export interface FrontierPublisherOptions {
     frontierTopic: string
-    /** Ordered by delay, shortest first, because the publisher takes the first tier that covers the wait. */
+    scrubTopic: string
     delayTiers: DelayTier[]
+    maxConcurrentImagePublishes: number
 }
 
-export type RepublishReason = 'redirect' | 'retry' | 'not_ready'
+export type RepublishResult = 'published' | 'refused_delay' | 'failed'
 
-/**
- * Sends a URL back to the frontier, at once or after a wait.
- *
- * Two things use this. A redirect that leaves the registrable domain cannot be followed here,
- * because the budget for the new domain belongs to whichever consumer owns its partition, so the
- * target goes back as a new candidate. A transient failure cannot be retried here either, because
- * waiting in place holds the partition against every other site on it.
- *
- * Both spend a hop, so neither can go around forever. See the README, requirements 7 and 11 to 15.
- */
 export class FrontierPublisher {
+    private readonly delayTiers: DelayTier[]
+    private readonly imagePublishes: ConcurrencyController
+
     constructor(
         private readonly producer: KafkaProducerWrapper,
         private readonly options: FrontierPublisherOptions
     ) {
-        if (options.delayTiers.length === 0) {
-            throw new Error('the image fetch lane needs at least one delay tier to retry with')
+        this.delayTiers = [...options.delayTiers].sort((left, right) => left.delayMs - right.delayMs)
+        if (this.delayTiers.length === 0) {
+            throw new Error('the image fetch lane needs at least one delay tier')
         }
+        if (!Number.isInteger(options.maxConcurrentImagePublishes) || options.maxConcurrentImagePublishes < 1) {
+            throw new Error('the image fetch lane needs a positive image publish limit')
+        }
+        this.imagePublishes = new ConcurrencyController(options.maxConcurrentImagePublishes)
     }
 
-    /**
-     * The ref stays the original one. The recording points at that ref, and a hash of a redirect
-     * target matches nothing, so a new ref would leave the image unreachable. Requirement 10.
-     */
     public async republish(
         candidate: FetchCandidate,
-        target: { url: string; host: string; domain: string },
+        target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'registrableDomain'>,
         reason: RepublishReason,
         waitMs = 0
-    ): Promise<boolean> {
-        const hopsRemaining = candidate.hopsRemaining - 1
-        if (hopsRemaining <= 0) {
-            return false
+    ): Promise<RepublishResult> {
+        const spendsHop = reason === 'redirect' || reason === 'retry'
+        const remainingHops = candidate.remainingHops - (spendsHop ? 1 : 0)
+        if (remainingHops <= 0) {
+            return 'refused_delay'
         }
-        // A retry always waits, even when nothing named a period. A timeout, a connection error,
-        // and a batch that ran out of time name none, and publishing those straight back to the
-        // frontier is a loop: the consumer reads the record, meets the same condition, and
-        // publishes it again, spending a hop each lap until the URL is written off unfetched. A URL
-        // that arrived early waits for the same reason, for a period it already knows. A redirect
-        // goes back at once, because its target is a different domain with its own budget.
-        const tier = reason === 'redirect' ? undefined : this.tierFor(Math.max(waitMs, 1))
-        const topic = tier?.topic ?? this.options.frontierTopic
-        const value = Buffer.from(
-            JSON.stringify({
-                v: 1,
-                pseudoTeam: candidate.pseudoTeam,
-                capturedAtMs: candidate.capturedAtMs,
-                hopsRemaining,
-                // The longer of the wait asked for and the period of the tier holding it. A wait
-                // past the longest tier arrives before it is due, and the consumer sends it back
-                // for the rest. Requirement 15.
-                notBeforeMs: tier ? Date.now() + Math.max(waitMs, tier.delayMs) : 0,
-                urls: [{ ref: candidate.ref, url: target.url, host: target.host }],
-            })
-        )
 
+        const effectiveWaitMs = reason === 'retry' ? Math.max(waitMs, this.delayTiers[0].delayMs) : waitMs
+        const tier =
+            effectiveWaitMs > 0
+                ? this.delayTiers.find((candidateTier) => candidateTier.delayMs >= effectiveWaitMs)
+                : undefined
+        if (effectiveWaitMs > 0 && !tier) {
+            return 'refused_delay'
+        }
+        const nowMs = Date.now()
+        const republished: FetchCandidate = {
+            ...candidate,
+            ...target,
+            remainingHops,
+            notBeforeMs: tier ? nowMs + tier.delayMs : 0,
+            republishCount: candidate.republishCount + 1,
+            lastRepublishReason: reason,
+        }
+        const topic = tier?.topic ?? this.options.frontierTopic
         try {
-            await this.producer.produce({ topic, key: Buffer.from(target.domain), value })
+            await this.producer.produce({
+                topic,
+                key: Buffer.from(target.registrableDomain),
+                value: serializeFrontierRecord([republished]),
+            })
         } catch (error) {
-            // Nothing throws here, because one failed produce must not abandon the rest of the
-            // batch. The caller counts the false return and holds the batch instead. Requirement 21.
             logger.warn('🌐', 'ml_image_fetch_republish_failed', {
                 reason,
                 topic,
                 error: error instanceof Error ? error.name : 'unknown',
             })
             ImageFetchRequestMetrics.incRepublishFailed(reason)
-            return false
+            return 'failed'
         }
-        ImageFetchRequestMetrics.incRepublished(reason, topic)
-        return true
+        ImageFetchRequestMetrics.incRepublished(reason, tier ? 'delay' : 'frontier')
+        return 'published'
     }
 
-    /**
-     * A wait longer than every tier comes back early, spends another hop, and waits again. That is
-     * cheaper than a tier long enough for the worst `Retry-After` a site can name, and the host
-     * budget refuses an early arrival without sending anything.
-     */
-    private tierFor(waitMs: number): DelayTier {
-        return this.options.delayTiers.find((tier) => tier.delayMs >= waitMs) ?? this.options.delayTiers.at(-1)!
+    public async publishImage(candidate: FetchCandidate, result: ImageFetchResult): Promise<void> {
+        if (!result.bytes || !result.contentType) {
+            throw new Error('an image publish needs response bytes and a content type')
+        }
+        const bytes = result.bytes
+        const headers: Record<string, string> = { 'content-type': result.contentType }
+        if (result.contentEncoding) {
+            headers['content-encoding'] = result.contentEncoding
+        }
+        await this.imagePublishes.run({
+            debugTag: candidate.registrableDomain,
+            fn: () =>
+                this.producer.produce({
+                    topic: this.options.scrubTopic,
+                    key: Buffer.from(candidate.originalRef),
+                    value: bytes,
+                    headers,
+                }),
+        })
     }
 }

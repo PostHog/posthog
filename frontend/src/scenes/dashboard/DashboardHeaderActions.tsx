@@ -222,12 +222,35 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const { layoutEditMode } = useValues(dashboardLogic)
+    const { layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
+    const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
+    const dashboardCustomizationEnabled = useFeatureFlag('DASHBOARD_CUSTOMIZATION')
 
     return (
         <>
             <DashboardSubscribeButton />
             {layoutEditMode && <DashboardEditSaveCancelButtons />}
+            {dashboardCustomizationEnabled && (
+                <LemonMenu
+                    items={[{ label: () => <DashboardCustomizeMenu /> }]}
+                    closeOnClickInside={false}
+                    placement="bottom-end"
+                    visible={dashboardCustomizeMenuOpen}
+                    onVisibilityChange={setDashboardCustomizeMenuOpen}
+                >
+                    <LemonButton
+                        type="secondary"
+                        data-attr="dashboard-edit-layout-customize-dropdown"
+                        size="small"
+                        icon={<IconGridMasonry fontSize="16" />}
+                        disabledReason={
+                            tiles.length === 0 ? 'Add at least one tile to customize this dashboard' : undefined
+                        }
+                    >
+                        Customize
+                    </LemonButton>
+                </LemonMenu>
+            )}
             <DashboardAddTileButton />
         </>
     )

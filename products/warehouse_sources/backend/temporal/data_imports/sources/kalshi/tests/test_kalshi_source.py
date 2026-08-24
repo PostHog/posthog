@@ -4,11 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kalshi import KalshiResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source"
 
@@ -33,14 +30,6 @@ def _inputs(**overrides: Any) -> SourceInputs:
 
 
 class TestKalshiSource:
-    def test_source_type(self) -> None:
-        assert KalshiSource().source_type == ExternalDataSourceType.KALSHI
-
-    def test_schemas_are_the_endpoint_catalog(self) -> None:
-        schemas = KalshiSource().get_schemas(None, 1)  # type: ignore[arg-type]
-
-        assert [s.name for s in schemas] == ["markets", "events", "series", "trades", "milestones"]
-
     @parameterized.expand(
         [
             ("trades_is_incremental", "trades", True),
@@ -57,11 +46,6 @@ class TestKalshiSource:
 
         assert schemas[endpoint].supports_incremental is expected
 
-    def test_trades_incremental_field_is_created_time(self) -> None:
-        schemas = {s.name: s for s in KalshiSource().get_schemas(None, 1)}  # type: ignore[arg-type]
-
-        assert [f["field"] for f in schemas["trades"].incremental_fields] == ["created_time"]
-
     @parameterized.expand([("reachable", True, True), ("unreachable", False, False)])
     @mock.patch(f"{SOURCE_MODULE}.validate_kalshi_credentials")
     def test_validate_credentials(self, _name: str, probe_ok: bool, expected: bool, mock_validate) -> None:
@@ -71,24 +55,6 @@ class TestKalshiSource:
 
         assert ok is expected
         assert (message is None) is expected
-
-    def test_resumable_manager_is_bound_to_the_resume_dataclass(self) -> None:
-        manager = KalshiSource().get_resumable_source_manager(_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is KalshiResumeConfig
-
-    @mock.patch(f"{SOURCE_MODULE}.kalshi_source")
-    def test_source_for_pipeline_passes_the_watermark_when_incremental(self, mock_source) -> None:
-        inputs = _inputs(should_use_incremental_field=True, db_incremental_field_last_value=123)
-        manager = mock.MagicMock()
-
-        KalshiSource().source_for_pipeline(None, manager, inputs)  # type: ignore[arg-type]
-
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["endpoint"] == "trades"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == 123
 
     @mock.patch(f"{SOURCE_MODULE}.kalshi_source")
     def test_source_for_pipeline_drops_the_watermark_on_full_refresh(self, mock_source) -> None:

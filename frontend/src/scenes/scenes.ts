@@ -705,6 +705,8 @@ export const redirects: Record<
     '/pipeline/sources': urls.sources(),
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
+    // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
+    '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),

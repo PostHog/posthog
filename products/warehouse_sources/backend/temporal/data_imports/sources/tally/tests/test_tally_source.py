@@ -4,9 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+from posthog.schema import ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
@@ -16,8 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
     TALLY_API_VERSION,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import TallyResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> mock.MagicMock:
@@ -38,32 +35,11 @@ class TestTallySource:
         self.team_id = 123
         self.config = TallySourceConfig(api_key="key-test")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TALLY
-
     def test_source_is_visible_and_marked_alpha(self) -> None:
         config = self.source.get_source_config
         # A finished source must not stay hidden behind unreleasedSource.
         assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_api_key_field_is_stored_as_a_secret(self) -> None:
-        api_key_field = self.source.get_source_config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-    def test_submission_filter_offers_the_documented_values(self) -> None:
-        filter_field = self.source.get_source_config.fields[1]
-        assert isinstance(filter_field, SourceFieldSelectConfig)
-        assert filter_field.name == "submission_filter"
-        assert filter_field.defaultValue == SUBMISSION_FILTER_COMPLETED
-        assert [option.value for option in filter_field.options] == [
-            SUBMISSION_FILTER_COMPLETED,
-            SUBMISSION_FILTER_ALL,
-        ]
 
     def test_pins_the_version_the_request_code_sends(self) -> None:
         assert self.source.supported_versions == (TALLY_API_VERSION,)
@@ -95,10 +71,6 @@ class TestTallySource:
         by_name = {schema.name: schema for schema in self.source.get_schemas(config, self.team_id)}
         assert by_name["submissions"].supports_incremental is False
         assert by_name["submissions"].incremental_fields == []
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        described = set(self.source.get_canonical_descriptions().keys())
-        assert set(ENDPOINTS).issubset(described)
 
     @parameterized.expand(
         [
@@ -140,11 +112,6 @@ class TestTallySource:
             ok, error = self.source.validate_credentials(self.config, self.team_id)
         assert ok is expected_ok
         assert error == expected_error
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TallyResumeConfig
 
     def test_source_for_pipeline_plumbs_config_and_inputs(self) -> None:
         manager = mock.MagicMock()

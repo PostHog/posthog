@@ -3,7 +3,7 @@
 `SignalScoutConfig.enabled` only ever moves by hand, so a scout nobody is getting value from
 keeps spending sandbox runs on its cadence indefinitely. This module is the missing stop: once a
 day (`tasks.pause_inactive_signal_scouts`, deliberately not the 30-minute coordinator tick, which
-is kept short-lived and bounded) it decides whether each enabled scout is still earning its runs.
+is kept bounded) it decides whether each enabled scout is still earning its runs.
 
 The sweep judges **consumption, not emission**. Emitting a report is not evidence anyone wanted
 it; a scout that files report after report nobody acts on is the expensive failure mode (a full

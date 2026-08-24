@@ -19,6 +19,8 @@ import type {
     _MetricAnomalyRequestApi,
     _MetricAttributeKeysResponseApi,
     _MetricAttributeValuesResponseApi,
+    _MetricExplainRequestApi,
+    _MetricExplainResponseApi,
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
@@ -152,6 +154,28 @@ export const metricsCharacterizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_metricAnomalyRequestApi),
+    })
+}
+
+export const getMetricsExplainCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/explain/`
+}
+
+/**
+ * Take one chart point apart into the series and samples behind it,
+ * and recompute it independently so the plotted number can be checked
+ * rather than trusted.
+ */
+export const metricsExplainCreate = async (
+    projectId: string,
+    _metricExplainRequestApi: _MetricExplainRequestApi,
+    options?: RequestInit
+): Promise<_MetricExplainResponseApi> => {
+    return apiMutator<_MetricExplainResponseApi>(getMetricsExplainCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricExplainRequestApi),
     })
 }
 

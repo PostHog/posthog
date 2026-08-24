@@ -9,10 +9,16 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 from parameterized import parameterized
 
-from products.stamphog.backend.facade.enums import AudienceReason
+from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
-from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary
+from products.stamphog.backend.logic.digest import (
+    MAX_DIGEST_PRS,
+    DigestPRSummary,
+    DigestSummary,
+    _capped_summary,
+    pr_key,
+)
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
@@ -20,6 +26,7 @@ from products.stamphog.backend.logic.github_client import (
     StamphogGitHubError,
     _build_app_jwt,
 )
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger, trigger_for_run
 from products.stamphog.backend.logic.reviewer import build_reviewer_invocation, parse_reviewer_output
 from products.stamphog.backend.logic.slack_digest import _build_blocks, _build_fallback_text
 from products.stamphog.backend.models import StamphogRepoConfig
@@ -131,71 +138,159 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         assert context["reviews"] == reviews
         assert context["review_threads"] == review_threads
 
+    def test_review_trigger_reaches_the_sandbox_context(self) -> None:
+        # The reviewer cannot derive why it was asked; dropping the key silently returns it to a
+        # prompt that reads a requested review and an automatic one the same way.
+        def context_for(**kwargs: object) -> dict:
+            invocation = build_reviewer_invocation(
+                pr={"number": 1},
+                files=[],
+                reviews=[],
+                discussion=[],
+                review_threads=[],
+                check_runs=[],
+                pr_reactions=[],
+                author_pr_numbers=[],
+                author_team_slugs=[],
+                base_sha="base",
+                head_sha="head",
+                repo="owner/repo",
+                engine_dir="/engine",
+                context_path="/ctx.json",
+                **kwargs,  # type: ignore[arg-type]
+            )
+            return json.loads(invocation.context_json)
+
+        assert context_for(review_trigger="label")["review_trigger"] == "label"
+        # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
+        assert context_for()["review_trigger"] == ""
+        assert context_for()["self_driving_review"] is False
+
+
+class ReviewTriggerTests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Inbox provenance outranks the repo mode, so a self-driving PR in an ALL-mode repo is
+            # still reported as self-driving rather than as an ambient review.
+            ("inbox_beats_all_mode", True, ReviewMode.ALL, ReviewTrigger.SELF_DRIVING),
+            ("inbox_beats_label_mode", True, ReviewMode.LABEL, ReviewTrigger.SELF_DRIVING),
+            ("label_mode_is_a_request", False, ReviewMode.LABEL, ReviewTrigger.LABEL),
+            ("all_mode_is_ambient", False, ReviewMode.ALL, ReviewTrigger.ALL),
+        ]
+    )
+    def test_precedence(self, _name: str, has_inbox: bool, mode: ReviewMode, expected: ReviewTrigger) -> None:
+        assert derive_review_trigger(has_inbox_review=has_inbox, review_mode=mode) == expected
+
+    def test_a_stamped_trigger_survives_a_mode_change(self) -> None:
+        # The reviewer reads this as fact. An admin switching the repo to LABEL while the run sat in
+        # the queue must not make it claim a request label the PR never carried.
+        stamped = {"review_trigger": ReviewTrigger.ALL.value}
+        assert trigger_for_run(output=stamped, review_mode=ReviewMode.LABEL) == "all"
+
+    @parameterized.expand(
+        [
+            ("no_output", None, ReviewMode.ALL, "all"),
+            ("empty_output", {}, ReviewMode.LABEL, "label"),
+            ("inbox_only", {"inbox_review": {"trigger": "inbox"}}, ReviewMode.ALL, "self_driving"),
+        ]
+    )
+    def test_an_unstamped_run_derives_live(
+        self, _name: str, output: dict | None, mode: ReviewMode, expected: str
+    ) -> None:
+        # Runs queued before the stamp existed still have to answer, or their reviewer loses the slot.
+        assert trigger_for_run(output=output, review_mode=mode) == expected
+
+
+class DigestCapTests(SimpleTestCase):
+    def test_the_cap_names_what_it_removed(self) -> None:
+        # The claim marks every PR in a run as handled once it posts, so a PR the cap removes is
+        # gone rather than delayed unless the summary reports it. Dropping deferred_urls here would
+        # lose the overflow of any digest that exceeds the cap.
+        prs = [
+            DigestPRSummary(
+                pr_number=n,
+                title=f"t{n}",
+                url=f"https://github.com/o/r/pull/{n}",
+                author_login="dev",
+                summary=f"Something changed, number {n}.",
+                repository="o/r",
+            )
+            for n in range(MAX_DIGEST_PRS + 3)
+        ]
+
+        summary = _capped_summary(considered=100, prs=prs)
+
+        assert len(summary.prs) == MAX_DIGEST_PRS
+        assert summary.deferred_prs == [pr_key(pr.repository, pr.pr_number) for pr in prs[MAX_DIGEST_PRS:]]
+        # Keyed on repo and number, so a blank or repeated URL cannot match a PR that was shown.
+        assert not set(summary.deferred_prs) & {pr_key(p.repository, p.pr_number) for p in summary.prs}
+
+    def test_a_digest_under_the_cap_defers_nothing(self) -> None:
+        summary = _capped_summary(considered=9, prs=[])
+        assert summary.deferred_prs == []
+
 
 class SlackDigestEscapingTests(SimpleTestCase):
-    def _summary(self, *, title: str, author: str, body: str, intro: str = "") -> DigestSummary:
+    def _summary(self, *, author: str, body: str, considered: int = 1) -> DigestSummary:
         pr = DigestPRSummary(
             pr_number=7,
-            title=title,
+            title="Ship it",
             url="https://github.com/o/r/pull/7",
             author_login=author,
             summary=body,
             repository="o/r",
         )
-        return DigestSummary(intro=intro, prs=[pr])
+        return DigestSummary(considered=considered, prs=[pr])
 
     def test_mention_tokens_in_pr_fields_are_defanged(self) -> None:
-        # A merged PR's title/summary/author are attacker-controlled; a raw `<!channel>` would ping the
-        # whole digest channel. Escaping must neutralize the mention while keeping the trusted PR link.
-        blocks = _build_blocks(self._summary(title="<!channel> ship", author="<!here>", body="see <x|y>"))
+        # A summary is model output written over attacker-controlled PR text; a raw `<!channel>`
+        # would ping the whole digest channel. Escaping must neutralize the mention while keeping
+        # the trusted PR link, which the summary now doubles as the label for.
+        blocks = _build_blocks(self._summary(author="dev", body="<!channel> see <x|y>"))
         section = next(b for b in blocks if b.get("type") == "section" and "pull/7" in b["text"]["text"])
         text = section["text"]["text"]
         assert "<!channel>" not in text
-        assert "<!here>" not in text
         assert "&lt;!channel&gt;" in text
         assert "<https://github.com/o/r/pull/7|" in text
 
     def test_fallback_text_defangs_mentions(self) -> None:
-        text = _build_fallback_text(self._summary(title="<!channel>", author="a", body="b", intro="<!everyone>"))
-        assert "<!channel>" not in text
+        text = _build_fallback_text(self._summary(author="a", body="<!everyone> shipped"))
         assert "<!everyone>" not in text
+        assert "&lt;!everyone&gt;" in text
 
-    def test_pr_lines_name_the_repo_only_when_the_digest_spans_repos(self) -> None:
-        # A team audience collects merges from every repo it owns code in, and PR numbers repeat
-        # across repos — two "#412" lines that differ only by link target are unreadable. The far
-        # more common single-repo digest must not pay a constant repo prefix on every line.
-        def _pr(repository: str, number: int) -> DigestPRSummary:
-            return DigestPRSummary(
-                pr_number=number,
-                title="Ship it",
-                url=f"https://github.com/{repository}/pull/{number}",
-                author_login="dev",
-                summary="did a thing",
-                repository=repository,
-            )
+    def test_a_change_line_is_the_summary_sentence_and_nothing_else(self) -> None:
+        # The link label is the summary, not the PR title: linking the title instead reverts every
+        # line to a commit subject, which is the thing this digest exists to translate. The number,
+        # author and repo stay on DigestPRSummary for the runs API, so rendering one is a live
+        # possibility rather than a hypothetical.
+        summary = self._summary(author="dev", body="The widget opens on the first click.")
+        sections = [b["text"]["text"] for b in _build_blocks(summary) if b.get("type") == "section"]
+        assert sections == ["<https://github.com/o/r/pull/7|The widget opens on the first click.>"]
 
-        one_repo = DigestSummary(intro="", prs=[_pr("acme/widgets", 412), _pr("acme/widgets", 413)])
-        two_repos = DigestSummary(intro="", prs=[_pr("acme/widgets", 412), _pr("acme/charts", 412)])
+    def test_the_footer_names_what_was_left_out(self) -> None:
+        # A digest of three lines reads as "three things merged" unless it says otherwise. The
+        # denominator is what tells a reader the rest happened and was approved, so it must come
+        # from the captured rows and survive as long as there is anything to leave out.
+        def _footer(considered: int) -> str:
+            blocks = _build_blocks(self._summary(author="a", body="b", considered=considered))
+            return blocks[-1]["elements"][0]["text"]
 
-        assert "#412 Ship it" in _build_fallback_text(one_repo)
-        assert "acme/widgets#412" not in _build_fallback_text(one_repo)
-        sections = [b["text"]["text"] for b in _build_blocks(one_repo) if b.get("type") == "section"]
-        assert any("|#412 Ship it>" in text for text in sections)
-
-        assert "acme/widgets#412" in _build_fallback_text(two_repos)
-        assert "acme/charts#412" in _build_fallback_text(two_repos)
-        sections = [b["text"]["text"] for b in _build_blocks(two_repos) if b.get("type") == "section"]
-        assert any("|acme/charts#412 Ship it>" in text for text in sections)
+        assert _footer(9) == "1 of 9 stamphog-approved merges."
+        # Nothing left out means no denominator to name, and no claim about a day it cannot see.
+        assert _footer(1) == "1 stamphog-approved merge."
 
     def test_section_text_is_capped_below_slack_limit(self) -> None:
         # Slack rejects sections whose mrkdwn text exceeds 3000 chars, and a rejected post unlinks the
-        # claimed PRs — an unbounded LLM intro or per-PR summary would make every daily retry fail the
-        # same way forever. The PR link must survive the clip (it sits at the front of the section).
-        blocks = _build_blocks(self._summary(title="t", author="a", body="x" * 10_000, intro="i" * 10_000))
+        # claimed PRs — an unbounded per-PR summary would make every daily retry fail the same way
+        # forever. The PR link must survive the clip (it sits at the front of the section).
+        blocks = _build_blocks(self._summary(author="a", body="x" * 10_000))
         sections = [b for b in blocks if b.get("type") == "section"]
         assert sections and all(len(b["text"]["text"]) <= 3000 for b in sections)
         pr_section = next(b for b in sections if "pull/7" in b["text"]["text"])
-        assert "<https://github.com/o/r/pull/7|" in pr_section["text"]["text"]
+        # The clipped line must still be a link. Trimming the assembled string would drop the
+        # closing bracket and leave Slack printing raw markup at the reader.
+        assert pr_section["text"]["text"].startswith("<https://github.com/o/r/pull/7|")
+        assert pr_section["text"]["text"].endswith(">")
 
 
 class DigestConfigFetchTests(SimpleTestCase):
