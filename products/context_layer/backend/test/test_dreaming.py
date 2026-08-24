@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.contrib import admin as django_admin
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +13,24 @@ from parameterized import parameterized
 from products.context_layer.backend.admin import ContextLayerConfigAdmin
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.temporal import dreaming
+
+
+class TestDreamPrompt(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (None, "This is the first dream: review the last 7 days of organizational activity."),
+            (
+                datetime(2026, 8, 20, 3, 0, tzinfo=UTC),
+                (
+                    "Review organizational activity since 2026-08-20T03:00:00+00:00. "
+                    "For completed tasks, recover from 2026-08-13T03:00:00+00:00 so work that completed after an "
+                    "earlier review is reconsidered."
+                ),
+            ),
+        ]
+    )
+    def test_activity_window(self, last_dream_started_at, expected_preamble) -> None:
+        assert dreaming._build_dream_prompt(last_dream_started_at).startswith(expected_preamble)
 
 
 class TestDreamingLane(BaseTest):
@@ -95,17 +114,8 @@ class TestDreamingLane(BaseTest):
         assert "The server scaffolds every public Space and regenerates its indexes" in prompt
         assert "name: context-layer-dreaming" not in prompt
 
-    @parameterized.expand(
-        [
-            (None, "This is the first dream: review the last 7 days of organizational activity."),
-            (
-                datetime(2026, 8, 20, 3, 0, tzinfo=UTC),
-                "Review organizational activity since 2026-08-20T03:00:00+00:00.",
-            ),
-        ]
-    )
-    def test_dispatch_prompt_carries_the_activity_window(self, last_dream_started_at, expected_preamble) -> None:
-        config = self._config(last_dream_started_at=last_dream_started_at)
+    def test_dispatch_prompt_carries_the_activity_window(self) -> None:
+        config = self._config()
         target = dreaming._DreamDispatchTarget(config=config, team_id=self.team.id, user_id=self.user.id)
         trigger_mock = AsyncMock()
         with (
@@ -126,7 +136,7 @@ class TestDreamingLane(BaseTest):
         assert context.reasoning_effort == "high"
         assert context.initial_permission_mode == "bypassPermissions"
         prompt = trigger_mock.call_args.args[0]
-        assert prompt.startswith(expected_preamble)
+        assert prompt.startswith("This is the first dream: review the last 7 days of organizational activity.")
         assert "# Context layer dreaming" in prompt
 
     def test_admin_unpause_action_leaves_the_streak_alone(self) -> None:

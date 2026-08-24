@@ -183,6 +183,15 @@ INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
 )
 
 
+def _source_unavailable_message(source_type: str) -> str:
+    # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the
+    # user it isn't ready rather than exposing the internal "schema discovery" wording.
+    return (
+        f"The {source_type} source isn't available to connect yet. "
+        "Choose a different source, or contact support if you were expecting it."
+    )
+
+
 def _canonical_legacy_managed_warehouse_source(
     queryset: QuerySet[ExternalDataSource],
 ) -> ExternalDataSource | None:
@@ -2478,9 +2487,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Roll back the row just created so a caller can't accumulate orphaned sources, and return
             # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
             new_source_model.delete()
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # `get_schemas` opens its own connection, so credentials validated above can still fail
@@ -3379,9 +3389,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
@@ -3494,9 +3505,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # Credentials validated above can still fail here — `get_schemas` opens its own

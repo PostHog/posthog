@@ -349,6 +349,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
             ),
+            # Supabase's Supavisor pooler reports a permanent DNS failure resolving its upstream
+            # backend as "FATAL: Failed to connect to database: {:error, :nxdomain}" — Erlang's
+            # resolver returning "no such domain", unlike the sibling ":etimedout"/":econnrefused"
+            # tuples in `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`, which mean a transient blip reaching
+            # a backend that still exists. NXDOMAIN means the backend's DNS record is gone, which
+            # happens when the underlying project is paused or deleted — permanent until the
+            # customer restores it, so don't retry. Match the stable erlang-tuple fragment.
+            "{:error, :nxdomain}": (
+                "Your database connection pooler couldn't resolve your database's address "
+                '("nxdomain"). This usually means the database project is paused or deleted. Check '
+                "that your database is active, then re-enable the sync."
+            ),
             # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
             # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
             # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
@@ -565,6 +577,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "InvalidObjectDefinition": None,
             "Connection refused": None,
             "No route to host": None,
+            # The OS-level TCP connect() timing out (strerror(ETIMEDOUT)) instead of getting an
+            # immediate refusal or unreachable-route response. Same connect-time host-reachability
+            # class as its two siblings above — usually a non-routable host (e.g. a private RDS
+            # endpoint) or a firewall silently dropping PostHog's egress IPs — and won't change on
+            # retry until the customer fixes the network path.
+            "Connection timed out": None,
             "password authentication failed connection": None,
             # psycopg raises ConnectionTimeout ("connection timeout expired") only while establishing
             # a connection. The read path retries it in-process first (see

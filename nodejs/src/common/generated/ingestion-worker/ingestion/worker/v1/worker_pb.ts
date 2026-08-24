@@ -10,7 +10,7 @@ import { enumDesc, fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf
 export const file_ingestion_worker_v1_worker: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKIAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUieQoUSW5nZXN0U3RyZWFtUmVzcG9uc2USCwoDc2VxGAEgASgEEjMKBnN0YXR1cxgCIAEoDjIjLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hTdGF0dXMSEAoIYWNjZXB0ZWQYAyABKA0SDQoFZXJyb3IYBCABKAkqaAoOU3ViQmF0Y2hTdGF0dXMSIAocU1VCX0JBVENIX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE1NVQl9CQVRDSF9TVEFUVVNfT0sQARIbChdTVUJfQkFUQ0hfU1RBVFVTX0ZBSUxFRBACMncKDFdvcmtlckluZ2VzdBJnCgxJbmdlc3RTdHJlYW0SKC5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlcXVlc3QaKS5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlc3BvbnNlKAEwAWIGcHJvdG8z'
+        'CiBpbmdlc3Rpb24vd29ya2VyL3YxL3dvcmtlci5wcm90bxITaW5nZXN0aW9uLndvcmtlci52MSKDAQoTSW5nZXN0U3RyZWFtUmVxdWVzdBIxCgVoZWxsbxgBIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3RyZWFtSGVsbG9IABIyCglzdWJfYmF0Y2gYAiABKAsyHS5pbmdlc3Rpb24ud29ya2VyLnYxLlN1YkJhdGNoSABCBQoDbXNnIjgKC1N0cmVhbUhlbGxvEhMKC2NvbnN1bWVyX2lkGAEgASgJEhQKDHN0cmVhbV9lcG9jaBgCIAEoBCKIAQoIU3ViQmF0Y2gSCwoDc2VxGAEgASgEEhAKCGJhdGNoX2lkGAIgASgJEjMKCG1lc3NhZ2VzGAMgAygLMiEuaW5nZXN0aW9uLndvcmtlci52MS5LYWZrYU1lc3NhZ2USDgoGcmVwbGF5GAQgASgIEhgKEGFzc2lnbm1lbnRfZXBvY2gYBSABKAQi/AEKDEthZmthTWVzc2FnZRINCgV0b3BpYxgBIAEoCRIRCglwYXJ0aXRpb24YAiABKAUSDgoGb2Zmc2V0GAMgASgDEhEKCXRpbWVzdGFtcBgEIAEoAxIQCgNrZXkYBSABKAlIAIgBARISCgV2YWx1ZRgGIAEoCUgBiAEBEj8KB2hlYWRlcnMYByADKAsyLi5pbmdlc3Rpb24ud29ya2VyLnYxLkthZmthTWVzc2FnZS5IZWFkZXJzRW50cnkaLgoMSGVhZGVyc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAFCBgoEX2tleUIICgZfdmFsdWUigQEKFEluZ2VzdFN0cmVhbVJlc3BvbnNlEjEKBXJlYWR5GAEgASgLMiAuaW5nZXN0aW9uLndvcmtlci52MS5TdHJlYW1SZWFkeUgAEi8KA2FjaxgCIAEoCzIgLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hBY2tIAEIFCgNtc2ciDQoLU3RyZWFtUmVhZHkicAoLU3ViQmF0Y2hBY2sSCwoDc2VxGAEgASgEEjMKBnN0YXR1cxgCIAEoDjIjLmluZ2VzdGlvbi53b3JrZXIudjEuU3ViQmF0Y2hTdGF0dXMSEAoIYWNjZXB0ZWQYAyABKA0SDQoFZXJyb3IYBCABKAkqaAoOU3ViQmF0Y2hTdGF0dXMSIAocU1VCX0JBVENIX1NUQVRVU19VTlNQRUNJRklFRBAAEhcKE1NVQl9CQVRDSF9TVEFUVVNfT0sQARIbChdTVUJfQkFUQ0hfU1RBVFVTX0ZBSUxFRBACMncKDFdvcmtlckluZ2VzdBJnCgxJbmdlc3RTdHJlYW0SKC5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlcXVlc3QaKS5pbmdlc3Rpb24ud29ya2VyLnYxLkluZ2VzdFN0cmVhbVJlc3BvbnNlKAEwAWIGcHJvdG8z'
     )
 
 /**
@@ -188,11 +188,65 @@ export const KafkaMessageSchema: GenMessage<KafkaMessage> =
     messageDesc(file_ingestion_worker_v1_worker, 3)
 
 /**
- * IngestStreamResponse acks one sub-batch.
+ * IngestStreamResponse is one frame on the worker-to-consumer stream.
  *
  * @generated from message ingestion.worker.v1.IngestStreamResponse
  */
 export type IngestStreamResponse = Message<'ingestion.worker.v1.IngestStreamResponse'> & {
+    /**
+     * @generated from oneof ingestion.worker.v1.IngestStreamResponse.msg
+     */
+    msg:
+        | {
+              /**
+               * First frame on every stream, sent as soon as the worker accepts it and
+               * before any sub-batch completes: flushes response headers so the
+               * consumer's stream-open resolves (some HTTP/2 server stacks defer
+               * headers until the first response message).
+               *
+               * @generated from field: ingestion.worker.v1.StreamReady ready = 1;
+               */
+              value: StreamReady
+              case: 'ready'
+          }
+        | {
+              /**
+               * @generated from field: ingestion.worker.v1.SubBatchAck ack = 2;
+               */
+              value: SubBatchAck
+              case: 'ack'
+          }
+        | { case: undefined; value?: undefined }
+}
+
+/**
+ * Describes the message ingestion.worker.v1.IngestStreamResponse.
+ * Use `create(IngestStreamResponseSchema)` to create a new message.
+ */
+export const IngestStreamResponseSchema: GenMessage<IngestStreamResponse> =
+    /*@__PURE__*/
+    messageDesc(file_ingestion_worker_v1_worker, 4)
+
+/**
+ * StreamReady carries no data yet; it is the slot where the worker could
+ * later advertise limits or echo the hello.
+ *
+ * @generated from message ingestion.worker.v1.StreamReady
+ */
+export type StreamReady = Message<'ingestion.worker.v1.StreamReady'> & {}
+
+/**
+ * Describes the message ingestion.worker.v1.StreamReady.
+ * Use `create(StreamReadySchema)` to create a new message.
+ */
+export const StreamReadySchema: GenMessage<StreamReady> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 5)
+
+/**
+ * SubBatchAck acks one sub-batch.
+ *
+ * @generated from message ingestion.worker.v1.SubBatchAck
+ */
+export type SubBatchAck = Message<'ingestion.worker.v1.SubBatchAck'> & {
     /**
      * The `SubBatch.seq` this ack resolves.
      *
@@ -222,12 +276,10 @@ export type IngestStreamResponse = Message<'ingestion.worker.v1.IngestStreamResp
 }
 
 /**
- * Describes the message ingestion.worker.v1.IngestStreamResponse.
- * Use `create(IngestStreamResponseSchema)` to create a new message.
+ * Describes the message ingestion.worker.v1.SubBatchAck.
+ * Use `create(SubBatchAckSchema)` to create a new message.
  */
-export const IngestStreamResponseSchema: GenMessage<IngestStreamResponse> =
-    /*@__PURE__*/
-    messageDesc(file_ingestion_worker_v1_worker, 4)
+export const SubBatchAckSchema: GenMessage<SubBatchAck> = /*@__PURE__*/ messageDesc(file_ingestion_worker_v1_worker, 6)
 
 /**
  * SubBatchStatus is the outcome of processing one sub-batch.
