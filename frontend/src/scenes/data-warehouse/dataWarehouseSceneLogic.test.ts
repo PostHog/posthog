@@ -74,6 +74,42 @@ describe('dataWarehouseSceneLogic', () => {
         expect(logic.values.warehouseStatusResolved).toBe(false)
     })
 
+    it('shows published tables only when its flag is enabled and the warehouse is ready', async () => {
+        flagsLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE, FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES],
+            {
+                [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
+                [FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES]: true,
+            }
+        )
+        warehouseStatusResponse = [200, { state: 'ready' }]
+        mountScene()
+        await waitForWarehouseStatus()
+
+        expect(logic.values.availableTabs).toEqual([
+            DataWarehouseTab.OVERVIEW,
+            DataWarehouseTab.MONITORING,
+            DataWarehouseTab.PUBLISHED_TABLES,
+            DataWarehouseTab.SETTINGS,
+        ])
+    })
+
+    it('honors a published-tables deep link after warehouse status resolves', async () => {
+        flagsLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE, FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES],
+            {
+                [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true,
+                [FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES]: true,
+            }
+        )
+        warehouseStatusResponse = [200, { state: 'ready' }]
+        mountScene()
+        router.actions.push(urls.dataOps(DataWarehouseTab.PUBLISHED_TABLES))
+        await waitForWarehouseStatus()
+
+        expect(logic.values.activeTab).toBe(DataWarehouseTab.PUBLISHED_TABLES)
+    })
+
     // The URL is parsed before the warehouse status arrives, so a requested tab has to survive the
     // wait — clamping it against a tab list that doesn't include Overview yet would drop it.
     it.each([[DataWarehouseTab.OVERVIEW], [DataWarehouseTab.MONITORING], [DataWarehouseTab.SETTINGS]])(
