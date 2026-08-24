@@ -124,7 +124,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
-from posthog.exceptions import APIQueriesQuotaExceeded
+from posthog.exceptions import APIQueriesQuotaExceeded, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -317,9 +317,15 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     UserAccessControlError is folded into USER_ERROR locally since
     classify_query_error doesn't recognise it but a 403 is the user's input,
     not a service failure.
+
+    QuotaLimitExceeded is folded into RATE_LIMITED locally for the same reason:
+    a 402 is a deliberate billing block, not a platform failure. The block
+    already counts and logs the org, usage, and reset date.
     """
     if isinstance(exc, UserAccessControlError):
         return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
+    if isinstance(exc, QuotaLimitExceeded):
+        return QueryErrorCategory.RATE_LIMITED, SloOutcome.SUCCESS
     category = classify_query_error(exc)
     if category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
         return category, SloOutcome.SUCCESS

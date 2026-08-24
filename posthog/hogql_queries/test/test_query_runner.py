@@ -48,7 +48,12 @@ from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    APIQueriesQuotaExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_failure_handling import classify_failure
@@ -754,6 +759,15 @@ class TestQueryRunner(BaseTest):
                 False,
             ),
             ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited", False),
+            (
+                # 402 billing block for an org over its API queries allowance. It is a deliberate
+                # block, not a platform failure, so it must not reach error tracking or the SLO.
+                "api_queries_quota_exceeded",
+                APIQueriesQuotaExceeded,
+                SloOutcome.SUCCESS,
+                "rate_limited",
+                False,
+            ),
             (
                 "user_hogql_query_error",
                 lambda: QueryError("Can't select a table when a column is expected: postgres_waitlist_entries"),
