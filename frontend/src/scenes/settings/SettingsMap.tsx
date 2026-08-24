@@ -55,7 +55,6 @@ import {
     WarehousePersonPropertiesSetting,
 } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/WarehousePersonPropertiesSetting'
 import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/calendar/CalendarSyncConfig'
-import { CustomerEmailConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/email/CustomerEmailConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -463,14 +462,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CalendarSyncConfig />,
                 flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
                 keywords: ['calendar', 'email', 'meetings', 'google', 'sync', 'accounts'],
-            },
-            {
-                id: 'customer-analytics-email-sync',
-                title: 'Email forwarding',
-                description: 'Manage existing email forwarding connections.',
-                component: <CustomerEmailConfig />,
-                flag: ['CUSTOMER_ANALYTICS', 'CUSTOMER_ANALYTICS_CSP'],
-                keywords: ['email', 'inbox', 'forwarding', 'sync', 'accounts'],
             },
             {
                 id: 'customer-analytics-event-stream',
