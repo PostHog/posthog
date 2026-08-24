@@ -9,20 +9,6 @@ import { findContinueAction, findNextAction, isEvaluableCondition } from '../hog
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
-const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
-
-// Increments only when the 10-minute polling re-check advances a wait_until_condition that the
-// subscription matcher did NOT wake (and not an evaluate-on-entry match). This is the decisive
-// signal for removing the poll: while it sits at ~0 across teams for a sustained window, the
-// person/event/internal streams cover every wake and polling is provably redundant.
-// Labelled by team and flow so a non-zero reading names the workflow still leaning on the poll; a
-// series only exists for flows that actually poll-advance, so cardinality tracks incidence.
-export const counterHogflowWaitPollOnlyAdvance = new Counter({
-    name: 'cdp_hogflow_wait_poll_only_advance',
-    help: 'wait_until_condition advanced via the polling re-check, not the subscription matcher — a wake the streams missed.',
-    labelNames: ['team_id', 'hog_flow_id'],
-})
-
 // Outcome of a wait_until_condition re-check that ran because a person merge re-keyed the parked job
 // onto the survivor and woke it (scheduled=now). 'advanced' = the merge made the condition match;
 // 'reparked' = it didn't, so waking was wasted churn. A high reparked:advanced ratio means the wake
@@ -64,10 +50,8 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         // The person the worker read at dequeue can predate a write this wait is waiting for, and a
         // wait that parks on that read is stuck: the write already happened, so no person message
-        // follows to wake it. Re-read before the first evaluation of each wait — including a wait
-        // reached later in the same dequeue. Re-checks of a wait that already parked run 10 minutes
-        // apart, by when the cache has expired, so they keep the cheaper read.
-        if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
+        // follows to wake it, and there is no periodic re-check left to catch it either.
+        if (action.type === 'wait_until_condition') {
             const refreshed = await invocation.refreshPerson?.()
             if (refreshed) {
                 invocation.person = refreshed.person
@@ -96,26 +80,12 @@ export class ConditionalBranchHandler implements ActionHandler {
                   }
         )
 
-        const isWait = action.type === 'wait_until_condition'
-
         if (conditionResult.scheduledAt) {
-            // Record that this wait has re-parked at least once, so a later condition match is
-            // attributable to the polling re-check rather than an evaluate-on-entry match.
-            if (isWait && invocation.state.currentAction) {
-                invocation.state.currentAction.pollReparked = true
-            }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('reparked').inc()
             }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            // Poll-only advance: a wait whose condition matched on a re-check (not via the matcher's
-            // eventMatched short-circuit above, and not on entry). This is the wake the streams missed.
-            if (isWait && invocation.state.currentAction?.pollReparked === true) {
-                counterHogflowWaitPollOnlyAdvance
-                    .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
-                    .inc()
-            }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('advanced').inc()
             }
@@ -150,13 +120,11 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
-        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
-        // for now; removing it is a follow-up once the matcher streams are proven in production.
+        // Park once, straight to the step's own deadline. The subscription matcher wakes the job
+        // early when a matching signal arrives, so there is nothing for a periodic re-check to find.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
-            invocation.state.currentAction?.startedAtTimestamp,
-            DEFAULT_WAIT_DURATION_SECONDS
+            invocation.state.currentAction?.startedAtTimestamp
         )
 
         if (scheduledAt) {
