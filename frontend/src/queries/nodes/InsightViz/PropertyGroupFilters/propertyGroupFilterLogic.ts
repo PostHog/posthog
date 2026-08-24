@@ -30,9 +30,6 @@ export interface propertyGroupFilterLogicActions {
     addFilterGroup: () => {
         value: true
     }
-    addFilterGroupWithFilters: (properties: AnyPropertyFilter[]) => {
-        properties: AnyPropertyFilter[]
-    }
     duplicateFilterGroup: (propertyGroupIndex: number) => {
         propertyGroupIndex: number
     }
@@ -99,7 +96,6 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         setInnerPropertyGroupType: (type: FilterLogicalOperator, index: number) => ({ type, index }),
         duplicateFilterGroup: (propertyGroupIndex: number) => ({ propertyGroupIndex }),
         addFilterGroup: true,
-        addFilterGroupWithFilters: (properties: AnyPropertyFilter[]) => ({ properties }),
     }),
 
     reducers(({ props }) => ({
@@ -107,8 +103,22 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             convertPropertiesToPropertyGroup(props.query.properties),
             {
                 setFilters: (_, { filters }) => filters,
-                addFilterGroup: (state) => appendGroup(state, []),
-                addFilterGroupWithFilters: (state, { properties }) => appendGroup(state, properties),
+                addFilterGroup: (state) => {
+                    if (!state.values) {
+                        return {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [],
+                                },
+                            ],
+                        }
+                    }
+                    const filterGroups = [...state.values, { type: FilterLogicalOperator.And, values: [] }]
+
+                    return { ...state, values: filterGroups }
+                },
                 removeFilterGroup: (state, { filterGroup }) => {
                     const filteredGroups = [...state.values]
                     filteredGroups.splice(filterGroup, 1)
@@ -156,10 +166,6 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         addFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
         },
-        addFilterGroupWithFilters: () => {
-            eventUsageLogic.actions.reportPropertyGroupFilterAdded()
-            actions.update()
-        },
         duplicateFilterGroup: () => {
             eventUsageLogic.actions.reportPropertyGroupFilterDuplicated()
         },
@@ -175,15 +181,6 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
         propertyGroupFilter: [(s) => [s.filters], (propertyGroupFilter: PropertyGroupFilter) => propertyGroupFilter],
     }),
 ])
-
-/** Appends a new inner filter group (seeded with `values`) to the outer property group. */
-function appendGroup(state: PropertyGroupFilter, values: AnyPropertyFilter[]): PropertyGroupFilter {
-    const group = { type: FilterLogicalOperator.And, values }
-    if (!state.values) {
-        return { type: FilterLogicalOperator.And, values: [group] }
-    }
-    return { ...state, values: [...state.values, group] }
-}
 
 function hasAnyPropertyFilters(filter: PropertyGroupFilter): boolean {
     return filter.values.some((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))

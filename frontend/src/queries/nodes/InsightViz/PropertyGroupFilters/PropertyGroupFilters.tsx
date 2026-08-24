@@ -69,7 +69,6 @@ export function PropertyGroupFilters({
         setOuterPropertyGroupsType,
         setInnerPropertyGroupType,
         setPropertyFilters,
-        addFilterGroupWithFilters,
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const behavioralFiltersEnabled = !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER]
@@ -83,36 +82,17 @@ export function PropertyGroupFilters({
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                     <div className="flex flex-col gap-2 @lg:flex-row @lg:items-center">
                         <div className="order-2 @lg:order-none PropertyGroupFilters__add-filter-group-inline-wrapper">
-                            <div className="PropertyGroupFilters__add-filter-group-inline">
-                                <div
-                                    className={
-                                        behavioralFiltersEnabled ? 'flex flex-wrap items-center gap-2' : undefined
-                                    }
-                                >
-                                    <LemonButton
-                                        data-attr={`${pageKey}-add-filter-group-inline`}
-                                        type="secondary"
-                                        onClick={addFilterGroup}
-                                        icon={<IconPlusSmall />}
-                                        sideIcon={null}
-                                        disabledReason={disabledReason}
-                                    >
-                                        Add filter group
-                                    </LemonButton>
-                                    {behavioralFiltersEnabled && (
-                                        <LemonButton
-                                            data-attr={`${pageKey}-add-behavioral-filter-group-inline`}
-                                            type="secondary"
-                                            onClick={() => addFilterGroupWithFilters([newBehavioralFilter()])}
-                                            icon={<IconPlusSmall />}
-                                            sideIcon={null}
-                                            disabledReason={disabledReason}
-                                        >
-                                            Performed event
-                                        </LemonButton>
-                                    )}
-                                </div>
-                            </div>
+                            <LemonButton
+                                data-attr={`${pageKey}-add-filter-group-inline`}
+                                type="secondary"
+                                onClick={addFilterGroup}
+                                icon={<IconPlusSmall />}
+                                sideIcon={null}
+                                disabledReason={disabledReason}
+                                className="PropertyGroupFilters__add-filter-group-inline"
+                            >
+                                Add filter group
+                            </LemonButton>
                         </div>
                         <div className="order-1 @lg:order-none">
                             <InsightTestAccountFilter
@@ -247,32 +227,17 @@ export function PropertyGroupFilters({
                         </div>
                     ) : null}
 
-                    <div className="PropertyGroupFilters__add-filter-group-after">
-                        <div className={behavioralFiltersEnabled ? 'flex flex-wrap items-center gap-2' : undefined}>
-                            <LemonButton
-                                data-attr={`${pageKey}-add-filter-group`}
-                                type="secondary"
-                                onClick={addFilterGroup}
-                                icon={<IconPlusSmall />}
-                                sideIcon={null}
-                                disabledReason={disabledReason}
-                            >
-                                Add filter group
-                            </LemonButton>
-                            {behavioralFiltersEnabled && (
-                                <LemonButton
-                                    data-attr={`${pageKey}-add-behavioral-filter-group`}
-                                    type="secondary"
-                                    onClick={() => addFilterGroupWithFilters([newBehavioralFilter()])}
-                                    icon={<IconPlusSmall />}
-                                    sideIcon={null}
-                                    disabledReason={disabledReason}
-                                >
-                                    Performed event
-                                </LemonButton>
-                            )}
-                        </div>
-                    </div>
+                    <LemonButton
+                        data-attr={`${pageKey}-add-filter-group`}
+                        type="secondary"
+                        onClick={addFilterGroup}
+                        icon={<IconPlusSmall />}
+                        sideIcon={null}
+                        disabledReason={disabledReason}
+                        className="PropertyGroupFilters__add-filter-group-after"
+                    >
+                        Add filter group
+                    </LemonButton>
                 </BindLogic>
             )}
         </div>
