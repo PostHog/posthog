@@ -78,7 +78,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
             },
         ).json()
 
-    def test_hourly_alert_on_single_number_insight_outlives_its_cache(
+    def test_hourly_alert_on_single_number_insight_does_not_reuse_a_stale_cache(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         # A single-number display discards the configured interval for `day` (TrendsQueryRunner
@@ -117,10 +117,10 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
                 _create_event(team=self.team, event="$exception", distinct_id=str(distinct_id))
             flush_persons_and_events()
 
-        # 59 minutes on, which is how far apart consecutive hourly checks actually land: each is
-        # scheduled from the previous one's due time and the check itself takes a moment, so the gap
-        # is always a shade under the cadence. A ceiling of one whole cadence would serve the cached
-        # zero here and leave every second check stale.
+        # 59 minutes on. Hourly checks are scheduled a cadence apart but run when a worker picks
+        # them up, so the gap between two results jitters either side of the hour. This is the
+        # under-an-hour side of that jitter, where a ceiling of one whole cadence would serve the
+        # cached zero.
         with freeze_time("2024-06-02T09:54:00.000Z"):
             run_alert_check(alert["id"])
 

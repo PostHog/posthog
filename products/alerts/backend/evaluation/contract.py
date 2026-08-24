@@ -111,11 +111,15 @@ def max_cache_age_for_cadence(cadence: str | None) -> int | None:
     value. This bound adds the guarantee the cadence implies, and only ever tightens, so a query
     whose own policy is already stricter keeps it.
 
-    Half a cadence, not a whole one. Consecutive checks land slightly under one cadence apart
-    (each is scheduled from the previous check's due time, and the work takes a moment), so a
-    full-cadence bound leaves every second check reusing the previous check's result. Halving it
-    means each check recomputes without raising the ceiling on query volume: that is bounded by
-    the number of checks either way.
+    Half a cadence, not a whole one. Checks are scheduled on a fixed grid one cadence apart
+    (``next_calendar_check_time``), but each one runs whenever the worker picks it up, so the gap
+    between two results jitters either side of the cadence. A full-cadence bound sits exactly on
+    that boundary and would make reuse a coin flip on worker lag. Halving it does not raise the
+    ceiling on query volume, which is bounded by the number of checks either way.
+
+    A bound rather than an unconditional recompute, because an alert that falls behind advances
+    its due time by only one cadence per check. Its catch-up checks run back to back, and those
+    should share one result instead of each running its own query.
     """
     if not cadence:
         return None

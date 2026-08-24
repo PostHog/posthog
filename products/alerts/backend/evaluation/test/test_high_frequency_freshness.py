@@ -86,9 +86,9 @@ def test_is_high_frequency_interval_property(interval, expected):
     assert AlertConfiguration(calculation_interval=interval).is_high_frequency_interval is expected
 
 
-# The ceiling is half a cadence, in seconds. Half because consecutive checks land just under a
-# cadence apart, so a whole-cadence ceiling would let every second check reuse the previous one's
-# result. Asserted rather than left to the map: reading CADENCE_MINUTES without converting would
+# The ceiling is half a cadence, in seconds. Half because the gap between two checks jitters
+# either side of the cadence on worker lag, so a whole-cadence ceiling would make reuse a coin
+# flip. Asserted rather than left to the map: reading CADENCE_MINUTES without converting would
 # bound an hourly check at 30 seconds. A null cadence (nullable column) declines to bound.
 @pytest.mark.parametrize(
     "cadence,expected_seconds",
