@@ -211,11 +211,11 @@ export function VisionUsageTab(): JSX.Element {
             },
         },
         {
-            title: 'Spend this period',
+            title: 'Spend this billing period',
             key: 'credits_this_month',
             width: '30%',
             className: 'pl-6',
-            tooltip: 'How much of the total spend this period came from this scanner.',
+            tooltip: 'How much of the total spend this billing period came from this scanner.',
             render: (_, scanner) => {
                 const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
                 return (
@@ -243,7 +243,7 @@ export function VisionUsageTab(): JSX.Element {
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
                                         : formatCreditCount(quota.credits_used)}{' '}
-                                    this period
+                                    this billing period
                                     {projection.resetsOn ? `, resets ${projection.resetsOn}` : ''}
                                 </span>
                             </Tooltip>
@@ -282,7 +282,7 @@ export function VisionUsageTab(): JSX.Element {
                 rowKey={(scanner) => scanner.id}
                 emptyState={
                     <>
-                        No spend this period yet. Costs appear here once scanners produce observations.{' '}
+                        No spend this billing period yet. Costs appear here once scanners produce observations.{' '}
                         <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
                             Learn how credits and limits work
                         </VisionDocsLink>
@@ -291,7 +291,8 @@ export function VisionUsageTab(): JSX.Element {
                 footer={
                     hiddenCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-muted">
-                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this period
+                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this billing
+                            period
                         </div>
                     ) : undefined
                 }
