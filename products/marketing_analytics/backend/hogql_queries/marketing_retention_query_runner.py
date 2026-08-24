@@ -112,6 +112,7 @@ _FIRST_SESSION_AT = "first_session_at"
 # goal start — kept separate from `first_session_at`, which always means the session the breakdown reads.
 _COHORT_AT = "cohort_at"
 _ACTIVITY_INDEX = "activity_index"
+_LAST_ACTIVITY_AT = "last_activity_at"
 _COHORT_INDEX = "cohort_index"
 _COHORT_SIZE = "cohort_size"
 _INTERVALS_FROM_BASE = "intervals_from_base"
@@ -383,29 +384,6 @@ class MarketingAnalyticsRetentionQueryRunner(
             group_by=[ast.Field(chain=[_ACTOR_ID])],
         )
 
-    def _build_first_conversion_select(self) -> ast.SelectQuery:
-        """(B2) When each person first completed the goal that starts a cohort.
-
-        Only reached under a goal start. Their *first* conversion, because the row is meant to be the
-        period they became a customer: keying off a later repeat would move a person's row every time
-        they converted again.
-        """
-        return ast.SelectQuery(
-            select=[
-                ast.Alias(alias=_ACTOR_ID, expr=ast.Field(chain=["events", "person_id"])),
-                ast.Alias(alias=_COHORT_AT, expr=ast.Call(name="min", args=[ast.Field(chain=["events", "timestamp"])])),
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(
-                exprs=[
-                    self.start_conversion_condition,
-                    *self._range_conditions(ast.Field(chain=["events", "timestamp"])),
-                    *self._event_filters(),
-                ]
-            ),
-            group_by=[ast.Field(chain=[_ACTOR_ID])],
-        )
-
     def _build_acquisition_select(self) -> ast.SelectQuery:
         """(C) One row per person in the table: which period they belong to, and under which value.
 
@@ -414,9 +392,17 @@ class MarketingAnalyticsRetentionQueryRunner(
         comes from the first session, which is what keeps "Channel" meaning the channel that acquired
         the person on both surfaces rather than whatever they were browsing when they converted.
 
-        The INNER JOIN is also what scopes a goal start to people acquired inside the range: someone who
-        converted here but arrived earlier has no `first_session` row, so they drop out. That is a real
-        limitation of reading the breakdown off an in-range session, and widening the range is the fix.
+        Under a goal start the conversions are scanned against the first session rather than resolved
+        on their own, so only the ones at or after it count. A person's globally first conversion would
+        otherwise be credited to a channel whose only touch came later: the touchpoint filters, and the
+        exclude-direct and exclude-unattributed toggles, can each push a person's first *qualifying*
+        session past a conversion they had already made. The attribution runners enforce the same
+        ordering when they keep only the touchpoints at or before a conversion.
+
+        Joining from `first_session` is also what scopes a goal start to people acquired inside the
+        range: someone who converted here but arrived earlier has no row on that side, so they drop out.
+        That is a real limitation of reading the breakdown off an in-range session, and widening the
+        range is the fix.
         """
         if not self.starts_on_conversion:
             first_session = self._build_first_session_select()
@@ -428,25 +414,44 @@ class MarketingAnalyticsRetentionQueryRunner(
         return ast.SelectQuery(
             select=[
                 ast.Alias(alias=_ACTOR_ID, expr=ast.Field(chain=[_FIRST_SESSION_CTE, _ACTOR_ID])),
-                ast.Alias(alias=_COHORT_AT, expr=ast.Field(chain=["first_conversion", _COHORT_AT])),
+                ast.Alias(alias=_COHORT_AT, expr=ast.Call(name="min", args=[ast.Field(chain=["events", "timestamp"])])),
                 ast.Alias(alias=_BREAKDOWN_VALUE, expr=ast.Field(chain=[_FIRST_SESSION_CTE, _BREAKDOWN_VALUE])),
             ],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=[_FIRST_SESSION_CTE]),
                 next_join=ast.JoinExpr(
                     join_type="INNER JOIN",
-                    table=self._build_first_conversion_select(),
-                    alias="first_conversion",
+                    table=ast.Field(chain=["events"]),
                     constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["first_conversion", _ACTOR_ID]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[_FIRST_SESSION_CTE, _ACTOR_ID]),
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["events", "person_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Field(chain=[_FIRST_SESSION_CTE, _ACTOR_ID]),
+                                ),
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["events", "timestamp"]),
+                                    op=ast.CompareOperationOp.GtEq,
+                                    right=ast.Field(chain=[_FIRST_SESSION_CTE, _FIRST_SESSION_AT]),
+                                ),
+                            ]
                         ),
                         constraint_type="ON",
                     ),
                 ),
             ),
+            where=ast.And(
+                exprs=[
+                    self.start_conversion_condition,
+                    *self._range_conditions(ast.Field(chain=["events", "timestamp"])),
+                    *self._event_filters(),
+                ]
+            ),
+            group_by=[
+                ast.Field(chain=[_FIRST_SESSION_CTE, _ACTOR_ID]),
+                ast.Field(chain=[_FIRST_SESSION_CTE, _BREAKDOWN_VALUE]),
+            ],
         )
 
     def _build_activity_select(self) -> ast.SelectQuery:
@@ -465,6 +470,12 @@ class MarketingAnalyticsRetentionQueryRunner(
                 ast.Alias(
                     alias=_ACTIVITY_INDEX,
                     expr=self._interval_index_expr(ast.Field(chain=["events", "timestamp"])),
+                ),
+                # The latest event of the period, kept so the matrix can tell whether *any* of them
+                # landed at or after the cohort started. Collapsing to the period alone loses that, and
+                # period 0 then counts what someone did before they converted.
+                ast.Alias(
+                    alias=_LAST_ACTIVITY_AT, expr=ast.Call(name="max", args=[ast.Field(chain=["events", "timestamp"])])
                 ),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -530,10 +541,15 @@ class MarketingAnalyticsRetentionQueryRunner(
                     join_type="INNER JOIN",
                     table=ast.Field(chain=[_ACTIVITY_CTE]),
                     constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=[_ACTIVITY_CTE, _ACTOR_ID]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Field(chain=[_ACQUISITION_CTE, _ACTOR_ID]),
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=[_ACTIVITY_CTE, _ACTOR_ID]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Field(chain=[_ACQUISITION_CTE, _ACTOR_ID]),
+                                ),
+                                self._came_back_after_starting_expr(),
+                            ]
                         ),
                         constraint_type="ON",
                     ),
@@ -558,6 +574,23 @@ class MarketingAnalyticsRetentionQueryRunner(
                     ),
                 ]
             ),
+        )
+
+    def _came_back_after_starting_expr(self) -> ast.Expr:
+        """True when the period holds at least one return event at or after the cohort started.
+
+        `intervals_from_base >= 0` only compares period indexes, so it drops earlier periods but lets
+        anything earlier *within* period 0 through. Under a goal start the cohort begins mid-period, at
+        the conversion, so without this the first column counts the browsing that led up to the purchase
+        and reads near 100% instead of measuring whether the person came back.
+
+        Comparing the period's latest event is what makes this a filter on the period rather than on one
+        event: if any event in it landed at or after the start, that maximum did.
+        """
+        return ast.CompareOperation(
+            left=ast.Field(chain=[_ACTIVITY_CTE, _LAST_ACTIVITY_AT]),
+            op=ast.CompareOperationOp.GtEq,
+            right=ast.Field(chain=[_ACQUISITION_CTE, _COHORT_AT]),
         )
 
     def _build_top_breakdowns_select(self) -> ast.SelectQuery:

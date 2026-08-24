@@ -15,6 +15,7 @@ import {
     MarketingAnalyticsRetentionQuery,
     MarketingAnalyticsRetentionQueryResponse,
     MarketingAnalyticsRetentionReturningEvent,
+    MarketingAnalyticsRetentionStartEvent,
     MarketingAnalyticsRetentionRow,
 } from '~/queries/schema/schema-general'
 
@@ -80,9 +81,18 @@ export function RetentionCohortTable({
     const interval = retentionResponse?.interval ?? MarketingAnalyticsRetentionInterval.Week
     const dimensionLabel = BREAKDOWN_LABELS[breakdownBy]
 
+    const startsOnConversion = retentionResponse?.startEvent === MarketingAnalyticsRetentionStartEvent.ConversionGoal
+
     // Both caps change what the table covers, so neither can stay silent: without this the tab shows a
     // narrower range than the date filter says, and an "Other" row of unknown size.
     const caveats: string[] = []
+    // A goal start begins mid-period, at the conversion, so the first column covers whatever is left of
+    // that period. Without saying so, its lower number reads as a dip rather than as a shorter window.
+    if (startsOnConversion) {
+        caveats.push(
+            "The first period starts at each person's conversion, so it covers less time than the ones after it."
+        )
+    }
     // Under a goal the columns read as a retention curve but aren't one, and for a goal someone can
     // only complete once they are closer to a breakdown of when each person converted.
     if (retentionResponse?.returningEvent === MarketingAnalyticsRetentionReturningEvent.ConversionGoal) {
@@ -116,7 +126,9 @@ export function RetentionCohortTable({
             render: (_, row) => cohortLabel(row.cohortDate, interval, timezone),
         },
         {
-            title: 'Acquired',
+            // Under a goal start these people are counted for converting, not for arriving, and the
+            // period they sit in is when they converted.
+            title: startsOnConversion ? 'Converted' : 'Acquired',
             dataIndex: 'cohortSize',
             align: 'right',
             render: (_, row) => humanFriendlyNumber(row.cohortSize),
@@ -201,7 +213,8 @@ export function RetentionCohortTable({
                         <div className="flex items-center gap-2">
                             <span className="font-semibold">{displayBreakdownValue(value, dimensionLabel)}</span>
                             <span className="text-secondary text-xs">
-                                {humanFriendlyNumber(totalAcquired(byBreakdown.get(value)))} acquired
+                                {humanFriendlyNumber(totalAcquired(byBreakdown.get(value)))}{' '}
+                                {startsOnConversion ? 'converted' : 'acquired'}
                             </span>
                         </div>
                     ),

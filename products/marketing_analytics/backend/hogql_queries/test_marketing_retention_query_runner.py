@@ -484,6 +484,39 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([row.breakdownValue for row in response.results], ["google"])
 
+    def test_a_goal_start_does_not_count_browsing_that_led_up_to_the_conversion(self):
+        # Period 0 must measure coming back, not the visit that produced the purchase. Comparing only
+        # period indexes lets a pageview from earlier the same week through, so the column that answers
+        # "do the people who convert stay?" would read near 100% for everyone.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", "2023-01-09T09:00:00Z", utm_source="google")
+        self._conversion("p1", "2023-01-09T17:00:00Z")
+
+        response = self._run(start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL)
+
+        row = response.results[0]
+        self.assertEqual(row.cohortSize, 1)
+        self.assertEqual([cell.count for cell in row.values], [0, 0, 0, 0])
+
+    def test_a_goal_start_ignores_a_conversion_that_precedes_the_attributed_session(self):
+        # The breakdown comes from the first session that survives the touchpoint filters, so with
+        # direct excluded that session can land after a conversion the person already made. Keying the
+        # cohort off that earlier conversion credits a channel whose only touch came later.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source=None, referring_domain="$direct")
+        self._conversion("p1", WEEK_0)
+        self._session("p1", WEEK_2, utm_source="google", referring_domain="ads.example.com")
+        self._conversion("p1", WEEK_2)
+
+        response = self._run(
+            start_event=MarketingAnalyticsRetentionStartEvent.CONVERSION_GOAL,
+            exclude_direct=True,
+            only_new_users=False,
+        )
+
+        # Cohorted on the week 2 conversion, the first one at or after the session being credited.
+        self.assertEqual([row.cohortIndex for row in response.results], [2])
+
     def test_a_goal_start_keys_off_the_first_conversion_not_a_later_one(self):
         # A repeat converter must not have their row move every time they convert again.
         create_person(team=self.team, distinct_ids=["p1"])
