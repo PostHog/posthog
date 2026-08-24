@@ -11,7 +11,6 @@ import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useLingeringTooltip } from 'lib/hooks/useLingeringTooltip'
 import { hexToRGBA } from 'lib/utils/colors'
@@ -175,9 +174,8 @@ function sparklineClassName(dataPointCount: number, className?: string): string 
 }
 
 export function Sparkline(props: SparklineProps): JSX.Element {
-    const quillEnabled = useFeatureFlag('QUILL_SPARKLINE')
     // Features the quill path doesn't cover yet. Consumers passing them stay on Chart.js until
-    // their migration wave lands — see docs/internal/quill-migration-sparkline.md.
+    // their migration wave lands.
     const needsLegacyFeatures = !!(
         props.onSelectionChange ||
         props.highlightedRange ||
@@ -187,7 +185,7 @@ export function Sparkline(props: SparklineProps): JSX.Element {
         props.withXScale ||
         props.withYScale
     )
-    return quillEnabled && !needsLegacyFeatures ? <QuillSparkline {...props} /> : <LegacySparkline {...props} />
+    return needsLegacyFeatures ? <LegacySparkline {...props} /> : <QuillSparkline {...props} />
 }
 
 /** Legacy consumers pass vars.scss color names ('success', 'danger', 'muted'); quill takes CSS colors. */
@@ -196,11 +194,10 @@ function resolveSparklineColor(color: string | undefined): string {
     return /^(#|rgb|hsl|var\()/.test(value) ? value : getColorVar(value)
 }
 
-/** The quill rendering path. Exported so callers that always want quill can bypass the flag dispatch
- *  in `Sparkline`: HogQLX renders author-supplied `<Sparkline>` tags through this directly (the tags
- *  only ever carry data/type/labels — never the legacy-only props), and Storybook uses it because the
- *  dispatch is unusable there (implicit-action args inject an `onSelectionChange` spy the dispatch
- *  reads as a legacy-only feature). Everything else uses `Sparkline`. */
+/** The quill rendering path. Exported for the callers that must never fall back to
+ *  `LegacySparkline`: HogQLX, whose author-supplied tags would otherwise trip the legacy-prop
+ *  dispatch, and Storybook, where implicit-action args inject an `onSelectionChange` spy the
+ *  dispatch reads as a legacy-only feature. Everything else uses `Sparkline`. */
 export function QuillSparkline({
     data,
     color,
