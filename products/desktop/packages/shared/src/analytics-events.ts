@@ -327,6 +327,17 @@ export interface BrainrotActivatedProperties {
   filled_cells: number;
 }
 
+export interface BrainrotPlayerErrorProperties {
+  /** YouTube player error code (e.g. 153), or null when the widget went silent. */
+  error_code: number | null;
+  /**
+   * "player_error" when the embed reported an onError message;
+   * "no_widget_messages" when the widget sent nothing after loading, which
+   * usually means the player failed before the postMessage API came up.
+   */
+  reason: "player_error" | "no_widget_messages";
+}
+
 // Settings events
 export interface SettingChangedProperties {
   setting_name: string;
@@ -1418,6 +1429,7 @@ export const ANALYTICS_EVENTS = {
   COMMAND_CENTER_VIEWED: "Command center viewed",
   COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
+  BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
@@ -1610,6 +1622,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
   [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
+  [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
