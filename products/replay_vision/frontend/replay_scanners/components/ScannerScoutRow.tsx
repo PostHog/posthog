@@ -28,8 +28,10 @@ export function ScannerScoutRow({
     config: SignalScoutConfigApi
 }): JSX.Element {
     const logic = scannerScoutLogic({ scannerId, scannerName })
-    const { updatingScoutIds, deletingScoutIds, expandedSkillNames, reportsBySkill } = useValues(logic)
-    const { openScoutSettings, updateScoutConfig, deleteScout, toggleScoutExpanded, openReport } = useActions(logic)
+    const { updatingScoutIds, deletingScoutIds, manualRunScoutIds, expandedSkillNames, reportsBySkill, rollups } =
+        useValues(logic)
+    const { openScoutSettings, updateScoutConfig, deleteScout, toggleScoutExpanded, openReport, runScoutNow } =
+        useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     // Deleting a scout or switching it off changes what this scanner watches.
@@ -37,6 +39,11 @@ export function ScannerScoutRow({
     const updating = updatingScoutIds.includes(config.id)
     const expanded = expandedSkillNames.includes(config.skill_name)
     const reports = reportsBySkill.get(config.skill_name) ?? []
+    // The request returns as soon as the workflow is dispatched, so the button's own loading state
+    // clears in a second while the run takes minutes. Without this the button looks ready again and
+    // the next click is refused by the backend's in-flight check with a bare 409.
+    const runDisabledReason =
+        editDisabledReason ?? (rollups.get(config.skill_name)?.runningRun ? 'This scout is already running' : undefined)
 
     const timezone = currentTeam?.timezone ?? 'UTC'
     const now = new Date()
@@ -116,7 +123,24 @@ export function ScannerScoutRow({
                     </Tooltip>
                 </div>
             </div>
-            {expanded && (
+            {expanded && reports.length === 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 pl-12">
+                    <span className="text-sm text-muted">
+                        No reports filed yet. The first arrives after the next scheduled run.
+                    </span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        loading={manualRunScoutIds.includes(config.id)}
+                        disabledReason={runDisabledReason}
+                        onClick={() => runScoutNow(config.id)}
+                        data-attr="vision-scout-row-run-now"
+                    >
+                        Run now
+                    </LemonButton>
+                </div>
+            )}
+            {expanded && reports.length > 0 && (
                 <div className="border-t border-primary px-4 py-2 pl-12">
                     {/* Same shape as the scanner's observation history, so the two lists read alike. */}
                     <LemonTable
@@ -125,7 +149,6 @@ export function ScannerScoutRow({
                         size="small"
                         rowKey="report_id"
                         dataSource={reports}
-                        emptyState="No reports filed yet."
                         columns={[
                             {
                                 title: '',
