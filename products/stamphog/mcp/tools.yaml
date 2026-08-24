@@ -21,10 +21,10 @@ tools:
         list: true
         title: List stamphog digest runs
         description: >
-            List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained
-            (a team slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel,
-            its status, how many merged PRs it summarized, and the Slack message timestamp. Filter by
-            `slack_channel_id` to see one channel's history. The rendered summary text lives only in the Slack post.
+            List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team
+            slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status,
+            how many merged PRs it summarized, and the Slack message timestamp. Filter by `slack_channel_id` to see one
+            channel's history. The rendered summary text lives only in the Slack post.
         feature_flag: stamphog
     stamphog-digest-runs-retrieve:
         operation: stamphog_digest_runs_retrieve
