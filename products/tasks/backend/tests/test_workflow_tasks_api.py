@@ -267,6 +267,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             team=self.team, hog_flow_id=self.hog_flow.id, owner_id=self.user.id, prompt="look into the alert"
         )
 
+        assert result.run_id is not None
         run = TaskRun.objects.get(id=result.run_id)
         assert result.run_status == run.status == TaskRun.Status.QUEUED
 
@@ -278,6 +279,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             prompt="look into the alert",
             origin_key="invocation-1",
         )
+        assert first.run_id is not None
         TaskRun.objects.filter(id=first.run_id).delete()
 
         replay = create_workflow_task(
