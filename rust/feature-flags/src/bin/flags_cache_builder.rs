@@ -420,8 +420,11 @@ async fn consume_loop(
             batch_offsets.extend(offsets);
         }
 
-        // Shadow teams run after every real build so parity telemetry can never
-        // delay a serve-path write.
+        // Shadow teams run after every real build, so within a batch shadow
+        // work never delays a serve-path write. Across batches it can: the next
+        // fetch waits for this loop, so a shadow-heavy batch adds head-of-line
+        // delay to the real builds behind it. SHADOW_BUILD_DURATION_SECONDS measures
+        // that delay; the producer-side gate is the lever if it grows.
         if !interrupted {
             for (team_id, team_batch) in coalesced.shadow {
                 if shutdown.is_cancelled() {

@@ -6,21 +6,34 @@
 //! This module holds the pure parts: the semantic diff and the repeat-offender
 //! suppression. Reading the live entry and emitting metrics stay in the binary.
 //!
-//! The diff mirrors the Python verifier's definition of parity —
-//! `verify_team_flags` in `products/feature_flags/backend/flags_cache.py`:
-//! per-team flag-set equality by flag id, field-level comparison for flags on
-//! both sides, missing-in-cache / stale-in-cache detection, an unevaluable
-//! stale row tolerated, and `filters` exempted when both sides agree the flag
-//! is unevaluable (the writers blank those; entries predating blanking still
-//! hold the full blob). Parity is per team, not per byte: both sides are
-//! deserialized through the same typed `FeatureFlag` model before comparing,
-//! so JSON key order, absent-vs-null optional fields, and serialization
-//! formatting can never register as mismatches. Unlike the Python verifier's
-//! "compare only DB-side keys" rule (which tolerates stale extra keys in raw
-//! cache JSON — the typed round-trip already drops those), the field loop here
-//! walks the union of both sides' keys: the typed model omits `None` fields on
-//! serialize, so a built-side `None` against a cached value would otherwise be
-//! invisible.
+//! The diff covers all three top-level payload keys, because all three feed the
+//! serve path (`flag_definitions_cache.rs` evaluates from `flags`,
+//! `evaluation_metadata`, and `cohorts` as cached, with no read-time repair):
+//!
+//! - `flags`: per-flag comparison mirroring the Python verifier's definition of
+//!   parity (`verify_team_flags` in `products/feature_flags/backend/flags_cache.py`)
+//!   — flag-set equality by id, field-level comparison, missing-in-cache and
+//!   stale-in-cache detection, an unevaluable stale row tolerated, and `filters`
+//!   exempted when both sides agree the flag is unevaluable (the writers blank
+//!   those; entries predating blanking still hold the full blob).
+//! - `evaluation_metadata`: full value comparison, not just the presence check
+//!   the Python verifier does. That verifier compares Python-written state
+//!   against a Python DB read, so its metadata can't disagree with itself; here
+//!   the Rust reimplementation of dependency staging is exactly what's under test.
+//! - `cohorts`: per-cohort comparison by id, for the same reason — the Rust
+//!   cohort BFS is a reimplementation that can truncate or diverge, and the
+//!   serve path evaluates cohort-filtered flags from this cached array. A live
+//!   entry with no `cohorts` key predates the field and is skipped, since the
+//!   service falls back to its own cohort load for such entries.
+//!
+//! Parity is per team, not per byte: both sides are deserialized through the
+//! same typed models before comparing, so JSON key order, absent-vs-null
+//! optional fields, and serialization formatting can never register as
+//! mismatches. Unlike the Python verifier's "compare only DB-side keys" rule
+//! (which tolerates stale extra keys in raw cache JSON — the typed round-trip
+//! already drops those), the field loop here walks the union of both sides'
+//! keys: the typed model omits `None` fields on serialize, so a built-side
+//! `None` against a cached value would otherwise be invisible.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -30,19 +43,24 @@ use std::time::{Duration, Instant};
 use common_types::TeamId;
 use serde::Deserialize;
 
+use crate::cohorts::cohort_models::Cohort;
 use crate::flags::cache_builder::is_evaluable;
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagId, HypercacheFlagsWrapper};
+use crate::flags::flag_models::{
+    EvaluationMetadata, FeatureFlag, FeatureFlagId, HypercacheFlagsWrapper,
+};
 
 /// The slice of a live cache entry the shadow diff reads. Deserialized leniently
-/// (unknown fields such as `cohorts` are ignored; `evaluation_metadata` may be
-/// absent in entries predating it) so an old-shape entry surfaces as a semantic
-/// mismatch below rather than a parse failure.
+/// (unknown fields are ignored; `evaluation_metadata` and `cohorts` may be
+/// absent in entries predating them) so an old-shape entry surfaces as a
+/// semantic mismatch or a skip below rather than a parse failure.
 #[derive(Debug, Deserialize)]
 pub struct ShadowLiveEntry {
     #[serde(default)]
     pub flags: Vec<FeatureFlag>,
     #[serde(default)]
-    pub evaluation_metadata: Option<serde_json::Value>,
+    pub evaluation_metadata: Option<EvaluationMetadata>,
+    #[serde(default)]
+    pub cohorts: Option<Vec<Cohort>>,
 }
 
 /// One issue class per diff entry; used as the `issue_type` metric label, so the
@@ -51,21 +69,33 @@ pub struct ShadowLiveEntry {
 pub enum ShadowIssueType {
     /// Live entry has no `evaluation_metadata` key (pre-metadata entry shape).
     MissingEvaluationMetadata,
+    /// Live entry's `evaluation_metadata` value differs from the fresh build's.
+    EvaluationMetadataMismatch,
     /// Flag present in the fresh build but absent from the live entry.
     MissingInCache,
     /// Evaluable flag present in the live entry but absent from the fresh build.
     StaleInCache,
     /// Flag present on both sides with differing field values.
     FieldMismatch,
+    /// Cohort present in the fresh build but absent from the live entry.
+    CohortMissingInCache,
+    /// Cohort present in the live entry but absent from the fresh build.
+    CohortStaleInCache,
+    /// Cohort present on both sides with differing field values.
+    CohortFieldMismatch,
 }
 
 impl ShadowIssueType {
     pub fn as_label(&self) -> &'static str {
         match self {
             Self::MissingEvaluationMetadata => "missing_evaluation_metadata",
+            Self::EvaluationMetadataMismatch => "evaluation_metadata_mismatch",
             Self::MissingInCache => "missing_in_cache",
             Self::StaleInCache => "stale_in_cache",
             Self::FieldMismatch => "field_mismatch",
+            Self::CohortMissingInCache => "cohort_missing_in_cache",
+            Self::CohortStaleInCache => "cohort_stale_in_cache",
+            Self::CohortFieldMismatch => "cohort_field_mismatch",
         }
     }
 }
@@ -74,93 +104,149 @@ impl ShadowIssueType {
 #[derive(Debug, Clone)]
 pub struct ShadowDiff {
     pub issue_type: ShadowIssueType,
-    /// `None` only for team-level issues (`MissingEvaluationMetadata`).
-    pub flag_id: Option<FeatureFlagId>,
-    pub flag_key: Option<String>,
-    /// Differing field names; populated only for `FieldMismatch`.
+    /// What differs: `"flag 42 (checkout)"` or `"cohort 7"`. `None` for
+    /// team-level issues (the evaluation-metadata ones).
+    pub subject: Option<String>,
+    /// Differing field names; populated for the field-mismatch issue types.
     pub fields: Vec<String>,
     /// Content hash of the disagreement, used by `MismatchTracker` to decide
     /// whether the *same* mismatch persisted across two consecutive shadow
-    /// builds. Hashing the values (not just flag id + issue type) keeps an edit
-    /// session — where each save races Python's rebuild with *different* content
-    /// — from ever counting as a repeat.
+    /// builds. Hashing the values (not just the subject + issue type) keeps an
+    /// edit session — where each save races Python's rebuild with *different*
+    /// content — from ever counting as a repeat.
     fingerprint: u64,
 }
 
 fn fingerprint(
     issue_type: ShadowIssueType,
-    flag_id: Option<FeatureFlagId>,
+    subject: Option<&str>,
     built: Option<&serde_json::Value>,
     cached: Option<&serde_json::Value>,
 ) -> u64 {
     let mut hasher = DefaultHasher::new();
     issue_type.as_label().hash(&mut hasher);
-    flag_id.hash(&mut hasher);
+    subject.hash(&mut hasher);
     built.map(|v| v.to_string()).hash(&mut hasher);
     cached.map(|v| v.to_string()).hash(&mut hasher);
     hasher.finish()
 }
 
-fn flag_diff(
+fn diff(
     issue_type: ShadowIssueType,
-    flag: &FeatureFlag,
+    subject: String,
     built: Option<&serde_json::Value>,
     cached: Option<&serde_json::Value>,
     fields: Vec<String>,
 ) -> ShadowDiff {
     ShadowDiff {
         issue_type,
-        flag_id: Some(flag.id),
-        flag_key: Some(flag.key.clone()),
+        fingerprint: fingerprint(issue_type, Some(&subject), built, cached),
+        subject: Some(subject),
         fields,
-        fingerprint: fingerprint(issue_type, Some(flag.id), built, cached),
     }
 }
 
+/// Field names whose values differ between two serialized objects, over the
+/// union of both sides' keys (see the module doc for why the union), skipping
+/// `skip_key` when given. Sorted for deterministic logs and fingerprints.
+fn differing_fields(
+    built: &serde_json::Value,
+    cached: &serde_json::Value,
+    skip_key: Option<&str>,
+) -> Vec<String> {
+    let (Some(built_map), Some(cached_map)) = (built.as_object(), cached.as_object()) else {
+        return Vec::new();
+    };
+    let mut fields: Vec<String> = built_map
+        .keys()
+        .chain(cached_map.keys().filter(|k| !built_map.contains_key(*k)))
+        .filter(|key| Some(key.as_str()) != skip_key)
+        .filter(|key| built_map.get(*key) != cached_map.get(*key))
+        .cloned()
+        .collect();
+    fields.sort_unstable();
+    fields
+}
+
 /// Semantically diff a fresh build against the live cache entry. Empty result
-/// means parity. Sorted by flag id for deterministic logs.
+/// means parity across all three payload keys.
 pub fn diff_live_entry(built: &HypercacheFlagsWrapper, live: &ShadowLiveEntry) -> Vec<ShadowDiff> {
     // Mirrors the Python verifier's MISSING_EVALUATION_METADATA early return:
     // an entry that old predates the current payload shape, so a per-flag diff
     // would only bury the actual finding.
-    if live.evaluation_metadata.is_none() {
+    let Some(live_metadata) = &live.evaluation_metadata else {
         return vec![ShadowDiff {
             issue_type: ShadowIssueType::MissingEvaluationMetadata,
-            flag_id: None,
-            flag_key: None,
+            subject: None,
             fields: Vec::new(),
             fingerprint: fingerprint(ShadowIssueType::MissingEvaluationMetadata, None, None, None),
         }];
-    }
-
-    let built_by_id: HashMap<FeatureFlagId, &FeatureFlag> =
-        built.flags.iter().map(|f| (f.id, f)).collect();
-    let cached_by_id: HashMap<FeatureFlagId, &FeatureFlag> =
-        live.flags.iter().map(|f| (f.id, f)).collect();
+    };
 
     let mut diffs: Vec<ShadowDiff> = Vec::new();
 
-    for flag in &built.flags {
+    if *live_metadata != built.evaluation_metadata {
+        let built_value = serde_json::to_value(&built.evaluation_metadata).unwrap_or_default();
+        let cached_value = serde_json::to_value(live_metadata).unwrap_or_default();
+        diffs.push(ShadowDiff {
+            issue_type: ShadowIssueType::EvaluationMetadataMismatch,
+            subject: None,
+            fields: differing_fields(&built_value, &cached_value, None),
+            fingerprint: fingerprint(
+                ShadowIssueType::EvaluationMetadataMismatch,
+                None,
+                Some(&built_value),
+                Some(&cached_value),
+            ),
+        });
+    }
+
+    diffs.extend(diff_flags(&built.flags, &live.flags));
+
+    // A live entry without the `cohorts` key predates the field; the service
+    // falls back to its own cohort load for such entries, so there is nothing
+    // wrong being served from it and nothing to compare.
+    if let Some(live_cohorts) = &live.cohorts {
+        let built_cohorts = built.cohorts.as_deref().unwrap_or(&[]);
+        diffs.extend(diff_cohorts(built_cohorts, live_cohorts));
+    }
+
+    diffs
+}
+
+fn diff_flags(built: &[FeatureFlag], live: &[FeatureFlag]) -> Vec<ShadowDiff> {
+    let built_by_id: HashMap<FeatureFlagId, &FeatureFlag> =
+        built.iter().map(|f| (f.id, f)).collect();
+    let cached_by_id: HashMap<FeatureFlagId, &FeatureFlag> =
+        live.iter().map(|f| (f.id, f)).collect();
+
+    let mut diffs: Vec<(FeatureFlagId, ShadowDiff)> = Vec::new();
+
+    for flag in built {
+        let subject = format!("flag {} ({})", flag.id, flag.key);
         match cached_by_id.get(&flag.id) {
             None => {
                 let built_value = serde_json::to_value(flag).unwrap_or_default();
-                diffs.push(flag_diff(
-                    ShadowIssueType::MissingInCache,
-                    flag,
-                    Some(&built_value),
-                    None,
-                    Vec::new(),
+                diffs.push((
+                    flag.id,
+                    diff(
+                        ShadowIssueType::MissingInCache,
+                        subject,
+                        Some(&built_value),
+                        None,
+                        Vec::new(),
+                    ),
                 ));
             }
             Some(cached) => {
-                if let Some(diff) = compare_flag_fields(flag, cached) {
-                    diffs.push(diff);
+                if let Some(d) = compare_flag_fields(flag, cached) {
+                    diffs.push((flag.id, d));
                 }
             }
         }
     }
 
-    for flag in &live.flags {
+    for flag in live {
         if built_by_id.contains_key(&flag.id) {
             continue;
         }
@@ -170,52 +256,109 @@ pub fn diff_live_entry(built: &HypercacheFlagsWrapper, live: &ShadowLiveEntry) -
             continue;
         }
         let cached_value = serde_json::to_value(flag).unwrap_or_default();
-        diffs.push(flag_diff(
-            ShadowIssueType::StaleInCache,
-            flag,
-            None,
-            Some(&cached_value),
-            Vec::new(),
+        diffs.push((
+            flag.id,
+            diff(
+                ShadowIssueType::StaleInCache,
+                format!("flag {} ({})", flag.id, flag.key),
+                None,
+                Some(&cached_value),
+                Vec::new(),
+            ),
         ));
     }
 
-    diffs.sort_by_key(|d| d.flag_id);
-    diffs
+    diffs.sort_by_key(|(id, _)| *id);
+    diffs.into_iter().map(|(_, d)| d).collect()
 }
 
-/// Field-level comparison of one flag present on both sides, over the union of
-/// serialized keys. `filters` is exempt when both sides agree the flag is
-/// unevaluable — only the cache writers blank filters, and entries predating
-/// blanking still hold the full blob the matcher never reads.
+/// Field-level comparison of one flag present on both sides. `filters` is
+/// exempt when both sides agree the flag is unevaluable — only the cache
+/// writers blank filters, and entries predating blanking still hold the full
+/// blob the matcher never reads.
 fn compare_flag_fields(built: &FeatureFlag, cached: &FeatureFlag) -> Option<ShadowDiff> {
     let built_value = serde_json::to_value(built).unwrap_or_default();
     let cached_value = serde_json::to_value(cached).unwrap_or_default();
-    let (Some(built_map), Some(cached_map)) = (built_value.as_object(), cached_value.as_object())
-    else {
-        return None;
-    };
-
     let both_unevaluable = !is_evaluable(built) && !is_evaluable(cached);
+    let skip = both_unevaluable.then_some("filters");
 
-    let mut fields: Vec<String> = built_map
-        .keys()
-        .chain(cached_map.keys().filter(|k| !built_map.contains_key(*k)))
-        .filter(|key| !(both_unevaluable && *key == "filters"))
-        .filter(|key| built_map.get(*key) != cached_map.get(*key))
-        .cloned()
-        .collect();
-
+    let fields = differing_fields(&built_value, &cached_value, skip);
     if fields.is_empty() {
         return None;
     }
-    fields.sort_unstable();
-    Some(flag_diff(
+    Some(diff(
         ShadowIssueType::FieldMismatch,
-        built,
+        format!("flag {} ({})", built.id, built.key),
         Some(&built_value),
         Some(&cached_value),
         fields,
     ))
+}
+
+/// Per-cohort comparison by id, order-insensitive (the Rust builder sorts by
+/// id; Python appends in load order). No unevaluable tolerance: both writers
+/// emit exactly the referenced set, so any set or field difference is drift.
+fn diff_cohorts(built: &[Cohort], live: &[Cohort]) -> Vec<ShadowDiff> {
+    let built_by_id: HashMap<i32, &Cohort> = built.iter().map(|c| (c.id, c)).collect();
+    let cached_by_id: HashMap<i32, &Cohort> = live.iter().map(|c| (c.id, c)).collect();
+
+    let mut diffs: Vec<(i32, ShadowDiff)> = Vec::new();
+
+    for cohort in built {
+        let subject = format!("cohort {}", cohort.id);
+        match cached_by_id.get(&cohort.id) {
+            None => {
+                let built_value = serde_json::to_value(cohort).unwrap_or_default();
+                diffs.push((
+                    cohort.id,
+                    diff(
+                        ShadowIssueType::CohortMissingInCache,
+                        subject,
+                        Some(&built_value),
+                        None,
+                        Vec::new(),
+                    ),
+                ));
+            }
+            Some(cached) => {
+                let built_value = serde_json::to_value(cohort).unwrap_or_default();
+                let cached_value = serde_json::to_value(cached).unwrap_or_default();
+                let fields = differing_fields(&built_value, &cached_value, None);
+                if !fields.is_empty() {
+                    diffs.push((
+                        cohort.id,
+                        diff(
+                            ShadowIssueType::CohortFieldMismatch,
+                            subject,
+                            Some(&built_value),
+                            Some(&cached_value),
+                            fields,
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+
+    for cohort in live {
+        if built_by_id.contains_key(&cohort.id) {
+            continue;
+        }
+        let cached_value = serde_json::to_value(cohort).unwrap_or_default();
+        diffs.push((
+            cohort.id,
+            diff(
+                ShadowIssueType::CohortStaleInCache,
+                format!("cohort {}", cohort.id),
+                None,
+                Some(&cached_value),
+                Vec::new(),
+            ),
+        ));
+    }
+
+    diffs.sort_by_key(|(id, _)| *id);
+    diffs.into_iter().map(|(_, d)| d).collect()
 }
 
 /// The tracker's judgement on one shadow build's diffs: which mismatches were
@@ -321,16 +464,15 @@ pub fn summarize_diffs(diffs: &[ShadowDiff], max_entries: usize, max_bytes: usiz
     let mut out = String::new();
     let mut rendered = 0;
     for diff in diffs.iter().take(max_entries) {
-        let entry = match (&diff.flag_id, &diff.flag_key) {
-            (Some(id), Some(key)) if diff.fields.is_empty() => {
-                format!("flag {id} ({key}): {}", diff.issue_type.as_label())
-            }
-            (Some(id), Some(key)) => format!(
-                "flag {id} ({key}): {}[{}]",
-                diff.issue_type.as_label(),
-                diff.fields.join(",")
-            ),
-            _ => diff.issue_type.as_label().to_string(),
+        let label = diff.issue_type.as_label();
+        let head = match &diff.subject {
+            Some(subject) => format!("{subject}: {label}"),
+            None => label.to_string(),
+        };
+        let entry = if diff.fields.is_empty() {
+            head
+        } else {
+            format!("{head}[{}]", diff.fields.join(","))
         };
         let separator = if out.is_empty() { 0 } else { 2 };
         if out.len() + separator + entry.len() > max_bytes {
@@ -355,7 +497,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::flags::flag_models::EvaluationMetadata;
 
     fn flag_from_json(value: serde_json::Value) -> FeatureFlag {
         serde_json::from_value(value).expect("flag json must parse")
@@ -373,18 +514,37 @@ mod tests {
         })
     }
 
+    fn base_cohort_json(id: i32) -> serde_json::Value {
+        json!({
+            "id": id,
+            "team_id": 1,
+            "name": format!("cohort-{id}"),
+            "deleted": false,
+            "filters": {"properties": {"type": "OR", "values": []}},
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+        })
+    }
+
+    fn cohort_from_json(value: serde_json::Value) -> Cohort {
+        serde_json::from_value(value).expect("cohort json must parse")
+    }
+
     fn wrapper(flags: Vec<FeatureFlag>) -> HypercacheFlagsWrapper {
         HypercacheFlagsWrapper {
             flags,
             evaluation_metadata: EvaluationMetadata::default(),
-            cohorts: None,
+            cohorts: Some(Vec::new()),
         }
     }
 
     fn live(flags: Vec<FeatureFlag>) -> ShadowLiveEntry {
         ShadowLiveEntry {
             flags,
-            evaluation_metadata: Some(json!({})),
+            evaluation_metadata: Some(EvaluationMetadata::default()),
+            cohorts: Some(Vec::new()),
         }
     }
 
@@ -413,7 +573,12 @@ mod tests {
             "filters": {"groups": [{"rollout_percentage": 100.0, "properties": []}]},
         }))]);
         let cached: ShadowLiveEntry = serde_json::from_value(json!({
-            "evaluation_metadata": {},
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {},
+            },
+            "cohorts": [],
             "flags": [{
                 "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
                 "has_experiment": false,
@@ -451,7 +616,7 @@ mod tests {
         let diffs = diff_live_entry(&built, &cached);
         assert_eq!(issue_types(&diffs), vec![ShadowIssueType::FieldMismatch]);
         assert_eq!(diffs[0].fields, vec!["filters", "has_experiment"]);
-        assert_eq!(diffs[0].flag_id, Some(1));
+        assert_eq!(diffs[0].subject.as_deref(), Some("flag 1 (flag-1)"));
     }
 
     #[test]
@@ -478,7 +643,7 @@ mod tests {
 
         let diffs = diff_live_entry(&built, &cached);
         assert_eq!(issue_types(&diffs), vec![ShadowIssueType::MissingInCache]);
-        assert_eq!(diffs[0].flag_id, Some(2));
+        assert_eq!(diffs[0].subject.as_deref(), Some("flag 2 (flag-2)"));
     }
 
     #[test]
@@ -491,7 +656,7 @@ mod tests {
 
         let diffs = diff_live_entry(&built, &cached);
         assert_eq!(issue_types(&diffs), vec![ShadowIssueType::StaleInCache]);
-        assert_eq!(diffs[0].flag_id, Some(2));
+        assert_eq!(diffs[0].subject.as_deref(), Some("flag 2 (flag-2)"));
     }
 
     #[test]
@@ -544,6 +709,7 @@ mod tests {
         let cached = ShadowLiveEntry {
             flags: vec![],
             evaluation_metadata: None,
+            cohorts: Some(Vec::new()),
         };
 
         let diffs = diff_live_entry(&built, &cached);
@@ -551,7 +717,122 @@ mod tests {
             issue_types(&diffs),
             vec![ShadowIssueType::MissingEvaluationMetadata]
         );
-        assert_eq!(diffs[0].flag_id, None);
+        assert_eq!(diffs[0].subject, None);
+    }
+
+    #[test]
+    fn evaluation_metadata_value_difference_reports() {
+        // The Python verifier only checks presence; here the Rust dependency
+        // staging is under test, so the value must match too.
+        let mut built = wrapper(vec![flag_from_json(base_flag_json(1))]);
+        built.evaluation_metadata = EvaluationMetadata {
+            dependency_stages: vec![vec![1]],
+            flags_with_missing_deps: vec![],
+            transitive_deps: [(1, Default::default())].into(),
+        };
+        let mut cached = live(vec![flag_from_json(base_flag_json(1))]);
+        cached.evaluation_metadata = Some(EvaluationMetadata {
+            dependency_stages: vec![vec![1]],
+            flags_with_missing_deps: vec![1],
+            transitive_deps: [(1, Default::default())].into(),
+        });
+
+        let diffs = diff_live_entry(&built, &cached);
+        assert_eq!(
+            issue_types(&diffs),
+            vec![ShadowIssueType::EvaluationMetadataMismatch]
+        );
+        assert_eq!(diffs[0].fields, vec!["flags_with_missing_deps"]);
+        assert_eq!(diffs[0].subject, None);
+    }
+
+    #[test]
+    fn equal_evaluation_metadata_matches_regardless_of_map_order() {
+        // transitive_deps is a map and stages are sorted by construction, so
+        // equal metadata built independently must compare equal.
+        let metadata = || EvaluationMetadata {
+            dependency_stages: vec![vec![1, 2]],
+            flags_with_missing_deps: vec![],
+            transitive_deps: [(1, Default::default()), (2, Default::default())].into(),
+        };
+        let mut built = wrapper(vec![]);
+        built.evaluation_metadata = metadata();
+        let mut cached = live(vec![]);
+        cached.evaluation_metadata = Some(metadata());
+
+        assert!(diff_live_entry(&built, &cached).is_empty());
+    }
+
+    #[test]
+    fn cohort_field_difference_reports_with_field_names() {
+        let mut built = wrapper(vec![]);
+        built.cohorts = Some(vec![cohort_from_json(base_cohort_json(7))]);
+        let mut cached_json = base_cohort_json(7);
+        cached_json["filters"] = json!({"properties": {"type": "AND", "values": []}});
+        let mut cached = live(vec![]);
+        cached.cohorts = Some(vec![cohort_from_json(cached_json)]);
+
+        let diffs = diff_live_entry(&built, &cached);
+        assert_eq!(
+            issue_types(&diffs),
+            vec![ShadowIssueType::CohortFieldMismatch]
+        );
+        assert_eq!(diffs[0].fields, vec!["filters"]);
+        assert_eq!(diffs[0].subject.as_deref(), Some("cohort 7"));
+    }
+
+    #[test]
+    fn cohort_set_differences_report_missing_and_stale() {
+        // A truncated Rust cohort BFS shows up as cohort_missing_in_cache on
+        // the live side or stale on the built side — both must be visible.
+        let mut built = wrapper(vec![]);
+        built.cohorts = Some(vec![
+            cohort_from_json(base_cohort_json(1)),
+            cohort_from_json(base_cohort_json(2)),
+        ]);
+        let mut cached = live(vec![]);
+        cached.cohorts = Some(vec![
+            cohort_from_json(base_cohort_json(1)),
+            cohort_from_json(base_cohort_json(3)),
+        ]);
+
+        let diffs = diff_live_entry(&built, &cached);
+        assert_eq!(
+            issue_types(&diffs),
+            vec![
+                ShadowIssueType::CohortMissingInCache,
+                ShadowIssueType::CohortStaleInCache,
+            ]
+        );
+        assert_eq!(diffs[0].subject.as_deref(), Some("cohort 2"));
+        assert_eq!(diffs[1].subject.as_deref(), Some("cohort 3"));
+    }
+
+    #[test]
+    fn cohort_null_optional_field_matches_absent_field() {
+        // Python's _serialize_cohort emits explicit nulls for empty optionals;
+        // the typed model omits them. Not drift.
+        let mut cached_json = base_cohort_json(7);
+        cached_json["description"] = serde_json::Value::Null;
+        cached_json["query"] = serde_json::Value::Null;
+        let mut built = wrapper(vec![]);
+        built.cohorts = Some(vec![cohort_from_json(base_cohort_json(7))]);
+        let mut cached = live(vec![]);
+        cached.cohorts = Some(vec![cohort_from_json(cached_json)]);
+
+        assert!(diff_live_entry(&built, &cached).is_empty());
+    }
+
+    #[test]
+    fn live_entry_without_cohorts_key_skips_cohort_compare() {
+        // Entries predating the cohorts field carry none; the service falls
+        // back to its own cohort load for them, so absence is not drift.
+        let mut built = wrapper(vec![]);
+        built.cohorts = Some(vec![cohort_from_json(base_cohort_json(1))]);
+        let mut cached = live(vec![]);
+        cached.cohorts = None;
+
+        assert!(diff_live_entry(&built, &cached).is_empty());
     }
 
     fn mismatch_diffs() -> Vec<ShadowDiff> {
