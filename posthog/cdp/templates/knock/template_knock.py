@@ -67,7 +67,7 @@ if (res.status >= 400) {
             "key": "userId",
             "type": "string",
             "label": "User ID",
-            "description": "The identifier for the user in Knock. This defaults to the PostHog distinct ID, which matches the identifier your app already uses. Set it to another value, such as an `email` or your own `id`, if your Knock users use a different identifier. Do not use the PostHog person ID (`{person.id}`): it is a PostHog-owned UUID that Knock has never seen, so it creates duplicate Knock user records. If the value is empty nothing will be sent. See here for more information: https://docs.knock.app/concepts/users#user-identifiers",
+            "description": "The identifier for the user in Knock. This defaults to the PostHog distinct ID, which matches the identifier your app already uses. Set it to another value, such as an `email` or your own `id`, if your Knock users use a different identifier. Do not use the PostHog person ID (`{person.id}`): it is a PostHog-owned UUID that Knock has never seen, so it creates a duplicate Knock user record. If the value is empty, nothing is sent. See here for more information: https://docs.knock.app/concepts/users#user-identifiers",
             "default": "{event.distinct_id}",
             "secret": False,
             "required": True,
