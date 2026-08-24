@@ -98,6 +98,54 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    def test_search_by_exact_identifier_skips_clickhouse(self) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        anonymous_distinct_id = "0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e5f"
+        anonymous = _create_person(
+            team=self.team,
+            distinct_ids=[anonymous_distinct_id],
+            properties={"email": "another@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        for url, expected in [
+            (f"/api/person/?search={person.uuid}", person),
+            ("/api/person/?search=someone@gmail.com", person),
+            (f"/api/person/?search={anonymous_distinct_id}", anonymous),
+            ("/api/person/?distinct_id=someone@gmail.com", person),
+        ]:
+            with self.subTest(url=url), self.capture_select_queries() as clickhouse_queries:
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual([result["id"] for result in response.json()["results"]], [str(expected.uuid)])
+            self.assertEqual(clickhouse_queries, [])
+
+    def test_search_by_exact_identifier_still_applies_other_filters(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["someone@gmail.com"],
+            properties={"email": "someone@gmail.com"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        other_email = json.dumps(
+            [{"key": "email", "value": "another@gmail.com", "operator": "exact", "type": "person"}]
+        )
+        response = self.client.get(f"/api/person/?search=someone@gmail.com&properties={other_email}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+        response = self.client.get("/api/person/?search=someone@gmail.com&offset=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_properties(self) -> None:

@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import builtins
@@ -58,7 +59,9 @@ from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
+    get_person_by_distinct_id,
     get_person_by_pk_or_uuid,
+    get_person_by_uuid,
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
@@ -108,6 +111,12 @@ API_PERSON_LIST_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
     "api_person_list_bytes_read_from_postgres",
     "An estimate of how many bytes we've read from postgres to return the person endpoint.",
     labelnames=[LABEL_TEAM_ID],
+)
+
+API_PERSON_LIST_SEARCH_COUNTER = Counter(
+    "api_person_list_search_total",
+    "Person list searches, by whether an exact identifier answered them or ClickHouse had to.",
+    labelnames=["answered_by"],
 )
 
 
@@ -452,6 +461,46 @@ _GET_OBJECT_DISTINCT_ID_LIMITS: dict[str, int] = {
 }
 
 
+# A term shaped like a full email address or a UUID names one person, so an exact identifier
+# hit answers the search. Shorter terms stay fuzzy: a partial numeric or alphanumeric ID often
+# matches one person exactly while the user is still typing, and short-circuiting there would
+# hide the other matches.
+_COMPLETE_EMAIL_TERM = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _is_canonical_uuid(value: str) -> bool:
+    # Only the dashed form counts, so the fast path answers the same terms the fuzzy search
+    # matches. UUID() also accepts braced and undashed input, which no stored ID string carries.
+    try:
+        return str(uuid.UUID(value)) == value.lower()
+    except ValueError:
+        return False
+
+
+def _exact_identifier_person_uuids(team_id: int, search: str) -> list[str]:
+    """Resolve a search term as a person UUID or distinct ID; empty when it matches neither.
+
+    Fuzzy person search reads every person row and distinct ID of the team, which is what times
+    out on large projects. Identifiers resolve over personhog in milliseconds and hold no
+    ClickHouse query slot, and pasted emails and IDs are most of what people search for.
+    """
+    term_is_uuid = _is_canonical_uuid(search)
+    if not term_is_uuid and not _COMPLETE_EMAIL_TERM.match(search):
+        return []
+
+    matches: list[str] = []
+    with personhog_caller_tag("persons/list-exact-identifier"):
+        # A UUID term can be a person's own ID or an anonymous distinct ID, so try both.
+        if term_is_uuid:
+            by_uuid = get_person_by_uuid(team_id, search, distinct_id_limit=0)
+            if by_uuid is not None:
+                matches.append(str(by_uuid.uuid))
+        by_distinct_id = get_person_by_distinct_id(team_id, search, distinct_id_limit=0)
+        if by_distinct_id is not None and str(by_distinct_id.uuid) not in matches:
+            matches.append(str(by_distinct_id.uuid))
+    return matches
+
+
 @extend_schema(extensions={"x-product": ProductKey.PERSONS})
 @extend_schema_view(
     retrieve=_id_schema,
@@ -537,7 +586,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Search persons, either by email (full text search) or distinct_id (exact match).",
+                description=(
+                    "Search persons by email, name, person ID, or distinct ID. Partial values match. "
+                    "When the term is a complete email address or UUID that exactly matches a distinct ID "
+                    "or person ID, only that person is returned."
+                ),
             ),
             PersonPropertiesSerializer(required=False),
         ],
@@ -559,7 +612,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
 
         from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
-        from posthog.models.person.util import get_person_by_distinct_id  # noqa: PLC0415
 
         person_properties: list[dict] = []
         raw_properties = request.GET.get("properties")
@@ -571,22 +623,39 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 person_properties.append(prop)
         if filter.email:
             person_properties.append({"type": "person", "key": "email", "value": filter.email, "operator": "exact"})
+
+        include_total = "include_total" in request.GET
+        search = (filter.search or "").strip()
+        # Nothing else narrows the result set, so an identifier that resolves over personhog is
+        # already the whole first page, and a ClickHouse scan would add nothing.
+        can_answer_from_identifier = not person_properties and filter.offset == 0
+
         if filter.distinct_id:
             # Exact match on any of the person's distinct IDs; no matching person => no results.
-            matched = get_person_by_distinct_id(team.pk, filter.distinct_id)
+            matched = get_person_by_distinct_id(team.pk, filter.distinct_id, distinct_id_limit=0)
             if matched is None:
                 # Return early: a constant-false predicate can't be pushed into the persons
                 # lazy table, so ClickHouse would still aggregate every person row for the
                 # team before filtering everything out.
-                return Response(
-                    {
-                        "results": [],
-                        "next": None,
-                        "previous": None,
-                        **({"count": 0} if "include_total" in request.GET else {}),
-                    }
+                return self._person_list_response(request, [], filter, total_count=0 if include_total else None)
+            if can_answer_from_identifier and not search:
+                return self._person_list_response(
+                    request, [str(matched.uuid)], filter, total_count=1 if include_total else None
                 )
             person_properties.append({"type": "hogql", "key": f"id = toUUID('{matched.uuid}')"})
+        elif search:
+            exact_uuids = _exact_identifier_person_uuids(team.pk, search) if can_answer_from_identifier else []
+            API_PERSON_LIST_SEARCH_COUNTER.labels(
+                answered_by="exact_identifier" if exact_uuids else "clickhouse"
+            ).inc()
+            if exact_uuids:
+                return self._person_list_response(
+                    request,
+                    exact_uuids[: filter.limit],
+                    filter,
+                    total_count=len(exact_uuids) if include_total else None,
+                )
+
         actors_query = ActorsQuery(
             select=["id"],
             properties=person_properties,
@@ -600,8 +669,33 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # we still hydrate the person objects ourselves via get_serialized_people.
         actors_runner = ActorsQueryRunner(team=team, query=actors_query)
         actor_ids = [row[0] for row in actors_runner.calculate().results]
+
+        # If the undocumented include_total param is set to true, we'll return the total count of people
+        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+        total_count: Optional[int] = None
+        if include_total:
+            count_inner = actors_runner.to_query()
+            count_inner.limit = None
+            count_inner.offset = None
+            count_query = ast.SelectQuery(
+                select=[ast.Call(name="count", args=[])],
+                select_from=ast.JoinExpr(table=count_inner),
+            )
+            total_count = execute_hogql_query(count_query, team=team).results[0][0]
+
+        return self._person_list_response(request, actor_ids, filter, total_count=total_count)
+
+    def _person_list_response(
+        self,
+        request: request.Request,
+        person_uuids: builtins.list[Any],
+        filter: Filter,
+        total_count: Optional[int] = None,
+    ) -> Response:
+        team = self.team
         with personhog_caller_tag("persons/list"):
-            serialized_actors = get_serialized_people(team, actor_ids)
+            serialized_actors = get_serialized_people(team, person_uuids) if person_uuids else []
 
         restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
         if restricted_person_properties:
@@ -612,21 +706,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         k: v for k, v in properties.items() if k not in restricted_person_properties
                     }
 
-        _should_paginate = len(actor_ids) >= filter.limit
-
-        # If the undocumented include_total param is set to true, we'll return the total count of people
-        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
-        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-        total_count: Optional[int] = None
-        if "include_total" in request.GET:
-            count_inner = actors_runner.to_query()
-            count_inner.limit = None
-            count_inner.offset = None
-            count_query = ast.SelectQuery(
-                select=[ast.Call(name="count", args=[])],
-                select_from=ast.JoinExpr(table=count_inner),
-            )
-            total_count = execute_hogql_query(count_query, team=team).results[0][0]
+        _should_paginate = len(person_uuids) >= filter.limit
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (
