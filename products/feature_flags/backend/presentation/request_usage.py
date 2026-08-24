@@ -23,7 +23,7 @@ from posthog.models.event.new_events_schema import events_read_table, use_new_ev
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import FeatureFlagRequestUsageBurstRateThrottle, FeatureFlagRequestUsageSustainedRateThrottle
 from posthog.utils import get_instance_region
 
 LOCAL_BILLING_ANALYTICS_TOKEN = "local-development"
@@ -178,7 +178,7 @@ def get_feature_flag_request_usage(
 class FeatureFlagRequestUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "feature_flag"
     requires_resource_level_access = True
-    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    throttle_classes = [FeatureFlagRequestUsageBurstRateThrottle, FeatureFlagRequestUsageSustainedRateThrottle]
 
     @validated_request(
         query_serializer=FeatureFlagRequestUsageQuerySerializer,
