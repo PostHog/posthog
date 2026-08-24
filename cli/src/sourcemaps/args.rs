@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     api::{releases::ReleaseBuilder, symbol_sets::DEFAULT_UPLOAD_CONCURRENCY},
-    utils::files::FileSelection,
+    utils::{files::FileSelection, xcode::PlistInfo},
 };
 
 pub const SOURCEMAP_UPLOAD_CONCURRENCY_ENV: &str = "POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY";
@@ -119,9 +119,13 @@ pub struct ReleaseArgs {
     pub version: Option<String>,
 
     /// The build number (e.g., 42, CFBundleVersion on iOS, versionCode on Android).
-    /// Stored as release metadata. Optional — when omitted, no build info is recorded.
+    /// Stored as release metadata. When omitted, no build info is recorded.
     #[arg(long)]
     pub build: Option<String>,
+
+    /// Read missing release fields from an iOS Info.plist file.
+    #[arg(long, value_name = "PATH")]
+    pub info_plist: Option<PathBuf>,
 
     /// If the server returns a release_id_mismatch error (symbol set already exists with a different release),
     /// retry the upload without associating a release instead of failing. [default: true]
@@ -180,6 +184,28 @@ impl UploadConflictArgs {
     }
 }
 
+impl ReleaseArgs {
+    pub fn resolve_info_plist(&self) -> Result<Self> {
+        self.resolve_info_plist_with_environment(|name| std::env::var(name).ok())
+    }
+
+    fn resolve_info_plist_with_environment<F>(&self, environment: F) -> Result<Self>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let Some(info_plist) = &self.info_plist else {
+            return Ok(self.clone());
+        };
+
+        let plist = PlistInfo::from_plist(info_plist)?.resolve_release_fields(environment);
+        let mut resolved = self.clone();
+        resolved.name = resolved.name.or(plist.bundle_identifier);
+        resolved.version = resolved.version.or(plist.short_version);
+        resolved.build = resolved.build.or(plist.bundle_version);
+        Ok(resolved)
+    }
+}
+
 /// Pack version and build into a single string for release uniqueness.
 /// Releases are keyed on (name, version), so "1.0+42" and "1.0+43" are
 /// distinct releases. The UI splits on "+" to display them separately.
@@ -207,7 +233,7 @@ impl From<ReleaseArgs> for ReleaseBuilder {
 mod tests {
     use super::*;
     use clap::Parser;
-    use std::sync::Mutex;
+    use std::{collections::HashMap, fs, sync::Mutex};
 
     static CONCURRENCY_ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -241,6 +267,7 @@ mod tests {
             name: name.map(String::from),
             version: version.map(String::from),
             build: build.map(String::from),
+            info_plist: None,
             skip_release_on_fail: true,
         }
     }
@@ -264,6 +291,43 @@ mod tests {
                 "version={version:?} build={build:?}"
             );
         }
+    }
+
+    #[test]
+    fn info_plist_fills_only_missing_release_fields() {
+        let directory = tempfile::tempdir().expect("failed to create temporary directory");
+        let info_plist = directory.path().join("Info.plist");
+        fs::write(
+            &info_plist,
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.plist.app</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(APP_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>42</string>
+</dict>
+</plist>"#,
+        )
+        .expect("failed to write Info.plist");
+        let environment = HashMap::from([("APP_VERSION".to_string(), "1.2.3".to_string())]);
+        let args = ReleaseArgs {
+            name: Some("com.explicit.app".to_string()),
+            version: None,
+            build: None,
+            info_plist: Some(info_plist),
+            skip_release_on_fail: true,
+        };
+
+        let resolved = args
+            .resolve_info_plist_with_environment(|name| environment.get(name).cloned())
+            .expect("Info.plist should resolve");
+
+        assert_eq!(resolved.name.as_deref(), Some("com.explicit.app"));
+        assert_eq!(resolved.version.as_deref(), Some("1.2.3"));
+        assert_eq!(resolved.build.as_deref(), Some("42"));
     }
 
     #[test]
