@@ -13461,6 +13461,35 @@ class TestTaskRunAnalyzeAPI(BaseTaskAPITest):
         mock_dispatch.assert_called_once()
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "read_only")
 
+    def test_flagged_user_can_analyze_a_teammate_public_task(self):
+        teammate = self.create_organization_user("teammate")
+        channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name="shared-analysis",
+            created_by=teammate,
+        )
+        task = Task.objects.create(
+            team=self.team,
+            created_by=teammate,
+            channel=channel,
+            title="Teammate task",
+            description="Inspect it",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
+        with read_p, write_p, tag_p, dispatch_p:
+            response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/analyze/")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["created"])
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.TASK_ANALYSIS).count(), 1)
+
     def test_analyze_is_idempotent_per_run(self):
         read_p, write_p, tag_p, dispatch_p = self._patch_boundaries()
         with read_p, write_p, tag_p, dispatch_p:
