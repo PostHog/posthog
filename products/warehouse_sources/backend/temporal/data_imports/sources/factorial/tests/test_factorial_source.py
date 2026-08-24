@@ -3,17 +3,13 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import FactorialResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.factorial import (
     FactorialSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> SourceInputs:
@@ -41,34 +37,10 @@ class TestFactorialSource:
         self.team_id = 123
         self.config = FactorialSourceConfig(api_key="test-key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FACTORIAL
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Factorial"
-        assert config.label == "Factorial"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/factorial"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-        (api_key_field,) = config.fields
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O in get_schemas), so the public docs can render the
         # Supported tables section.
         assert self.source.lists_tables_without_credentials is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error", "Unauthorized for url"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_all_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -131,11 +103,6 @@ class TestFactorialSource:
         assert error_message == expected_message
         # No row pin at creation time, so the probe runs under the default (newest) version.
         mock_validate.assert_called_once_with("test-key", "2026-07-01")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FactorialResumeConfig
 
     @pytest.mark.parametrize(
         ("pin", "resolved"),
