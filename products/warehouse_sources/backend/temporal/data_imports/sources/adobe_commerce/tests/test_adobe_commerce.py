@@ -312,6 +312,12 @@ class TestTokenManager:
         with pytest.raises(AdobeCommerceRetryableError):
             manager.get_token()
 
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
+    def test_token_mint_retry_covers_the_post(self, _name: str, status: int) -> None:
+        # The mint is a POST, which the shared page-GET policy excludes, so its own policy must
+        # retry these transient statuses — otherwise one store-side blip fails the whole sync.
+        assert adobe_commerce._TOKEN_MINT_RETRY.is_retry("POST", status)
+
     def test_token_redirect_is_refused(self) -> None:
         session = _FakeSession({"/rest/V1/integration/admin/token": _make_response(302, redirect=True)})
         manager = AdobeCommerceTokenManager(cast(Any, session), "https://s.example.com/rest/V1", ADMIN_CREDENTIALS)

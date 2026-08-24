@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
     VALIDATION_PROBE_ENDPOINTS,
     AdobeCommerceEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    DEFAULT_RETRY,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -64,6 +67,14 @@ TOKEN_DOWNLOAD_SECONDS = 30
 # bounded by the request timeout, so a hostile store could otherwise stall a worker with a 429/503
 # and a large `Retry-After`. A sync run still uses the default retrying session.
 _NO_RETRY = Retry(total=0)
+
+# The admin token mint is a POST, which `DEFAULT_RETRY` leaves out of its GET/HEAD/OPTIONS
+# allowlist. A single transient 429 or 5xx from the store would otherwise fail the whole sync,
+# even though the page GETs retry the same statuses. Re-minting a token is safe to repeat, so
+# extend the shared policy to retry POST too — it keeps the same backoff, `Retry-After` handling,
+# and transient status list. An exhausted attempt still raises `AdobeCommerceRetryableError` in
+# `_mint`, which `AdobeCommerceSource.get_retryable_errors` keeps out of error tracking.
+_TOKEN_MINT_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset({"POST", *DEFAULT_RETRY.allowed_methods}))
 
 # Magento compares searchCriteria datetime filters against MySQL `DATETIME` columns stored in UTC.
 MAGENTO_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -493,7 +504,9 @@ def get_rows(
     session = _make_session(credentials)
     # Token exchanges carry the credential in the request and response body, so keep them out of
     # opt-in HTTP sample capture entirely.
-    token_manager = AdobeCommerceTokenManager(_make_session(credentials, capture=False), base_url, credentials)
+    token_manager = AdobeCommerceTokenManager(
+        _make_session(credentials, capture=False, retry=_TOKEN_MINT_RETRY), base_url, credentials
+    )
 
     if not config.uses_search_criteria:
         payload = _request_page(session, token_manager, f"{base_url}{config.path}", logger)

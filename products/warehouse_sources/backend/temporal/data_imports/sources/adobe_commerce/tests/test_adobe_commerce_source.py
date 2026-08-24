@@ -109,6 +109,20 @@ class TestAdobeCommerceSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
 
+    @parameterized.expand([("server_error", 500), ("bad_gateway", 502), ("rate_limited", 429)])
+    def test_retryable_errors_match_the_token_mint_failure(self, _name: str, status: int) -> None:
+        # The exact message `_mint` raises must stay classified retryable, or each transient
+        # store-side blip files a false error-tracking issue.
+        observed_error = f"Adobe Commerce admin token request failed (retryable): status={status}"
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
+    def test_retryable_errors_do_not_swallow_auth_failures(self) -> None:
+        # A real credential rejection must still surface, so the retryable set stays narrow.
+        observed_error = (
+            "401 Client Error: Unauthorized for url: https://store.example.com/rest/V1/integration/admin/token"
+        )
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
+
     @mock.patch(f"{_MODULE}.adobe_commerce_source")
     def test_source_for_pipeline_plumbs_incremental_inputs(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()

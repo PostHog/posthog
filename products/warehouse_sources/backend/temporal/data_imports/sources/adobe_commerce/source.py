@@ -168,6 +168,12 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
             PAGINATION_LIMIT_ERROR: "Adobe Commerce kept returning pages without signalling the end of the collection. This usually means the store's REST API is misconfigured — check the store URL and store code.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The token-mint session retries 429/5xx in-process before `_mint` raises. A request that
+        # still exhausts that budget is a transient store-side blip, not a bug — Temporal's activity
+        # retry recovers once it clears, so keep it out of error tracking as noise.
+        return {"Adobe Commerce admin token request failed (retryable)"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
