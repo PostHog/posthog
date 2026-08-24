@@ -19,9 +19,9 @@ from products.canvas.backend.facade.api import (
     MAX_LAYOUT_PATCH_OPERATIONS,
     PLACEMENT_ID_RE,
     PLACEMENT_STATUSES,
+    RESERVED_TEMPLATE_IDS,
 )
 from products.canvas.backend.models import Canvas, CanvasState
-from products.canvas.backend.teaching import RESERVED_TEMPLATE_IDS
 
 # Base64 expands 3 source bytes into 4 characters (padded); size the asset field
 # from the contract's total-source cap rather than restating the number.
