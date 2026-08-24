@@ -26,7 +26,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import SignalScoutSuggestionSet
 from products.signals.backend.quota import is_team_signals_quota_limited
-from products.signals.backend.scout_chat import consume_daily_attempt
+from products.signals.backend.scout_chat import consume_daily_attempt, refund_daily_attempt
 from products.signals.backend.scout_harness.suggestions import (
     dismiss_suggestion,
     enabled_skill_names,
@@ -227,7 +227,13 @@ class SignalScoutSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         try:
             workflow_id = start_manual_scout_suggestions_run(sync_connect(), team_id=team.id)
         except WorkflowAlreadyStartedError:
+            # Nothing was dispatched, so the attempt goes back: retries against a running scan
+            # must not spend the day's budget.
+            refund_daily_attempt("signals_scout_suggestions_refresh", team.id)
             raise Conflict("A suggestion refresh is already running for this project.")
+        except Exception:
+            refund_daily_attempt("signals_scout_suggestions_refresh", team.id)
+            raise
         logger.info("scout_suggestions: manual refresh dispatched", team_id=team.id, workflow_id=workflow_id)
         return Response(
             ScoutSuggestionRefreshSerializer({"workflow_id": workflow_id}).data,

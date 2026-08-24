@@ -12,8 +12,9 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
@@ -102,6 +103,12 @@ class TestValidateSuggestionItems(SimpleTestCase):
             reserved_names={"signals-scout-disabled-custom"},
         )
         self.assertEqual(kept, [])
+
+    def test_blank_cron_normalizes_to_none(self):
+        kept = validate_suggestion_items(
+            [_item(proposed_config={"run_cron_schedule": "  "})], enabled_skill_names=set(), canonical_names=CANONICAL
+        )
+        self.assertIsNone(kept[0].proposed_config.run_cron_schedule)
 
     def test_keeps_valid_items_dedupes_and_caps_at_five(self):
         items = [_item(), _item(), _custom()] + [_custom(skill_name=f"signals-scout-extra-{i}") for i in range(5)]
@@ -227,7 +234,19 @@ class TestPlanSuggestionRuns(BaseTest):
         broken = self._team("broken")
         self._enable_scout(broken, engaged=True)
         SignalScoutSuggestionSet.all_teams.create(
-            team=broken, last_requested_at=self.now - timedelta(days=30), consecutive_failures=3
+            team=broken,
+            last_requested_at=self.now - timedelta(days=30),
+            consecutive_failures=3,
+            last_completed_at=self.now - timedelta(hours=1),
+        )
+        # Past the cooldown even though a dismissal just touched the row: the clock is the last attempt.
+        recovered = self._team("recovered")
+        self._enable_scout(recovered, engaged=True)
+        SignalScoutSuggestionSet.all_teams.create(
+            team=recovered,
+            last_requested_at=self.now - timedelta(days=30),
+            consecutive_failures=3,
+            last_completed_at=self.now - timedelta(hours=25),
         )
         outsider = self._team("outsider")
         outsider_env = Team.objects.create(
@@ -238,13 +257,23 @@ class TestPlanSuggestionRuns(BaseTest):
         planned = plan_suggestion_runs(
             SuggestionSettings(
                 enabled=True,
-                max_children_per_tick=2,
+                max_children_per_tick=3,
                 team_allowlist=frozenset({outsider_env.id}),
                 team_blocklist=frozenset({second_env.id}),
             ),
             self.now,
         )
-        self.assertEqual([run.team_id for run in planned], [outsider.id, self.team.id])
+        self.assertEqual([run.team_id for run in planned], [outsider.id, self.team.id, recovered.id])
+
+    def test_root_source_config_does_not_hide_wider_tiers(self):
+        SignalSourceConfig.objects.create(team=self.team, source_product="error_tracking", source_type="issue_created")
+        plain = self._team("plain")
+        OrganizationMembership.objects.create(organization=plain.organization, user=self.user)
+        self.user.last_login = self.now
+        self.user.save()
+
+        planned = plan_suggestion_runs(SuggestionSettings(enabled=True, eligibility_tier=3), self.now)
+        self.assertIn((plain.id, 3), [(run.team_id, run.tier) for run in planned])
 
     def test_source_config_in_a_child_environment_makes_the_project_eligible(self):
         project = self._team("project")
@@ -272,6 +301,24 @@ class TestManualSuggestionsDispatch(BaseTest):
         self.assertIsNotNone(row.last_requested_at)
         settings = SuggestionSettings(enabled=True, team_allowlist=frozenset({self.team.id}))
         self.assertEqual(plan_suggestion_runs(settings, timezone.now()), [])
+
+    def test_manual_dispatch_survives_a_failed_stamp(self):
+        from products.signals.backend.temporal.agentic.scout_suggestions import start_manual_scout_suggestions_run
+
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        with (
+            patch(
+                "products.signals.backend.temporal.agentic.scout_suggestions.read_suggestion_settings",
+                return_value=SuggestionSettings(enabled=True),
+            ),
+            patch(
+                "products.signals.backend.temporal.agentic.scout_suggestions.stamp_requested",
+                side_effect=RuntimeError("db down"),
+            ),
+        ):
+            workflow_id = start_manual_scout_suggestions_run(client, team_id=self.team.id)
+        self.assertEqual(workflow_id, f"scout-suggestions-manual-run-{self.team.id}")
 
 
 @pytest_asyncio.fixture
@@ -414,6 +461,21 @@ class TestScoutSuggestionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         self.assertEqual(response.json(), {"workflow_id": "wf-1"})
         mock_start.assert_called_once()
+
+    @patch("products.signals.backend.scout_suggestions_api.sync_connect", return_value=MagicMock())
+    @patch("products.signals.backend.temporal.agentic.scout_suggestions.start_manual_scout_suggestions_run")
+    @patch(
+        "products.signals.backend.scout_suggestions_api.read_suggestion_settings",
+        return_value=SuggestionSettings(enabled=True),
+    )
+    def test_refresh_conflicts_do_not_spend_the_daily_cap(self, _settings, mock_start, _connect):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_start.side_effect = [WorkflowAlreadyStartedError("wf", "run-scout-suggestions")] * 3 + ["wf-1"]
+        url = f"/api/projects/{self.team.id}/signals/scout/suggestions/refresh/"
+        for _ in range(3):
+            self.assertEqual(self.client.post(url).status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(self.client.post(url).status_code, status.HTTP_202_ACCEPTED)
 
     @parameterized.expand(
         [

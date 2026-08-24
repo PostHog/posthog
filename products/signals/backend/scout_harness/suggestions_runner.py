@@ -98,7 +98,9 @@ def validate_suggestion_items(
             ):
                 continue
         config = item.proposed_config
-        if config.run_cron_schedule and not _valid_cron(config.run_cron_schedule):
+        # The create serializers accept a null cron but not a blank one, so a blank normalizes.
+        cron = (config.run_cron_schedule or "").strip() or None
+        if cron is not None and not _valid_cron(cron):
             continue
         if config.run_interval_minutes is not None and not (
             MIN_RUN_INTERVAL_MINUTES <= config.run_interval_minutes <= MAX_RUN_INTERVAL_MINUTES
@@ -107,7 +109,11 @@ def validate_suggestion_items(
         if not item.title.strip() or not item.why_here.strip():
             continue
         seen.add(name)
-        kept.append(item.model_copy(update={"skill_name": name}))
+        kept.append(
+            item.model_copy(
+                update={"skill_name": name, "proposed_config": config.model_copy(update={"run_cron_schedule": cron})}
+            )
+        )
         if len(kept) == MAX_SUGGESTIONS_PER_BATCH:
             break
     return kept
@@ -220,6 +226,9 @@ async def arun_scout_suggestions(
             # Reads only: the scan never writes, and `read_only` still carries `llm_skill:read` for
             # the authoring-scouts skill and `signal_scout:read` for the fleet and recent runs.
             posthog_mcp_scopes="read_only",
+            # Same posture as scout runs: a GitHub integration, when the project has one, mounts as
+            # a downscoped read-only token, never the write-capable one a task normally gets.
+            github_read_access=True,
             model=runtime.model,
             runtime_adapter=runtime.runtime_adapter,
             reasoning_effort=runtime.reasoning_effort,

@@ -280,7 +280,12 @@ async def start_manual_scout_suggestions_run(client: Client, *, team_id: int) ->
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
     )
-    await database_sync_to_async(stamp_requested, thread_sensitive=False)([team_id])
+    try:
+        await database_sync_to_async(stamp_requested, thread_sensitive=False)([team_id])
+    except Exception:
+        # The scan is already running; a lost stamp costs at worst one extra scheduled scan,
+        # which is cheaper than reporting a dispatched run as a failure.
+        logger.warning("scout_suggestions: manual dispatch stamp failed", team_id=team_id, exc_info=True)
     return workflow_id
 
 

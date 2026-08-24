@@ -266,7 +266,7 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
     set_up = (
         Q(id__in=source_teams)
-        | Q(id__in=Team.objects.filter(id__in=source_teams).values("parent_team_id"))
+        | Q(id__in=Team.objects.filter(id__in=source_teams, parent_team_id__isnull=False).values("parent_team_id"))
         | Q(id__in=SignalScoutConfig.all_teams.filter(enabled=True).values("team_id"))
     )
 
@@ -276,7 +276,7 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     if settings.eligibility_tier >= 3:
         active_member_teams = (
             approved_root_teams.exclude(set_up)
-            .filter(organization__memberships__user__last_login__gte=cutoff)
+            .filter(organization__membership__user__last_login__gte=cutoff)
             .values_list("id", flat=True)
             .distinct()
         )
@@ -329,7 +329,7 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
     state_by_team = {
         row.team_id: row
         for row in SignalScoutSuggestionSet.all_teams.only(
-            "team_id", "last_requested_at", "consecutive_failures", "updated_at"
+            "team_id", "last_requested_at", "consecutive_failures", "last_completed_at"
         )
     }
     refresh_s = settings.refresh_days * 86400
@@ -344,10 +344,13 @@ def plan_suggestion_runs(settings: SuggestionSettings, now: datetime | None = No
             overdue_s = (now - state.last_requested_at).total_seconds() - refresh_s
             if overdue_s < 0:
                 continue
+        # The cooldown runs from the last attempt, not `updated_at`: a dismissal on the prior
+        # batch touches the row too and must not push recovery out.
         if (
             state is not None
             and state.consecutive_failures >= settings.failure_breaker_threshold
-            and state.updated_at >= now - cooldown
+            and state.last_completed_at is not None
+            and state.last_completed_at >= now - cooldown
         ):
             continue
         engaged_at = engagement.get(team_id)
@@ -595,12 +598,13 @@ def mark_suggestion_created(team_id: int, suggestion_id: str, *, config_id: str)
 def mark_stale_if_fleet_changed(team_id: int) -> None:
     """Called when a scout is created or deleted: a batch generated against a different fleet is
     marked stale so the UI can say so; regeneration waits for the normal refresh."""
-    row = SignalScoutSuggestionSet.objects.for_team(team_id).first()
-    if row is None or row.status != SignalScoutSuggestionSet.Status.FRESH:
-        return
-    if enabled_skill_names(team_id) != list(row.fleet_snapshot or []):
-        row.status = SignalScoutSuggestionSet.Status.STALE
-        row.save(update_fields=["status", "updated_at"])
+    with transaction.atomic():
+        row = _lock_row(team_id, create=False)
+        if row is None or row.status != SignalScoutSuggestionSet.Status.FRESH:
+            return
+        if enabled_skill_names(team_id) != list(row.fleet_snapshot or []):
+            row.status = SignalScoutSuggestionSet.Status.STALE
+            row.save(update_fields=["status", "updated_at"])
 
 
 __all__ = [

@@ -81,6 +81,15 @@ def consume_daily_attempt(key_prefix: str, scope_id: int | str, cap: int) -> boo
     return attempts <= cap
 
 
+def refund_daily_attempt(key_prefix: str, scope_id: int | str) -> None:
+    """Give back one attempt consumed this UTC day, for a request that did no work."""
+    window = int(time.time()) // 86400
+    try:
+        cache.decr(f"{key_prefix}:{scope_id}:{window}")
+    except ValueError:
+        pass
+
+
 class ScoutChatBurstRateThrottle(UserRateThrottle):
     scope = "signals_scout_chat_burst"
     rate = "2/hour"
