@@ -9,6 +9,7 @@ from typing import Optional
 
 from celery import current_task
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
@@ -38,6 +39,12 @@ CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_celery_task_concurrency_limit_exceeded",
     "Number of times a Celery task exceeded the concurrency limit",
     ["task_name", "limit", "limit_name"],
+)
+
+CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER = Counter(
+    "posthog_clickhouse_query_concurrency_limiter_redis_error",
+    "Number of times the concurrency limiter failed open because Redis was unavailable.",
+    ["limit_name", "operation"],
 )
 
 # Lua script for atomic check, remove expired if limit hit, and increment with TTL
@@ -160,12 +167,20 @@ class RateLimit:
         count = 1
         wait_total = 0.0
         # Atomically check, remove expired if limit hit, and add the new task
-        while (
-            self.redis_client.eval(
-                lua_script, 1, running_tasks_key, int(self.get_time()), task_id, max_concurrency, self.ttl
-            )
-            == 0
-        ):
+        while True:
+            try:
+                acquired = self.redis_client.eval(
+                    lua_script, 1, running_tasks_key, int(self.get_time()), task_id, max_concurrency, self.ttl
+                )
+            except RedisError:
+                # A Redis outage is not a concurrency decision. Fail open so the query still runs
+                # instead of taking the whole request down with it.
+                CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER.labels(limit_name=self.limit_name, operation="acquire").inc()
+                return None
+
+            if acquired != 0:
+                break
+
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
             bypass = team_is_allowed_to_bypass_throttle(team_id)
@@ -219,7 +234,11 @@ class RateLimit:
         """
         Release the resource, when the execution finishes.
         """
-        self.redis_client.zrem(slot.running_tasks_key, slot.task_id)
+        try:
+            self.redis_client.zrem(slot.running_tasks_key, slot.task_id)
+        except RedisError:
+            # The slot still expires through its TTL, so a failed release only leaks it briefly.
+            CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER.labels(limit_name=self.limit_name, operation="release").inc()
 
     def wrap(self, task_func):
         @wraps(task_func)
@@ -412,6 +431,9 @@ def get_llm_analytics_rate_limiter():
             # waiting for a slot looks like a dead worker.
             retry_timeout=10.0,
         )
+        # Cap a stalled Redis call below the 10s retry_timeout so a Redis blip fails open fast,
+        # rather than blocking for the global 20s socket timeout.
+        __LLM_ANALYTICS_CONCURRENT_QUERIES.redis_client = redis.get_client(socket_timeout=3.0)
     return __LLM_ANALYTICS_CONCURRENT_QUERIES
 
 

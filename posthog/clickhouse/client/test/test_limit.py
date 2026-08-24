@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
@@ -74,6 +75,28 @@ class TestRateLimit(BaseTest):
         labeled_products = {call.kwargs.get("product") for call in mock_counter.labels.call_args_list}
         self.assertIn("unknown", labeled_products)
         self.assertNotIn("totally-made-up-product", labeled_products)
+
+    def test_use_fails_open_when_redis_errors(self):
+        # A Redis outage is not a concurrency decision: use() must bypass (return None) rather than
+        # raise and take the query down.
+        with patch.object(self.limit, "redis_client") as mock_client:
+            mock_client.eval.side_effect = RedisError("connection lost")
+            with patch("posthog.clickhouse.client.limit.CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER") as mock_counter:
+                slot = self.limit.use(is_api=True, team_id=7, task_id=17)
+
+        self.assertIsNone(slot)
+        mock_counter.labels.assert_called_once_with(limit_name="api_per_team", operation="acquire")
+
+    def test_release_swallows_redis_error(self):
+        slot = self.limit.use(is_api=True, team_id=7, task_id=17)
+        assert slot is not None
+
+        with patch.object(self.limit, "redis_client") as mock_client:
+            mock_client.zrem.side_effect = RedisError("connection lost")
+            with patch("posthog.clickhouse.client.limit.CONCURRENCY_LIMITER_REDIS_ERROR_COUNTER") as mock_counter:
+                self.limit.release(slot)  # must not raise — the slot expires via its TTL
+
+        mock_counter.labels.assert_called_once_with(limit_name="api_per_team", operation="release")
 
     def test_rate_limits_no_inference(self):
         """

@@ -26,14 +26,19 @@ def _get_test_fake_server(redis_url: str):
     return _test_fake_server_map[redis_url]
 
 
-def get_client(redis_url: Optional[str] = None) -> redis.Redis:
-    """Return a *synchronous* Redis client (singleton per redis_url)."""
+def get_client(redis_url: Optional[str] = None, *, socket_timeout: Optional[float] = None) -> redis.Redis:
+    """Return a *synchronous* Redis client (singleton per redis_url).
+
+    Pass socket_timeout to get a separate client with a tighter per-call read timeout than the
+    global default; each distinct timeout is cached as its own singleton.
+    """
 
     redis_url = redis_url or settings.REDIS_URL
     if redis_url is None:
         raise ImproperlyConfigured("REDIS_URL is not configured")
 
-    if not _client_map.get(redis_url):
+    cache_key = redis_url if socket_timeout is None else f"{redis_url}#socket_timeout={socket_timeout}"
+    if not _client_map.get(cache_key):
         if settings.TEST:
             # This import is only used in tests, we don't want to import it in production
             import fakeredis
@@ -43,7 +48,7 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
             client = redis.from_url(
                 redis_url,
                 db=0,
-                socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                socket_timeout=socket_timeout if socket_timeout is not None else settings.REDIS_SOCKET_TIMEOUT_SECONDS,
                 socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
             )
         else:
@@ -52,9 +57,9 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
         if client is None:
             raise ImproperlyConfigured("Redis not configured!")
 
-        _client_map[redis_url] = client
+        _client_map[cache_key] = client
 
-    return _client_map[redis_url]
+    return _client_map[cache_key]
 
 
 _loop_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, Any]]" = weakref.WeakKeyDictionary()
