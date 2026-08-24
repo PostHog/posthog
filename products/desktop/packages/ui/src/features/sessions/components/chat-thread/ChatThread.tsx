@@ -100,6 +100,10 @@ import { extractCanvasInstructions } from "@posthog/ui/features/sessions/compone
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import {
+  extractOnboardingBrief,
+  ONBOARDING_BRIEF_LABEL,
+} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
+import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
@@ -534,14 +538,24 @@ function UserBubble({
     () => extractCustomInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterCustomInstructions = customInstructions
+    ? customInstructions.stripped
+    : afterCanvasInstructions;
+  const onboardingBrief = useMemo(
+    () => extractOnboardingBrief(afterCustomInstructions),
+    [afterCustomInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
   // Provenance is never flag-gated: a peer message must not read as the user's.
   const showHeaderChips =
-    !!peerAgentMessage || showChannelContextTag || showCanvasInstructionsTag;
+    !!peerAgentMessage ||
+    showChannelContextTag ||
+    showCanvasInstructionsTag ||
+    !!onboardingBrief;
   const taskId = useSessionTaskId();
   const openChannelContextInSplit = usePanelLayoutStore(
     (s) => s.openChannelContextInSplit,
@@ -581,6 +595,12 @@ function UserBubble({
                 <MentionChip
                   icon={<Robot size={12} />}
                   label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
+                />
+              )}
+              {onboardingBrief && (
+                <MentionChip
+                  icon={<FileText size={12} />}
+                  label={ONBOARDING_BRIEF_LABEL}
                 />
               )}
               {showChannelContextTag && channelContext && (
