@@ -47,6 +47,7 @@ from products.replay_vision.backend.temporal.constants import (
     OBSERVATION_ORPHAN_CUTOFF,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
+    RECONCILER_MAX_FAILURE_DESCRIPTIONS,
     RECONCILER_SCHEDULE_ID,
     RECONCILER_WORKFLOW_ID,
     RECONCILER_WORKFLOW_NAME,
@@ -415,6 +416,26 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
     else:
         assert result.failed_upsert == expected.get("failed_upsert", [])
     assert result.failed_delete == expected.get("failed_delete", [])
+
+
+@pytest.mark.asyncio
+async def test_reconcile_workflow_caps_failure_descriptions_in_systemic_raise() -> None:
+    # A global drift can fail thousands of ops on one tick. The raised error lands in Temporal's failure
+    # payload (2 MiB limit), so it embeds a bounded sample plus the total count, not one entry per op.
+    upserts = [uuid.uuid4() for _ in range(RECONCILER_MAX_FAILURE_DESCRIPTIONS + 5)]
+    fp = compute_schedule_fingerprint({})
+    mocks = _ReconcileMocks(
+        enabled=_enabled(*[(sid, 1, fp) for sid in upserts]),
+        existing=_existing(),
+        upsert_errors_for_ids=set(upserts),
+    )
+    with pytest.raises(ApplicationError) as exc_info:
+        await _run_reconcile(mocks)
+    message = str(exc_info.value)
+    assert f"all {len(upserts)} schedule ops failed" in message
+    assert f"(+{len(upserts) - RECONCILER_MAX_FAILURE_DESCRIPTIONS} more)" in message
+    embedded_ids = [sid for sid in upserts if str(sid) in message]
+    assert len(embedded_ids) == RECONCILER_MAX_FAILURE_DESCRIPTIONS
 
 
 @pytest.mark.asyncio

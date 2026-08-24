@@ -28,6 +28,7 @@ from products.replay_vision.backend.temporal.constants import (
     RECONCILE_SCHEDULE_OP_TIMEOUT,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
+    RECONCILER_MAX_FAILURE_DESCRIPTIONS,
     RECONCILER_SCHEDULE_ID,
     RECONCILER_SYSTEMIC_FAILURE_MIN_OPS,
     RECONCILER_WORKFLOW_ID,
@@ -176,8 +177,12 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             # so Temporal retries, and name the scanners and cause so the error is diagnosable.
             attempted = len(to_upsert) + len(to_delete)
             if attempted >= RECONCILER_SYSTEMIC_FAILURE_MIN_OPS and not result.upserted and not result.deleted:
+                # Embed only a bounded sample of descriptions; the full list is in the warning log above.
+                shown = descriptions[:RECONCILER_MAX_FAILURE_DESCRIPTIONS]
+                if len(descriptions) > len(shown):
+                    shown.append(f"… (+{len(descriptions) - len(shown)} more)")
                 raise ApplicationError(
-                    f"reconciler: all {attempted} schedule ops failed: {', '.join(descriptions)}"
+                    f"reconciler: all {attempted} schedule ops failed: {', '.join(shown)}"
                 ) from failures[0][1]
         return result
 
