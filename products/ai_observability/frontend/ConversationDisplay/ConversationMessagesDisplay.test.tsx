@@ -136,6 +136,21 @@ describe('LLMMessageDisplay', () => {
         expect(container.querySelector('img')?.getAttribute('src')).toBe(expectedSrc)
     })
 
+    it('replaces a redacted sentinel reaching the JSON-string image path with a placeholder', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: JSON.stringify({ type: 'image', content: { type: 'image', image: '[base64 image redacted]' } }),
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+    })
+
     it('renders OpenAI Responses input_text/input_image content parts as text and an image', () => {
         const dataUri = 'data:image/jpeg;base64,/9j/4AAQSkZ'
         const message: CompatMessage = {
@@ -451,5 +466,42 @@ describe('ImageMessageDisplay', () => {
         const image = container.querySelector('img')
         expect(image).not.toBeNull()
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
+    })
+
+    it.each([
+        ['python image sentinel', { type: 'image_url', image_url: { url: '[base64 image redacted]' } }, 'Image'],
+        ['node image sentinel', { type: 'image_url', image_url: { url: '[base64 image/png redacted]' } }, 'Image'],
+        ['file sentinel', { type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }, 'File'],
+    ])('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {
+        const message: CompatMessage = { role: 'user', content: [part] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText(`${label} not captured.`)).toBeInTheDocument()
+        expect(screen.getByRole('link')).toHaveAttribute(
+            'href',
+            'https://posthog.com/docs/ai-observability/large-events'
+        )
+    })
+
+    it.each([
+        ['inline data uri', 'data:image/png;base64,iVBORw0KGgo='],
+        ['offloaded blob pointer', `phaiblob://v1/sha256/${'a'.repeat(64)}?mime=image%2Fpng&size=131072`],
+        ['plain remote https url', 'https://example.com/a.png'],
+    ])('keeps rendering an image for %s', (_name, url) => {
+        const message: CompatMessage = { role: 'user', content: [{ type: 'image_url', image_url: { url } }] }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')).not.toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).toBeNull()
     })
 })

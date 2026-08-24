@@ -16,6 +16,7 @@ import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlo
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
+import { isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
@@ -37,6 +38,7 @@ import {
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
 import { MessageActionsMenu } from './MessageActionsMenu'
+import { RedactedMediaPlaceholder } from './RedactedMediaPlaceholder'
 import { XMLViewer } from './XMLViewer'
 
 export type ConversationDisplayOption =
@@ -386,6 +388,9 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
+        if (!isRenderableMediaSource(content.image)) {
+            return <RedactedMediaPlaceholder kind="image" />
+        }
         const src = resolveAiBlobUrl(content.image, currentTeamId)
         return (
             <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
@@ -406,6 +411,11 @@ function renderContentItem(
         ) : (
             <span className="whitespace-pre-wrap">{item}</span>
         )
+    }
+
+    const redacted = redactedMediaKind(item)
+    if (redacted) {
+        return <RedactedMediaPlaceholder kind={redacted} />
     }
 
     if (!item || typeof item !== 'object' || !('type' in item)) {
