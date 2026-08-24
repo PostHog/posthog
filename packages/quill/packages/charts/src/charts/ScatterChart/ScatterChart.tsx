@@ -306,7 +306,7 @@ function ScatterChartInner<Meta = unknown>({
             margins: resolvedMargins,
             showTickMarks,
             showCrosshair,
-            tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement },
+            tooltip: { enabled: tooltipConfig?.enabled, placement: tooltipConfig?.placement ?? 'cursor' },
         }),
         [
             yTickFormatter,
