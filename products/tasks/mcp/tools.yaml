@@ -352,6 +352,9 @@ tools:
     task-channels-onboarding-session-create:
         operation: task_channels_onboarding_session_create
         enabled: false
+    task-channels-onboarding-session-test-create:
+        operation: task_channels_onboarding_session_test_create
+        enabled: false
     task-channels-partial-update:
         operation: task_channels_partial_update
         enabled: false
@@ -360,6 +363,9 @@ tools:
         enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
+        enabled: false
+    task-channels-teaching-canvas-test-create:
+        operation: task_channels_teaching_canvas_test_create
         enabled: false
     task-mentions-list:
         operation: task_mentions_list
