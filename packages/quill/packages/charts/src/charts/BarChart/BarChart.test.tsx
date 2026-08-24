@@ -421,12 +421,7 @@ describe('BarChart', () => {
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
-        it.each<[string, 'bar' | 'band', number, string | null]>([
-            ['band hit-testing reaches a bar one unit tall', 'band', 1, 'Tue'],
-            ['band hit-testing reaches an empty bucket', 'band', 2, 'Wed'],
-            ['bar hit-testing leaves a bar one unit tall unreachable', 'bar', 1, null],
-            ['bar hit-testing leaves an empty bucket unreachable', 'bar', 2, null],
-        ])('%s', async (_name, hitTest, index, expectedLabel) => {
+        const hoverBandCenter = async (hitTest: 'bar' | 'band', index: number): Promise<void> => {
             const { chart } = renderHogChart(
                 <BarChart
                     series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
@@ -443,11 +438,22 @@ describe('BarChart', () => {
                 fireEvent.mouseMove(chart.element, { clientX: bandCenterX(0), clientY })
             )
             fireEvent.mouseMove(chart.element, { clientX: bandCenterX(index), clientY })
-            await waitFor(() =>
-                expectedLabel
-                    ? expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel)
-                    : expect(getHogChartTooltip()?.textContent ?? '').toBe('')
-            )
+        }
+
+        it.each<[string, number, string]>([
+            ['a bar one unit tall', 1, 'Tue'],
+            ['an empty bucket', 2, 'Wed'],
+        ])('band hit-testing reaches %s', async (_name, index, expectedLabel) => {
+            await hoverBandCenter('band', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel))
+        })
+
+        it.each<[string, number]>([
+            ['a bar one unit tall', 1],
+            ['an empty bucket', 2],
+        ])('bar hit-testing leaves %s unreachable', async (_name, index) => {
+            await hoverBandCenter('bar', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
         describe('sparse-stacked horizontal (overlap layout)', () => {
