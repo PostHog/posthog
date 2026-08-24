@@ -178,6 +178,40 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         return response.json()["id"]
 
+    def test_email_sending_rate_limit_round_trip(self):
+        flow_id = self._create_simple_flow()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"email_sending_rate_limit": {"count": 250, "period": "hour"}},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["email_sending_rate_limit"] == {"count": 250, "period": "hour"}
+        assert HogFlow.objects.get(id=flow_id).email_sending_rate_limit == {"count": 250, "period": "hour"}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"email_sending_rate_limit": None},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["email_sending_rate_limit"] is None
+
+    @parameterized.expand(
+        [
+            ("zero_count", {"count": 0, "period": "minute"}),
+            ("missing_count", {"period": "minute"}),
+            ("unknown_period", {"count": 10, "period": "day"}),
+        ]
+    )
+    def test_email_sending_rate_limit_rejects_invalid_values(self, _name, value):
+        flow_id = self._create_simple_flow()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"email_sending_rate_limit": value},
+        )
+        assert response.status_code == 400, response.json()
+
     @parameterized.expand(
         [
             ("name_match", "welcome", {"Welcome email"}),

@@ -180,6 +180,7 @@ DRAFT_CONTENT_FIELDS = (
     "trigger_masking",
     "conversion",
     "exit_condition",
+    "email_sending_rate_limit",
     "abort_action",
     "variables",
 )
@@ -1726,6 +1727,32 @@ class HogFlowConversionSerializer(serializers.Serializer):
         return value
 
 
+class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=1,
+        max_value=1_000_000,
+        help_text="Maximum number of emails this workflow sends per period.",
+    )
+    period = serializers.ChoiceField(
+        choices=["minute", "hour"],
+        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
+    )
+
+    def validate(self, data):
+        # A PATCH propagates partial=True into nested serializers, which would let a lone
+        # {"period": ...} skip the required count and store a shape the worker can't enforce.
+        # The value is atomic: replace it whole or clear it with null.
+        missing = [field for field in ("count", "period") if field not in data]
+        if missing:
+            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
+        return data
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
+        # the declared fields can still render (and be fixed) instead of crashing the read.
+        return value
+
+
 class HogFlowScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = HogFlowSchedule
@@ -2020,6 +2047,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
@@ -2122,6 +2150,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). "
             "exit_on_trigger_not_matched: also when trigger filter stops matching. "
             "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
+        ),
+    )
+    email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker "
+            "spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead "
+            "of failing. Null disables pacing."
         ),
     )
     edges = serializers.ListField(
@@ -2271,6 +2308,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
