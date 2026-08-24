@@ -423,8 +423,7 @@ describe('clustersLogic', () => {
                 const series = logic.values.scatterPlotSeries
                 const outlierSeries = series.find((d) => d.label === 'Outliers')
 
-                expect(outlierSeries).toBeTruthy()
-                expect(outlierSeries?.shape).toBe('cross')
+                expect(outlierSeries).toMatchObject({ shape: 'cross' })
             })
 
             it('does not create centroid marker for outlier cluster', async () => {
@@ -464,10 +463,11 @@ describe('clustersLogic', () => {
                 const series = logic.values.scatterPlotSeries
                 const itemSeries = series.find((d) => d.label === 'Cluster A')
 
-                expect(itemSeries?.points[0]).toMatchObject({
-                    x: 0.0,
-                    y: 0.0,
-                    meta: { traceId: 'trace-1', timestamp: '2025-01-05T10:00:00Z' },
+                expect(itemSeries).toMatchObject({
+                    points: [
+                        { x: 0.0, y: 0.0, meta: { traceId: 'trace-1', timestamp: '2025-01-05T10:00:00Z' } },
+                        { x: 0.1, y: 0.1, meta: { traceId: 'trace-2', timestamp: '2025-01-05T11:00:00Z' } },
+                    ],
                 })
             })
         })
