@@ -139,9 +139,13 @@ describe("activityMetadata", () => {
     expect(title.compareDocumentPosition(metadata)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(
-      title.closest("button")?.querySelector(".quill-avatar svg"),
-    ).toHaveClass("text-primary");
+    const row = title.closest("button");
+    expect(row?.querySelector(".quill-avatar")).toHaveClass(
+      "bg-primary",
+      "text-primary-foreground",
+    );
+    expect(row).not.toHaveClass("bg-primary/10");
+    expect(row).not.toHaveClass("outline-primary/20");
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
   });
 

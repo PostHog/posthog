@@ -57,11 +57,11 @@ function AgentActivityIcon({
 }): ReactElement {
   switch (item.activityKind) {
     case "completed":
-      return <CheckIcon size={13} className={className} />;
+      return <CheckIcon size={13} weight="bold" className={className} />;
     case "awaiting_input":
       return <QuestionIcon size={12} weight="bold" className={className} />;
     default:
-      return <ChatCircleIcon size={13} className={className} />;
+      return <ChatCircleIcon size={13} weight="bold" className={className} />;
   }
 }
 
@@ -103,10 +103,10 @@ export function ActivityRow({
   // whether it still needs a reply. Active waiting therefore outranks unread color.
   const awaitsReply =
     item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
-  const agentIconClassName = awaitsReply
-    ? "text-(--blue-11)"
-    : item.isUnread
-      ? "text-primary"
+  const agentIconClassName = awaitsReply ? "text-(--blue-11)" : undefined;
+  const agentIconWrapperClassName =
+    item.isUnread && !awaitsReply
+      ? "bg-primary text-primary-foreground"
       : undefined;
   const openTask = () => {
     track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -130,11 +130,11 @@ export function ActivityRow({
         type="button"
         onClick={openTask}
         left
-        className={`h-auto w-full text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : item.isUnread ? "bg-primary/10 outline outline-primary/20 hover:bg-primary/15" : ""}`}
+        className={`h-auto w-full text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : ""}`}
       >
         <span className="mt-0.5 shrink-0">
           {isAgentActivity ? (
-            <Avatar size="xs">
+            <Avatar size="xs" className={agentIconWrapperClassName}>
               <AvatarFallback>
                 <AgentActivityIcon item={item} className={agentIconClassName} />
               </AvatarFallback>
