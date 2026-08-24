@@ -1,4 +1,4 @@
-import { isHttpsUrl } from './billingAlertNotificationLogic'
+import { isHttpsUrl } from 'lib/utils/url'
 
 describe('billing alert notification input validation', () => {
     it('keeps browser validation to HTTPS completeness and leaves destination policy to the server', () => {
