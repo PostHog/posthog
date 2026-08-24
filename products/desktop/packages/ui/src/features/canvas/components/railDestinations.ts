@@ -83,7 +83,7 @@ export function showSpaces(): void {
     navigateToSpaces();
     return;
   }
-  showChannelList(channelId);
+  showChannelList({ keepForRoute: channelId });
   navigateToChannel(channelId);
 }
 
