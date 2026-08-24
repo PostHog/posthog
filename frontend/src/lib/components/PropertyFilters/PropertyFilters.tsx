@@ -3,7 +3,9 @@ import './PropertyFilters.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { isBehavioralPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -159,42 +161,51 @@ export function PropertyFilters({
                                     showRemoveButton={showRemoveButton}
                                     orFiltering={orFiltering}
                                     editable={editable}
-                                    filterComponent={(onComplete) => (
-                                        <TaxonomicPropertyFilter
-                                            pageKey={pageKey}
-                                            index={index}
-                                            filters={filters}
-                                            setFilter={setFilter}
-                                            onComplete={onComplete}
-                                            orFiltering={orFiltering}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            metadataSource={metadataSource}
-                                            eventNames={eventNames}
-                                            schemaColumns={schemaColumns}
-                                            dataWarehouseTableName={dataWarehouseTableName}
-                                            propertyGroupType={propertyGroupType}
-                                            disablePopover={disablePopover || orFiltering}
-                                            addText={addText}
-                                            hasRowOperator={hasRowOperator}
-                                            propertyAllowList={propertyAllowList}
-                                            excludedProperties={excludedProperties}
-                                            taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
-                                            allowRelativeDateOptions={allowRelativeDateOptions}
-                                            excludedOperators={excludedOperators}
-                                            selectingKeyOnly={selectingKeyOnly}
-                                            hideBehavioralCohorts={hideBehavioralCohorts}
-                                            size={buttonSize}
-                                            addFilterDocLink={addFilterDocLink}
-                                            editable={editable}
-                                            operatorAllowlist={operatorAllowlist}
-                                            hogQLGlobals={hogQLGlobals}
-                                            triggerVariant={triggerVariant}
-                                            staticValueOptions={staticValueOptions}
-                                            propertyDefinitionsOverride={propertyDefinitionsOverride}
-                                            propertyKeyEditable={propertyKeyEditable}
-                                            singleLine={singleLine}
-                                        />
-                                    )}
+                                    filterComponent={(onComplete) =>
+                                        isBehavioralPropertyFilter(item) ? (
+                                            <BehavioralPropertyFilterRow
+                                                filter={item}
+                                                onChange={(filter) => setFilter(index, filter)}
+                                                editable={editable}
+                                                size={buttonSize}
+                                            />
+                                        ) : (
+                                            <TaxonomicPropertyFilter
+                                                pageKey={pageKey}
+                                                index={index}
+                                                filters={filters}
+                                                setFilter={setFilter}
+                                                onComplete={onComplete}
+                                                orFiltering={orFiltering}
+                                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                                metadataSource={metadataSource}
+                                                eventNames={eventNames}
+                                                schemaColumns={schemaColumns}
+                                                dataWarehouseTableName={dataWarehouseTableName}
+                                                propertyGroupType={propertyGroupType}
+                                                disablePopover={disablePopover || orFiltering}
+                                                addText={addText}
+                                                hasRowOperator={hasRowOperator}
+                                                propertyAllowList={propertyAllowList}
+                                                excludedProperties={excludedProperties}
+                                                taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+                                                allowRelativeDateOptions={allowRelativeDateOptions}
+                                                excludedOperators={excludedOperators}
+                                                selectingKeyOnly={selectingKeyOnly}
+                                                hideBehavioralCohorts={hideBehavioralCohorts}
+                                                size={buttonSize}
+                                                addFilterDocLink={addFilterDocLink}
+                                                editable={editable}
+                                                operatorAllowlist={operatorAllowlist}
+                                                hogQLGlobals={hogQLGlobals}
+                                                triggerVariant={triggerVariant}
+                                                staticValueOptions={staticValueOptions}
+                                                propertyDefinitionsOverride={propertyDefinitionsOverride}
+                                                propertyKeyEditable={propertyKeyEditable}
+                                                singleLine={singleLine}
+                                            />
+                                        )
+                                    }
                                     errorMessage={errorMessages && errorMessages[index]}
                                     openOnInsert={allowOpenOnInsert && openOnInsert}
                                     disabledReason={disabledReason}

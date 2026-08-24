@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    formatPropertyLabel,
     isAnyPropertyfilter,
     isGroupCardFilterKey,
     isValidPropertyFilter,
@@ -17,6 +18,8 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
     AnyPropertyFilter,
+    BehavioralEventType,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
@@ -27,6 +30,7 @@ import {
     PropertyGroupFilter,
     PropertyOperator,
     SessionPropertyFilter,
+    TimeUnitType,
 } from '../../../types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 
@@ -63,6 +67,35 @@ describe('isValidPropertyFilter()', () => {
         expect(isValidPropertyFilter({ bla: 'true' } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: undefined } as any)).toEqual(false)
         expect(isValidPropertyFilter({ key: 'cohort', value: 123 } as any)).toEqual(true)
+    })
+})
+
+describe('formatPropertyLabel() for behavioral filters', () => {
+    const base: BehavioralPropertyFilter = {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key: 'signed_up',
+        event_type: 'events',
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+
+    test.each<[string, Partial<BehavioralPropertyFilter>, string]>([
+        ['performed', {}, 'Performed signed_up in the last 30 days'],
+        ['did not perform', { negation: true }, 'Did not perform signed_up in the last 30 days'],
+        [
+            'count',
+            {
+                value: BehavioralEventType.PerformMultipleEvents,
+                operator: PropertyOperator.GreaterThanOrEqual,
+                operator_value: 3,
+            },
+            'Performed signed_up at least 3 times in the last 30 days',
+        ],
+        ['single unit', { time_value: 1, time_interval: TimeUnitType.Week }, 'Performed signed_up in the last 1 week'],
+        ['explicit date', { explicit_datetime: '-14d', time_value: undefined }, 'Performed signed_up since -14d'],
+    ])('%s', (_name, overrides, expected) => {
+        expect(formatPropertyLabel({ ...base, ...overrides }, {})).toEqual(expected)
     })
 })
 

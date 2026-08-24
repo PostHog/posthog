@@ -9,14 +9,35 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
+import {
+    AnyPropertyFilter,
+    BehavioralEventType,
+    BehavioralPropertyFilter,
+    InsightLogicProps,
+    PropertyFilterType,
+    PropertyGroupFilterValue,
+    TimeUnitType,
+} from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
+
+function newBehavioralFilter(): BehavioralPropertyFilter {
+    return {
+        type: PropertyFilterType.Behavioral,
+        value: BehavioralEventType.PerformEvent,
+        key: '$pageview',
+        event_type: 'events',
+        time_value: 30,
+        time_interval: TimeUnitType.Day,
+    }
+}
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
@@ -38,6 +59,7 @@ export function PropertyGroupFilters({
     hasDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
+    const { featureFlags } = useValues(featureFlagLogic)
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
         addFilterGroup,
@@ -140,6 +162,25 @@ export function PropertyGroupFilters({
                                                     propertyGroupType={group.type}
                                                     orFiltering
                                                 />
+                                                {featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] && (
+                                                    <LemonButton
+                                                        data-attr={`${pageKey}-add-behavioral-filter`}
+                                                        type="secondary"
+                                                        size="small"
+                                                        icon={<IconPlusSmall />}
+                                                        onClick={() =>
+                                                            setPropertyFilters(
+                                                                [
+                                                                    ...((group.values as AnyPropertyFilter[]) ?? []),
+                                                                    newBehavioralFilter(),
+                                                                ],
+                                                                propertyGroupIndex
+                                                            )
+                                                        }
+                                                    >
+                                                        Performed event
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                             {propertyGroupIndex !== propertyGroupFilter.values.length - 1 && (
                                                 <div className="property-group-and-or-separator">
