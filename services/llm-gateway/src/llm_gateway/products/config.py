@@ -6,7 +6,7 @@ from typing import Final
 
 from fastapi import HTTPException
 
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
 
@@ -63,6 +63,9 @@ WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"
 POSTHOG_AI_DEV_APP_ID = "019edb1a-cce4-0000-1f6d-682061862da9"
+SIGNALS_US_APP_ID = "01a01611-1dc2-0000-61ea-c4c8322e8936"
+SIGNALS_EU_APP_ID = "01a01613-c382-0000-1472-f7881db30f4f"
+SIGNALS_DEV_APP_ID = "019fb2ee-9d54-0000-61d9-faf825230d44"
 
 # Shared by `posthog_code` and `slack_app` — the agent that runs in the sandbox
 # is the same code regardless of where the task was initiated, so the model
@@ -88,6 +91,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "@cf/zai-org/glm-5.2",
+        "zai-org/glm-5.3",
         "moonshotai/kimi-k3",
     }
 )
@@ -99,6 +103,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
 RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
     # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
+    BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
@@ -145,6 +150,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                "gpt-5.6-luna",
                 # ReviewHog sandbox runs route here (no review_hog entry in the agent's
                 # origin→product map), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
@@ -238,7 +244,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        # Only the dedicated Signals app: dropping the PostHog Code ids is what finally makes
+        # this product unreachable from a Desktop-app token.
+        allowed_application_ids=frozenset({SIGNALS_US_APP_ID, SIGNALS_EU_APP_ID, SIGNALS_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,
@@ -248,10 +256,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
         # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
-        # GLM 5.2 and DeepSeek V4 Flash (evaluated as reviewers).
+        # GLM 5.2/5.3 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
+                "zai-org/glm-5.3",
                 "deepseek-ai/deepseek-v4-flash-0731",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
@@ -413,6 +422,15 @@ FREE_TIER_RESTRICTION_REASON: Final[str] = "paid_plan_required"
 # rather than held by a user. Products with requires_server_credential demand it from OAuth callers.
 INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
 
+# Narrower marker on the same tokens: the run was started by a person, not by one of our
+# schedulers (INTERACTIVE_RUN_SCOPE in posthog/temporal/oauth.py). Also an internal scope, so
+# it can't be self-granted. Used to pick the budget, never to grant access.
+INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
+
+# Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
+# budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
+SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
+
 
 def check_free_tier_model_access(
     product: str,
@@ -446,6 +464,7 @@ def check_free_tier_model_access(
 MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
     "moonshotai/kimi-k3": "tasks-kimi-k3",
     "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+    "zai-org/glm-5.3": "posthog-code-glm-53-model",
 }
 
 
@@ -469,8 +488,27 @@ def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
 
 def is_model_restricted_for_product(model: str, product: str) -> bool:
     """Whether `model` is reserved for other products — see RESTRICTED_MODEL_PRODUCTS."""
-    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.lower())
+    allowed_products = RESTRICTED_MODEL_PRODUCTS.get(model.strip().lower())
     return allowed_products is not None and resolve_product_alias(product) not in allowed_products
+
+
+def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
+    """The budget a request meters against, which is not always its product.
+
+    Signals runs a scheduled pipeline and a set of buttons in the Inbox through one product.
+    Their volume has different owners — ours and the customer's — so they get separate budgets,
+    resolved from the token's own provenance marker rather than from the product the caller
+    declared, which a sandbox is free to choose.
+
+    The marker decides alone, without also requiring the declared product to be `signals`: a run
+    whose token still comes from the Array app (the fallback while a region has no Signals app
+    row) can declare `posthog_code` or `background_agents` instead, and pairing the two would let
+    that choice move the run off the interactive budget and out of the per-run spend ceiling.
+    Only interactive Signals runs are ever minted with the scope, so keying on it is sufficient.
+    """
+    if INTERACTIVE_RUN_SCOPE in (scopes or []):
+        return SIGNALS_INTERACTIVE_COST_KEY
+    return resolve_product_alias(product)
 
 
 def check_product_access(
@@ -498,8 +536,7 @@ def check_product_access(
     is_oauth = auth_method == "oauth_access_token"
     if is_oauth and not settings.debug:
         # Skip application ID checks in debug mode
-        allowed_application_ids = config.allowed_application_ids or frozenset()
-        if application_id not in allowed_application_ids:
+        if application_id not in (config.allowed_application_ids or frozenset()):
             return False, f"OAuth application not authorized for product '{product}'"
 
     # Internal products that share the PostHog Desktop OAuth app are only ever driven by

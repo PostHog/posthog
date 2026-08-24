@@ -7,7 +7,6 @@ import {
   buildReviewerOptions,
   extractSuggestedReviewers,
   orderSuggestedReviewers,
-  reviewerInitials,
   reviewerMatchesAvailable,
   reviewerOptionLabel,
   suggestedReviewerDisplayName,
@@ -72,11 +71,6 @@ describe("artefacts", () => {
         },
       }),
     ).toBe("Ben W.");
-  });
-
-  it("derives reviewer initials from names and emails", () => {
-    expect(reviewerInitials("Ben W.", null)).toBe("BW");
-    expect(reviewerInitials("", "ben@posthog.com")).toBe("BE");
   });
 
   it("moves the current user to the front", () => {

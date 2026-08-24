@@ -35,7 +35,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.reviewer.artefact_content import ThreadVerdictArtefact
+from products.review_hog.backend.reviewer.artefact_content import ResolutionRunArtefact, ThreadVerdictArtefact
 from products.review_hog.backend.reviewer.constants import (
     MAX_THREADS_PER_RUN,
     RESOLUTION_INITIAL_PERMISSION_MODE,
@@ -51,6 +51,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_thread_verdict,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR, resolution_states
 from products.review_hog.backend.reviewer.sandbox.executor import (
     MultiTurnSession,
     continue_sandbox_session,
@@ -58,11 +59,18 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
     start_sandbox_session,
 )
 from products.review_hog.backend.reviewer.skill_loader import load_resolution_skill_for_run
+from products.review_hog.backend.reviewer.status_comment import (
+    render_resolution_failed_section,
+    render_resolution_final_section,
+    render_resolution_progress_section,
+    update_resolution_status_comment,
+)
 from products.review_hog.backend.reviewer.tools.github_client import github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher
 from products.review_hog.backend.reviewer.tools.github_threads import (
     ReviewThread,
     ThreadAction,
+    add_eyes_reaction,
     classify_thread,
     commit_on_branch,
     fetch_unresolved_threads,
@@ -131,6 +139,9 @@ class ResolutionRunResult:
     # Threads that got an LLM turn this run, and their outcome counts (keyed by ThreadOutcome value).
     triaged: int = 0
     outcomes: dict[str, int] = field(default_factory=dict)
+    # Outcome counts for threads whose GitHub writes also landed. The PR-facing counters render from
+    # these, not `outcomes` — a judged thread with no reply must not read as settled.
+    delivered_outcomes: dict[str, int] = field(default_factory=dict)
     # Threads whose persisted verdict only needed its GitHub writes redelivered (no LLM turn).
     redelivered: int = 0
     # Threads skipped as already judged and delivered.
@@ -226,6 +237,12 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         _idle_report(input.team_id, report_id)
         return result
 
+    if triage:
+        _append_resolution_run(
+            input, report_id, triage=triage, redeliver_count=len(redeliver), skipped=skipped, overflow=overflow
+        )
+        _mark_queued_threads(input, triage, token=token, installation_id=installation_id)
+
     acting_user_id = input.acting_user_id
     if acting_user_id is None:
         acting_user_id = _login_to_user_id(input.team_id, pr_metadata.author)
@@ -251,14 +268,66 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
     )
 
 
-def _delivery_auth(integration_row_id: int) -> tuple[str, str | None]:
+def _append_resolution_run(
+    input: ResolveThreadsInput,
+    report_id: str,
+    *,
+    triage: list[ReviewThread],
+    redeliver_count: int,
+    skipped: int,
+    overflow: int,
+) -> None:
+    """Open the run's progress anchor: the work-list artefact the UI and status comment count
+    verdicts against. Best-effort — progress is a visibility feature, never worth failing the run.
+
+    A retried prepare appends a fresh row for the remaining work-list (judged threads have skipped
+    out by then), and the newest row wins at read time, so progress tracks the current attempt.
+    """
+    try:
+        ReviewReportArtefact.append_resolution_run(
+            team_id=input.team_id,
+            report_id=report_id,
+            content=ResolutionRunArtefact(
+                total=len(triage),
+                thread_ids=[thread.thread_id for thread in triage],
+                redeliver=redeliver_count,
+                skipped=skipped,
+                overflow=overflow,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.exception("Could not append the resolution_run artefact; the run continues without progress")
+
+
+def _mark_queued_threads(
+    input: ResolveThreadsInput, triage: list[ReviewThread], *, token: str, installation_id: str | None
+) -> None:
+    """👀 on each queued thread's opening comment: "in this run's queue", visible at a glance.
+
+    Triage-queued threads only — settled, redeliver-only, and overflow threads get nothing, so the
+    reaction doubles as the queue boundary. Best-effort per thread (a reaction must never fail or
+    delay the run), and left in place afterwards: removal would double the API calls for no real
+    gain, and GitHub no-ops a repeat addReaction so retries never stack duplicates.
+    """
+    for thread in triage:
+        first = thread.first_comment
+        if first is None or not first.node_id:
+            continue
+        try:
+            add_eyes_reaction(token=token, subject_id=first.node_id, installation_id=installation_id)
+        except Exception:
+            logger.exception("Could not add the queued 👀 reaction on thread %s", thread.thread_id)
+
+
+def _delivery_auth(team_id: int, integration_row_id: int) -> tuple[str, str | None]:
     """A fresh token from the run-pinned installation, without re-running the selection probe.
 
     The probe answers *which* installation, not *may we write* — GitHub enforces access on every
     call — so a mid-run revocation surfaces as a 401/404 on the write itself, the same per-thread
     undelivered accounting the probe failure used to produce.
     """
-    github = GitHubIntegration(Integration.objects.get(id=integration_row_id))
+    github = GitHubIntegration(Integration.objects.get(id=integration_row_id, team_id=team_id))
     return github.get_access_token(), github.github_installation_id
 
 
@@ -295,7 +364,7 @@ def _deliver_side_effects(
     thread as undelivered — the reply is already persisted, so the next run's pre-filter redelivers
     just the resolve.
     """
-    token, installation_id = _delivery_auth(integration_row_id)
+    token, installation_id = _delivery_auth(input.team_id, integration_row_id)
     updated = verdict
     if updated.outcome == ThreadOutcome.FIXED.value and updated.commit_sha and updated.commit_verified is None:
         verified = commit_on_branch(
@@ -412,7 +481,7 @@ def _append_run_note(input: ResolveThreadsInput, report_id: str, result: Resolut
         ReviewReportArtefact.add_log(
             team_id=input.team_id,
             report_id=report_id,
-            content=NoteArtefact(note=note, author="review_hog_resolution"),
+            content=NoteArtefact(note=note, author=RESOLUTION_RUN_NOTE_AUTHOR),
             attribution=ArtefactAttribution.system(),
         )
     except Exception:
@@ -469,11 +538,32 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         return prepared
 
     result = ResolutionRunResult(report_id=prepared.report_id, skipped=prepared.skipped, overflow=prepared.overflow)
+    total_queued = len(prepared.triage)
+
+    async def refresh_status_section() -> None:
+        # update_resolution_status_comment is best-effort by construction (it swallows and logs),
+        # so this can be awaited bare at every call site.
+        if not total_queued:
+            return
+        await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
+            input.team_id,
+            prepared.report_id,
+            render_resolution_progress_section(
+                done=sum(result.delivered_outcomes.values()),
+                total=total_queued,
+                fixed=result.delivered_outcomes.get(ThreadOutcome.FIXED.value, 0),
+                left_for_you=result.delivered_outcomes.get(ThreadOutcome.ESCALATE.value, 0),
+            ),
+            integration_row_id=prepared.integration_row_id,
+        )
+
     final_attempt = activity.info().attempt >= RESOLUTION_MAX_ATTEMPTS
     session: MultiTurnSession | None = None
     run_ok = False
     try:
         async with Heartbeater():
+            # The section appears at 0/N before any turn runs, so a watcher sees the run exists.
+            await refresh_status_section()
             # Redeliveries first: pure GitHub writes, no LLM — a crash mid-session must not leave
             # last run's judged threads undelivered behind this run's new turns.
             for _thread, verdict in prepared.redeliver:
@@ -571,10 +661,14 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                         branch=prepared.pr_metadata.head_branch,
                         integration_row_id=prepared.integration_row_id,
                     )
+                    result.delivered_outcomes[resolution.outcome.value] = (
+                        result.delivered_outcomes.get(resolution.outcome.value, 0) + 1
+                    )
                 except Exception:
                     # The verdict row still says reply_posted=False, so the next run redelivers.
                     result.undelivered += 1
                     logger.exception("Side effects failed for thread %s; the next run will retry", thread.thread_id)
+                await refresh_status_section()
         run_ok = True
     except Exception:
         if final_attempt:
@@ -583,6 +677,15 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)
             except Exception:
                 logger.exception("Could not idle report %s after the failed final attempt", prepared.report_id)
+            # The PR-side half of the same promise: the status comment must not read as resolving
+            # forever either (mirrors the review's fail_status_comment).
+            if total_queued:
+                await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
+                    input.team_id,
+                    prepared.report_id,
+                    render_resolution_failed_section(done=sum(result.delivered_outcomes.values()), total=total_queued),
+                    integration_row_id=prepared.integration_row_id,
+                )
         raise
     finally:
         if session is not None:
@@ -593,6 +696,17 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             )
 
     await database_sync_to_async(_append_run_note, thread_sensitive=False)(input, prepared.report_id, result)
+    if total_queued:
+        await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
+            input.team_id,
+            prepared.report_id,
+            # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
+            # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
+            render_resolution_final_section(
+                outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
+            ),
+            integration_row_id=prepared.integration_row_id,
+        )
     await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)
     return result
 
@@ -615,6 +729,46 @@ def _persist_turn_verdict_row(
     )
     persist_thread_verdict(team_id=input.team_id, report_id=report_id, verdict=verdict)
     return verdict
+
+
+@frozen
+class FailResolutionInput:
+    team_id: int
+    owner: str
+    repo: str
+    pr_number: int
+
+
+def _fail_resolution(input: FailResolutionInput) -> None:
+    report = (
+        ReviewReport.objects.for_team(input.team_id)
+        .filter(repository=f"{input.owner}/{input.repo}", pr_number=input.pr_number)
+        .first()
+    )
+    if report is None:
+        return
+    _idle_report(input.team_id, str(report.id))
+    state = resolution_states(input.team_id, [report]).get(str(report.id))
+    if state is None:
+        # No live run to report on: nothing was queued, the run already wrote its closing note, or
+        # a newer review turn owns the row — so there is no stale "Resolving comments" section either.
+        return
+    update_resolution_status_comment(
+        input.team_id,
+        str(report.id),
+        render_resolution_failed_section(done=state.done, total=state.total),
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def fail_resolution_activity(input: FailResolutionInput) -> None:
+    """Terminal-failure cleanup the workflow fires when the resolution activity dies without
+    reaching its own handler (a prepare failure, a timeout, cancellation, or worker death): return
+    the report to rest and replace a stale "Resolving comments" section with the failed one, counted
+    from the persisted work-list — the same derivation the UI row shows."""
+    await database_sync_to_async(_fail_resolution, thread_sensitive=False)(input)
 
 
 @temporalio.workflow.defn(name="resolve-pr")
@@ -644,22 +798,44 @@ class ResolvePRWorkflow:
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
         )
-        result: ResolutionRunResult = await workflow.execute_activity(
-            resolve_threads_activity,
-            ResolveThreadsInput(
-                team_id=inputs.team_id,
-                user_id=inputs.user_id,
-                acting_user_id=inputs.acting_user_id,
-                owner=inputs.owner,
-                repo=inputs.repo,
-                pr_number=inputs.pr_number,
-                pr_url=inputs.pr_url,
-                trigger_source=inputs.trigger_source,
-            ),
-            start_to_close_timeout=_RESOLUTION_TIMEOUT,
-            heartbeat_timeout=_RESOLUTION_HEARTBEAT,
-            retry_policy=_RESOLUTION_RETRY,
-        )
+        try:
+            result: ResolutionRunResult = await workflow.execute_activity(
+                resolve_threads_activity,
+                ResolveThreadsInput(
+                    team_id=inputs.team_id,
+                    user_id=inputs.user_id,
+                    acting_user_id=inputs.acting_user_id,
+                    owner=inputs.owner,
+                    repo=inputs.repo,
+                    pr_number=inputs.pr_number,
+                    pr_url=inputs.pr_url,
+                    trigger_source=inputs.trigger_source,
+                ),
+                start_to_close_timeout=_RESOLUTION_TIMEOUT,
+                heartbeat_timeout=_RESOLUTION_HEARTBEAT,
+                retry_policy=_RESOLUTION_RETRY,
+            )
+        except Exception:
+            # The activity's own handler misses prepare failures, timeouts, cancellation, and worker
+            # death — only this workflow-level cleanup survives those, so a dead run never reads as
+            # resolving forever (mirrors the review workflow's fail_status_comment_activity).
+            # Best-effort so the cleanup can never mask the original error.
+            if workflow.patched("fail-resolution-cleanup-2026-08"):
+                try:
+                    await workflow.execute_activity(
+                        fail_resolution_activity,
+                        FailResolutionInput(
+                            team_id=inputs.team_id,
+                            owner=inputs.owner,
+                            repo=inputs.repo,
+                            pr_number=inputs.pr_number,
+                        ),
+                        start_to_close_timeout=_FETCH_TIMEOUT,
+                        retry_policy=_RETRY,
+                    )
+                except Exception:
+                    workflow.logger.warning("Could not run the resolution failure cleanup")
+            raise
         if result.skipped_reason:
             workflow.logger.info(f"Resolution stage skipped: {result.skipped_reason}")
         else:

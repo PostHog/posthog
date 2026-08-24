@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -16,6 +15,7 @@ from posthog.hogql.errors import (
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
@@ -25,7 +25,7 @@ from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 from products.cohorts.backend.models.cohort import Cohort
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class BlastRadiusResult:
     affected: int
     total: int

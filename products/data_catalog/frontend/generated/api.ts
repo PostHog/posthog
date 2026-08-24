@@ -13,6 +13,9 @@ import type {
     DataCatalogCertificationApi,
     DataCatalogCertificationsListParams,
     DataCatalogMetricApi,
+    DataCatalogMetricBulkApproveApi,
+    DataCatalogMetricBulkDeleteApi,
+    DataCatalogMetricBulkNamesRequestApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
@@ -188,7 +191,7 @@ export const getDataCatalogMetricsListUrl = (projectId: string, params?: DataCat
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsList = async (
     projectId: string,
@@ -226,7 +229,7 @@ export const getDataCatalogMetricsRetrieveUrl = (projectId: string, name: string
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsRetrieve = async (
     projectId: string,
@@ -244,7 +247,7 @@ export const getDataCatalogMetricsUpdateUrl = (projectId: string, name: string) 
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsUpdate = async (
     projectId: string,
@@ -265,7 +268,7 @@ export const getDataCatalogMetricsPartialUpdateUrl = (projectId: string, name: s
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsPartialUpdate = async (
     projectId: string,
@@ -286,7 +289,7 @@ export const getDataCatalogMetricsDestroyUrl = (projectId: string, name: string)
 }
 
 /**
- * CRUD for catalog metrics, addressed by their reserved ``name`` (e.g. /metrics/mrr/).
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
  */
 export const dataCatalogMetricsDestroy = async (
     projectId: string,
@@ -370,6 +373,46 @@ export const dataCatalogMetricsRunCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricRunRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsBulkApproveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk_approve/`
+}
+
+/**
+ * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.
+ */
+export const dataCatalogMetricsBulkApproveCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkNamesRequestApi: DataCatalogMetricBulkNamesRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkApproveApi> => {
+    return apiMutator<DataCatalogMetricBulkApproveApi>(getDataCatalogMetricsBulkApproveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
+    })
+}
+
+export const getDataCatalogMetricsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/bulk_delete/`
+}
+
+/**
+ * Delete many metrics, freeing their names for reuse. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkDeleteCreate = async (
+    projectId: string,
+    dataCatalogMetricBulkNamesRequestApi: DataCatalogMetricBulkNamesRequestApi,
+    options?: RequestInit
+): Promise<DataCatalogMetricBulkDeleteApi> => {
+    return apiMutator<DataCatalogMetricBulkDeleteApi>(getDataCatalogMetricsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
     })
 }
 

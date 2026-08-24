@@ -808,9 +808,9 @@ class BigQueryClient:
     async def merge_tables(
         self,
         final: BigQueryTable,
-        stage: BigQueryTable,
+        stage: BigQueryTable | collections.abc.Iterable[BigQueryTable],
     ):
-        """Merge `stage` into `final`.
+        """Merge one or more `stage` tables into `final`.
 
         This method can execute one of two queries, depending on the type of `final`:
         When it is a `MutableTable`, then it executes a more complex `MERGE` query as it
@@ -820,31 +820,34 @@ class BigQueryClient:
 
         Arguments:
             final: The BigQuery table we are merging into.
-            stage: The BigQuery table we are merging from.
+            stage: One or more BigQuery tables we are merging from.
         """
+        tables = [stage] if isinstance(stage, BigQueryTable) else list(stage)
+        assert len(tables) > 0
+
         if final.is_mutable():
             return await self.merge_into_final_from_stage(
                 final,
-                stage,
+                tables,
             )
         else:
             return await self.insert_into_final_from_stage(
                 final,
-                stage,
+                tables,
             )
 
     async def insert_into_final_from_stage(
         self,
         final: BigQueryTable,
-        stage: BigQueryTable,
+        stage: list[BigQueryTable],
     ):
-        """Insert data from `stage` into `final`."""
+        """Insert data from one or more `stage` tables into `final`."""
         into_table_fields = ",".join(f"`{field.name}`" for field in final.fields)
 
         fields_to_cast = {
             field.name
             for field in final
-            if field.bigquery_type.name == "JSON" and stage[field.name].bigquery_type.name != "JSON"
+            if field.bigquery_type.name == "JSON" and stage[0][field.name].bigquery_type.name != "JSON"
         }
 
         # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
@@ -878,13 +881,17 @@ class BigQueryClient:
 
         query = f"""
         INSERT INTO `{final.fully_qualified_name}`
-          ({into_table_fields})
-        SELECT
-          {stage_table_fields}
-        FROM `{stage.fully_qualified_name}`
+            ({into_table_fields})
         """
+        query += "\nUNION ALL\n".join(
+            f"SELECT {stage_table_fields} FROM `{table.fully_qualified_name}`" for table in stage
+        )
 
-        self.logger.info("Inserting into final table", format=format, table_id=final.name, stage_table_id=stage.name)
+        self.logger.info(
+            "Inserting into final table",
+            table_id=final.name,
+            stage_table_id=", ".join(table.name for table in stage),
+        )
         query_job = make_retryable_with_exponential_backoff(
             self.execute_query,
             retryable_exceptions=(BadRequest,),
@@ -899,14 +906,14 @@ class BigQueryClient:
     async def merge_into_final_from_stage(
         self,
         final: BigQueryTable,
-        stage: BigQueryTable,
+        stage: list[BigQueryTable],
     ):
-        """Merge two identical person model tables in BigQuery."""
+        """Merge data from one or more person model `stage` tables to `final`."""
 
         fields_to_cast = {
             field.name
             for field in final
-            if field.bigquery_type.name == "JSON" and stage[field.name].bigquery_type.name != "JSON"
+            if field.bigquery_type.name == "JSON" and stage[0][field.name].bigquery_type.name != "JSON"
         }
 
         merge_condition = "ON "
@@ -969,16 +976,26 @@ class BigQueryClient:
         if not update_clause:
             raise ValueError("Empty update clause")
 
+        inner_union_query = "\nUNION ALL\n".join(f"SELECT * FROM `{table.fully_qualified_name}`" for table in stage)
+
+        union_query = f"""
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+              PARTITION BY {",".join(field_name for field_name in final.primary_key)}
+              ORDER BY {",".join(f"{field_name} DESC" for field_name in final.version_key)}
+              ) row_num
+        FROM (
+            {inner_union_query}
+        )
+        """
+
         merge_query = f"""
         MERGE `{final.fully_qualified_name}` final
         USING (
             SELECT * FROM
             (
-              SELECT
-              *,
-              ROW_NUMBER() OVER (PARTITION BY {",".join(field_name for field_name in final.primary_key)}) row_num
-            FROM
-              `{stage.fully_qualified_name}`
+                {union_query}
             )
             WHERE row_num = 1
         ) stage
@@ -992,7 +1009,9 @@ class BigQueryClient:
             VALUES ({values});
         """
 
-        self.logger.info("Merging into final table", table_id=final.name, stage_table_id=stage.name)
+        self.logger.info(
+            "Merging into final table", table_id=final.name, stage_table_id=", ".join(table.name for table in stage)
+        )
         query_job = make_retryable_with_exponential_backoff(
             self.execute_query,
             retryable_exceptions=(BadRequest,),
@@ -1090,6 +1109,29 @@ class BigQueryClient:
                 await asyncio.sleep(backoff)
                 attempt += 1
             except BadRequest as err:
+                if "matched no files" in str(err):
+                    backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                    self.logger.warning(
+                        "LoadJob could not find the uploaded file",
+                        attempt=attempt,
+                        backoff=backoff,
+                        error_code=err.code,
+                        exc_info=True,
+                    )
+                    self.external_logger.warning(
+                        "BigQuery could not find the file we uploaded for a load job."
+                        " This is usually a temporary issue on BigQuery's side. The load will be retried in %d"
+                        " seconds, this is attempt number %d.",
+                        backoff,
+                        attempt,
+                        attempt=attempt,
+                        backoff=backoff,
+                        error_code=err.code,
+                    )
+                    await asyncio.sleep(backoff)
+                    attempt += 1
+                    continue
+
                 if err.reason != "invalidQuery" or "Required field" not in str(err):
                     raise
                 try:
@@ -1241,20 +1283,20 @@ def _make_jsonl_pipeline_transformer(table: BigQueryTable, max_file_size_bytes: 
 async def run_consumer(
     client: BigQueryClient,
     consumer_table: BigQueryTable,
-    target_table: BigQueryTable,
     model: str,
     file_format: FileFormat,
     queue: RecordBatchQueue,
     transformer: PipelineTransformer,
-    all_consumers_done: asyncio.Barrier,
     producer_task: asyncio.Task[None],
+    all_consumers_done: asyncio.Barrier,
     merge: bool,
-    merge_semaphore: asyncio.Semaphore,
+    merge_done: asyncio.Event,
     records_total: int | None = None,
 ) -> BatchExportResult:
     """Run a BigQueryConsumer until completion.
 
-    If necessary, also merge the consumer's table into the provided table.
+    Each consumer manages the lifecycle of its own stage table, so the
+    consumer waits in case a merge needs to be executed.
     """
     async with client.managed_table(
         table=consumer_table,
@@ -1278,19 +1320,33 @@ async def run_consumer(
 
         await all_consumers_done.wait()
 
-        # Only merge to final table if the upstream producer has not failed and
-        # has not been cancelled. Upstream producer must be done by now as it
-        # is part of the termination condition for consumers.
-        producer_failed = producer_task.cancelled() or producer_task.exception() is not None
-
-        if merge and not producer_failed:
-            async with merge_semaphore:
-                _ = await client.merge_tables(
-                    final=target_table,
-                    stage=managed_consumer_table,
-                )
+        if merge:
+            # Block table cleanup until merge is done.
+            await merge_done.wait()
 
     return result
+
+
+async def merge_all_consumer_tables(
+    client: BigQueryClient,
+    target_table: BigQueryTable,
+    consumer_tables: collections.abc.Iterable[BigQueryTable],
+    all_consumers_done: asyncio.Barrier,
+    producer_task: asyncio.Task[None],
+) -> None:
+
+    await all_consumers_done.wait()
+
+    # Only merge to final table if the upstream producer has not failed and
+    # has not been cancelled. Upstream producer must be done by now as it
+    # is part of the termination condition for consumers.
+    producer_failed = producer_task.cancelled() or producer_task.exception() is not None
+
+    if not producer_failed:
+        _ = await client.merge_tables(
+            final=target_table,
+            stage=consumer_tables,
+        )
 
 
 class MergeSettings(typing.NamedTuple):
@@ -1318,14 +1374,14 @@ def _get_merge_settings(
     return MergeSettings(primary_key, version_key)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=False, kw_only=True)
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
     dataset_id: str
     table_id: str
     project_id: str | None = None
-    private_key: str | None = None
+    private_key: str | None = dataclasses.field(default=None, repr=False)
     private_key_id: str | None = None
     token_uri: str | None = None
     client_email: str | None = None
@@ -1541,8 +1597,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
 
             max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
-            all_consumers_done = asyncio.Barrier(max_consumers)
-            merge_semaphore = asyncio.Semaphore(1)
+            barrier_size = max_consumers + 1 if can_perform_merge else max_consumers
+            all_consumers_done = asyncio.Barrier(barrier_size)
+            merge_done = asyncio.Event()
 
             tasks = []
             try:
@@ -1562,7 +1619,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                 run_consumer(
                                     client=bq_client,
                                     consumer_table=consumer_table,
-                                    target_table=bigquery_target_table,
                                     model=model.name if isinstance(model, BatchExportModel) else "events",
                                     file_format=file_format,
                                     queue=queue,
@@ -1570,12 +1626,25 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                                     all_consumers_done=all_consumers_done,
                                     producer_task=producer_task,
                                     merge=can_perform_merge,
-                                    merge_semaphore=merge_semaphore,
+                                    merge_done=merge_done,
                                     records_total=inputs.records_total if max_consumers == 1 else None,
                                 ),
                                 name=f"consumer-{index}",
                             )
                         )
+
+                    if can_perform_merge:
+                        merge_task = tg.create_task(
+                            merge_all_consumer_tables(
+                                client=bq_client,
+                                target_table=bigquery_target_table,
+                                consumer_tables=consumer_tables,
+                                all_consumers_done=all_consumers_done,
+                                producer_task=producer_task,
+                            )
+                        )
+                        merge_task.add_done_callback(lambda _: merge_done.set())
+
             except ExceptionGroup as eg:
                 has_only_one_type = len({type(exc) for exc in eg.exceptions}) == 1
                 if has_only_one_type:

@@ -30,18 +30,4 @@ describe("ModeSelector", () => {
       "Plan",
     );
   });
-
-  it("shows Canvas on the trigger while canvas mode is armed", () => {
-    render(
-      <ModeSelector
-        modeOption={modeOption("plan")}
-        onChange={vi.fn()}
-        allowBypassPermissions={false}
-        canvas={{ active: true, onToggle: vi.fn() }}
-      />,
-    );
-    const trigger = screen.getByRole("button", { name: "Mode" });
-    expect(trigger).toHaveTextContent("Canvas");
-    expect(trigger).not.toHaveTextContent("Plan");
-  });
 });

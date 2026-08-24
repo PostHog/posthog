@@ -1011,6 +1011,121 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('onRecordingSelected', () => {
+        // Under autoPlay the player also picks recordings with no explicit selection — it shows
+        // whatever is at the top of the list, and follows it across reloads. Embedding surfaces
+        // count opens off this callback, so those implicit moves must be reported too, exactly
+        // once each (the experiment recordings tab under-reported opens without this).
+        let onRecordingSelected: jest.Mock
+
+        beforeEach(() => {
+            onRecordingSelected = jest.fn()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('reports the autoplayed top recording on load, and again only when a reload changes it', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A reload that keeps the same recording on top doesn't move the player, so it must
+            // not be reported as another open.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A reload that changes the top (the way an embedding surface's filter change does,
+            // with nothing explicitly selected) moves the player to the new top recording.
+            const newestRecording = {
+                ...aRecording,
+                id: 'newest',
+                start_time: '2023-12-12T16:55:36.404000Z',
+                end_time: '2023-12-12T16:55:46.404000Z',
+            }
+            listSpy.mockResolvedValueOnce({ results: [newestRecording], has_next: false } as Awaited<
+                ReturnType<typeof api.recordings.list>
+            >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], ['newest']])
+        })
+
+        it('skips re-selecting the recording already shown, but reports every move — including back', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-dedupe',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // Clicking the recording the autoplay fallback is already showing opens nothing new.
+            logic.actions.setSelectedRecordingId(aRecording.id)
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            logic.actions.setSelectedRecordingId(bRecording.id)
+            logic.actions.setSelectedRecordingId(aRecording.id)
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [bRecording.id], [aRecording.id]])
+        })
+
+        it('re-reports a recording that returns after a reload matched nothing', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-empty-gap',
+                autoPlay: true,
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            // A facet can match nothing: the player unloads into the empty state. When the next
+            // reload brings the same recording back, it autoplays afresh — a new open, not a
+            // re-select of something still on screen.
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockResolvedValueOnce({ results: [], has_next: false } as Awaited<
+                    ReturnType<typeof api.recordings.list>
+                >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+
+            listSpy.mockResolvedValueOnce({ results: listOfSessionRecordings, has_next: false } as Awaited<
+                ReturnType<typeof api.recordings.list>
+            >)
+            logic.actions.loadSessionRecordings()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id], [aRecording.id]])
+        })
+
+        it('reports nothing on load without autoPlay — only explicit selection', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'selection-reporting-no-autoplay',
+                onRecordingSelected,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(onRecordingSelected).not.toHaveBeenCalled()
+
+            logic.actions.setSelectedRecordingId(aRecording.id)
+            expect(onRecordingSelected.mock.calls).toEqual([[aRecording.id]])
+        })
+    })
+
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({

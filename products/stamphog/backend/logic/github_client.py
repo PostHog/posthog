@@ -27,6 +27,8 @@ from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
+
 logger = structlog.get_logger(__name__)
 
 # Per-subsystem attribution on the shared GitHub egress metrics.
@@ -82,6 +84,13 @@ def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
+
+# Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
+# approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
+# cost of an unbounded read: GitHub answers 200 for a diff of any size, and a range that spans
+# thousands of files returns hundreds of megabytes.
+MAX_COMPARE_DIFF_BYTES = 5 * 1024 * 1024
+
 
 # Trim each inline review-thread comment body to bound the payload that rides in run.output. The
 # reviewer only needs the gist of a maintainer's "do not merge", not a novel.
@@ -156,15 +165,6 @@ def _parse_review_thread_comments(comment_nodes: list) -> list[dict]:
         for comment in comment_nodes
         if isinstance(comment, dict)
     ]
-
-
-class StamphogGitHubError(Exception):
-    """A Stamphog GitHub API call failed for a non-rate-limit reason (auth failure, unexpected status,
-    malformed response). Rate limits raise ``GitHubRateLimitError`` from the egress layer instead."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message)
-        self.status_code = status_code
 
 
 def _app_private_key() -> str:
@@ -421,6 +421,7 @@ class StamphogGitHubClient:
         json_body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         timeout: int = 15,
+        stream: bool = False,
     ) -> requests.Response:
         """Installation-authenticated request through the gated egress transport.
 
@@ -445,11 +446,15 @@ class StamphogGitHubClient:
                 params=params,
                 json=json_body,
                 timeout=timeout,
+                stream=stream,
             )
             # Only trusted installation-token responses feed the limiter's per-installation tier tracking.
             remember_observed_core_limit(self.installation_id, response)
             if response.status_code == 401 and attempt == 0:
                 logger.info("stamphog github: 401, refreshing installation token", installation_id=self.installation_id)
+                # A streamed body holds its connection until a caller reads it or closes it. This
+                # path abandons the response, so it must close the response itself.
+                response.close()
                 continue
             raise_if_github_rate_limited(response)
             return response
@@ -622,6 +627,51 @@ class StamphogGitHubClient:
             if len(page_files) < _PER_PAGE:
                 break
         return files
+
+    def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
+        """The unified diff between two commits, as text.
+
+        Both ends are commit shas rather than refs, so the result is a property of two immutable
+        objects. ``get_pr_files`` differs: it answers for the head that is live when the request
+        runs, so a caller cannot bind its answer to a particular commit.
+
+        The path uses three-dot semantics, so GitHub diffs from the merge base of the two commits. A
+        caller that passes a PR's base sha and its head sha therefore gets the PR's own changes, and
+        not the commits that the base branch gained since. The text carries everything that git
+        records about the change, which includes file modes and renames. A per-file blob sha carries
+        none of that. GitHub answers 4xx when a diff is too large to render, and this method raises
+        on that status rather than returning a shorter diff.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+            headers={"Accept": "application/vnd.github.diff"},
+            stream=True,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to diff {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        # Read with a ceiling rather than into memory. GitHub answers 200 for a diff of any size,
+        # and a range that spans thousands of files returns hundreds of megabytes. A caller cannot
+        # cancel that transfer after it starts. A diff over the ceiling raises, and every caller
+        # treats an error as "cannot answer".
+        chunks: list[bytes] = []
+        read = 0
+        try:
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                read += len(chunk)
+                if read > MAX_COMPARE_DIFF_BYTES:
+                    raise StamphogGitHubError(
+                        f"Diff {base_sha}...{head_sha} in {repo} exceeds {MAX_COMPARE_DIFF_BYTES} bytes"
+                    )
+                chunks.append(chunk)
+        finally:
+            response.close()
+        return b"".join(chunks).decode("utf-8", errors="replace")
 
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.

@@ -104,18 +104,6 @@ async def _setup_no_source_config(ateam):
     del ateam
 
 
-async def _setup_only_per_result_evaluation_config(ateam):
-    # An enabled per-result (evaluation) config must not turn on report emission —
-    # reports are gated by their own evaluation_report row.
-    await sync_to_async(SignalSourceConfig.objects.create)(
-        team=ateam,
-        source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-        source_type=SignalSourceConfig.SourceType.EVALUATION,
-        enabled=True,
-        config={"evaluation_ids": ["eval-123"]},
-    )
-
-
 async def _setup_config_disabled(ateam):
     await sync_to_async(SignalSourceConfig.objects.create)(
         team=ateam,
@@ -144,11 +132,10 @@ class TestEmitEvalReportSignalActivity:
         "setup_fn",
         [
             _setup_no_source_config,
-            _setup_only_per_result_evaluation_config,
             _setup_config_disabled,
             _setup_org_not_ai_approved,
         ],
-        ids=["no_source_config", "only_per_result_evaluation_config", "config_disabled", "org_not_ai_approved"],
+        ids=["no_source_config", "config_disabled", "org_not_ai_approved"],
     )
     async def test_skips_when_gate_fails(self, ateam, setup_fn):
         await setup_fn(ateam)

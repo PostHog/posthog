@@ -13,7 +13,7 @@ catalog:
     '@earendil-works/pi-tui': 0.84.1
     '@parcel/watcher': ^2.5.6
     '@phosphor-icons/react': ^2.1.10
-    '@posthog/quill': 0.3.0-beta.26
+    '@posthog/quill': 0.3.0-beta.28
     '@radix-ui/themes': ^3.2.1
     '@tanstack/react-query': ^5.100.14
     '@tanstack/react-router': ^1.170.10
@@ -108,8 +108,8 @@ overrides:
     # Swap vite for the rolldown-based fork for faster dev boot times (#3027).
     vite: npm:rolldown-vite@7.3.1
     # Security: force patched versions for advisory-flagged packages (each pin is over the
-    # 7-day minimumReleaseAge and clears the package's advisories). Local mirror of the
-    # PostHog/code hardening PR; drop once a resync pins to a commit that already has it.
+    # 7-day minimumReleaseAge and clears the package's advisories). Drop a pin once the
+    # dependents require a patched version on their own.
     protobufjs: 7.6.5
     axios: 1.18.1
     hono: 4.12.28

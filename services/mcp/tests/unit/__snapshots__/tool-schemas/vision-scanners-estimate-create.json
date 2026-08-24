@@ -2,10 +2,45 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.",
     "properties": {
+        "experiment_targeting": {
+            "anyOf": [
+                {
+                    "description": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+                    "properties": {
+                        "experiment_id": {
+                            "description": "The experiment the scanner watches.",
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "variant": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 400,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Narrow to sessions of people exposed to this variant. Null means every variant."
+                        }
+                    },
+                    "required": ["experiment_id"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user."
+        },
         "model": {
             "default": "gemini-3-flash-preview",
-            "description": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.6-flash` - Gemini 3.6 Flash",
-            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.6-flash"],
+            "description": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.7-flash` - Gemini 3.7 Flash",
+            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"],
             "type": "string"
         },
         "query": {

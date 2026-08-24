@@ -6,15 +6,14 @@
  * 2. Decrypting block data
  * 3. Handling deleted sessions (crypto shredding)
  * 4. HTTP endpoints via supertest
- * 5. S3 + decryption pipeline via localstack
+ * 5. S3 + decryption pipeline
  * 6. Cache invalidation on delete
  *
- * Includes tests with:
- * - MemoryKeyStore (always run)
- * - DynamoDB/KMS/S3 via Localstack (run by default, skip with LOCALSTACK_DISABLED=1)
- *
- * To skip localstack tests (e.g. when localstack isn't running):
- *   LOCALSTACK_DISABLED=1 pnpm jest src/session-replay/recording-api/recording-api.integration.test.ts
+ * The encryption contract runs against MemoryKeyStore and always runs. The DynamoDBKeyStore
+ * block covers what only a real DynamoDB can show: the composite key, the conditional writes,
+ * and the tombstones behind crypto shredding. It needs the dynamodb and objectstorage services
+ * from the dev stack, so it skips with:
+ *   DYNAMODB_TESTS_DISABLED=1 pnpm jest tests/session-replay/recording-api/recording-api.integration.test.ts
  */
 import {
     CreateTableCommand,
@@ -23,27 +22,16 @@ import {
     DynamoDBClient,
     ResourceNotFoundException,
 } from '@aws-sdk/client-dynamodb'
-import {
-    CreateAliasCommand,
-    CreateKeyCommand,
-    DeleteAliasCommand,
-    DescribeKeyCommand,
-    KMSClient,
-} from '@aws-sdk/client-kms'
-import {
-    CreateBucketCommand,
-    DeleteBucketCommand,
-    DeleteObjectCommand,
-    ListObjectsV2Command,
-    PutObjectCommand,
-    S3Client,
-} from '@aws-sdk/client-s3'
+import { KMSClient } from '@aws-sdk/client-kms'
+import { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import sodium from 'libsodium-wrappers'
 import snappy from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { setupExpressApp } from '~/common/api/router'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -55,16 +43,21 @@ import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import { RecordingService } from '~/session-replay/recording-api/recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/session-replay/recording-api/types'
 
+import { createStubKmsClient } from './stub-kms-client'
+
 const mockOutputs = {
     queueMessages: jest.fn().mockResolvedValue(undefined),
     produce: jest.fn().mockResolvedValue(undefined),
 } as unknown as IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
 
-// Localstack configuration
-const LOCALSTACK_ENDPOINT = 'http://localhost:4566'
+// Dev-stack services backing the DynamoDBKeyStore block
+const DYNAMODB_ENDPOINT = 'http://127.0.0.1:18010'
+const S3_ENDPOINT = 'http://127.0.0.1:19000'
+const S3_BUCKET = 'posthog'
+const S3_PREFIX = 'session_recordings_recording_api_test'
+const S3_CREDENTIALS = { accessKeyId: 'object_storage_root_user', secretAccessKey: 'object_storage_root_password' }
 const KEYS_TABLE_NAME = 'session-recording-keys'
-const KMS_KEY_ALIAS = 'alias/session-replay-master-key'
-const shouldRunLocalstackTests = process.env.LOCALSTACK_DISABLED !== '1'
+const shouldRunDynamoDBTests = process.env.DYNAMODB_TESTS_DISABLED !== '1'
 
 const isResourceNotFoundException = (error: unknown): boolean => {
     return (
@@ -447,51 +440,21 @@ describe('Recording API encryption integration', () => {
         })
     })
 
-    // Tests with DynamoDB/KMS via Localstack (run when LOCALSTACK_ENABLED=1)
-    const describeLocalstack = shouldRunLocalstackTests ? describe : describe.skip
+    const describeDynamoDB = shouldRunDynamoDBTests ? describe : describe.skip
 
-    describeLocalstack('with Localstack (DynamoDB + KMS)', () => {
+    describeDynamoDB('with DynamoDBKeyStore', () => {
         let dynamoDBClient: DynamoDBClient
         let kmsClient: KMSClient
-        let kmsKeyId: string
         let keyStore: DynamoDBKeyStore
         let encryptor: SodiumRecordingEncryptor
         let decryptor: SodiumRecordingDecryptor
-
-        async function setupKmsKey(): Promise<void> {
-            try {
-                const describeResult = await kmsClient.send(new DescribeKeyCommand({ KeyId: KMS_KEY_ALIAS }))
-                if (describeResult.KeyMetadata?.KeyId) {
-                    kmsKeyId = describeResult.KeyMetadata.KeyId
-                    return
-                }
-            } catch {
-                // Alias doesn't exist, create key and alias
-            }
-
-            const createKeyResult = await kmsClient.send(
-                new CreateKeyCommand({
-                    Description: 'Session replay master key for testing',
-                    KeyUsage: 'ENCRYPT_DECRYPT',
-                })
-            )
-
-            kmsKeyId = createKeyResult.KeyMetadata!.KeyId!
-
-            await kmsClient.send(
-                new CreateAliasCommand({
-                    AliasName: KMS_KEY_ALIAS,
-                    TargetKeyId: kmsKeyId,
-                })
-            )
-        }
 
         async function setupDynamoDBTable(): Promise<void> {
             try {
                 await dynamoDBClient.send(new DeleteTableCommand({ TableName: KEYS_TABLE_NAME }))
                 await waitForTableDeletion()
             } catch {
-                // Best-effort cleanup: table absence and Localstack's modeled errors vary in CI.
+                // Best-effort cleanup: the table is usually absent, and how that surfaces varies.
             }
 
             await dynamoDBClient.send(
@@ -543,30 +506,19 @@ describe('Recording API encryption integration', () => {
 
         beforeAll(async () => {
             dynamoDBClient = new DynamoDBClient({
-                endpoint: LOCALSTACK_ENDPOINT,
+                endpoint: DYNAMODB_ENDPOINT,
                 region: 'us-east-1',
                 credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
             })
 
-            kmsClient = new KMSClient({
-                endpoint: LOCALSTACK_ENDPOINT,
-                region: 'us-east-1',
-                credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
-            })
+            kmsClient = await createStubKmsClient()
 
-            await setupKmsKey()
             await setupDynamoDBTable()
         }, 30000)
 
         afterAll(async () => {
             try {
                 await dynamoDBClient.send(new DeleteTableCommand({ TableName: KEYS_TABLE_NAME }))
-            } catch {
-                // Ignore
-            }
-
-            try {
-                await kmsClient.send(new DeleteAliasCommand({ AliasName: KMS_KEY_ALIAS }))
             } catch {
                 // Ignore
             }
@@ -586,15 +538,11 @@ describe('Recording API encryption integration', () => {
             await decryptor.start()
         })
 
-        runEncryptionTests(
-            () => keyStore,
-            () => encryptor,
-            () => decryptor
-        )
-
+        // The encryption contract itself is a property of the encryptor, not of the keystore, so it
+        // runs once against MemoryKeyStore above. What follows is only what DynamoDB decides.
         describe('DynamoDBKeyStore specific', () => {
-            it('should generate and retrieve an encrypted key via KMS', async () => {
-                const sessionId = `kms-test-${Date.now()}`
+            it('should round-trip a wrapped key through DynamoDB', async () => {
+                const sessionId = `wrapped-key-${Date.now()}`
                 const teamId = 1
 
                 const generatedKey = await keyStore.generateKey(sessionId, teamId, 30)
@@ -610,16 +558,58 @@ describe('Recording API encryption integration', () => {
                 expect(retrievedKey.encryptedKey.equals(generatedKey.encryptedKey)).toBe(true)
             })
 
+            it('should return the existing key instead of overwriting on a second generate', async () => {
+                const sessionId = `regenerate-${Date.now()}`
+                const teamId = 50
+
+                const firstKey = await keyStore.generateKey(sessionId, teamId, 30)
+                const secondKey = await keyStore.generateKey(sessionId, teamId, 30)
+
+                expect(secondKey.sessionState).toBe('ciphertext')
+                expect(secondKey.plaintextKey.equals(firstKey.plaintextKey)).toBe(true)
+                expect(secondKey.encryptedKey.equals(firstKey.encryptedKey)).toBe(true)
+            })
+
+            it('should not resurrect a shredded session on regenerate', async () => {
+                const sessionId = `shredded-regenerate-${Date.now()}`
+                const teamId = 60
+
+                await keyStore.generateKey(sessionId, teamId, 30)
+                await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+
+                const regenerated = await keyStore.generateKey(sessionId, teamId, 30)
+                expect(regenerated.sessionState).toBe('deleted')
+
+                const tombstone = await keyStore.getKey(sessionId, teamId)
+                expect(tombstone.sessionState).toBe('deleted')
+            })
+
             it('should return already_deleted when deleting already deleted key', async () => {
                 const sessionId = `double-delete-${Date.now()}`
                 const teamId = 4
 
                 await keyStore.generateKey(sessionId, teamId, 30)
+                const beforeDelete = Math.floor(Date.now() / 1000)
                 await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
+                const afterDelete = Math.floor(Date.now() / 1000) + 1
 
                 const result = await keyStore.deleteKey(sessionId, teamId, 'test@example.com')
                 expect(result.status).toBe('already_deleted')
-                expect(result.deletedAt).toBeDefined()
+                expect(result.deletedAt).toBeGreaterThanOrEqual(beforeDelete)
+                expect(result.deletedAt).toBeLessThanOrEqual(afterDelete)
+            })
+
+            it('should write a tombstone when deleting a session that has no key', async () => {
+                const sessionId = `never-generated-${Date.now()}`
+
+                const result = await keyStore.deleteKey(sessionId, 999, 'test@example.com')
+                expect(result.status).toBe('deleted')
+
+                // Reading it back is the half that catches a tombstone DynamoDB accepted but
+                // getKey cannot parse, which serves a 500 instead of a 410 for a deleted session.
+                const tombstone = await keyStore.getKey(sessionId, 999)
+                expect(tombstone.sessionState).toBe('deleted')
+                expect(tombstone.deletedAt).toBe(result.deletedAt)
             })
 
             it('should isolate keys between teams', async () => {
@@ -660,31 +650,25 @@ describe('Recording API encryption integration', () => {
         describe('S3 + decryption pipeline', () => {
             let s3Client: S3Client
             let recordingService: RecordingService
-            const S3_BUCKET = 'test-recording-bucket'
-            const S3_PREFIX = 'session_recordings'
 
-            beforeAll(async () => {
+            beforeAll(() => {
                 s3Client = new S3Client({
-                    endpoint: LOCALSTACK_ENDPOINT,
+                    endpoint: S3_ENDPOINT,
                     region: 'us-east-1',
-                    credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+                    credentials: S3_CREDENTIALS,
                     forcePathStyle: true,
                 })
-
-                try {
-                    await s3Client.send(new CreateBucketCommand({ Bucket: S3_BUCKET }))
-                } catch {
-                    // Bucket may already exist
-                }
-            }, 30000)
+            })
 
             afterAll(async () => {
                 try {
-                    const objects = await s3Client.send(new ListObjectsV2Command({ Bucket: S3_BUCKET }))
+                    // The bucket is shared with the rest of the dev stack, so clean by prefix.
+                    const objects = await s3Client.send(
+                        new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix: S3_PREFIX })
+                    )
                     for (const obj of objects.Contents ?? []) {
                         await s3Client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: obj.Key }))
                     }
-                    await s3Client.send(new DeleteBucketCommand({ Bucket: S3_BUCKET }))
                 } catch {
                     // Ignore cleanup errors
                 }
@@ -751,6 +735,189 @@ describe('Recording API encryption integration', () => {
                 expect(result).toEqual(
                     expect.objectContaining({ ok: false, error: 'deleted', deletedAt: expect.any(Number) })
                 )
+            })
+        })
+    })
+
+    // Auth matrix exercised through the real router chain (no Localstack needed — rejections happen
+    // in the middleware before the handler touches S3; the few pass-through cases use MemoryKeyStore).
+    describe('HTTP auth (team + operation scoped JWT)', () => {
+        const JWT_SECRET = 'itest-jwt-secret'
+        const LEGACY_SECRET = 'itest-legacy-secret'
+        const TEAM = 1
+        const SESSION = 'auth-session-1'
+        const BLOCK_KEY = 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee'
+
+        let keyStore: MemoryKeyStore
+        let encryptor: SodiumRecordingEncryptor
+        let decryptor: SodiumRecordingDecryptor
+        let mockS3Send: jest.Mock
+        let recordingService: RecordingService
+        let servers: Server[]
+
+        beforeEach(async () => {
+            keyStore = new MemoryKeyStore()
+            await keyStore.start()
+            decryptor = new SodiumRecordingDecryptor(keyStore)
+            await decryptor.start()
+            encryptor = new SodiumRecordingEncryptor(keyStore)
+            await encryptor.start()
+            mockS3Send = jest.fn()
+            const mockS3Client = { send: mockS3Send, destroy: jest.fn() } as unknown as S3Client
+            recordingService = new RecordingService(
+                mockS3Client,
+                'test-bucket',
+                'session_recordings',
+                keyStore,
+                decryptor
+            )
+            servers = []
+        })
+
+        afterEach(() => {
+            servers.forEach((s) => s.close())
+        })
+
+        const defaultConfig: Partial<RecordingApiConfig> = {
+            RECORDING_API_JWT_SECRET: JWT_SECRET,
+            INTERNAL_API_SECRET: LEGACY_SECRET,
+            RECORDING_API_ALLOW_LEGACY_SECRET: true,
+        }
+
+        const makeApp = async (config: Partial<RecordingApiConfig> = defaultConfig): Promise<express.Application> => {
+            const api = new RecordingApi(config as RecordingApiConfig, {} as PostgresRouter, mockOutputs)
+            await api.start(recordingService)
+            // Mirror RecordingApiServer's real wiring: the shared-secret middleware fronts the app but
+            // exempts the recording-api namespace, which then owns auth per-route. Exercises that
+            // interaction (and the JSON body parser) instead of mounting the router on a bare app.
+            const app = setupExpressApp({
+                internalApiSecret: config.INTERNAL_API_SECRET ?? '',
+                internalApiAuthExcludedPathPrefixes: ['/api/projects/'],
+            })
+            app.use('/', api.router())
+            servers.push(app.listen(0, () => {}))
+            return app
+        }
+
+        const token = (
+            claims: { team_id: number; op: string },
+            secret = JWT_SECRET,
+            expiresIn: string | number = '5m'
+        ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API, { expiresIn })
+
+        const bearer = (t: string) => ({ Authorization: `Bearer ${t}` })
+
+        // Set up a real fetchable block so a request that PASSES auth returns 200 (not just "not 401").
+        const setupBlock = async (): Promise<{ key: string; startByte: string; endByte: string }> => {
+            const sessionKey = await keyStore.generateKey(SESSION, TEAM, 30)
+            const blockData = await createBlockData([{ type: 2, data: { content: 'hi' } }])
+            const { data: encrypted } = encryptor.encryptBlockWithKey(SESSION, TEAM, blockData, sessionKey)
+            mockS3Send.mockResolvedValue({ Body: { transformToByteArray: () => Promise.resolve(encrypted) } })
+            return { key: BLOCK_KEY, startByte: '0', endByte: String(encrypted.length - 1) }
+        }
+
+        const getBlock = (app: express.Application, headers: Record<string, string>, team: number = TEAM) =>
+            supertest(app)
+                .get(`/api/projects/${team}/recordings/${SESSION}/block`)
+                .query({ key: BLOCK_KEY, start_byte: '0', end_byte: '100' })
+                .set(headers)
+
+        const postDelete = (app: express.Application, headers: Record<string, string>, team: number = TEAM) =>
+            supertest(app)
+                .post(`/api/projects/${team}/recordings/delete`)
+                .send({ session_ids: [SESSION], deleted_by: 'x@posthog.com' })
+                .set(headers)
+
+        it('valid read token (matching team) reaches the handler and returns the block', async () => {
+            const app = await makeApp()
+            const block = await setupBlock()
+            const res = await supertest(app)
+                .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
+                .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
+                .set(bearer(token({ team_id: TEAM, op: 'read' })))
+            expect(res.status).toBe(200)
+        })
+
+        it('accepts a valid delete token on the delete route', async () => {
+            const app = await makeApp()
+            const res = await postDelete(app, bearer(token({ team_id: TEAM, op: 'delete' })))
+            expect(res.status).not.toBe(401)
+            expect(res.status).not.toBe(403)
+        })
+
+        it('rejects a token scoped to a different team (403)', async () => {
+            const app = await makeApp()
+            const res = await getBlock(app, bearer(token({ team_id: 999, op: 'read' })))
+            expect(res.status).toBe(403)
+        })
+
+        it('rejects a read token on the delete route (403)', async () => {
+            const app = await makeApp()
+            const res = await postDelete(app, bearer(token({ team_id: TEAM, op: 'read' })))
+            expect(res.status).toBe(403)
+        })
+
+        it('rejects a delete token on a read route (403)', async () => {
+            const app = await makeApp()
+            const res = await getBlock(app, bearer(token({ team_id: TEAM, op: 'delete' })))
+            expect(res.status).toBe(403)
+        })
+
+        it.each([
+            ['no token', undefined],
+            ['garbage token', 'not-a-jwt'],
+            ['expired token', token({ team_id: TEAM, op: 'read' }, JWT_SECRET, -60)],
+            ['token signed by an unknown key', token({ team_id: TEAM, op: 'read' }, 'rogue-key')],
+        ])('rejects %s with 401', async (_name, t) => {
+            const app = await makeApp()
+            const res = await getBlock(app, t ? bearer(t) : {})
+            expect(res.status).toBe(401)
+        })
+
+        // The shared-secret middleware exempts the whole '/api/projects/' prefix, so recording-api's
+        // own auth has to cover that prefix entirely. A path this router does not handle must still
+        // be rejected with a 401 rather than falling through to an unauthenticated 404, otherwise a
+        // route added under the prefix later would ship with no auth at all.
+        it.each([
+            ['GET', `/api/projects/${TEAM}/not-a-real-route`],
+            ['POST', `/api/projects/${TEAM}/recordings/not-a-real-route`],
+        ])('requires auth for an unhandled %s path under the exempt prefix', async (method, path) => {
+            const app = await makeApp()
+            const res = await (method === 'GET' ? supertest(app).get(path) : supertest(app).post(path).send({}))
+            expect(res.status).toBe(401)
+        })
+
+        it('accepts the legacy secret while allowLegacySecret is true', async () => {
+            const app = await makeApp()
+            const block = await setupBlock()
+            const res = await supertest(app)
+                .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
+                .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
+                .set({ 'X-Internal-Api-Secret': LEGACY_SECRET })
+            expect(res.status).toBe(200)
+        })
+
+        it('rejects the legacy secret once allowLegacySecret is false', async () => {
+            const app = await makeApp({ ...defaultConfig, RECORDING_API_ALLOW_LEGACY_SECRET: false })
+            const res = await getBlock(app, { 'X-Internal-Api-Secret': LEGACY_SECRET })
+            expect(res.status).toBe(401)
+        })
+
+        describe('key rotation', () => {
+            it('accepts a token signed by the retiring key while both keys are configured', async () => {
+                const app = await makeApp({ ...defaultConfig, RECORDING_API_JWT_SECRET: 'new-key,old-key' })
+                const block = await setupBlock()
+                const res = await supertest(app)
+                    .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
+                    .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
+                    .set(bearer(token({ team_id: TEAM, op: 'read' }, 'old-key')))
+                expect(res.status).toBe(200)
+            })
+
+            it('rejects a token signed by a retired key once it is dropped', async () => {
+                const app = await makeApp({ ...defaultConfig, RECORDING_API_JWT_SECRET: 'new-key' })
+                const res = await getBlock(app, bearer(token({ team_id: TEAM, op: 'read' }, 'old-key')))
+                expect(res.status).toBe(401)
             })
         })
     })

@@ -25,6 +25,7 @@ A finding can also be turned into a PostHog Task once (the observation remembers
 Usage (receipts + in-flight rows + in-flight prompt tests) counts against the organization's credit limit for the current billing period, falling back to the calendar month when billing hasn't synced the product.
 Per-scanner volume estimates are credit-weighted and summed into a projected-spend prognosis shown at configuration time.
 Scheduled observations over budget are skipped; on-demand ones are rejected.
+A scanner can also carry its own optional `credit_limit` for the same period, so one broad scanner cannot drain the whole organization budget. A scanner that reaches its limit stops scanning until the period resets, stays enabled, and does not go back for the sessions it skipped.
 
 ## Scenes and tabs
 
@@ -64,7 +65,7 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 - `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, prompt suggestions, quota, vision actions, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, prompt evaluation, vision actions, and the Gemini file cleanup sweep.
-- `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, and the quota snapshot the meter reads.
+- `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
 - `backend/prompt_suggestions.py` + `backend/proposers/` — rating-driven prompt rewrites, one proposer per scanner type. `backend/prompt_evaluation.py` re-runs a suggestion against rated sessions before it's applied, and `backend/feedback_themes.py` clusters written thumbs-down feedback.
@@ -76,3 +77,26 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 - `backend/admin.py` — Django admin registrations.
 - `backend/temporal/vision_actions/` + `backend/api/vision_actions.py` — scheduled follow-up actions over observations: group summaries and alerts, including the built-in daily digest.
 - `frontend/` — kea-first scenes and logics for the scanner management UI; `frontend/generated/` carries the generated API types.
+
+## Per-org credit limit override
+
+`REPLAY_VISION_ORG_CREDIT_LIMIT_OVERRIDES` caps monthly credit spend for named organizations, on top
+of whatever billing reports. It exists for organizations on unlimited plans, where billing correctly
+syncs no limit but spend still needs a ceiling — our own internal org being the case it was built for.
+
+The value is a JSON object of organization id to monthly credit cap:
+
+```json
+{ "01234567-89ab-cdef-0123-456789abcdef": 500000 }
+```
+
+- The tighter of billing's limit and the override wins, so it can only ever reduce credits.
+- Every gate and spend surface reads it, because they all resolve through `quota_state`. An org at its
+  override behaves exactly like an org at a billing limit: observations stop, and the quota UI and the
+  cost preview both price against what is left.
+- Keys are normalized through `UUID`, so uppercase or unhyphenated ids still match the org they name.
+- Values clamp at zero, and booleans are rejected. A malformed entry is dropped on its own and logged;
+  the rest of the map still applies. Unparseable JSON yields no overrides rather than failing startup.
+- Applied org ids are logged at startup, so a cap that silently failed to match is visible.
+
+Changing it takes a deploy, since it is read once at import.

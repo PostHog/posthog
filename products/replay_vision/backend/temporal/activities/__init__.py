@@ -1,6 +1,9 @@
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
+from products.replay_vision.backend.temporal.activities.auto_materialize import (
+    auto_materialize_scanner_properties_activity,
+)
 from products.replay_vision.backend.temporal.activities.backfill import (
     advance_backfill_cursor_activity,
     delete_backfill_schedule_activity,
@@ -10,6 +13,7 @@ from products.replay_vision.backend.temporal.activities.backfill import (
     reap_backfill_schedules_activity,
 )
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
+from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight_applies_activity,
@@ -64,6 +68,7 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 __all__ = [
     "advance_backfill_cursor_activity",
     "advance_scanner_watermark_activity",
+    "auto_materialize_scanner_properties_activity",
     "delete_backfill_schedule_activity",
     "find_backfill_candidates_activity",
     "pause_backfill_schedule_activity",
@@ -71,6 +76,7 @@ __all__ = [
     "reap_backfill_schedules_activity",
     "refresh_prompt_suggestion_activity",
     "call_scanner_provider_activity",
+    "check_scanner_budget_activity",
     "cleanup_gemini_file_activity",
     "count_in_flight_applies_activity",
     "count_in_flight_by_team_activity",

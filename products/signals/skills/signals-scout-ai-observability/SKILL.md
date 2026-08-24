@@ -73,7 +73,7 @@ The lenses below are the surfaces worth watching. **Do not run all of them every
 When a lens flags something, don't report the top-line number — localize and sample:
 
 - **Localize.** Slice the contributing `$ai_generation` / `$ai_trace` events by a dimension (model, `$ai_span_name`, tool, user, `ai_product`, a custom dim) to show _which_ slice drove the move — that's the difference between "cost is up" and a reportable finding.
-- **Sample.** Pull one or two representative traces via `query-llm-trace` (or a failing generation sampled from the raw `$ai_evaluation` rows) and cite concrete trace / generation / evaluation IDs in the evidence. `llma-evaluation-summary-create` groups failures into patterns with example IDs when it's available, but it's billed and can 500 — don't depend on it.
+- **Sample.** Pull one or two representative traces via `query-llm-trace` (or a failing generation sampled from the raw `$ai_evaluation` rows) and cite concrete trace / generation / evaluation IDs in the evidence. A trace you cite links to `/ai-observability/traces/<trace_id>`: use the `_posthogUrl` on the query result. If you only have an id from raw SQL, call `query-llm-trace` with that id and the relevant date range, then use its `_posthogUrl`; if the trace cannot be fetched, cite the bare id. Never build the link by serializing the trace query into `/insights/new#q=…`, which opens an empty insight because `TraceQuery` isn't an insight source.
 - **Group as a pattern** when a trend spans many traces: describe the shared shape (same model + same span, same tool error, same prompt version) rather than listing rows.
 
 ### Save memory as you go
@@ -129,7 +129,7 @@ Telemetry & cost:
 Evals & enrichment config:
 
 - `llma-evaluation-list` — eval **config** only (name, type, enabled). Pass-rates are NOT here — read the trend from `$ai_evaluation` events via `execute-sql` (the reliable path).
-- `llma-evaluation-summary-create` — optional AI pass/fail/N/A pattern summary (billed, rate-limited, currently prone to 500s — a drill-down, not the spine). Pair with `llma-evaluation-get` / `-test-hog`.
+- `llma-evaluation-report-list` / `-run-list` — the scheduled AI reports configured on an eval, and what past runs said about it (a drill-down, not the spine). Pair with `llma-evaluation-get` / `-test-hog`.
 - `llma-tagger-list` / `llma-score-definition-list` — the enrichment config surface (auto-taggers and scorers — LLM/Hog jobs that can silently break).
 - `llma-clustering-job-list` / `-get` — semantic clusters over traces/generations.
 - `llma-prompt-list` / `-get` — prompt versions, for correlating a change to its cause.

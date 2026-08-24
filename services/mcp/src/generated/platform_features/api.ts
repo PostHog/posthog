@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -82,9 +82,23 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
+    email_domain: zod
+        .string()
+        .optional()
+        .describe('Only return members whose email address is on this domain (case-insensitive).'),
+    levels: zod
+        .string()
+        .optional()
+        .describe('Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
+    outside_verified_domains: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement."
+        ),
     search: zod
         .string()
         .optional()
@@ -397,6 +411,47 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
+})
+
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
+export const CommentsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const commentsCreateBodyScopeMax = 79
+
+export const commentsCreateBodyIsTaskDefault = false
+export const commentsCreateBodyItemIdMax = 72
+
+export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
+    item_context: zod
+        .unknown()
+        .optional()
+        .describe('Metadata for the comment target, anchor, thread state, and owning task.'),
+    deleted: zod.boolean().nullish(),
+    mentions: zod.array(zod.number()).optional(),
+    slug: zod.string().optional(),
+    is_task: zod
+        .boolean()
+        .default(commentsCreateBodyIsTaskDefault)
+        .describe(
+            'Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.'
+        ),
+    content: zod.string().nullish(),
+    rich_content: zod.unknown().optional(),
+    item_id: zod.string().max(commentsCreateBodyItemIdMax).nullish(),
+    source_comment: zod.string().nullish(),
 })
 
 export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({

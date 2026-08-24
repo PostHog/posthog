@@ -29,16 +29,6 @@ interface ModeSelectorProps {
     active: boolean;
     onToggle: () => void;
   };
-  /**
-   * When provided, a "Canvas" toggle renders in the same trailing section
-   * (channels composer only). Arming it makes the next submit generate a
-   * canvas from the prompt instead of creating a plain task; while armed the
-   * trigger reads "Canvas" so the composer's state is visible at a glance.
-   */
-  canvas?: {
-    active: boolean;
-    onToggle: () => void;
-  };
 }
 
 export function ModeSelector({
@@ -47,7 +37,6 @@ export function ModeSelector({
   allowBypassPermissions,
   disabled,
   autoresearch,
-  canvas,
 }: ModeSelectorProps) {
   const [open, setOpen] = useState(false);
   const pendingValueRef = useRef<string | null>(null);
@@ -74,27 +63,20 @@ export function ModeSelector({
   if (options.length === 0) return null;
 
   const currentValue = displayOption.currentValue;
-  const canvasActive = !!canvas?.active;
-  const currentLabel = canvasActive
-    ? "Canvas"
-    : (allOptions.find((opt) => opt.value === currentValue)?.name ??
-      currentValue);
+  const currentLabel =
+    allOptions.find((opt) => opt.value === currentValue)?.name ?? currentValue;
   // Running unsupervised is the only mode the trigger colours at all, and it
   // does so as a whole destructive button rather than a tinted label — a mode
   // tint per mode turns the toolbar into a palette and stops reading as a
   // warning where it matters.
   const bypassActive =
-    !canvasActive &&
-    (currentValue === "bypassPermissions" || currentValue === "full-access");
+    currentValue === "bypassPermissions" || currentValue === "full-access";
 
   const toggles: Array<{
     label: string;
     active: boolean;
     onToggle: () => void;
   }> = [];
-  if (canvas) {
-    toggles.push({ label: "Canvas", ...canvas });
-  }
   if (autoresearch) {
     toggles.push({ label: "Autoresearch", ...autoresearch });
   }
@@ -108,8 +90,6 @@ export function ModeSelector({
         if (pendingValueRef.current !== null) {
           onChange(pendingValueRef.current);
           pendingValueRef.current = null;
-          // Picking a plain mode leaves canvas mode; the two are exclusive.
-          if (canvasActive) canvas?.onToggle();
         }
         const pendingToggle = pendingToggleRef.current;
         pendingToggleRef.current = null;
@@ -137,9 +117,7 @@ export function ModeSelector({
       >
         <MenuLabel>Mode</MenuLabel>
         <DropdownMenuRadioGroup
-          // While canvas mode is armed it reads as the selected mode, so no
-          // plain-mode radio shows checked.
-          value={canvasActive ? "" : currentValue}
+          value={currentValue}
           onValueChange={(value) => {
             pendingValueRef.current = value;
             setOpen(false);

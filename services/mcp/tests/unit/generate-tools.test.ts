@@ -1034,6 +1034,53 @@ describe('rename_params', () => {
         expect(result.code).toContain('body["$unset"] = params.property_key')
         expect(result.code).not.toContain('params.$unset')
     })
+
+    it('keeps the path param when the renamed body field shares its name', () => {
+        // The body part is merged over the path part, so a writable body field that shares a
+        // path param's name collapses into one input: the URL and the new value become the same
+        // string, and the resource can never be renamed. Renaming must drop only the body copy.
+        const config: ToolConfig = {
+            operation: 'things_partial_update',
+            enabled: true,
+            rename_params: { name: 'new_name' },
+        }
+        const resolved = makeResolved({
+            method: 'PATCH',
+            path: '/api/projects/{project_id}/things/{name}/',
+            operation: {
+                operationId: 'things_partial_update',
+                parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const composed = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
+        expect(composed.schemaExpr).toContain("ThingsPartialUpdateBody.omit({ 'name': true })")
+        expect(composed.schemaExpr).not.toContain("ThingsPartialUpdateParams.omit({ 'name': true })")
+        expect(composed.renamedFields).toEqual({ new_name: 'name' })
+
+        const generated = generateToolCode(
+            'things-partial-update',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(generated.code).toContain('body["name"] = params.new_name')
+        expect(generated.code).toContain('String(params.name)')
+    })
 })
 
 describe('param_overrides aliases', () => {

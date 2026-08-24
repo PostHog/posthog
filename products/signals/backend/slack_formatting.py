@@ -122,6 +122,123 @@ def truncate_slack_section(text: str) -> str:
     return text[: SLACK_SECTION_TEXT_MAX_LEN - 1].rstrip() + "…"
 
 
+# A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
+# headings are the natural seams to split a long report on for threaded Slack delivery.
+_MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}[ \t]+\S")
+# Opens or closes a fenced code block (``` or ~~~, up to three leading spaces per CommonMark). A
+# `# ` line inside a fence is code, not a heading: splitting there would orphan the fence and hand
+# the snippet to the mrkdwn converter as prose.
+_MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _heading_line_offsets(text: str) -> list[int]:
+    """Character offsets of the ATX heading lines, skipping any inside a fenced code block."""
+    offsets: list[int] = []
+    fence: str | None = None  # marker of the currently open fence, else None
+    offset = 0
+    for line in text.split("\n"):
+        fence_match = _MARKDOWN_FENCE_RE.match(line)
+        if fence is not None:
+            # Close only on the same fence character, at least as long as the opener (CommonMark).
+            if fence_match and fence_match.group(1)[0] == fence[0] and len(fence_match.group(1)) >= len(fence):
+                fence = None
+        elif fence_match:
+            fence = fence_match.group(1)
+        elif _MARKDOWN_HEADING_RE.match(line):
+            offsets.append(offset)
+        offset += len(line) + 1  # +1 for the "\n" that split dropped
+    return offsets
+
+
+def split_markdown_by_headings(text: str) -> list[str]:
+    """Split a Markdown summary into the lead and one segment per heading.
+
+    The first element is the text before the first heading (empty when the summary opens with one).
+    Each later element is a heading and the body under it. Headings inside fenced code blocks are
+    left in place, so a snippet is never split mid-fence. No content is dropped."""
+    text = text.strip()
+    if not text:
+        return []
+    starts = _heading_line_offsets(text)
+    if not starts:
+        return [text]
+    segments = [text[: starts[0]]]
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(text)
+        segments.append(text[start:end])
+    return segments
+
+
+# End of a sentence, allowing a closing quote or bracket before the space that follows it.
+_SENTENCE_END_RE = re.compile(r"[.!?…][\"')\]]*\s")
+_WHITESPACE_RUN_RE = re.compile(r"\s+")
+# A converter-emitted angle token left open at the end of a candidate chunk, as in `<https://ex`.
+# Slack renders each half of a broken link as visible junk, so a cut here moves back before the `<`.
+_TRAILING_OPEN_ANGLE_RE = re.compile(r"<[^<>]*$")
+# A break earlier than this share of the limit spends a whole reply on a stub, so the ladder in
+# `_line_break_index` prefers the next (later-breaking) rung over an early sentence or word end.
+_MIN_LINE_BREAK_FILL = 0.6
+
+
+def _pull_back_before_open_angle(window: str, index: int) -> int:
+    """Move a cut back before an angle token it would otherwise split, or leave it alone."""
+    match = _TRAILING_OPEN_ANGLE_RE.search(window[:index])
+    return match.start() if match else index
+
+
+def _line_break_index(line: str, limit: int) -> int:
+    """Index to cut a line that exceeds the limit on its own, preferring the most readable boundary.
+
+    Tries a sentence end, then any whitespace, so a reply never opens mid-word. Falls back to the
+    limit only for an unbreakable run such as a long URL or an encoded blob. Every rung stays out of
+    an angle token, because half a link is worse to read than an early break."""
+    window = line[:limit]
+    floor = int(limit * _MIN_LINE_BREAK_FILL)
+    for pattern in (_SENTENCE_END_RE, _WHITESPACE_RUN_RE):
+        matches = list(pattern.finditer(window))
+        if not matches:
+            continue
+        index = _pull_back_before_open_angle(window, matches[-1].end())
+        if index >= floor:
+            return index
+    hard_cut = _pull_back_before_open_angle(window, limit)
+    # A token longer than the whole window has nowhere safe to break, so the link is split anyway.
+    return hard_cut if hard_cut > 0 else limit
+
+
+def chunk_slack_mrkdwn(text: str) -> list[str]:
+    """Split converted mrkdwn into chunks that each fit one Slack section, breaking on line ends.
+
+    A line longer than the limit on its own breaks at the best boundary `_line_break_index` finds,
+    so a report written as unbroken prose still reads as sentences. Returns no empty chunks, so the
+    tail of a long report reaches the channel instead of being clipped at the section cap."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= SLACK_SECTION_TEXT_MAX_LEN:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        while len(line) > SLACK_SECTION_TEXT_MAX_LEN:
+            if current:
+                chunks.append(current.rstrip())
+                current = ""
+            cut = _line_break_index(line, SLACK_SECTION_TEXT_MAX_LEN)
+            chunks.append(line[:cut].rstrip())
+            line = line[cut:]
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) > SLACK_SECTION_TEXT_MAX_LEN:
+            if current:
+                chunks.append(current.rstrip())
+            current = line
+        else:
+            current = candidate
+    if current.strip():
+        chunks.append(current.rstrip())
+    return chunks
+
+
 def slack_channel_id_from_target(value: str) -> str:
     """Extract the Slack channel ID from the frontend picker's `id|#name` value."""
     return value.split("|", 1)[0].strip()
