@@ -137,14 +137,14 @@ class ChannelsAPITestCase(TestCase):
             [general[0]["id"]],
         )
 
-    def test_onboarding_test_tools_require_staff(self):
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=False)
+    def test_onboarding_test_tools_require_the_feature_flag(self, _enabled):
         for action in ("onboarding_session_test", "teaching_canvas_test"):
             response = self.client.post(f"{self._channels_url()}{action}/", {}, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_staff_can_create_test_onboarding_artifacts(self):
-        self.user.is_staff = True
-        self.user.save(update_fields=["is_staff"])
+    @patch("products.tasks.backend.presentation.views.channels_api.onboarding_test_tools_enabled", return_value=True)
+    def test_flagged_user_can_create_test_onboarding_artifacts(self, _enabled):
         general_id = next(
             channel["id"] for channel in self._provision()["channels"] if channel["system_role"] == "general"
         )

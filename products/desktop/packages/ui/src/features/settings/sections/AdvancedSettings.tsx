@@ -1,8 +1,6 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { ONBOARDING_TEST_TOOLS_FLAG } from "@posthog/shared";
-import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import {
@@ -38,15 +36,10 @@ export function AdvancedSettings() {
   const hostTRPC = useHostTRPC();
   const { data: rtkStatus } = useQuery(hostTRPC.agent.rtkStatus.queryOptions());
   const devModeClient = useServiceOptional<DevModeClient>(DEV_MODE_CLIENT);
-  const authenticatedClient = useOptionalAuthenticatedClient();
-  const { data: currentUser } = useCurrentUser({ client: authenticatedClient });
-  const showOnboardingTestTools =
-    useFeatureFlag(ONBOARDING_TEST_TOOLS_FLAG) &&
-    currentUser?.is_staff === true;
+  const showOnboardingTools = useFeatureFlag(ONBOARDING_TEST_TOOLS_FLAG);
 
   return (
     <Flex direction="column">
-      {showOnboardingTestTools && <OnboardingTestTools />}
       <SettingRow
         label="Always create pull requests for cloud runs"
         description="Cloud runs push their changes and open a draft pull request when they finish, without waiting for you to ask"
@@ -96,23 +89,28 @@ export function AdvancedSettings() {
           )}
         </Flex>
       </SettingRow>
-      <SettingRow
-        label="Reset onboarding and tours"
-        description="Re-run the onboarding tutorial and product tours on next app restart"
-      >
-        <Button
-          variant="soft"
-          size="1"
-          onClick={() => {
-            closeSettings();
-            useOnboardingStore.getState().resetOnboarding();
-            useSetupStore.getState().resetSetup();
-            useTourStore.getState().resetTours();
-          }}
-        >
-          Reset
-        </Button>
-      </SettingRow>
+      {showOnboardingTools && (
+        <>
+          <SettingRow
+            label="Reset onboarding and tours"
+            description="Re-run the onboarding tutorial and product tours on next app restart"
+          >
+            <Button
+              variant="soft"
+              size="1"
+              onClick={() => {
+                closeSettings();
+                useOnboardingStore.getState().resetOnboarding();
+                useSetupStore.getState().resetSetup();
+                useTourStore.getState().resetTours();
+              }}
+            >
+              Reset
+            </Button>
+          </SettingRow>
+          <OnboardingTestTools />
+        </>
+      )}
       <SettingRow
         label="Clear application storage"
         description="This will remove all locally stored application data"

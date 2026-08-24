@@ -5,6 +5,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
@@ -20,20 +21,100 @@ function commaSeparated(value: string): string[] {
     .filter(Boolean);
 }
 
+const ONBOARDING_SCENARIOS = {
+  "first-user-new-project": {
+    label: "First user, new project",
+    companyDomain: "posthog.com",
+    joiningExistingOrganization: false,
+    hasEvents: false,
+    signalReportsWaiting: 0,
+    otherMembers: "",
+    sourcesEnabled: "",
+    sourcesWatching: "",
+    sourcesNewlyEnabled: false,
+  },
+  "first-user-active-project": {
+    label: "First user, active project",
+    companyDomain: "posthog.com",
+    joiningExistingOrganization: false,
+    hasEvents: true,
+    signalReportsWaiting: 0,
+    otherMembers: "",
+    sourcesEnabled: "error tracking, web analytics",
+    sourcesWatching: "errors, conversion drops",
+    sourcesNewlyEnabled: false,
+  },
+  "joining-existing-organization": {
+    label: "Joining an existing organization",
+    companyDomain: "",
+    joiningExistingOrganization: true,
+    hasEvents: true,
+    signalReportsWaiting: 3,
+    otherMembers: "Max, Lotte",
+    sourcesEnabled: "error tracking, web analytics, experiments",
+    sourcesWatching: "errors, conversion drops, experiment regressions",
+    sourcesNewlyEnabled: false,
+  },
+  "new-signal-sources": {
+    label: "First user, sources newly enabled",
+    companyDomain: "posthog.com",
+    joiningExistingOrganization: false,
+    hasEvents: true,
+    signalReportsWaiting: 0,
+    otherMembers: "",
+    sourcesEnabled: "error tracking, web analytics",
+    sourcesWatching: "errors, conversion drops",
+    sourcesNewlyEnabled: true,
+  },
+} as const;
+
+type OnboardingScenario = keyof typeof ONBOARDING_SCENARIOS;
+
+const DEFAULT_SCENARIO: OnboardingScenario = "first-user-new-project";
+const DEFAULT_VALUES = ONBOARDING_SCENARIOS[DEFAULT_SCENARIO];
+
 export function OnboardingTestTools(): ReactElement {
   const client = useAuthenticatedClient();
-  const [companyDomain, setCompanyDomain] = useState("");
+  const [scenario, setScenario] =
+    useState<OnboardingScenario>(DEFAULT_SCENARIO);
+  const [companyDomain, setCompanyDomain] = useState<string>(
+    DEFAULT_VALUES.companyDomain,
+  );
   const [joiningExistingOrganization, setJoiningExistingOrganization] =
-    useState(false);
-  const [hasEvents, setHasEvents] = useState(false);
-  const [signalReportsWaiting, setSignalReportsWaiting] = useState(0);
-  const [otherMembers, setOtherMembers] = useState("");
-  const [sourcesEnabled, setSourcesEnabled] = useState("");
-  const [sourcesWatching, setSourcesWatching] = useState("");
-  const [sourcesNewlyEnabled, setSourcesNewlyEnabled] = useState(false);
+    useState<boolean>(DEFAULT_VALUES.joiningExistingOrganization);
+  const [hasEvents, setHasEvents] = useState<boolean>(DEFAULT_VALUES.hasEvents);
+  const [signalReportsWaiting, setSignalReportsWaiting] = useState<number>(
+    DEFAULT_VALUES.signalReportsWaiting,
+  );
+  const [otherMembers, setOtherMembers] = useState<string>(
+    DEFAULT_VALUES.otherMembers,
+  );
+  const [sourcesEnabled, setSourcesEnabled] = useState<string>(
+    DEFAULT_VALUES.sourcesEnabled,
+  );
+  const [sourcesWatching, setSourcesWatching] = useState<string>(
+    DEFAULT_VALUES.sourcesWatching,
+  );
+  const [sourcesNewlyEnabled, setSourcesNewlyEnabled] = useState<boolean>(
+    DEFAULT_VALUES.sourcesNewlyEnabled,
+  );
   const [includeTeachingCanvas, setIncludeTeachingCanvas] = useState(true);
   const [startingSession, setStartingSession] = useState(false);
   const [creatingCanvas, setCreatingCanvas] = useState(false);
+
+  const applyScenario = (nextScenario: string): void => {
+    const selected = nextScenario as OnboardingScenario;
+    const values = ONBOARDING_SCENARIOS[selected];
+    setScenario(selected);
+    setCompanyDomain(values.companyDomain);
+    setJoiningExistingOrganization(values.joiningExistingOrganization);
+    setHasEvents(values.hasEvents);
+    setSignalReportsWaiting(values.signalReportsWaiting);
+    setOtherMembers(values.otherMembers);
+    setSourcesEnabled(values.sourcesEnabled);
+    setSourcesWatching(values.sourcesWatching);
+    setSourcesNewlyEnabled(values.sourcesNewlyEnabled);
+  };
 
   const startSession = async (): Promise<void> => {
     setStartingSession(true);
@@ -81,6 +162,24 @@ export function OnboardingTestTools(): ReactElement {
       description="Create repeatable first-run experiences from explicit prompt inputs."
     >
       <SettingsCard>
+        <SettingsCardRow
+          label="Scenario"
+          description="Choose a useful starting point, then adjust any input below."
+        >
+          <SettingsSelect
+            value={scenario}
+            options={Object.entries(ONBOARDING_SCENARIOS).map(
+              ([value, preset]) => ({ value, label: preset.label }),
+            )}
+            onChange={(value) => {
+              if (value) {
+                applyScenario(value);
+              }
+            }}
+            ariaLabel="Onboarding test scenario"
+            triggerClassName="w-64"
+          />
+        </SettingsCardRow>
         <div className="grid grid-cols-2 gap-3 p-3.5">
           <Field>
             <FieldLabel htmlFor="onboarding-company-domain">

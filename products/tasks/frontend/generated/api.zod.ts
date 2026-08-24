@@ -1056,7 +1056,7 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
     .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
- * Staff-only test path that creates a repeatable session from explicit prompt-building inputs.
+ * Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs.
  * @summary Start a test first-run onboarding session
  */
 export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``

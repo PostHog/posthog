@@ -47,6 +47,7 @@ ONBOARDING_SESSION_EFFORT = "medium"
 ONBOARDING_SESSION_SCOPES = ["task:read", "task:write", "canvas:read"]
 
 SPACES_FLAGS = ("code-spaces-layout", "project-bluebird")
+ONBOARDING_TEST_TOOLS_FLAG = "posthog-desktop-onboarding-test-tools"
 
 ONBOARDING_ORIGIN_KEY_PREFIX = "desktop_onboarding_session"
 
@@ -140,6 +141,30 @@ def _session_enabled(team: Team, user: User) -> bool:
         )
     except Exception:
         logger.warning("onboarding_session_flag_check_failed", team_id=team.id)
+        return False
+
+
+def onboarding_test_tools_enabled(team: Team, user: User) -> bool:
+    if settings.DEBUG:
+        return True
+
+    distinct_id = user.distinct_id
+    if not distinct_id:
+        return False
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                ONBOARDING_TEST_TOOLS_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.warning("onboarding_test_tools_flag_check_failed", team_id=team.id)
         return False
 
 

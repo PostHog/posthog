@@ -20,7 +20,11 @@ from posthog.permissions import APIScopePermission
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
-from products.tasks.backend.facade.onboarding import start_onboarding_session, start_onboarding_test_session
+from products.tasks.backend.facade.onboarding import (
+    onboarding_test_tools_enabled,
+    start_onboarding_session,
+    start_onboarding_test_session,
+)
 from products.tasks.backend.facade.onboarding_canvas import ensure_teaching_canvas
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
@@ -170,12 +174,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=OnboardingSessionTestSerializer,
         responses={200: OnboardingSessionTestResponseSerializer},
         summary="Start a test first-run onboarding session",
-        description="Staff-only test path that creates a repeatable session from explicit prompt-building inputs.",
+        description="Feature-flagged test path that creates a repeatable session from explicit prompt-building inputs.",
     )
     @action(methods=["POST"], detail=False, url_path="onboarding_session_test")
     def onboarding_session_test(self, request: Request, **kwargs) -> Response:
-        if not isinstance(request.user, User) or not request.user.is_staff:
-            raise PermissionDenied("Testing onboarding sessions requires staff access.")
+        if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
+            raise PermissionDenied("The onboarding test tools feature is not enabled.")
         serializer = OnboardingSessionTestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
@@ -193,12 +197,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=None,
         responses={200: TeachingCanvasSerializer},
         summary="Create the teaching canvas for testing",
-        description="Staff-only test path that resolves or creates the teaching canvas in #general.",
+        description="Feature-flagged test path that resolves or creates the teaching canvas in #general.",
     )
     @action(methods=["POST"], detail=False, url_path="teaching_canvas_test")
     def teaching_canvas_test(self, request: Request, **kwargs) -> Response:
-        if not isinstance(request.user, User) or not request.user.is_staff:
-            raise PermissionDenied("Testing the teaching canvas requires staff access.")
+        if not isinstance(request.user, User) or not onboarding_test_tools_enabled(self.team, request.user):
+            raise PermissionDenied("The onboarding test tools feature is not enabled.")
         channel_id = tasks_facade.find_general_channel_id(self.team_id)
         if channel_id is None:
             return Response({"detail": "No #general space for the teaching canvas."}, status=409)

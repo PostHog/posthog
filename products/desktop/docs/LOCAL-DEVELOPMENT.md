@@ -137,10 +137,10 @@ region you pick at login.
 
 ### Test first-run onboarding
 
-Staff users with `posthog-desktop-onboarding-test-tools` enabled see onboarding
-test tools in **Settings > Advanced**. The form creates repeatable sessions from
-explicit company, organization, data, findings, and signal-source inputs. A
-separate action resolves or creates the teaching canvas in the general space.
+Users with `posthog-desktop-onboarding-test-tools` enabled see onboarding test
+tools in **Settings > Advanced**. Scenario presets fill the form with useful
+defaults, and every prompt input remains editable. A separate action resolves
+or creates the teaching canvas in the general space.
 
 Local development can enable the panel with the renderer override:
 
