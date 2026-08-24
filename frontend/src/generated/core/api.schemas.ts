@@ -4373,6 +4373,17 @@ export interface UserGitHubAccountApi {
     name?: string | null
 }
 
+/**
+ * * `connected` - connected
+ * * `unavailable` - unavailable
+ */
+export type InstallationStatusEnumApi = (typeof InstallationStatusEnumApi)[keyof typeof InstallationStatusEnumApi]
+
+export const InstallationStatusEnumApi = {
+    Connected: 'connected',
+    Unavailable: 'unavailable',
+} as const
+
 export interface UserGitHubIntegrationItemApi {
     /** PostHog UserIntegration row id. */
     id: string
@@ -4394,6 +4405,13 @@ export interface UserGitHubIntegrationItemApi {
     github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
+    /** Whether any other PostHog project or personal connection references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization. */
+    installation_shared: boolean
+    /** `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
     /** When this integration row was created. */
     created_at: string
 }
@@ -4449,11 +4467,18 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /** Total number of repositories matching the search query, across all pages. */
+    total: number
 }
 
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+    /** `unavailable` when GitHub reports the App installation as uninstalled or suspended, in which case `repositories` is the last cached list rather than a fresh one.
+     *
+     * * `connected` - connected
+     * * `unavailable` - unavailable */
+    installation_status: InstallationStatusEnumApi
 }
 
 /**
@@ -4486,6 +4511,16 @@ export interface GitHubInstallRequestItemApi {
      * @nullable
      */
     installation_id?: string | null
+    /**
+     * GitHub organization or user login the installation was approved under, once known.
+     * @nullable
+     */
+    account_login?: string | null
+    /**
+     * GitHub account type (`Organization` or `User`) the installation was approved under, once known.
+     * @nullable
+     */
+    account_type?: string | null
     /** When the install approval was requested. */
     requested_at: string
     /**
@@ -4498,6 +4533,11 @@ export interface GitHubInstallRequestItemApi {
 export interface GitHubInstallRequestListResponseApi {
     /** The user's GitHub App install-approval requests, newest first. */
     results: GitHubInstallRequestItemApi[]
+    /**
+     * Shareable GitHub App install URL with no PostHog session state, for an org owner who needs to approve the install. Null when the GitHub App is not configured on this instance.
+     * @nullable
+     */
+    install_url?: string | null
 }
 
 export interface UserGitHubPrepareCallbackRequestApi {

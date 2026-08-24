@@ -30,7 +30,7 @@ import { type ComponentType, type ReactNode, useState } from "react";
 
 interface InboxDetailFrameProps {
   report: SignalReport;
-  /** List route for the back-link (e.g. "/code/inbox/pulls"). */
+  /** List route for the back-link (e.g. "/inbox/pulls"). */
   backTo: InboxListRoute;
   backLabel: string;
   /**

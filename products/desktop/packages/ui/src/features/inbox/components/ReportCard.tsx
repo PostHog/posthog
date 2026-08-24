@@ -325,11 +325,11 @@ export function ReportCard(props: ReportCardProps) {
 
   const detailRoute = isArchived
     ? {
-        to: "/code/inbox/dismissed/$reportId" as const,
+        to: "/inbox/dismissed/$reportId" as const,
         params: { reportId: report.id },
       }
     : {
-        to: "/code/inbox/reports/$reportId" as const,
+        to: "/inbox/reports/$reportId" as const,
         params: { reportId: report.id },
       };
   const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(

@@ -35,10 +35,10 @@ interface InboxReportDetailGateProps {
 }
 
 type InboxDetailRoute =
-  | "/code/inbox/pulls/$reportId"
-  | "/code/inbox/reports/$reportId"
-  | "/code/inbox/runs/$reportId"
-  | "/code/inbox/dismissed/$reportId";
+  | "/inbox/pulls/$reportId"
+  | "/inbox/reports/$reportId"
+  | "/inbox/runs/$reportId"
+  | "/inbox/dismissed/$reportId";
 
 /**
  * Detail route a non-suppressed report belongs on, by the same tab-membership
@@ -48,9 +48,9 @@ type InboxDetailRoute =
  * through to Runs — the only tab that actually lists them.
  */
 function nonSuppressedDetailRoute(report: SignalReport): InboxDetailRoute {
-  if (isPullRequestReport(report)) return "/code/inbox/pulls/$reportId";
-  if (isReportTabReport(report)) return "/code/inbox/reports/$reportId";
-  return "/code/inbox/runs/$reportId";
+  if (isPullRequestReport(report)) return "/inbox/pulls/$reportId";
+  if (isReportTabReport(report)) return "/inbox/reports/$reportId";
+  return "/inbox/runs/$reportId";
 }
 
 /**
@@ -90,13 +90,13 @@ export function InboxReportDetailGate({
   // `initialDataUpdatedAt: 0`). Both terminal states belong on the Archive route,
   // so resolved cards keep their reference-only detail view instead of being
   // bounced to Runs.
-  const onDismissedRoute = backTo === "/code/inbox/dismissed";
+  const onDismissedRoute = backTo === "/inbox/dismissed";
   const isArchived =
     resolvedReport != null && isDismissedReport(resolvedReport);
   let redirectTo: InboxDetailRoute | null = null;
   if (resolvedReport && !isFetching) {
     if (isArchived && !onDismissedRoute) {
-      redirectTo = "/code/inbox/dismissed/$reportId";
+      redirectTo = "/inbox/dismissed/$reportId";
     } else if (!isArchived && onDismissedRoute) {
       redirectTo = nonSuppressedDetailRoute(resolvedReport);
     }
@@ -123,7 +123,7 @@ export function InboxReportDetailGate({
       // only fires from a non-Archive route, so `backTo` is the pipeline origin
       // the user is returning to.
       state:
-        redirectTo === "/code/inbox/dismissed/$reportId"
+        redirectTo === "/inbox/dismissed/$reportId"
           ? { inboxBackOrigin: { to: backTo, label: backLabel } }
           : undefined,
     });
@@ -182,9 +182,9 @@ export function InboxReportDetailGate({
 function tabFromBackTo(
   backTo: InboxReportDetailGateProps["backTo"],
 ): InboxDetailTab | null {
-  if (backTo === "/code/inbox/pulls") return "pulls";
-  if (backTo === "/code/inbox/runs") return "runs";
-  if (backTo === "/code/inbox/dismissed") return null;
+  if (backTo === "/inbox/pulls") return "pulls";
+  if (backTo === "/inbox/runs") return "runs";
+  if (backTo === "/inbox/dismissed") return null;
   return "reports";
 }
 

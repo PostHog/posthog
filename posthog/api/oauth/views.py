@@ -694,6 +694,13 @@ class OAuthValidator(OAuth2Validator):
         - a token that never held any scope refreshes as an empty grant instead.
           Rejecting that one would loop, since re-authorizing returns the same empty
           grant; its 403s by scope are where the client should find out.
+        - except for first-party apps, where an empty grant is rejected
+          (`invalid_grant`). `/authorize` auto-grants first-party requests their full
+          clamped scope set with no consent screen, so re-authorization cannot return
+          another empty grant and the loop above does not apply. A scope-less token
+          only arises for them as a corruption artifact (e.g. a refresh racing the
+          reuse-protection mass revoke), and letting it refresh forever leaves the
+          client silently 403ing on every resource call instead of re-authorizing.
 
         An empty `ceiling_scopes` (no ceiling) is a no-op. Refresh never enforces the
         required floor — a token consented below a later-declared required set keeps
@@ -711,6 +718,16 @@ class OAuthValidator(OAuth2Validator):
             application = rt.application if rt else None
 
         narrowed = narrow_scopes_to_ceiling(original_list, getattr(application, "ceiling_scopes", None) or [])
+        if narrowed == [] and getattr(application, "is_first_party", False):
+            logger.warning(
+                "oauth_empty_scope_refresh_rejected",
+                client_name=getattr(application, "name", "unknown"),
+                app_id=str(getattr(application, "pk", "unknown")),
+            )
+            raise InvalidGrantError(
+                description="Token carries no scopes; re-authorize to obtain a scoped token.",
+                request=request,
+            )
         if narrowed is None:
             # Raised inside oauthlib's validate_token_request, which create_token_response
             # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.

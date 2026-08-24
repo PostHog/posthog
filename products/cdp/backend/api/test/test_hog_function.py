@@ -805,6 +805,50 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1Uvej4GHsYRbsTN_txcQHNnU7zvLee83DhHIrThEjceoq8i7hbfKrvqjEi7GCGc_k_Gi3V5KFxDOfLKnke4KM4s"
         )
 
+    def test_masked_secrets_lists_only_functions_storing_the_mask(self, *args):
+        secret_schema = [{"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": True}]
+        healthy = HogFunction.objects.create(
+            team=self.team,
+            name="Healthy",
+            type="destination",
+            enabled=True,
+            inputs_schema=secret_schema,
+            encrypted_inputs={"api_key": {"value": "I AM SECRET", "order": 0}},
+        )
+        poisoned = HogFunction.objects.create(
+            team=self.team,
+            name="Poisoned",
+            type="destination",
+            enabled=True,
+            inputs_schema=secret_schema,
+            encrypted_inputs={"api_key": {"value": "********", "order": 0}},
+        )
+        poisoned_draft = HogFunction.objects.create(
+            team=self.team,
+            name="Poisoned draft",
+            type="destination",
+            enabled=False,
+            inputs_schema=secret_schema,
+            encrypted_inputs={"api_key": {"value": "I AM SECRET", "order": 0}},
+            draft_encrypted_inputs={"api_key": {"value": "********", "order": 0}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/masked_secrets/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        results = {row["id"]: row for row in response.json()}
+        assert set(results) == {str(poisoned.id), str(poisoned_draft.id)}
+        assert str(healthy.id) not in results
+
+        assert results[str(poisoned.id)]["input_keys"] == ["api_key"]
+        assert results[str(poisoned.id)]["draft_input_keys"] == []
+        assert results[str(poisoned.id)]["enabled"] is True
+        assert results[str(poisoned_draft.id)]["input_keys"] == []
+        assert results[str(poisoned_draft.id)]["draft_input_keys"] == ["api_key"]
+
+        # The response is read by an incident banner in the browser, so it must carry keys only.
+        assert "I AM SECRET" not in response.content.decode()
+
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
             "type": "destination",

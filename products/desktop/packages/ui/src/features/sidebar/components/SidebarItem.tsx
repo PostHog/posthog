@@ -65,6 +65,7 @@ export function SidebarItem({
   endHint,
   disabled,
   ref,
+  className,
   ...buttonProps
 }: SidebarItemProps) {
   const { reveal, hoverProps, focusProps } = useOverflowTickerReveal();
@@ -91,6 +92,9 @@ export function SidebarItem({
         // part of a bulk selection.
         "relative data-in-selection:before:absolute data-in-selection:before:inset-y-0 data-in-selection:before:left-0 data-in-selection:before:w-0.5 data-in-selection:before:bg-primary data-in-selection:before:content-['']",
         isDimmed && "opacity-50",
+        // Last, so a caller can override the row's cursor-default — the
+        // spread above sits before this prop and would otherwise drop it.
+        className,
       )}
       data-active={isActive || undefined}
       data-in-selection={isSelected || undefined}

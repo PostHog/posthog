@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
@@ -256,6 +257,11 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
+def visible_report_count(team_id: int) -> int:
+    """How many reports have surfaced to this team's inbox."""
+    return SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False).count()
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 
@@ -334,6 +340,72 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
                 SignalSourceConfig.objects.filter(
                     team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
                 ).update(enabled=False)
+
+
+# Each source carries two names: the label, which is the product it comes from, and the watch, which
+# is the problem it catches. Onboarding copy needs the second one, because "error tracking" tells a
+# first-time reader nothing about what turning it on did for them.
+_ONBOARDING_NATIVE_SOURCES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
+    (
+        SignalSourceProduct.ERROR_TRACKING,
+        ("issue_created", "issue_reopened", "issue_spiking"),
+        "error tracking",
+        "errors",
+    ),
+    (SignalSourceProduct.HEALTH_CHECKS, ("health_issue",), "health checks", "failing health checks"),
+    (SignalSourceProduct.CONVERSATIONS, ("ticket",), "support tickets", "support tickets"),
+    (SignalSourceProduct.LLM_ANALYTICS, ("evaluation_report",), "AI observability", "AI evals"),
+    (SignalSourceProduct.ANALYTICS, ("anomaly_investigation",), "product analytics", "metric swings"),
+)
+
+
+_ONBOARDING_LABELS: dict[str, str] = {product: label for product, _, label, _watch in _ONBOARDING_NATIVE_SOURCES}
+
+
+@dataclasses.dataclass(frozen=True)
+class OnboardingSources:
+    labels: tuple[str, ...]
+    watches: tuple[str, ...]
+    newly_enabled: bool
+
+
+def _active_source_labels(team_id: int) -> tuple[str, ...]:
+    products = (
+        SignalSourceConfig.objects.filter(team_id=team_id, enabled=True)
+        .values_list("source_product", flat=True)
+        .distinct()
+    )
+    labels = {
+        _ONBOARDING_LABELS.get(product) or SIGNAL_SOURCE_PRODUCT_LABELS.get(SignalSourceProduct(product), product)
+        for product in products
+    }
+    return tuple(sorted(labels))
+
+
+def enable_onboarding_signal_sources(team_id: int, user_id: int) -> OnboardingSources:
+    known = set(SignalSourceConfig.objects.filter(team_id=team_id).values_list("source_product", "source_type"))
+    created: list[str] = []
+    watches: list[str] = []
+    for source_product, source_types, label, watch in _ONBOARDING_NATIVE_SOURCES:
+        missing = tuple(t for t in source_types if (source_product, t) not in known)
+        if not missing:
+            continue
+        try:
+            set_signal_source_types_enabled(
+                team_id=team_id,
+                source_product=source_product,
+                source_types=missing,
+                enabled=True,
+                created_by_id=user_id,
+            )
+        except Exception:
+            logger.exception("onboarding_signal_source_enable_failed", team_id=team_id, source_product=source_product)
+            continue
+        created.append(label)
+        watches.append(watch)
+    if created:
+        return OnboardingSources(labels=tuple(created), watches=tuple(watches), newly_enabled=True)
+    return OnboardingSources(labels=_active_source_labels(team_id), watches=(), newly_enabled=False)
 
 
 # The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
