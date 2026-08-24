@@ -4,7 +4,10 @@ import type {
   CommentEventPayload,
 } from "@posthog/core/canvas/activityEvents";
 import {
-  type ActivityRow,
+  type GroupedActivityRow,
+  groupActivityRows,
+} from "@posthog/core/canvas/activityGrouping";
+import {
   buildActivityTimeline,
   type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
@@ -31,6 +34,7 @@ import {
   CommentRow,
   CommentStateRow,
   CREATED_BADGE,
+  GroupedEventRow,
   MESSAGE_BADGE,
   MessageBubble,
   PersonBead,
@@ -181,62 +185,68 @@ export function ActivityTimeline({
     return byId;
   }, [timeline]);
 
-  const rows = useMemo(
-    () =>
-      buildActivityTimeline({
-        task: {
-          id: task.id,
-          createdAt: task.created_at,
-          updatedAt: task.updated_at,
-          latestRunId: task.latest_run?.id ?? null,
-          latestRunStatus: task.latest_run?.status ?? null,
-          latestRunPrUrl:
-            typeof task.latest_run?.output?.pr_url === "string"
-              ? task.latest_run.output.pr_url
-              : null,
-        },
-        messages,
-        commentThreads: commentThreads.map((thread) => ({
-          id: thread.id,
-          lastActivityAt: thread.last_activity_at,
-          mentionedUserIds: thread.mentioned_user_ids ?? [],
-          resolved: thread.resolved,
-          stateEvent: thread.state_event
-            ? {
-                state: thread.state_event.state,
-                createdAt: thread.state_event.created_at,
-              }
+  const timelineRows = useMemo(() => {
+    const taskCreatedTimestamp = Date.parse(task.created_at);
+    return buildActivityTimeline({
+      task: {
+        id: task.id,
+        createdAt: task.created_at,
+        updatedAt: task.updated_at,
+        latestRunId: task.latest_run?.id ?? null,
+        latestRunStatus: task.latest_run?.status ?? null,
+        latestRunPrUrl:
+          typeof task.latest_run?.output?.pr_url === "string"
+            ? task.latest_run.output.pr_url
             : null,
-        })),
-        userMessages: conversationItems.reduce<UserMessageLike[]>(
-          (items, item) => {
-            if (item.type === "user_message") {
-              items.push({
-                id: item.id,
-                content: item.content,
-                timestamp: item.timestamp,
-              });
+      },
+      messages,
+      commentThreads: commentThreads.map((thread) => ({
+        id: thread.id,
+        lastActivityAt: thread.last_activity_at,
+        mentionedUserIds: thread.mentioned_user_ids ?? [],
+        resolved: thread.resolved,
+        stateEvent: thread.state_event
+          ? {
+              state: thread.state_event.state,
+              createdAt: thread.state_event.created_at,
             }
-            return items;
-          },
-          [],
-        ),
-      }),
-    [task, messages, commentThreads, conversationItems],
-  );
+          : null,
+      })),
+      userMessages: conversationItems.reduce<UserMessageLike[]>(
+        (items, item) => {
+          if (item.type === "user_message") {
+            items.push({
+              id: item.id,
+              content: item.content,
+              timestamp:
+                item.pinToTop === true && Number.isFinite(taskCreatedTimestamp)
+                  ? taskCreatedTimestamp
+                  : item.timestamp,
+            });
+          }
+          return items;
+        },
+        [],
+      ),
+    });
+  }, [task, messages, commentThreads, conversationItems]);
+
+  // A stretch of rows each saying "1 commit pushed" reads as noise and buries everything
+  // else, so neighbours that said the same thing collapse into one row.
+  const rows = useMemo(() => groupActivityRows(timelineRows), [timelineRows]);
 
   // Numbering a run and deciding whether to number it at all have to come from the same
   // population, or a task with three runs and one row labels that row "run 1".
   const runStartedCount = useMemo(
     () =>
-      rows.reduce(
+      timelineRows.reduce(
         (count, row) =>
           row.kind === "event" && row.event.kind === "run_started"
             ? count + 1
             : count,
         0,
       ),
-    [rows],
+    [timelineRows],
   );
 
   const threadsById = useMemo(() => {
@@ -275,6 +285,7 @@ export function ActivityTimeline({
         runId,
         artifactId: payload.artifactId,
         name: payload.name,
+        objectKind: payload.objectKind ?? undefined,
       });
   };
 
@@ -321,11 +332,20 @@ export function ActivityTimeline({
   };
 
   const renderRow = (
-    row: ActivityRow<TaskThreadMessage>,
+    row: GroupedActivityRow<TaskThreadMessage>,
     connectedAbove: boolean,
     connectedBelow: boolean,
   ) => {
     switch (row.kind) {
+      case "event_group":
+        return (
+          <GroupedEventRow
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
+            events={row.events}
+            timestamp={new Date(row.ts).toISOString()}
+          />
+        );
       case "task_created":
         return (
           <TimelineRow
@@ -397,6 +417,7 @@ export function ActivityTimeline({
                 <ArtifactEventDetail
                   payload={row.event.payload}
                   onOpen={openArtifact(row.event.payload)}
+                  taskId={canOpenInPlace ? task.id : undefined}
                 />
               ) : undefined
             }

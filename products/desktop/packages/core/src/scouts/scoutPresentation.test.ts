@@ -425,8 +425,8 @@ describe("lifecycle", () => {
   });
 
   it("says an inactivity pause never lifts itself", () => {
-    // The sweep has no probe: a human re-enable is the only exit, and that
-    // re-enable also marks the scout exempt.
+    // The sweep has no probe: a human re-enable is the only exit, and the copy
+    // must not promise the permanent exemption a resume no longer mints.
     const state = deriveScoutLifecycle(
       makeConfig({
         enabled: false,
@@ -434,8 +434,8 @@ describe("lifecycle", () => {
         pause_reason: "ignored",
       }),
     );
-    expect(state.explanation).toContain("exempts it from inactivity pauses");
-    expect(state.explanation).not.toMatch(/retries|on its own/i);
+    expect(state.explanation).toContain("can pause again later");
+    expect(state.explanation).not.toMatch(/retries|on its own|exempt/i);
   });
 
   it("says a failure pause retries on its own", () => {

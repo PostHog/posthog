@@ -159,6 +159,19 @@ Default to shallow; go deep only for real merge-base or version math, and even t
   Sparse-checkout `.nvmrc` if the job has no checkout.
 - **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API on every job and burns the rate limit.
 
+## Network fetches
+
+Downloads from outside the runner need retries, or a transient reset becomes a red check with no findings ([actionlint died on `curl: (35)`](https://github.com/PostHog/posthog/actions/runs/32022348027/job/95364480249)).
+
+```bash
+curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 -o "$out" "$url"
+```
+
+- `--retry-all-errors` is the part that catches a reset; plain `--retry` covers only timeouts and 408/429/5xx, and `--retry-connrefused` adds `ECONNREFUSED`, not `ECONNRESET`.
+- Drop it on GitHub API calls: with `-f` it also retries 403 and 404, spending five more requests on an already-empty token bucket.
+- No `--retry-delay` (it replaces exponential backoff with a fixed wait). Keep `-f`, or an error page lands in your output file at exit 0.
+- Don't retry anything non-idempotent (webhook posts, telemetry), or where a shell loop or readiness wait already retries.
+
 ## Tokens — dedicated App tokens for high-volume calls
 
 `GITHUB_TOKEN` shares one ~15k req/hr bucket across every job of every run in the repo; it goes hot at merge peaks and change-detection jobs fail before real work starts.
@@ -207,6 +220,12 @@ Route through the shared composites rather than hand-rolling `actions/cache`: `.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
+**Any job that runs `manage.py migrate` against a fresh Postgres must restore the master schema dump first**, keeping the migrate as a seconds-long top-up.
+A from-scratch replay of the full migration history grows with every migration merged and already costs more than most jobs' `timeout-minutes`, so an uncached migrate is a timeout that hasn't fired yet ([agent-skills cancelled at 30 min with the checks green](https://github.com/PostHog/posthog/actions/runs/32250956659/job/96061773764)).
+Copy the three steps (compute keys, `actions/cache/restore`, prime) from `ci-agent-skills.yml` for compose-stack jobs or `ci-rust-flags-integration.yml` for service-container jobs; `hogli db:restore-schema-fresh` reads `TARGET_DB` to pick the database.
+A miss falls through to the full migrate, so the restore is never a correctness risk.
+The only sanctioned exception is a job whose purpose is validating the migration history itself (ci-backend's `check-migrations`), where a restored dump would mask what it checks.
+
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
@@ -233,8 +252,10 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
 - [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
+- [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] Caching through the shared composites; writes gated to master.
+- [ ] Any job running `manage.py migrate` restores the master schema dump first, with the migrate as top-up (see Caching).
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.
 - [ ] `bin/hogli lint:workflows` and `actionlint` pass locally.

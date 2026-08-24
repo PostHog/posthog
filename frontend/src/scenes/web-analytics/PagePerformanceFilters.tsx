@@ -26,8 +26,8 @@ export const PagePerformanceFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Ele
     const { setDates, setCompareFilter, setConversionGoal, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { areAnyLoading } = useValues(dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }))
     const { reloadAll } = useActions(dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }))
-    const { pageDataLoading } = useValues(pagePerformanceLogic)
-    const isReloading = areAnyLoading || pageDataLoading
+    const { overviewLoading, candidatesLoading } = useValues(pagePerformanceLogic)
+    const isReloading = areAnyLoading || overviewLoading || candidatesLoading
 
     return (
         <FilterBar

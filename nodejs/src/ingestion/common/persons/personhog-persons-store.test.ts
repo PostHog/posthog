@@ -226,9 +226,9 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.id).toBe('7')
     })
 
-    it('deletes have no personhog path and fail loudly', () => {
+    it('deletes have no personhog path and fail loudly', async () => {
         const bound = store.forBatch(0)
-        expect(() => bound.deletePerson(person, 'd1')).toThrow('no personhog RPC')
+        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('no personhog RPC')
     })
 
     it('creation resolves through identity and memoizes every distinct id it mapped', async () => {
@@ -278,6 +278,79 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await expect(bound.flush()).rejects.toThrow('leader unreachable')
+    })
+
+    describe('concurrent batches share one flush', () => {
+        const personB: () => InternalPerson = () => ({ ...person, id: '8', uuid: 'person-uuid-8' })
+
+        it("a sibling entry's failure leaves it in its lane for the next pass", async () => {
+            const bound0 = store.forBatch(0)
+            const bound1 = store.forBatch(1)
+            await bound0.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+            await bound1.applyEventOps(personB(), ops({ $set: { b: '2' } }), 'd2')
+
+            repository.updatePersonProperties.mockImplementation((request) =>
+                request.personId === '8'
+                    ? Promise.reject(new Error('leader unreachable'))
+                    : Promise.resolve({ person: { ...person, version: 2 }, updated: true })
+            )
+            await expect(store.flush()).rejects.toThrow('leader unreachable')
+
+            repository.updatePersonProperties.mockClear()
+            repository.updatePersonProperties.mockResolvedValue({ person: { ...person, version: 2 }, updated: true })
+            await store.flush()
+            // Only the failed entry survives to re-ship; the succeeded
+            // one was consumed by the first pass.
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+            expect(repository.updatePersonProperties.mock.calls[0][0].personId).toBe('8')
+        })
+
+        it('flush passes serialize, so ops folded mid-pass ship strictly after it', async () => {
+            let releaseFirst!: () => void
+            const firstGate = new Promise<void>((resolve) => {
+                releaseFirst = resolve
+            })
+            const callOrder: string[] = []
+            repository.updatePersonProperties
+                .mockImplementationOnce(async () => {
+                    callOrder.push('first:start')
+                    await firstGate
+                    callOrder.push('first:end')
+                    return { person: { ...person, version: 2 }, updated: true }
+                })
+                .mockImplementation(() => {
+                    callOrder.push('second')
+                    return Promise.resolve({ person: { ...person, version: 3 }, updated: true })
+                })
+
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+            const firstFlush = store.flush()
+            // Spin microtasks until the first pass is mid-ship, blocked
+            // on the gate, so the next fold genuinely lands mid-pass.
+            for (let i = 0; i < 100 && !callOrder.includes('first:start'); i++) {
+                await Promise.resolve()
+            }
+            await bound.applyEventOps(person, ops({ $set: { a: '2' } }), 'd1')
+            const secondFlush = store.flush()
+            releaseFirst()
+            await Promise.all([firstFlush, secondFlush])
+
+            expect(callOrder).toEqual(['first:start', 'first:end', 'second'])
+        })
+
+        it('a no-change lane ships anyway when a sibling batch holds ops for the person', async () => {
+            person.properties = { $browser: 'Firefox' }
+            const bound0 = store.forBatch(0)
+            const bound1 = store.forBatch(1)
+            // Batch 0 folds a filtered-only no-change; batch 1 holds real
+            // ops for the same person, so batch 0's verdict may be stale
+            // and the leader judges it instead.
+            await bound0.applyEventOps(person, ops({ $set: { $browser: 'Chrome' } }, 'pageview'), 'd1')
+            await bound1.applyEventOps(person, ops({ $set: { plan: 'pro' } }, 'pageview'), 'd1')
+            await store.flush()
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+        })
     })
 
     it('publishes nothing when the leader reports no change', async () => {
@@ -361,13 +434,9 @@ describe('PersonhogPersonsStore', () => {
         expect(results).toEqual([])
     })
 
-    it('runs transactions as a passthrough over the store itself', async () => {
+    it('has no transactions of its own; the routing store owns them', async () => {
         const bound = store.forBatch(0)
-        const result = await bound.inTransaction('test', (tx) => {
-            expect(tx).toBe(bound)
-            return Promise.resolve('done')
-        })
-        expect(result).toBe('done')
+        await expect(bound.inTransaction('test', () => Promise.resolve('done'))).rejects.toThrow('no personhog RPC')
     })
 
     it.each([
@@ -390,9 +459,9 @@ describe('PersonhogPersonsStore', () => {
             (b: ReturnType<PersonhogPersonsStore['forBatch']>, p: InternalPerson) =>
                 b.moveDistinctIdsFromPersons([p], p, 'd1', undefined as any),
         ],
-    ])('%s fails loudly while the leader RPC is pending', (_method, call) => {
+    ])('%s fails loudly while the leader RPC is pending', async (_method, call) => {
         const bound = store.forBatch(0)
-        expect(() => call(bound, person)).toThrow(PersonhogPendingRpcError)
+        await expect(call(bound, person)).rejects.toThrow(PersonhogPendingRpcError)
     })
 
     it('maps a direct diff update onto the folded RPC', async () => {

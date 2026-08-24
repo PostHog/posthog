@@ -24,6 +24,8 @@ if not org:
 team = Team.objects.filter(organization=org).first()
 if not team:
     team = Team.objects.create(organization=org, name="Default project")
+team.session_recording_opt_in = True
+team.save(update_fields=["session_recording_opt_in"])
 
 user = User.objects.filter(email="ci@posthog.com").first()
 if not user:
@@ -36,6 +38,6 @@ PersonalAPIKey.objects.create(
     label="ci-smoke-test",
     secure_value=hash_key_value(raw_key),
     mask_value=mask_key_value(raw_key),
-    scopes=["query:read", "logs:read", "error_tracking:read"],
+    scopes=["query:read", "logs:read", "error_tracking:read", "session_recording:read", "tracing:read"],
 )
 print(f"{team.api_token}|||{raw_key}")  # noqa: T201

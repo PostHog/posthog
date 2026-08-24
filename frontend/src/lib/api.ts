@@ -100,6 +100,7 @@ import {
     DataModelingNode,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryIncrementalCheck,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
@@ -390,6 +391,11 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // A no-content response must not depend on reading its body: some engines (in our telemetry,
+    // overwhelmingly WebKit) reject `.text()` on an empty body rather than resolving to "".
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
@@ -680,6 +686,10 @@ export class ApiRequest {
 
     public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
         return this.pluginConfigs(teamId).addPathComponent(id)
+    }
+
+    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
     }
 
     public hog(teamId?: TeamType['id']): ApiRequest {
@@ -3888,6 +3898,15 @@ const api = {
         },
     },
 
+    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
+    // lists these alongside hog functions, so anything deciding whether a project has web
+    // scripts has to count them too.
+    pipelineFrontendAppsConfigs: {
+        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
+            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
+        },
+    },
+
     pluginConfigs: {
         async get(id: PluginConfigTypeNew['id']): Promise<PluginConfigWithPluginInfoNew> {
             return await new ApiRequest().pluginConfig(id).get()
@@ -5156,9 +5175,6 @@ const api = {
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
-        async analyzeSessions(): Promise<Record<string, any>> {
-            return await new ApiRequest().signalReports().withAction('analyze_sessions').create()
-        },
         async get(id: SignalReport['id']): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).get()
         },
@@ -5692,8 +5708,19 @@ const api = {
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })
         },
-        async run(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
-            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('run').create()
+        async run(viewId: DataWarehouseSavedQuery['id'], fullRefresh?: boolean): Promise<void> {
+            return await new ApiRequest()
+                .dataWarehouseSavedQuery(viewId)
+                .withAction('run')
+                .create({ data: { full_refresh: !!fullRefresh } })
+        },
+        async checkIncremental(data: {
+            query: string
+            incremental_key?: string
+            unique_key?: string[]
+            lookback_seconds?: number
+        }): Promise<DataWarehouseSavedQueryIncrementalCheck> {
+            return await new ApiRequest().dataWarehouseSavedQueries().withAction('check_incremental').create({ data })
         },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
@@ -7436,6 +7463,31 @@ function requestPathname(url: string): string {
     }
 }
 
+/**
+ * The browser rejects a fetch that never reached the server with a `TypeError`, but `instanceof
+ * TypeError` alone misses two real cases: an error thrown in another realm (an iframe, a worker)
+ * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
+ * its own error shape. Both keep the class name and the engine-specific message, so we match those
+ * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ */
+const BROWSER_FETCH_FAILURE_MESSAGES = [
+    'Failed to fetch',
+    'Load failed',
+    'NetworkError when attempting to fetch resource',
+]
+
+function isBrowserFetchFailure(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const candidate = error as { name?: unknown; message?: unknown } | null
+    if (candidate?.name === 'TypeError') {
+        return true
+    }
+    const message = candidate?.message
+    return typeof message === 'string' && BROWSER_FETCH_FAILURE_MESSAGES.some((known) => message.includes(known))
+}
+
 function classifyNetworkFailure(): NetworkFailureReason {
     if (documentUnloading) {
         return 'navigating'
@@ -7490,7 +7542,7 @@ async function handleFetch(
         // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
         // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
         // relabelled as a connectivity problem and filtered out of error tracking.
-        if (error instanceof TypeError) {
+        if (isBrowserFetchFailure(error)) {
             const reason = classifyNetworkFailure()
             captureClientRequestFailure({
                 pathname: requestPathname(url),

@@ -433,6 +433,43 @@ runcmd:
         # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
         base_url = f"http://{self.droplet.ip_address}"
 
+        # The signup wizard gates on these keys from /_preflight, so they must
+        # report true once the stack is healthy (regression test for
+        # https://github.com/PostHog/posthog/issues/57899 and siblings).
+        preflight_required_keys = [
+            "django",
+            "redis",
+            "plugins",
+            "celery",
+            "clickhouse",
+            "kafka",
+            "db",
+            "object_storage",
+        ]
+        print("🩺 Checking /_preflight reports healthy...", flush=True)
+        preflight_deadline = time.time() + timeout_seconds
+        last_preflight_detail = ""
+        while time.time() < preflight_deadline:
+            try:
+                preflight_resp = requests.get(
+                    f"{base_url}/_preflight",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    timeout=10,
+                )
+                if preflight_resp.status_code == 200:
+                    failing_keys = [key for key in preflight_required_keys if not preflight_resp.json().get(key)]
+                    if not failing_keys:
+                        print("✅ Preflight reports all services healthy", flush=True)
+                        break
+                    last_preflight_detail = f"failing keys: {', '.join(failing_keys)}"
+                else:
+                    last_preflight_detail = f"HTTP {preflight_resp.status_code}"
+            except Exception as e:
+                last_preflight_detail = f"{type(e).__name__}: {e}"
+            print(f"   Preflight not healthy yet ({last_preflight_detail})", flush=True)
+            time.sleep(poll_interval)
+        else:
+            return False, f"Preflight never reported healthy within {timeout_seconds}s ({last_preflight_detail})"
+
         print("📝 Creating test user and fetching API keys via Django shell...", flush=True)
         script_path = os.path.join(os.path.dirname(__file__), "hobby-ci-setup-user.py")
         remote_script = "/tmp/hobby-ci-setup-user.py"
@@ -621,15 +658,164 @@ runcmd:
                     results = issues_resp.json().get("results", [])
                     if results:
                         print(f"✅ Error tracking issue found after {attempt} poll(s)", flush=True)
-                        return True, "Events, log, and exception issue ingested successfully"
+                        break
                     print(f"   Poll {attempt}: no error tracking issue yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {issues_resp.status_code}", flush=True)
             except Exception as e:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
+        else:
+            return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
 
-        return False, f"Error tracking issue did not appear within {timeout_seconds}s ({attempt} polls)"
+        session_id = str(uuid.uuid4())
+        snapshot_timestamp = int(time.time() * 1000)
+        print("📤 Sending test session recording...", flush=True)
+        try:
+            replay_resp = requests.post(
+                f"{base_url}/s/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json=[
+                    {
+                        "token": project_api_token,
+                        "event": "$snapshot",
+                        "distinct_id": "hobby-ci-replay-user",
+                        "$session_id": session_id,
+                        "properties": {
+                            "$session_id": session_id,
+                            "$window_id": str(uuid.uuid4()),
+                            "$snapshot_source": "web",
+                            "$snapshot_data": [
+                                {
+                                    "type": 4,
+                                    "timestamp": snapshot_timestamp,
+                                    "data": {
+                                        "href": "https://example.com/hobby-ci",
+                                        "width": 1280,
+                                        "height": 720,
+                                    },
+                                },
+                                {
+                                    "type": 2,
+                                    "timestamp": snapshot_timestamp + 1_000,
+                                    "data": {
+                                        "source": 1,
+                                        "snapshot": {"html": "<html><body>Hobby CI</body></html>"},
+                                    },
+                                },
+                                {
+                                    "type": 3,
+                                    "timestamp": snapshot_timestamp + 2_000,
+                                    "data": {
+                                        "source": 2,
+                                        "mutations": [{"type": "characterData", "id": 1}],
+                                    },
+                                },
+                            ],
+                        },
+                    }
+                ],
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Session recording capture request failed: {e}"
+        if replay_resp.status_code != 200:
+            return False, f"Session recording capture failed: HTTP {replay_resp.status_code} - {replay_resp.text[:200]}"
+
+        print(f"⏳ Polling for session recording (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        replay_found = False
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                recordings_resp = requests.get(
+                    f"{base_url}/api/projects/@current/session_recordings",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"session_ids": json.dumps([session_id]), "date_from": "-1d"},
+                    headers=headers,
+                    timeout=10,
+                )
+                if recordings_resp.status_code == 200:
+                    results = recordings_resp.json().get("results", [])
+                    if any(recording.get("id") == session_id for recording in results):
+                        print(f"✅ Session recording found after {attempt} poll(s)", flush=True)
+                        replay_found = True
+                        break
+                    print(f"   Poll {attempt}: no session recording yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {recordings_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        if not replay_found:
+            return False, f"Session recording did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        trace_id = uuid.uuid4().hex
+        span_id = uuid.uuid4().hex[:16]
+        date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        start_time_ns = time.time_ns()
+        print("📤 Sending test trace...", flush=True)
+        try:
+            trace_resp = requests.post(
+                f"{base_url}/i/v1/traces",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
+                json={
+                    "resourceSpans": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeSpans": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "spans": [
+                                        {
+                                            "traceId": trace_id,
+                                            "spanId": span_id,
+                                            "name": "hobby-ci-smoke-test",
+                                            "kind": 1,
+                                            "startTimeUnixNano": str(start_time_ns),
+                                            "endTimeUnixNano": str(start_time_ns + 1_000_000),
+                                            "status": {"code": 1},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Trace capture request failed: {e}"
+        if trace_resp.status_code != 200:
+            return False, f"Trace capture failed: HTTP {trace_resp.status_code} - {trace_resp.text[:200]}"
+
+        print(f"⏳ Polling for trace (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                query_resp = requests.post(
+                    f"{base_url}/api/projects/@current/tracing/spans/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={"query": {"dateRange": {"date_from": date_from}, "traceId": trace_id, "limit": 1}},
+                    headers=headers,
+                    timeout=10,
+                )
+                if query_resp.status_code == 200 and query_resp.json().get("results", []):
+                    print(f"✅ Trace found after {attempt} poll(s)", flush=True)
+                    return (
+                        True,
+                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
+                    )
+                if query_resp.status_code != 200:
+                    print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
+                else:
+                    print(f"   Poll {attempt}: trace pending", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):

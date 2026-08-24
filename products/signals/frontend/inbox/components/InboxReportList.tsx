@@ -1,10 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { ComponentType, JSX, useEffect, useRef } from 'react'
+import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
 
 import { captureInboxReportsImpressed, captureInboxViewed } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
-import { reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
+import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic, ReportListLogicProps } from '../logics/reportListLogic'
 import { InboxFlatListTabKey, SignalReport } from '../types'
 import { DismissalReasonValue } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
@@ -53,24 +53,53 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
     // `Inbox viewed` and then suppresses the real one when the user navigates back to the list.
     const { selectedReportId, selectedScoutSkillName, isScratchpadOpen, isFindingsOpen } = useValues(inboxSceneLogic)
     const listVisible = !selectedReportId && !selectedScoutSkillName && !isScratchpadOpen && !isFindingsOpen
-    const sentinelRef = useRef<HTMLDivElement>(null)
 
-    // Fire `Inbox viewed` once per tab mount, the first time its list settles while visible.
+    // The Pull requests / Reports badge counts go on every `Inbox viewed`, whatever tab is open: the
+    // active tab's `total_count` alone says nothing about a user who lands on Pull requests and has
+    // 200 reports waiting. These share the tab bar's keyed instances, so no extra requests.
+    const { count: pullsTabCount, countLoading: pullsTabCountLoading } = useValues(
+        reportListLogic({ tabKey: 'pulls', listParams: INBOX_FLAT_TAB_LIST_PARAMS.pulls })
+    )
+    const { count: reportsTabCount, countLoading: reportsTabCountLoading } = useValues(
+        reportListLogic({ tabKey: 'reports', listParams: INBOX_FLAT_TAB_LIST_PARAMS.reports })
+    )
+    // A badge count is settled once its request is no longer in flight: loaded, refreshed, or failed
+    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
+    // filter refresh in progress doesn't fire the event with the previous query's counts.
+    const badgeCountsSettled = !pullsTabCountLoading && !reportsTabCountLoading
+
+    // Fire `Inbox viewed` once per tab mount, the first time its list and the badge counts settle
+    // while visible.
     const viewedFiredRef = useRef(false)
     useEffect(() => {
-        if (listVisible && isLoaded && count !== null && !viewedFiredRef.current) {
+        if (listVisible && isLoaded && count !== null && badgeCountsSettled && !viewedFiredRef.current) {
             viewedFiredRef.current = true
             captureInboxViewed({
                 tab: tabKey,
                 reports,
                 totalCount: count,
+                pullsTabCount,
+                reportsTabCount,
                 hasActiveFilters,
                 sourceProductFilter,
                 priorityFilter,
                 scope,
             })
         }
-    }, [listVisible, isLoaded, count, reports, tabKey, hasActiveFilters, sourceProductFilter, priorityFilter, scope])
+    }, [
+        listVisible,
+        isLoaded,
+        count,
+        badgeCountsSettled,
+        pullsTabCount,
+        reportsTabCount,
+        reports,
+        tabKey,
+        hasActiveFilters,
+        sourceProductFilter,
+        priorityFilter,
+        scope,
+    ])
 
     // Impression log for ranking-model training: record each report the first time it appears in
     // the visible list (initial page, pagination, refresh), with its rank at that moment. Deduped
@@ -111,8 +140,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         })
     }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
 
-    // Read fresh state at intersection time via refs so the observer is created once and not
-    // rebuilt twice per page fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
+    // Read fresh state at intersection time via refs so the observer isn't rebuilt twice per page
+    // fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
     const hasMoreRef = useRef(hasMore)
     hasMoreRef.current = hasMore
     const loadingRef = useRef(reportsResponseLoading)
@@ -122,23 +151,32 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         ensureLoaded()
     }, [ensureLoaded])
 
-    useEffect(() => {
-        const el = sentinelRef.current
-        if (!el) {
-            return
-        }
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
-                    loadMore()
-                }
-            },
-            // Generous prefetch margin so the next page lands well before the user reaches the bottom.
-            { rootMargin: '1500px' }
-        )
-        observer.observe(el)
-        return () => observer.disconnect()
-    }, [loadMore])
+    // A callback ref, not an effect over `sentinelRef`: the sentinel only enters the DOM once the
+    // first page has landed and `hasMore` is true, which is after a mount-only effect has already
+    // run and found nothing to observe. Attaching as the node mounts is what keeps paging alive.
+    const observerRef = useRef<IntersectionObserver | null>(null)
+    const sentinelRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            observerRef.current?.disconnect()
+            observerRef.current = null
+            if (!el) {
+                return
+            }
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
+                        loadMore()
+                    }
+                },
+                // Generous prefetch margin so the next page lands well before the user reaches the bottom.
+                { rootMargin: '1500px' }
+            )
+            observer.observe(el)
+            observerRef.current = observer
+        },
+        [loadMore]
+    )
+    useEffect(() => () => observerRef.current?.disconnect(), [])
 
     // Skeleton while a tab we know is non-empty loads its first page.
     const showSkeleton = !isLoaded && (reportsResponseLoading || (count ?? 0) > 0)

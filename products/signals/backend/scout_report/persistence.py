@@ -29,6 +29,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 
 from django.db import transaction
 from django.utils import timezone
@@ -52,6 +53,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -173,6 +175,11 @@ def create_scout_report(
             signal_count=len(signals),
             total_weight=total_weight,
             charts=[chart.model_dump(mode="json") for chart in charts],
+            # Born directly in a user-visible status without passing through transition_to (which
+            # stamps this for pipeline reports), so the daily report limit counts it from creation.
+            first_visible_at=(
+                timezone.now() if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT) else None
+            ),
         )
         report_id = str(report.id)
         # Provenance: every authored report carries a note marking it scout-authored, attributed to
@@ -226,6 +233,17 @@ def create_scout_report(
                 content=suggested_reviewers,
                 attribution=attribution,
                 reevaluate_autostart=False,
+            )
+            # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
+            # still fire when the post-commit signal emits below fail (they propagate).
+            transaction.on_commit(
+                partial(
+                    capture_suggested_reviewers_resolved,
+                    team_id=team_id,
+                    report_id=report_id,
+                    github_logins=[entry.github_login for entry in suggested_reviewers.root],
+                    source="scout",
+                )
             )
 
     # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
@@ -520,9 +538,22 @@ def set_scout_report_reviewers(
             content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(logins)}", author=author),
             attribution=attribution,
         )
+        # on_commit, not inline: `_do_edit_report` wraps this call in an outer transaction, so an
+        # inline capture would fire for an edit that later rolls back — and a DB error inside the
+        # capture, though swallowed, would poison that outer transaction. The merged content is the
+        # live reviewer set (latest-wins), so telemetry reflects what routing will actually see.
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=team_id,
+                report_id=report_id,
+                github_logins=[entry.github_login for entry in merged.root],
+                source="scout_edit",
+            )
+        )
     logger.info(
         "signals_scout.edit_report: reviewers set",
-        extra={"team_id": team_id, "report_id": report_id, "reviewers": logins},
+        extra={"team_id": team_id, "report_id": report_id, "reviewer_count": len(logins)},
     )
     return True
 
