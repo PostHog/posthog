@@ -76,6 +76,13 @@ export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
 export const REPORTS_INBOX_FLAG = "posthog-desktop-reports-inbox";
 
 /**
+ * One-report-at-a-time keyboard triage inside the reports inbox. On by
+ * default in dev builds for iteration (see useTriageFocusEnabled); off in
+ * production until it stabilizes.
+ */
+export const TRIAGE_FOCUS_FLAG = "posthog-desktop-triage-focus";
+
+/**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
  * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes
  * to its Bedrock backend; `control` sends nothing and the gateway keeps its

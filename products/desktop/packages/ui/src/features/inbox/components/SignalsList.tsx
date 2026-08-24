@@ -54,7 +54,7 @@ function SignalSourceGroupSection({ group }: { group: SignalSourceGroup }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1.5 text-[12px] text-gray-11">
+      <div className="flex items-center gap-1.5 text-[13px] text-gray-11">
         {Icon && <Icon size={13} className="shrink-0 text-gray-10" />}
         <span className="font-medium">{label}</span>
         <span className="text-gray-10 tabular-nums">
@@ -68,7 +68,7 @@ function SignalSourceGroupSection({ group }: { group: SignalSourceGroup }) {
         <button
           type="button"
           onClick={() => setExpanded((open) => !open)}
-          className="self-start text-[12px] text-gray-10 underline decoration-dotted underline-offset-2 transition-colors hover:text-gray-12"
+          className="self-start text-[13px] text-gray-10 underline decoration-dotted underline-offset-2 transition-colors hover:text-gray-12"
         >
           {expanded ? "Show fewer" : `Show all ${group.signals.length}`}
         </button>

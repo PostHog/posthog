@@ -1,7 +1,11 @@
 import {
+  ArchiveIcon,
   CaretDownIcon,
+  CheckCircleIcon,
   EnvelopeSimpleIcon,
+  GitMergeIcon,
   GitPullRequestIcon,
+  ListChecksIcon,
 } from "@phosphor-icons/react";
 import { humanizeIdentifier } from "@posthog/core/inbox/activityLog";
 import {
@@ -23,16 +27,32 @@ import {
   EmptyTitle,
   Skeleton,
   Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
+import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
 import { InboxSearchFilterBar } from "@posthog/ui/features/inbox/components/InboxSearchFilterBar";
+import { ReportRestoreButton } from "@posthog/ui/features/inbox/components/ReportRestoreButton";
+import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
+import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderChip,
+  PageHeaderDescription,
+  PageHeaderHeading,
+  PageHeaderTitle,
+  PageHeaderTitleRow,
+} from "@posthog/ui/primitives/PageHeader";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import {
   navigateToAgents,
@@ -40,6 +60,16 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useEffect, useMemo, useState } from "react";
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  );
+}
 
 /** Rows shown per section before "Show more" — a scan, not a scroll. */
 const SECTION_PREVIEW_LIMIT = 5;
@@ -66,7 +96,12 @@ export function ReportsInboxView() {
     isFetchingNextPage,
     fetchNextPage,
     searchQuery,
-  } = useInboxAllReports({ statusFilter: REPORTS_INBOX_STATUS_FILTER });
+  } = useInboxAllReports({
+    statusFilter: REPORTS_INBOX_STATUS_FILTER,
+    applyPrFilter: true,
+  });
+  const triageFocusEnabled = useTriageFocusEnabled();
+  const [focusMode, setFocusMode] = useState(false);
 
   const sections = useMemo(
     () => partitionInboxReports(scopedReports),
@@ -77,6 +112,7 @@ export function ReportsInboxView() {
   // Search is the one exception: it's a client-side title match, so a
   // searching page counts its matching rows instead.
   const serverCounts = useInboxSectionCounts();
+  const prFilter = useInboxSignalsFilterStore((s) => s.prFilter);
   const searchActive = searchQuery.trim().length > 0;
   const decisionCount = searchActive
     ? sections.decision.length
@@ -107,6 +143,33 @@ export function ReportsInboxView() {
     fetchNextPage,
   ]);
 
+  // Triage mode from anywhere on the page, matching the button's advertised key.
+  useEffect(() => {
+    if (!triageFocusEnabled || focusMode) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "t" && sections.decision.length > 0) {
+        event.preventDefault();
+        setFocusMode(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [triageFocusEnabled, focusMode, sections.decision.length]);
+
+  if (triageFocusEnabled && focusMode) {
+    return (
+      <div className="h-full min-h-0 overflow-y-auto">
+        <ReportTriageFocus
+          reports={sections.decision}
+          allReports={allReports}
+          onExit={() => setFocusMode(false)}
+        />
+      </div>
+    );
+  }
+
   const isEmpty = searchActive
     ? sections.decision.length === 0 && sections.monitoring.length === 0
     : !serverCounts.isLoading &&
@@ -114,78 +177,132 @@ export function ReportsInboxView() {
       serverCounts.monitoring === 0;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-6 py-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <h1 className="font-semibold text-[15px] text-gray-12">Inbox</h1>
-          <p className="text-[12.5px] text-gray-11">
+    <div className="flex h-full min-h-0 flex-col bg-gray-1">
+      <PageHeader>
+        <PageHeaderHeading>
+          <PageHeaderTitleRow>
+            <PageHeaderTitle>Self-driving</PageHeaderTitle>
+            {serverCounts.decision > 0 && (
+              <PageHeaderChip
+                icon={<EnvelopeSimpleIcon size={12} weight="fill" />}
+              >
+                {serverCounts.decision} need
+                {serverCounts.decision === 1 ? "s" : ""} a decision
+              </PageHeaderChip>
+            )}
+            <PageHeaderActions>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => navigateToAgents()}
+              >
+                Configure agents
+              </Button>
+            </PageHeaderActions>
+          </PageHeaderTitleRow>
+          <PageHeaderDescription>
             Issues and opportunities found in your product, ready to review
-          </p>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => navigateToAgents()}
-        >
-          Configure agents
-        </Button>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <div className="flex items-center gap-2">
+          </PageHeaderDescription>
+        </PageHeaderHeading>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {triageFocusEnabled && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="gap-2"
+                    disabled={sections.decision.length === 0}
+                    onClick={() => setFocusMode(true)}
+                  >
+                    <ListChecksIcon size={16} />
+                    Triage mode
+                    <kbd className="rounded bg-(--gray-4) px-1.5 font-mono text-[12px] text-gray-11">
+                      T
+                    </kbd>
+                  </Button>
+                }
+              />
+              <TooltipContent side="bottom">
+                Step through reports that need a decision, one at a time. Fix,
+                defer, or archive each with a single key.
+              </TooltipContent>
+            </Tooltip>
+          )}
           <InboxScopeSelect />
         </div>
+      </PageHeader>
+
+      {/* The filter bar stays pinned with the header; only the sections
+          scroll. */}
+      <div className="shrink-0 border-(--gray-5) border-b">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-2.5 px-6 py-3">
+          <InboxSearchFilterBar
+            searchPlaceholder="Search reports…"
+            showPrFilter
+          />
+        </div>
       </div>
 
-      <InboxSearchFilterBar searchPlaceholder="Search reports…" />
-
-      {isLoading && scopedReports.length === 0 ? (
-        <div aria-hidden className="flex flex-col gap-2 pt-2">
-          {[70, 55, 80, 60].map((width) => (
-            <div key={width} className="flex items-center gap-3 py-2">
-              <Skeleton className="h-4" style={{ width: `${width}%` }} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-4">
+          {isLoading && scopedReports.length === 0 ? (
+            <div aria-hidden className="flex flex-col gap-2 pt-2">
+              {[70, 55, 80, 60].map((width) => (
+                <div key={width} className="flex items-center gap-3 py-2">
+                  <Skeleton className="h-4" style={{ width: `${width}%` }} />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      ) : isEmpty ? (
-        <Empty className="mx-auto max-w-md py-16">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <EnvelopeSimpleIcon size={24} />
-            </EmptyMedia>
-            <EmptyTitle>Nothing to review</EmptyTitle>
-            <EmptyDescription>
-              Reports show up here as your agents find things worth acting on.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : (
-        <>
-          <InboxSection
-            title="Needs a decision"
-            reports={sections.decision}
-            count={decisionCount}
-            caption={
-              !searchActive && serverCounts.decisionPr > 0
-                ? `${serverCounts.decisionPr} with a PR to review`
-                : undefined
-            }
-            emptyNote="Nothing waiting on you."
-          />
-          <InboxSection
-            title="Monitoring"
-            reports={sections.monitoring}
-            count={monitoringCount}
-          />
-          <ResolvedSection />
-          {isFetchingNextPage && (
-            <div className="flex justify-center py-2">
-              <Spinner />
-            </div>
+          ) : (
+            <>
+              {isEmpty ? (
+                <Empty className="mx-auto max-w-md py-16">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <EnvelopeSimpleIcon size={24} />
+                    </EmptyMedia>
+                    <EmptyTitle>Nothing to review</EmptyTitle>
+                    <EmptyDescription>
+                      Reports show up here as your agents find things worth
+                      acting on.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ) : (
+                <>
+                  <InboxSection
+                    title="Needs a decision"
+                    reports={sections.decision}
+                    count={decisionCount}
+                    caption={
+                      !searchActive &&
+                      prFilter === "all" &&
+                      serverCounts.decisionPr > 0
+                        ? `${serverCounts.decisionPr} with a PR to review`
+                        : undefined
+                    }
+                    emptyNote="Nothing waiting on you."
+                  />
+                  <InboxSection
+                    title="Monitoring"
+                    reports={sections.monitoring}
+                    count={monitoringCount}
+                  />
+                  {isFetchingNextPage && (
+                    <div className="flex justify-center py-2">
+                      <Spinner />
+                    </div>
+                  )}
+                </>
+              )}
+              <ResolvedSection />
+            </>
           )}
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -215,7 +332,7 @@ function InboxSection({
   const hidden = reports.length - visible.length;
   return (
     <section className="flex flex-col gap-1.5">
-      <h2 className="flex items-baseline gap-2 border-(--gray-5) border-b pb-1 font-medium text-[11px] text-gray-10 uppercase tracking-wide">
+      <h2 className="flex items-baseline gap-2 border-(--gray-5) border-b pb-1 font-medium text-[12px] text-gray-10 uppercase tracking-wide">
         {title}
         <span className="tabular-nums">({count})</span>
         {caption && (
@@ -225,7 +342,7 @@ function InboxSection({
         )}
       </h2>
       {count === 0 && reports.length === 0 ? (
-        <p className="px-1 py-2 text-[12.5px] text-gray-10">{emptyNote}</p>
+        <p className="px-1 py-2 text-[13.5px] text-gray-10">{emptyNote}</p>
       ) : (
         <div className="flex flex-col gap-1">
           {visible.map((report) => (
@@ -282,27 +399,51 @@ function InboxReportRow({ report }: { report: SignalReport }) {
       >
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-center gap-1.5">
-            <span className="truncate font-medium text-[13px] text-gray-12">
+            <span className="truncate font-medium text-[14px] text-gray-12">
               {humanizeReportTitle(report.title, "Untitled report")}
             </span>
           </span>
           {headline && (
-            <span className="line-clamp-1 text-[12px] text-gray-11">
+            <span className="line-clamp-2 text-[13px] text-gray-11">
               {headline}
             </span>
           )}
-          <span className="flex items-center gap-1.5 text-[11.5px] text-gray-10">
+          <span className="flex items-center gap-1.5 text-[12.5px] text-gray-10">
             {products && <span className="truncate">{products}</span>}
             <RelativeTimestamp
               timestamp={report.created_at}
-              className="shrink-0 text-[11.5px]"
+              className="shrink-0 text-[12.5px]"
             />
           </span>
         </div>
         <span className="flex shrink-0 items-center gap-2">
+          {/* Terminal rows share one section, so each wears its end state:
+              resolved closed itself when the fix shipped; archived was a
+              person's call and carries their reason. */}
+          {report.status === "resolved" && (
+            <span
+              title="The fix shipped and this report closed"
+              className="flex items-center gap-1 rounded border border-(--green-6) bg-(--green-2) px-1.5 py-0.5 text-[12px] text-green-11"
+            >
+              <CheckCircleIcon size={11} />
+              Shipped
+            </span>
+          )}
+          {report.status === "suppressed" && (
+            <span
+              title={report.dismissal_note ?? undefined}
+              className="flex items-center gap-1 rounded border border-(--gray-6) bg-(--gray-2) px-1.5 py-0.5 text-[12px] text-gray-11"
+            >
+              <ArchiveIcon size={11} />
+              Archived
+              {report.dismissal_reason
+                ? ` · ${humanizeIdentifier(report.dismissal_reason)}`
+                : ""}
+            </span>
+          )}
           <SuggestedReviewerAvatarStack report={report} />
           <SignalReportPriorityBadge priority={report.priority} />
-          <span className="font-mono text-[12px] text-gray-11 tabular-nums">
+          <span className="font-mono text-[13px] text-gray-11 tabular-nums">
             {report.signal_count} signal{report.signal_count === 1 ? "" : "s"}
           </span>
           {/* Acting on a row must not also open it. */}
@@ -325,9 +466,18 @@ function InboxReportRow({ report }: { report: SignalReport }) {
                     ? "This report's earlier PR merged, but evidence kept arriving"
                     : "Open the pull request on GitHub"
                 }
-                className="flex items-center gap-1 rounded border border-(--gray-6) px-1.5 py-0.5 font-mono text-[11px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12"
+                className={
+                  report.implementation_pr_merged
+                    ? "flex items-center gap-1 rounded border border-(--gray-6) px-1.5 py-0.5 font-mono text-[12px] text-gray-11 hover:bg-(--gray-3) hover:text-gray-12"
+                    : "flex items-center gap-1 rounded border border-(--accent-7) bg-(--accent-2) px-1.5 py-0.5 font-mono text-(--accent-11) text-[12px] hover:bg-(--accent-3)"
+                }
               >
-                <GitPullRequestIcon size={11} />#{pr.number}
+                {report.implementation_pr_merged ? (
+                  <GitMergeIcon size={11} />
+                ) : (
+                  <GitPullRequestIcon size={11} />
+                )}
+                #{pr.number}
                 {report.implementation_pr_merged ? " merged" : ""}
               </button>
             )}
@@ -342,9 +492,12 @@ function InboxReportRow({ report }: { report: SignalReport }) {
                   Review
                 </Button>
               )}
-            <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-              {archiveButton}
-            </span>
+            <ReportRestoreButton report={report} />
+            {report.status !== "suppressed" && (
+              <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                {archiveButton}
+              </span>
+            )}
           </span>
         </span>
       </div>
@@ -372,9 +525,9 @@ function ResolvedSection() {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-baseline gap-2 border-(--gray-5) border-b pb-1 text-left font-medium text-[11px] text-gray-10 uppercase tracking-wide"
+        className="flex items-baseline gap-2 border-(--gray-5) border-b pb-1 text-left font-medium text-[12px] text-gray-10 uppercase tracking-wide"
       >
-        Resolved
+        Resolved & archived
         <CaretDownIcon
           size={11}
           className={expanded ? "rotate-180 self-center" : "self-center"}
@@ -386,8 +539,8 @@ function ResolvedSection() {
             <Spinner />
           </div>
         ) : allReports.length === 0 ? (
-          <p className="px-1 py-2 text-[12.5px] text-gray-10">
-            Nothing resolved yet.
+          <p className="px-1 py-2 text-[13.5px] text-gray-10">
+            Nothing resolved or archived yet.
           </p>
         ) : (
           <div className="flex flex-col gap-1">

@@ -37,7 +37,7 @@ export function InboxItem({
           }
           label={
             <>
-              Inbox
+              Self-driving
               <SidebarCountBadge
                 count={decisionCount}
                 title={`${decisionCount} report${decisionCount === 1 ? " needs" : "s need"} a decision`}
