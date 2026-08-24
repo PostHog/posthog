@@ -64,6 +64,7 @@ from .activities.get_task_processing_context import (
     TaskProcessingContext,
     get_task_processing_context,
 )
+from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -1775,6 +1776,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             checkout_ms = getattr(checkout_output, "checkout_ms", None)
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
+
+        # Gated on recorded activity output, not workflow.patched: the env var only
+        # exists in histories written after the context layer shipped, so replays of
+        # pre-rollout histories skip this command deterministically.
+        if prepared.environment_variables.get("POSTHOG_CONTEXT_LAYER_PATH"):
+            await workflow.execute_activity(
+                materialize_context_layer_in_sandbox,
+                MaterializeContextLayerInput(context=self.context, sandbox_id=created.sandbox_id),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
         if overlap and not repo_ready_released:
             await self._mark_repo_ready(created.sandbox_id)

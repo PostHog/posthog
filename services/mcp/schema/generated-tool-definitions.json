@@ -1635,7 +1635,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "context-layer",
+        "feature_flag_behavior": "disable"
     },
     "channel-instructions-update": {
         "description": "Publish a complete replacement for a channel's CONTEXT.md. Read the current version with channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if another update changes the document.",
@@ -1649,7 +1651,9 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "context-layer",
+        "feature_flag_behavior": "disable"
     },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
@@ -1666,7 +1670,7 @@
         }
     },
     "channel-retrieve": {
-        "description": "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's CONTEXT.md instructions.",
+        "description": "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's workspace channels that group tasks and canvases (public channels plus each member's #me channel).",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get a channel",
@@ -1848,6 +1852,51 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "context-wiki-channel-resolve": {
+        "description": "Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Resolve a channel context page",
+        "title": "Resolve a channel context page",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "context-wiki-page-retrieve": {
+        "description": "Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha; pass that head_sha as base_head when updating the page.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Read a context wiki page",
+        "title": "Read a context wiki page",
+        "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "context-wiki-page-update": {
+        "description": "Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as base_head. A concurrent wiki change returns a conflict instead of being overwritten.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Update a context wiki page",
+        "title": "Update a context wiki page",
+        "required_scopes": ["organization:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "context-layer"
     },
     "conversations-tickets-list": {
         "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
@@ -7020,6 +7069,79 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "loop-channel-instructions-retrieve": {
+        "description": "Read legacy channel context when an unattended loop cannot access an initialized context wiki.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Read fallback loop context",
+        "title": "Read fallback loop context",
+        "required_scopes": ["task:read", "loop_context_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "loop-channel-instructions-update": {
+        "description": "Update legacy channel context when an unattended loop cannot access an initialized context wiki.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update fallback loop context",
+        "title": "Update fallback loop context",
+        "required_scopes": ["task:write", "loop_context_internal:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "loop-context-wiki-channel-resolve": {
+        "description": "Resolve a channel id to its context wiki page path for an unattended loop run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Resolve a loop context wiki page",
+        "title": "Resolve a loop context wiki page",
+        "required_scopes": ["task:read", "loop_context_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "loop-context-wiki-page-retrieve": {
+        "description": "Read a context wiki page and its head_sha for an unattended loop run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Read a loop context wiki page",
+        "title": "Read a loop context wiki page",
+        "required_scopes": ["task:read", "loop_context_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "context-layer"
+    },
+    "loop-context-wiki-page-update": {
+        "description": "Replace a context wiki page using base_head concurrency for an unattended loop run.",
+        "category": "Context wiki",
+        "feature": "context_layer",
+        "summary": "Update a loop context wiki page",
+        "title": "Update a loop context wiki page",
+        "required_scopes": ["task:write", "loop_context_internal:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "context-layer"
     },
     "loops-create-execute": {
         "description": "Step 2 of 2 for create loop. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
