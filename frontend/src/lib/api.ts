@@ -2065,7 +2065,7 @@ const normalizeUrl = (url: string): string => {
     return url
 }
 
-const prepareUrl = (url: string): string => {
+const prepareUrl = (url: string, method: string = 'GET'): string => {
     let output = normalizeUrl(url)
 
     // OAuth mode: route the data API to the selected region's host. Only `/api/*` is rewritten —
@@ -2078,7 +2078,12 @@ const prepareUrl = (url: string): string => {
 
     const exporterContext = getCurrentExporterData()
 
-    if (exporterContext && exporterContext.accessToken) {
+    // The backend only accepts the sharing token on GET/HEAD. Attaching it to a write makes the
+    // request fail with a sharing-specific auth error. Skip it so a stray write degrades to an
+    // ordinary auth failure instead.
+    const tokenAllowedForMethod = method === 'GET' || method === 'HEAD'
+
+    if (tokenAllowedForMethod && exporterContext && exporterContext.accessToken) {
         output =
             output +
             (output.indexOf('?') === -1 ? '?' : '&') +
@@ -7145,7 +7150,7 @@ const api = {
         data: P,
         options?: ApiMethodOptions
     ): Promise<T> {
-        url = prepareUrl(url)
+        url = prepareUrl(url, method)
         ensureProjectIdNotInvalid(url)
         assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
@@ -7182,7 +7187,7 @@ const api = {
     },
 
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
-        url = prepareUrl(url)
+        url = prepareUrl(url, 'POST')
         ensureProjectIdNotInvalid(url)
         assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
@@ -7204,7 +7209,7 @@ const api = {
     },
 
     async delete(url: string): Promise<any> {
-        url = prepareUrl(url)
+        url = prepareUrl(url, 'DELETE')
         ensureProjectIdNotInvalid(url)
         assertNotReadOnly('DELETE', url)
         return await handleFetch(url, 'DELETE', async () =>

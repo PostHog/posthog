@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError } from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 
+import * as exporterViewLogic from '~/exporter/exporterViewLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -284,6 +285,28 @@ describe('API helper', () => {
             const [url, options] = fakeFetch.mock.calls[0]
             expect(url).toEqual('/some/local/path/')
             expect(options.headers.Authorization).toBeUndefined()
+        })
+    })
+
+    describe('sharing access token', () => {
+        beforeEach(() => {
+            jest.spyOn(exporterViewLogic, 'getCurrentExporterData').mockReturnValue({
+                accessToken: 'share-token',
+            } as any)
+        })
+
+        it('attaches the token to GET requests, which the backend accepts', async () => {
+            await api.get('/api/projects/2/insights/1/')
+            expect(fakeFetch.mock.calls[0][0]).toContain('sharing_access_token=share-token')
+        })
+
+        it.each([
+            ['update', () => api.update('/api/projects/2/insights/1/', {})],
+            ['create', () => api.create('/api/projects/2/query/', {})],
+            ['delete', () => api.delete('/api/projects/2/insights/1/')],
+        ])('omits the token from %s, which the backend rejects for the sharing token', async (_name, request) => {
+            await request()
+            expect(fakeFetch.mock.calls[0][0]).not.toContain('sharing_access_token')
         })
     })
 
