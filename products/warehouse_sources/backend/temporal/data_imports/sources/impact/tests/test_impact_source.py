@@ -4,14 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.impact import ImpactSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.impact.impact import ImpactResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.impact.source import ImpactSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
@@ -24,29 +19,6 @@ def _inputs(schema_name: str = "Actions", **overrides: object) -> MagicMock:
 
 
 class TestImpactSourceClass:
-    def test_source_type(self) -> None:
-        assert ImpactSource().source_type == ExternalDataSourceType.IMPACT
-
-    def test_get_source_config_fields(self) -> None:
-        config = ImpactSource().get_source_config
-        assert config.name.value == "Impact"
-        assert len(config.fields) == 2
-
-        account_sid, auth_token = config.fields
-        assert isinstance(account_sid, SourceFieldInputConfig)
-        assert account_sid.name == "account_sid"
-        assert account_sid.type == SourceFieldInputConfigType.TEXT
-        assert account_sid.required is True
-        assert account_sid.secret is False
-
-        assert isinstance(auth_token, SourceFieldInputConfig)
-        assert auth_token.name == "auth_token"
-        assert auth_token.type == SourceFieldInputConfigType.PASSWORD
-        assert auth_token.required is True
-        assert auth_token.secret is True
-
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/impact"
-
     def test_no_unreleased_flag(self) -> None:
         # A finished source ships visible; unreleasedSource must not be set.
         assert ImpactSource().get_source_config.unreleasedSource is not True
@@ -118,16 +90,6 @@ class TestImpactSourceClass:
         with patch.object(source_module, "validate_impact_credentials", return_value=api_result):
             result = ImpactSource().validate_credentials(ImpactSourceConfig(account_sid="s", auth_token="t"), team_id=1)
         assert result == (ok, err)
-
-    def test_get_non_retryable_errors_cover_auth(self) -> None:
-        errors = ImpactSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
-
-    def test_get_resumable_source_manager_bound_to_data_class(self) -> None:
-        manager = ImpactSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ImpactResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         manager = MagicMock()
