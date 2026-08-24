@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -26,11 +25,11 @@ from django.db import transaction
 import structlog
 
 from products.alerts.backend.destination_configs import DESTINATION_TEMPLATE_IDS
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.models.shared_alert import AlertDestination, AlertProduct, AlertSharedIdentity
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.models import LogsAlertConfiguration
-from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -170,7 +169,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(json.dumps({"dry_run": dry_run, **stats.as_dict()}, indent=2)))
 
     def _backfill_insight_alerts(self, *, stats: AlertBackfillStats, dry_run: bool, alert_id: str | None, limit: int | None, batch_size: int) -> None:
-        qs = AlertConfiguration.objects.filter(shared_alert__isnull=True).select_related("team__organization").iterator()
+        qs = AlertConfiguration.objects.filter(shared_alert__isnull=True).iterator()
         self._backfill_config_rows(
             stats=stats,
             dry_run=dry_run,
@@ -186,7 +185,7 @@ class Command(BaseCommand):
         )
 
     def _backfill_logs_alerts(self, *, stats: AlertBackfillStats, dry_run: bool, alert_id: str | None, limit: int | None, batch_size: int) -> None:
-        qs = LogsAlertConfiguration.objects.filter(shared_alert__isnull=True).select_related("team__organization").iterator()
+        qs = LogsAlertConfiguration.objects.filter(shared_alert__isnull=True).iterator()
         self._backfill_config_rows(
             stats=stats,
             dry_run=dry_run,
@@ -350,7 +349,6 @@ class Command(BaseCommand):
                     name=destination_name,
                 )
                 event_kinds_seen: set[str] = set()
-                hog_function_ids_to_update: list[UUID] = []
                 kinds_to_write: dict[UUID, str] = {}
                 for hog_function in group.functions:
                     event_kind = _EVENT_ID_TO_KIND.get(_extract_event_id(hog_function.filters or {}) or "")
@@ -374,7 +372,6 @@ class Command(BaseCommand):
                         continue
                     event_kinds_seen.add(event_kind)
                     kinds_to_write[hog_function.id] = event_kind
-                    hog_function_ids_to_update.append(hog_function.id)
 
                 # Bulk update the ownership columns; each function gets its
                 # typed stamp in one statement per kind since the values vary.
