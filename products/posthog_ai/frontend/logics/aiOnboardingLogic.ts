@@ -102,7 +102,8 @@ export interface aiOnboardingLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         currentStep: (stepIndex: number) => OnboardingStep | null
-        hasSeenOnboarding: (user: UserType | null) => boolean
+        hasSeenOnboardingPersisted: (user: UserType | null) => boolean
+        hasSeenOnboarding: (hasSeenOnboardingPersisted: boolean, seenThisSession: boolean) => boolean
         projectHasData: (currentTeam: TeamPublicType | TeamType | null) => boolean
         starterPrompts: (projectHasData: boolean) => readonly string[]
         githubConnected: (githubIntegrations: IntegrationType[]) => boolean
