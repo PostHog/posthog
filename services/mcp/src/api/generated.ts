@@ -26461,6 +26461,11 @@ export namespace Schemas {
       index?: number;
     }
 
+    export interface DesktopBetaTermsAcceptanceDTO {
+      /** Whether the organization has accepted the PostHog Desktop beta terms. */
+      readonly is_desktop_beta_terms_accepted: boolean;
+    }
+
     /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
