@@ -8,6 +8,7 @@ import { mockFeatureFlags } from '../utils/mockApi'
 import { test } from '../utils/workspace-test-base'
 
 const CHECK_NAME = 'orders_has_rows'
+const SUBJECT_NAME = 'orders_e2e'
 
 test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }) => {
     const workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
@@ -20,7 +21,7 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
 
     const savedQuery = await page.request.post(`/api/projects/${workspace.team_id}/warehouse_saved_queries/`, {
         ...auth,
-        data: { name: 'orders_e2e', query: { kind: 'HogQLQuery', query: 'SELECT 1 AS id' } },
+        data: { name: SUBJECT_NAME, query: { kind: 'HogQLQuery', query: 'SELECT 1 AS id' } },
     })
     expect(savedQuery.ok()).toBe(true)
     const savedQueryId = (await savedQuery.json()).id
@@ -47,7 +48,8 @@ test('edits and deletes a check from Data Ops', async ({ page, playwrightSetup }
     await playwrightSetup.loginAndNavigateToTeam(page, workspace)
     await page.goto('/data-ops?tab=data-quality')
 
-    await expect(page.getByText(CHECK_NAME)).toBeVisible({ timeout: 30000 })
+    await page.getByLabel(`Expand checks for ${SUBJECT_NAME}`).click({ timeout: 30000 })
+    await expect(page.getByText(CHECK_NAME)).toBeVisible()
 
     await page.getByLabel(`Actions for check ${CHECK_NAME}`).click()
     await page.getByText('Edit', { exact: true }).click()
