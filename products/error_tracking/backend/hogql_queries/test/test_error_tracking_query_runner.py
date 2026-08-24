@@ -38,6 +38,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
+from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -57,6 +58,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
 )
+from products.error_tracking.backend.hogql_queries.issue_state_overlay import load_recent_issue_states
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -368,6 +370,37 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertTrue(runner.query.withAggregations)
 
     @freeze_time("2022-01-10T12:11:00")
+    def test_cache_payload_keeps_latest_issue_state_watermark_after_overlay_expiry(self):
+        query = ErrorTrackingQuery(
+            kind="ErrorTrackingQuery",
+            dateRange=DateRange(date_from="all"),
+            orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+            volumeResolution=1,
+        )
+        initial_payload = ErrorTrackingQueryRunner(
+            team=self.team, query=query.model_copy(deep=True)
+        ).get_cache_payload()
+        mutation_timestamp = now() - timedelta(seconds=61)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=mutation_timestamp)
+
+        mutated_payload = ErrorTrackingQueryRunner(
+            team=self.team, query=query.model_copy(deep=True)
+        ).get_cache_payload()
+        with freeze_time("2022-01-10T12:13:00"):
+            expired_payload = ErrorTrackingQueryRunner(
+                team=self.team, query=query.model_copy(deep=True)
+            ).get_cache_payload()
+
+        self.assertNotEqual(
+            initial_payload["error_tracking_issue_state_watermark"],
+            mutated_payload["error_tracking_issue_state_watermark"],
+        )
+        self.assertEqual(
+            mutated_payload["error_tracking_issue_state_watermark"],
+            expired_payload["error_tracking_issue_state_watermark"],
+        )
+
+    @freeze_time("2022-01-10T12:11:00")
     def test_missing_date_from_defaults_to_seven_days(self):
         # A missing date_from must default to a bounded 7-day window, not all-time.
         date_from = ErrorTrackingQueryRunner.parse_relative_date_from(None)
@@ -595,22 +628,89 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):
         resolved_issue = ErrorTrackingIssue.objects.get(id=self.issue_id_one)
-        resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
-        resolved_issue.save()
-        # re-sync after status change
+        resolved_issue.description = "Stale description"
+        resolved_issue.save(update_fields=["description"])
         sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+
+        resolved_issue.status = ErrorTrackingIssue.Status.RESOLVED
+        resolved_issue.name = "Updated TypeError"
+        resolved_issue.description = None
+        resolved_issue.state_updated_at = now()
+        resolved_issue.save(update_fields=["status", "name", "description", "state_updated_at"])
 
         results = self._calculate(status="active")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
 
-        results = self._calculate(status="resolved")["results"]
+        results = self._calculate(status="resolved", issueId=self.issue_id_one)["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
+        self.assertEqual(results[0]["status"], ErrorTrackingIssue.Status.RESOLVED)
+        self.assertEqual(results[0]["name"], "Updated TypeError")
+        self.assertIsNone(results[0]["description"])
 
         results = self._calculate()["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
         results = self._calculate(status="all")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_expired_postgres_state_uses_clickhouse_state(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now() - timedelta(seconds=61),
+        )
+
+        active_response = self._calculate(status="active")
+        self.assertIn(self.issue_id_one, [result["id"] for result in active_response["results"]])
+        self.assertNotIn("error_tracking_recent_issue_state", active_response["hogql"])
+
+        resolved_results = self._calculate(status="resolved")["results"]
+        self.assertNotIn(self.issue_id_one, [result["id"] for result in resolved_results])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_issue_state_is_scoped_to_team(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(state_updated_at=now())
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_issue = ErrorTrackingIssue.objects.create(
+            team=other_team,
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now(),
+        )
+
+        with self.assertNumQueries(1):
+            recent_states = load_recent_issue_states(self.team.pk)
+
+        self.assertEqual(
+            [state.issue_id for state in recent_states], [ErrorTrackingIssue.objects.get(id=self.issue_id_one).id]
+        )
+        self.assertNotIn(other_issue.id, [state.issue_id for state in recent_states])
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_issue_state_applies_to_more_than_fifty_fingerprints(self):
+        for index in range(50):
+            fingerprint = f"additional-fingerprint-{index}"
+            ErrorTrackingIssueFingerprintV2.objects.create(
+                team=self.team,
+                issue_id=self.issue_id_one,
+                fingerprint=fingerprint,
+            )
+            _create_event(
+                distinct_id=self.distinct_id_one,
+                event="$exception",
+                team=self.team,
+                properties={"$exception_issue_id": self.issue_id_one, "$exception_fingerprint": fingerprint},
+            )
+        sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
+        flush_persons_and_events()
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            state_updated_at=now(),
+        )
+
+        results = self._calculate(status="resolved", withAggregations=True)["results"]
+
+        self.assertEqual([result["id"] for result in results], [self.issue_id_one])
+        self.assertEqual(results[0]["aggregations"]["occurrences"], 52)
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -657,9 +757,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         )
         flush_persons_and_events()
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, user=self.user, team=self.team)
-        # re-sync with a newer version so the assignment wins argMax over the create-time row
-        with freeze_time("2022-01-10T12:11:05"):
-            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+        ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
@@ -675,18 +773,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         flush_persons_and_events()
         role = Role.objects.create(name="Test Team", organization=self.organization)
         ErrorTrackingIssueAssignment.objects.create(issue_id=issue_id, role=role, team=self.team)
-        # re-sync with a newer version so the assignment wins argMax over the create-time row
-        with freeze_time("2022-01-10T12:11:05"):
-            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+        ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
     @freeze_time("2022-01-10T12:11:00")
     def test_unassignment_clears_assignee(self):
-        # Reproduces argMax(field, version) NULL-skip behavior: writing a newer
-        # row with assigned_user_id=NULL must not let the query return the prior
-        # non-NULL user_id.
         issue_id = "e9ac529f-ac1c-4a96-bd3a-107034368d64"
         self.create_events_and_issue(
             issue_id=issue_id, fingerprint="unassign_issue_fingerprint", distinct_ids=[self.distinct_id_one]
@@ -697,14 +790,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         with freeze_time("2022-01-10T12:11:01"):
             sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
 
-        assignment.delete()
         with freeze_time("2022-01-10T12:11:02"):
-            sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
+            assignment.delete()
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(state_updated_at=now())
 
-        results = self._calculate()["results"]
-        matching = [r for r in results if r["id"] == issue_id]
-        self.assertEqual(len(matching), 1)
-        self.assertIsNone(matching[0]["assignee"])
+            results = self._calculate()["results"]
+            matching = [r for r in results if r["id"] == issue_id]
+            self.assertEqual(len(matching), 1)
+            self.assertIsNone(matching[0]["assignee"])
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
@@ -725,6 +818,31 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             )
         )["results"]
         self.assertEqual(len(results), 1)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_issue_state_applies_before_issue_filters(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(
+            name="Updated TypeError",
+            state_updated_at=now(),
+        )
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=["Updated TypeError"], operator=PropertyOperator.EXACT
+                            ),
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual([result["id"] for result in results], [self.issue_id_one])
 
     @parameterized.expand(
         [
