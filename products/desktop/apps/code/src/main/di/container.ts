@@ -46,11 +46,9 @@ import { GIT_DIFF_SOURCE } from "@posthog/core/git-pr/identifiers";
 import { handoffModule } from "@posthog/core/handoff/handoff.module";
 import { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import { integrationsModule } from "@posthog/core/integrations/integrations.module";
-import { ApprovalLinkService } from "@posthog/core/links/approval-link";
 import { CanvasLinkService } from "@posthog/core/links/canvas-link";
 import { ChannelLinkService } from "@posthog/core/links/channel-link";
 import {
-  APPROVAL_LINK_SERVICE,
   CANVAS_LINK_SERVICE,
   CHANNEL_LINK_SERVICE,
   INBOX_LINK_SERVICE,
@@ -288,7 +286,6 @@ import { quickAskStore, rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
-  APPROVAL_LINK_SERVICE as MAIN_APPROVAL_LINK_SERVICE,
   ARCHIVE_REPOSITORY as MAIN_ARCHIVE_REPOSITORY,
   AUTH_PREFERENCE_REPOSITORY as MAIN_AUTH_PREFERENCE_REPOSITORY,
   AUTH_SERVICE as MAIN_AUTH_SERVICE,
@@ -712,8 +709,6 @@ container.bind(MAIN_SCOUT_LINK_SERVICE).to(ScoutLinkService);
 container.bind(SCOUT_LINK_SERVICE).toService(MAIN_SCOUT_LINK_SERVICE);
 container.bind(MAIN_NEW_TASK_LINK_SERVICE).to(NewTaskLinkService);
 container.bind(NEW_TASK_LINK_SERVICE).toService(MAIN_NEW_TASK_LINK_SERVICE);
-container.bind(MAIN_APPROVAL_LINK_SERVICE).to(ApprovalLinkService);
-container.bind(APPROVAL_LINK_SERVICE).toService(MAIN_APPROVAL_LINK_SERVICE);
 container.bind(MAIN_OPEN_TARGET_LINK_SERVICE).to(OpenTargetLinkService);
 container
   .bind(OPEN_TARGET_LINK_SERVICE)

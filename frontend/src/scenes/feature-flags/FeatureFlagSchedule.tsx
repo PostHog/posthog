@@ -25,6 +25,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { describeCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -43,7 +44,6 @@ import {
 } from '~/types'
 
 import {
-    describeCron,
     featureFlagLogic,
     hasZeroRollout,
     PAIRED_PRESETS,

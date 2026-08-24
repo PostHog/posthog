@@ -25,7 +25,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 

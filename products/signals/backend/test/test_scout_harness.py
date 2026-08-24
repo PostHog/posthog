@@ -28,6 +28,7 @@ from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
@@ -458,6 +459,53 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         without_schema = _prompt(None)
         assert "# Structured output" not in without_schema
         assert "scout-record-output" not in without_schema
+
+
+class TestBusinessKnowledgePromptSection(SimpleTestCase):
+    # Each channel assembles its own tail list, so the gate can be lost or inverted on one
+    # channel alone.
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+        ]
+    )
+    def test_section_renders_only_when_the_team_has_a_knowledge_base(
+        self, _name: str, allowed_tools: list[str]
+    ) -> None:
+        # Both failure modes are silent in production: dropping the section leaves a team that
+        # curated a knowledge base with scouts that never search it, and rendering it for everyone
+        # steers the whole fleet at BK tools that are only in the toolset when that product's flag
+        # is on — an unknown-tool burn on every run, for a section most teams can't act on.
+        def _prompt(*, maintained: bool) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-errors",
+                    version=1,
+                    body="watch",
+                    description="d",
+                    allowed_tools=allowed_tools,
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                business_knowledge_maintained=maintained,
+            )
+
+        maintained = _prompt(maintained=True)
+        assert "# Business knowledge" in maintained
+        assert "business-knowledge-documents-search" in maintained
+
+        unmaintained = _prompt(maintained=False)
+        assert "# Business knowledge" not in unmaintained
+        # The tool names, specifically — *Ground rules* still names business-knowledge documents as
+        # one of the untrusted sources a run may read, and must keep doing so.
+        assert "business-knowledge-documents-search" not in unmaintained
+        assert "business-knowledge-document-window-retrieve" not in unmaintained
 
 
 class TestPromptBuilder(BaseTest):
@@ -1580,6 +1628,9 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
     # task_run_id is the join key into LLM analytics for the richer per-run metrics.
     assert props["task_run_id"] == str(session.task_run.id)
     assert isinstance(props["runtime_seconds"], float)
+    # The prompt-shape fork reaches the lifecycle event too (this team has no knowledge base),
+    # so an event-based A/B readout can segment on it without joining back to the run row.
+    assert props["business_knowledge_maintained"] is False
 
 
 @pytest.mark.asyncio
@@ -2132,13 +2183,30 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_activity_skips_run_when_team_over_signals_quota(ateam):
+@pytest.mark.parametrize(
+    ("billing_limited", "daily_limited", "expected_skip_reason"),
+    [
+        (True, False, "quota_limited"),
+        (False, True, "daily_report_limit"),
+        (True, True, "quota_limited"),
+    ],
+)
+async def test_activity_skips_run_attributed_to_the_limit_that_fired(
+    ateam, billing_limited, daily_limited, expected_skip_reason
+):
     fake_arun = AsyncMock()
     with (
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=True,
+            return_value=billing_limited,
         ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=daily_limited, limit=2, reports_today=2),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_daily_limit_paused"
+        ) as capture,
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         env = ActivityEnvironment()
@@ -2150,7 +2218,13 @@ async def test_activity_skips_run_when_team_over_signals_quota(ateam):
     fake_arun.assert_not_called()
     assert output.run_id is None
     assert output.status is None
-    assert output.skip_reason == "quota_limited"
+    assert output.skip_reason == expected_skip_reason
+    # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
+    # the quota skip wins the single-status run counter.
+    if daily_limited:
+        assert capture.call_args.kwargs["stage"] == "scout_run"
+    else:
+        capture.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2327,6 +2401,24 @@ class TestRunRowProvenanceStamps(BaseTest):
         assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
         assert stamped["report_channel"] == expected_channel
         assert stamped["skill_origin"] == expected_origin
+        # Always-present provenance key: absence would mean a run predating the field, so a False
+        # default must still be stamped, not omitted.
+        assert stamped["business_knowledge_maintained"] is False
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
+
+    def test_stamps_business_knowledge_fork_when_maintained(self) -> None:
+        # The section rides on every run and the flag/source state behind it can change, so the
+        # resolved boolean is stamped write-once — an eval or A/B compares only runs given the
+        # same prompt, and re-deriving it later would read the wrong (current) state.
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+            business_knowledge_maintained=True,
+        )
+        assert (run.metadata or {})["business_knowledge_maintained"] is True

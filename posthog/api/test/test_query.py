@@ -51,8 +51,8 @@ from posthog.llm.completions import OpenAICompletion
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -1263,14 +1263,12 @@ class TestQueryRetrieve(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("enabled_ready", True, True, 200),
-            ("disabled_ready", False, True, 200),
-            ("enabled_revoked", True, False, 404),
-            ("disabled_revoked", False, False, 404),
+            ("ready", True, 200),
+            ("revoked", False, 404),
         ]
     )
-    def test_managed_warehouse_query_status_checks_reader_readiness_without_flag_revocation(
-        self, _name: str, flag_enabled: bool, reader_configured: bool, expected_status: int
+    def test_managed_warehouse_query_status_checks_reader_readiness_without_feature_flag_lookup(
+        self, _name: str, reader_configured: bool, expected_status: int
     ) -> None:
         source = ExternalDataSource.objects.create(
             source_id="managed-source",
@@ -1307,13 +1305,13 @@ class TestQueryRetrieve(APIBaseTest):
         ).encode()
 
         with patch(
-            "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
-            return_value=flag_enabled,
-        ) as managed_warehouse_sql_editor_flag:
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=AssertionError("query-status authorization must not evaluate a product feature flag"),
+        ) as feature_flag_lookup:
             response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
 
         self.assertEqual(response.status_code, expected_status)
-        managed_warehouse_sql_editor_flag.assert_not_called()
+        feature_flag_lookup.assert_not_called()
         if not reader_configured:
             self.assertEqual(response.json()["detail"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE)
             self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)

@@ -482,6 +482,7 @@ LogsSceneServicesTabV2.parameters = {
     featureFlags: [FEATURE_FLAGS.LOGS_SERVICES_VIEW, FEATURE_FLAGS.LOGS_SERVICES_VIEW_V2],
     testOptions: {
         // v2-specific, so this fails rather than passes if the gate falls through to the v1 table.
-        waitForSelector: '[data-attr="logs-services-view-mode-list"]',
+        // A rendered row also means the virtualized list measured its container.
+        waitForSelector: '[data-attr="logs-services-row"]',
     },
 }

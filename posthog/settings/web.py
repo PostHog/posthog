@@ -78,6 +78,7 @@ PRODUCTS_APPS = [
     "products.review_hog.backend.apps.ReviewHogConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.billing_alerts.backend.apps.BillingAlertsConfig",
+    "products.context_layer.backend.apps.ContextLayerAppConfig",
     "products.tracing.backend.apps.TracingConfig",
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
@@ -574,6 +575,8 @@ SPECTACULAR_SETTINGS = {
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
+        # `source_product` names the same choice set on several signals components, so pin one name.
+        "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
@@ -684,6 +687,8 @@ SPECTACULAR_SETTINGS = {
         # and churn subscriptions' generated types.
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
+        "LayoutCompactionEnum": ["vertical", "horizontal", "stable"],
         "PropertyGroupOperator": ["AND", "OR"],
         # `scope`/`state` are generic field names; one shared name for the canvas state scope set.
         "CanvasStateScopeEnum": ["user", "shared"],
@@ -886,6 +891,7 @@ SPECTACULAR_SETTINGS = {
         "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+        "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
         # widget_type ChoiceField (one value). drf-spectacular hashes enum value sets — without
@@ -1070,6 +1076,13 @@ DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOKEN)
 LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
+
+####
+# Firecrawl (outbound page scraping, see posthog/egress/firecrawl/)
+FIRECRAWL_API_KEY = get_from_env("FIRECRAWL_API_KEY", "")
+# Operator ceilings on credit spend rather than Firecrawl's own limits, which the process can't see.
+FIRECRAWL_EGRESS_PER_MINUTE_BUDGET = get_from_env("FIRECRAWL_EGRESS_PER_MINUTE_BUDGET", 60, type_cast=int)
+FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 1000, type_cast=int)
 
 ####
 # Feature flag billing analytics
@@ -1286,6 +1299,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "product_tour:read",
     "product_tour:write",
     "heatmap:read",
+    "heatmap:write",
     "element:read",
     "uploaded_media:write",
     "survey:read",

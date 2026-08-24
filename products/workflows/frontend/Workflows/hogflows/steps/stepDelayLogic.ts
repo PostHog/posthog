@@ -104,6 +104,12 @@ export interface stepDelayLogicActions {
                   type: 'event'
               }
             | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
                   condition: {
                       filters?:
                           | {
@@ -197,6 +203,9 @@ export interface stepDelayLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string
@@ -212,6 +221,14 @@ export interface stepDelayLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -349,6 +366,12 @@ export interface stepDelayLogicActions {
               }
             | {
                   filters: {
+                      properties?: any[] | undefined
+                  }
+                  type: 'slack-message'
+              }
+            | {
+                  filters: {
                       actions?: any[] | undefined
                       events?: any[] | undefined
                       filter_test_accounts?: boolean | undefined
@@ -400,6 +423,14 @@ export interface stepDelayLogicActions {
                   key_property?: string | undefined
                   table_name: string
                   type: 'data-warehouse-table'
+              }
+            | {
+                  filters: {
+                      properties?: any[] | undefined
+                  }
+                  key_property?: string | undefined
+                  table_name: string
+                  type: 'data-warehouse-view'
               }
             | {
                   inputs: Record<
@@ -468,6 +499,9 @@ export interface stepDelayLogicActions {
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
                                           | 'string'
+                                          | 'task_mcp_installations'
+                                          | 'task_model'
+                                          | 'task_repository'
                                   }[]
                                 | undefined
                             name: string

@@ -223,6 +223,20 @@ class TestShadowDriftCompanion:
             ([".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"], 0, "both files updated"),
             # Depot-only is a notice in CI, never a failure. Blocking it would false-block depot tuning.
             ([".depot/workflows/ci-backend.yml"], 0, ""),
+            (
+                [".github/actions/paths-filter/src/main.ts"],
+                1,
+                "mirror the change into .depot/actions/paths-filter/**",
+            ),
+            (
+                [
+                    ".github/actions/paths-filter/src/main.ts",
+                    ".depot/actions/paths-filter/src/main.ts",
+                ],
+                0,
+                "both files updated",
+            ),
+            ([".depot/actions/paths-filter/src/main.ts"], 0, "both files updated"),
         ],
     )
     @patch("hogli_commands.ci_preflight._emit_telemetry")
@@ -255,6 +269,6 @@ class TestShadowDriftCompanion:
         workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci-backend-shadow-drift.yml").read_text())
         # `on` parses as the boolean True in YAML 1.1.
         watched = set(workflow[True]["pull_request"]["paths"])
-        shadow = next(chk for chk in COMPANION_CHECKS if chk.key == "shadow-drift")
+        companion_paths = {path for companion in COMPANION_CHECKS for path in (companion.source, companion.companion)}
 
-        assert watched == {shadow.source, shadow.companion}
+        assert watched == companion_paths

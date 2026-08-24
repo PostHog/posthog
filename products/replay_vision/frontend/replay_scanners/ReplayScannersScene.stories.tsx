@@ -46,6 +46,9 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         scanner_config: { prompt: 'Did the user struggle?' },
         query: null,
         sampling_rate: 1,
+        // The API always serializes this (non-null column with a default), so a fixture without it
+        // would render the editor's form default instead of the scanner's own coverage.
+        sampling_mode: 'comprehensive',
         provider: 'google',
         model: 'gemini-3.7-flash',
         enabled: true,
@@ -513,26 +516,6 @@ const emptyProjectDecorators = [
 
 export const ScannersListEmpty: StoryObj = {
     decorators: emptyProjectDecorators,
-}
-
-// Both arm stories run with the goal-draft flag on, matching the launch state where each arm
-// also offers the "tell PostHog AI what you want to accomplish" box.
-export const ScannersListEmptyTemplates: StoryObj = {
-    decorators: emptyProjectDecorators,
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'templates',
-        },
-    },
-}
-
-export const ScannersListEmptyExampleObservations: StoryObj = {
-    decorators: emptyProjectDecorators,
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_EMPTY_STATE_EXPERIMENT]: 'example-observations',
-        },
-    },
 }
 
 export const UsageTab: StoryObj = {

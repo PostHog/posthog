@@ -18,6 +18,7 @@ import {
   ProhibitIcon,
   QuestionIcon,
   SquaresFourIcon,
+  UserSwitchIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import type { CommentScope } from "@posthog/api-client/posthog-client";
@@ -26,8 +27,10 @@ import {
   type ArtifactPayload,
   type CommentEventPayload,
   type CommitsPushedPayload,
+  type PrPayload,
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
+import type { GroupableActivityEvent } from "@posthog/core/canvas/activityGrouping";
 import type { ChangedFile } from "@posthog/core/git/router-schemas";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import {
@@ -52,6 +55,7 @@ import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useCo
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { ArtifactChip } from "@posthog/ui/primitives/ArtifactChip";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { type ReactNode, useMemo, useState } from "react";
 
@@ -253,6 +257,7 @@ const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
   pr_merged: "violet",
   pr_closed: "red",
   message_forwarded: "neutral",
+  task_handed_off: "blue",
 };
 
 /** No glyph here is itself a circle: a ring inside a ring reads as a mistake at this size,
@@ -271,6 +276,7 @@ const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
   pr_merged: <GitMergeIcon size={11} />,
   pr_closed: <ProhibitIcon size={11} />,
   message_forwarded: <PaperPlaneTiltIcon size={9} weight="fill" />,
+  task_handed_off: <UserSwitchIcon size={11} />,
 };
 
 function eventLabel(
@@ -301,7 +307,10 @@ function eventLabel(
     case "artifact_created":
       return (
         <>
-          Agent created{" "}
+          Agent{" "}
+          {event.payload.referenceType === "posthog_object"
+            ? "added"
+            : "created"}{" "}
           <span className="font-medium">{event.payload.name}</span>
         </>
       );
@@ -355,6 +364,17 @@ function eventLabel(
         : "Comment thread reopened";
     case "message_forwarded":
       return "Message sent to the agent";
+    case "task_handed_off": {
+      const { fromDisplayName, toDisplayName } = event.payload;
+      return (
+        <>
+          {fromDisplayName
+            ? `${fromDisplayName} handed the task off to `
+            : "Task handed off to "}
+          <span className="font-medium">{toDisplayName}</span>
+        </>
+      );
+    }
   }
 }
 
@@ -513,13 +533,21 @@ export function ArtifactEventDetail({
 }) {
   const { download, downloadingId } = useArtifactDownload();
   const runId = payload.runId;
-  const canDownload = Boolean(taskId && runId && payload.artifactId);
+  const isPostHogReference = payload.referenceType === "posthog_object";
+  const objectKind = getObjectKind(payload.objectKind ?? "");
+  const canDownload = Boolean(
+    !isPostHogReference && taskId && runId && payload.artifactId,
+  );
 
   return (
     <ArtifactChip
       label={payload.name}
       name={payload.name}
-      meta={`v${payload.version}`}
+      meta={
+        isPostHogReference
+          ? `${objectKind.kindLabel} · ${objectKind.source}`
+          : `v${payload.version}`
+      }
       onOpen={onOpen}
       onDownload={
         canDownload && taskId && runId
@@ -694,19 +722,140 @@ export function ActivityEventRow({
   runOrdinal?: number;
   detail?: ReactNode;
 }) {
+  const ObjectIcon =
+    event.kind === "artifact_created" &&
+    event.payload.referenceType === "posthog_object"
+      ? getObjectKind(event.payload.objectKind ?? "").icon
+      : null;
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
       gutter={
         <EventBead tone={EVENT_TONES[event.kind]}>
-          {EVENT_ICONS[event.kind]}
+          {ObjectIcon ? <ObjectIcon size={11} /> : EVENT_ICONS[event.kind]}
         </EventBead>
       }
       timestamp={timestamp}
       detail={detail ?? eventDetail(event)}
     >
       {eventLabel(event, runCount, runOrdinal)}
+    </TimelineRow>
+  );
+}
+
+function PrGroupLink({ payload }: { payload: PrPayload }) {
+  const label = prLabel(payload);
+  // Same gate CommitSha applies: the url comes from run output, so a crafted
+  // payload must not turn a github-looking label into a link anywhere else.
+  const parsed = parseHttpsUrl(payload.prUrl);
+  const safeUrl = parsed?.origin === "https://github.com" ? parsed.href : null;
+  if (!safeUrl) {
+    return <div className="truncate text-muted-foreground">{label}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => openExternalUrl(safeUrl)}
+      className="block max-w-full cursor-pointer truncate text-left hover:underline"
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * One row for a stretch of events that each said the same thing. The count is the news; the
+ * events themselves are the detail, so nothing the individual rows carried is lost.
+ */
+export function GroupedEventRow({
+  events,
+  timestamp,
+  connectedAbove = true,
+  connectedBelow = true,
+}: {
+  events: GroupableActivityEvent[];
+  timestamp: string;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
+}) {
+  const first = events[0];
+  if (!first) return null;
+
+  if (first.kind === "commits_pushed") {
+    const pushes = events.flatMap((event) =>
+      event.kind === "commits_pushed" ? [event.payload] : [],
+    );
+    const total = pushes.reduce((sum, push) => sum + push.total, 0);
+    const listed = pushes.reduce((sum, push) => sum + push.commits.length, 0);
+    const branch = first.payload.branch;
+    return (
+      <TimelineRow
+        connectedAbove={connectedAbove}
+        connectedBelow={connectedBelow}
+        gutter={
+          <EventBead tone={EVENT_TONES.commits_pushed}>
+            {EVENT_ICONS.commits_pushed}
+          </EventBead>
+        }
+        timestamp={timestamp}
+        detail={
+          <DetailBlock>
+            <div className="max-h-56 space-y-1.5 overflow-y-auto overscroll-contain">
+              {pushes.flatMap((push) =>
+                push.commits.map((commit) => (
+                  <PushedCommitRow
+                    key={commit.sha}
+                    commit={commit}
+                    repository={push.repository}
+                  />
+                )),
+              )}
+              {total > listed && (
+                <div className="text-muted-foreground">
+                  and {total - listed} more
+                </div>
+              )}
+            </div>
+          </DetailBlock>
+        }
+      >
+        {`${total} commits pushed`}
+        {branch && <span className="text-muted-foreground"> to {branch}</span>}
+      </TimelineRow>
+    );
+  }
+
+  const verb =
+    first.kind === "pr_created"
+      ? "opened"
+      : first.kind === "pr_merged"
+        ? "merged"
+        : "closed";
+  const pulls = events.flatMap((event) =>
+    event.kind === "commits_pushed" ? [] : [event.payload],
+  );
+  return (
+    <TimelineRow
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
+      gutter={
+        <EventBead tone={EVENT_TONES[first.kind]}>
+          {EVENT_ICONS[first.kind]}
+        </EventBead>
+      }
+      timestamp={timestamp}
+      detail={
+        <DetailBlock>
+          <div className="max-h-56 space-y-1 overflow-y-auto overscroll-contain">
+            {pulls.map((payload) => (
+              <PrGroupLink key={payload.prUrl} payload={payload} />
+            ))}
+          </div>
+        </DetailBlock>
+      }
+    >
+      {`${pulls.length} pull requests ${verb}`}
     </TimelineRow>
   );
 }

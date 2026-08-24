@@ -26,6 +26,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.tasks.backend.logic.services.compute_quota import organization_deactivated
+from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
@@ -173,17 +174,15 @@ class SandboxWarmer:
             new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 
             # Dispatch only after the row commits, so a rollback can't leave an orphaned sandbox.
-            task_id, run_id, team_id, user_id = str(locked.id), str(new_run.id), self.task.team_id, self.user.pk
-            transaction.on_commit(
-                lambda: execute_task_processing_workflow(
-                    task_id=task_id,
-                    run_id=run_id,
-                    team_id=team_id,
-                    user_id=user_id,
+            enqueue_or_start_workflow(
+                new_run,
+                start_workflow=execute_task_processing_workflow,
+                options=WorkflowDispatchOptions(
+                    user_id=self.user.pk,
                     create_pr=create_pr,
                     posthog_mcp_scopes="full",
                     prewarmed=True,
-                )
+                ),
             )
 
         logger.info(

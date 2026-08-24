@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import type { EvaluationReportRun } from '../types'
@@ -11,6 +14,7 @@ import { EvaluationReportViewer, summarizeEvaluationReportResults } from './Eval
 
 interface EvaluationReportsTabProps {
     evaluationId: string
+    userAccessLevel?: AccessControlLevel
     /** Called when the user clicks the "Set up scheduled reports" CTA in the empty state. */
     onConfigureClick: () => void
 }
@@ -26,7 +30,11 @@ const STATUS_STYLES: Record<
     failed: { label: 'Failed', type: 'danger' },
 }
 
-export function EvaluationReportsTab({ evaluationId, onConfigureClick }: EvaluationReportsTabProps): JSX.Element {
+export function EvaluationReportsTab({
+    evaluationId,
+    userAccessLevel,
+    onConfigureClick,
+}: EvaluationReportsTabProps): JSX.Element {
     const logic = evaluationReportLogic({ evaluationId })
     const { reportRuns, reportRunsLoading, reportsLoading, activeReport, generateResultLoading } = useValues(logic)
     const { generateReport, loadReportRuns } = useActions(logic)
@@ -68,14 +76,20 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         >
                             Refresh
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => generateReport(activeReport.id)}
-                            loading={generateResultLoading}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Evaluation}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={userAccessLevel}
                         >
-                            Generate now
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => generateReport(activeReport.id)}
+                                loading={generateResultLoading}
+                            >
+                                Generate now
+                            </LemonButton>
+                        </AccessControlAction>
                     </div>
                 )}
             </div>
