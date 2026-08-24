@@ -21,7 +21,6 @@ import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
 import { ChannelsSidebar } from "@posthog/ui/features/canvas/components/ChannelsSidebar";
-import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import {
   FeedbackModal,
   type FeedbackModalMode,
@@ -49,7 +48,6 @@ import { useIntegrations } from "@posthog/ui/features/integrations/useIntegratio
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
-import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -115,9 +113,6 @@ function RootLayout() {
   // Cloud-only hosts (web) run in a real browser tab that already provides
   // native back/forward chrome, so the in-app history buttons are redundant.
   const { localWorkspaces } = useHostCapabilities();
-  // Width of the Channels sidebar below — used to right-align the back/forward
-  // buttons in the title bar with the sidebar's (and project switcher's) right edge.
-  const channelsSidebarWidth = useChannelsSidebarStore((state) => state.width);
   // Forward availability isn't exposed by the router (and history.length counts
   // pre-app entries, so it can't be compared to __TSR_index). Track the newest
   // index we've reached: only a PUSH wipes the forward stack, so it resets the
@@ -348,11 +343,10 @@ function RootLayout() {
     <BrowserTabsDndProvider>
       <Flex direction="column" height="100%" className="bg-chrome">
         {/* Full-width title bar: a window-drag region carrying the PostHog
-            mark. The left section matches the sidebar width so the tab strip
-            starts flush with the content pane; its padding clears the macOS
-            stoplights via env(titlebar-area-x), the system-reported right
-            edge of the traffic-light strip (see titleBarOverlay in
-            window.ts). */}
+            mark. The left section sizes to its controls so the tab strip sits
+            beside the history buttons; its padding clears the macOS stoplights
+            via env(titlebar-area-x), the system-reported right edge of the
+            traffic-light strip (see titleBarOverlay in window.ts). */}
         <Flex
           align="center"
           className="drag h-10 shrink-0"
@@ -371,9 +365,6 @@ function RootLayout() {
               // over- or under-shoots; the env var fallback covers hosts
               // without Window Controls Overlay.
               paddingLeft: isMac ? "env(titlebar-area-x, 78px)" : "78px",
-              width: sidebarDocked
-                ? channelsSidebarWidth + (channelsLayout ? NAV_RAIL_WIDTH : 0)
-                : undefined,
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
