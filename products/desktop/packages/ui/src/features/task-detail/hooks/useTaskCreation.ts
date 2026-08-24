@@ -40,6 +40,7 @@ import {
 import { titleAttachmentStoreApi } from "../../../shell/titleAttachmentStore";
 import { useAuthStateValue } from "../../auth/store";
 import { assertCloudUsageAvailable } from "../../billing/preflightCloudUsage";
+import { useUsageLimitStore } from "../../billing/usageLimitStore";
 import { useLocalMcpCloudServers } from "../../local-mcp/useLocalMcpCloudServers";
 import {
   contentToPlainText,
@@ -533,8 +534,8 @@ export function useTaskCreation({
           }
 
           if (!result.success) {
-            // Usage-limit blocks already show the upgrade modal; don't also toast an error.
             if (isUsageLimitResult(result)) {
+              useUsageLimitStore.getState().show({ cause: "org_limit" });
               log.warn("Cloud task creation blocked by usage limit");
             } else {
               const title = getErrorTitle(result.failedStep);
