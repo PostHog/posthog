@@ -11,9 +11,12 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { AccessControlLevel } from '~/types'
+
+import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { getReplayVisionEditDisabledReason, getReplayVisionRecordingViewDisabledReason } from '../utils/accessControl'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { VisionDocsLink, visionDocsUrl } from './DocsLink'
@@ -42,10 +45,17 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
-    // An inline scan mints a scanner, so that endpoint holds it to scanner-editor access. Running a
-    // scanner the team already has is `observe`, which asks only for recording read.
-    const builtInDisabledReason = getReplayVisionEditDisabledReason() ?? quotaDisabledReason
-    const scannerDisabledReason = getReplayVisionRecordingViewDisabledReason() ?? quotaDisabledReason
+    // `loading` only disables the button itself. The caret and the menu rows are their own buttons, so
+    // without this a second summarizer is one click away mid-run, and it spends the quota again.
+    const inFlightDisabledReason = summarizing ? 'A summary is already running' : null
+    // Both paths are scanner writes: an inline scan mints a scanner, and `observe` is a write action on
+    // the scanner it runs. Each also exposes recording contents, so both need recording read as well.
+    const builtInDisabledReason = inFlightDisabledReason ?? getReplayVisionEditDisabledReason() ?? quotaDisabledReason
+    // Object-level, so a scanner this user cannot edit is disabled rather than answering with a 403.
+    const scannerDisabledReason = (scanner: ReplayScannerApi): string | null | undefined =>
+        inFlightDisabledReason ??
+        getReplayVisionEditDisabledReason(scanner.user_access_level as AccessControlLevel | null) ??
+        quotaDisabledReason
     // Nobody could tell which summarizer the button used, so it says so.
     const label = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
     const summarizerTooltip = defaultSummarizer
@@ -57,7 +67,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             key: scanner.id,
             label: scanner.name,
             active: scanner.id === defaultSummarizer?.id,
-            disabledReason: scannerDisabledReason,
+            disabledReason: scannerDisabledReason(scanner),
             onClick: () => summarizeWith(scanner.id),
             'data-attr': 'vision-summarize-pick-scanner',
         })),
@@ -90,7 +100,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
             loading={summarizing}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => (dataProcessingAccepted ? summarize() : setConsentRequested(true))}
-            disabledReason={defaultSummarizer ? scannerDisabledReason : builtInDisabledReason}
+            disabledReason={defaultSummarizer ? scannerDisabledReason(defaultSummarizer) : builtInDisabledReason}
             tooltip={quotaTooltip ?? summarizerTooltip}
             data-attr="vision-summarize-recording"
             data-ph-capture-attribute-summarizer={defaultSummarizer ? 'configured' : 'built-in'}
@@ -101,6 +111,7 @@ function SummarizeButton({ sessionId }: { sessionId: string }): JSX.Element {
                           icon: <IconChevronDown />,
                           dropdown: { placement: 'bottom-end', overlay: <LemonMenuOverlay items={menuItems} /> },
                           divider: false,
+                          disabledReason: inFlightDisabledReason,
                           'aria-label': 'Choose a summarizer',
                           'data-attr': 'vision-summarize-choose',
                       }
