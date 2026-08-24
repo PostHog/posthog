@@ -4,6 +4,7 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   DotsThreeIcon,
+  FolderPlusIcon,
   LinkIcon,
   PencilSimpleIcon,
   PlusIcon,
@@ -52,6 +53,7 @@ import {
   ChannelItemHoverCard,
   SpaceHoverCard,
 } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
+import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import type { ChannelActionItem } from "@posthog/ui/features/canvas/components/channelActions";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
 import { RenameChannelModal } from "@posthog/ui/features/canvas/components/RenameChannelModal";
@@ -1506,6 +1508,7 @@ function ChannelGroup({
   flat,
   keepMounted = true,
   asOption = false,
+  action,
   children,
 }: {
   sectionId: string;
@@ -1525,6 +1528,12 @@ function ChannelGroup({
    * box driving a list, so it stays a plain label you click.
    */
   asOption?: boolean;
+  /**
+   * Hover-revealed control pinned to the header's right edge. A sibling of the
+   * trigger rather than a child, because nesting a button inside one is invalid
+   * and would hand the collapsible every click meant for the control.
+   */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   const collapsedSections = useSidebarStore((s) => s.collapsedSections);
@@ -1542,41 +1551,51 @@ function ChannelGroup({
       }}
       className={cn(className, "mb-2")}
     >
-      {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
+      {/* The header row. `action` floats over the trigger's right edge, and the
+          wrapper carries the hover that reveals it, so the whole heading is the
+          target rather than the control's own 20px. */}
+      <div className="group/group-header relative">
+        {/* MenuLabel carries the sidebar's label styling; `render` keeps it a
           real button so the whole row is clickable. Wrapped in an option when
           the keyboard walks the list, so the heading is a stop on the way down
           rather than a gap the highlight jumps over. */}
-      <Collapsible.Trigger
-        className={cn(
-          "group/group-trigger flex w-full items-center gap-2 py-1",
-          // quill wraps an option's children in its own flex row, so the caret's
-          // `ml-auto` has nothing to push against until that row is full width.
-          // The highlight is the rows' own hover fill rather than quill's focus
-          // ring, for the reason SpaceRowSurface gives.
-          asOption &&
-            "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
-        )}
-        render={
-          asOption ? (
-            <AutocompleteItem
-              value={sectionValue(sectionId)}
-              render={<MenuLabel render={<button type="button" />} />}
-            />
+        <Collapsible.Trigger
+          className={cn(
+            "group/group-trigger flex w-full items-center gap-2 py-1",
+            // quill wraps an option's children in its own flex row, so the caret's
+            // `ml-auto` has nothing to push against until that row is full width.
+            // The highlight is the rows' own hover fill rather than quill's focus
+            // ring, for the reason SpaceRowSurface gives.
+            asOption &&
+              "rounded-sm ring-offset-0 data-highlighted:bg-fill-hover data-highlighted:ring-0 [&>span]:w-full [&>span]:items-center",
+          )}
+          render={
+            asOption ? (
+              <AutocompleteItem
+                value={sectionValue(sectionId)}
+                render={<MenuLabel render={<button type="button" />} />}
+              />
+            ) : (
+              <MenuLabel render={<button type="button" />} />
+            )
+          }
+        >
+          {label}
+          {/* On the right, because the heading's name is the left edge every row
+              beneath it lines up to. Always drawn: which way the section is, is
+              the one thing this row has to say. */}
+          {isOpen ? (
+            <CaretDownIcon size={12} className="shrink-0" />
           ) : (
-            <MenuLabel render={<button type="button" />} />
-          )
-        }
-      >
-        {label}
-        {/* On the right, because the heading's name is the left edge every row
-            beneath it lines up to. Always drawn: which way the section is, is
-            the one thing this row has to say. */}
-        {isOpen ? (
-          <CaretDownIcon size={12} className="shrink-0" />
-        ) : (
-          <CaretRightIcon size={12} className="shrink-0" />
+            <CaretRightIcon size={12} className="shrink-0" />
+          )}
+        </Collapsible.Trigger>
+        {action && (
+          <div className="absolute inset-y-0 right-1 flex items-center">
+            {action}
+          </div>
         )}
-      </Collapsible.Trigger>
+      </div>
       {/* Stay mounted while collapsed. Every row builds a context menu, a
           dropdown, a tooltip and two dialogs up front, so unmounting on close
           makes each expand rebuild the lot (~940ms for 46 channels, vs ~80ms
@@ -1585,6 +1604,50 @@ function ChannelGroup({
         <div className={cn(!flat && "pl-5")}>{children}</div>
       </Collapsible.Panel>
     </Collapsible.Root>
+  );
+}
+
+/**
+ * "New space" on the Spaces heading, revealed on hover.
+ *
+ * The floating create button can still make one, but there it sits under a menu
+ * below two other items — so the heading you are already looking at when you
+ * want another space carries the same action a click away.
+ */
+function NewChannelButton() {
+  const spacesLayout = useChannelsLayout();
+  const [modalOpen, setModalOpen] = useState(false);
+  const label = spacesLayout ? "New space" : "New channel";
+
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="outline"
+              size="icon-xs"
+              aria-label={label}
+              onClick={() => setModalOpen(true)}
+              className={cn(
+                "transition-opacity group-hover/group-header:border-border",
+                modalOpen
+                  ? "opacity-100"
+                  : "opacity-0 focus-visible:opacity-100 group-hover/group-header:opacity-100",
+              )}
+            >
+              <FolderPlusIcon size={14} />
+            </Button>
+          }
+        />
+        <TooltipContent side="top">{label}…</TooltipContent>
+      </Tooltip>
+      <CreateChannelModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        surface="spaces_heading"
+      />
+    </>
   );
 }
 
@@ -1899,6 +1962,7 @@ export function ChannelsList() {
         flat={channelsLayout}
         keepMounted={!channelsLayout}
         asOption={channelsLayout}
+        action={<NewChannelButton />}
       >
         {!isLoading && channels.length === 0 && (
           <Empty className="px-2 py-1 text-subtle-foreground text-xs">
