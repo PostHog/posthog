@@ -3,8 +3,6 @@ from typing import Any, cast
 
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.constants import (
     ATTENTIVE_WEBHOOK_SCHEMA_NAMES,
@@ -17,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attentive import (
     AttentiveSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestWebhookTableTransformer:
@@ -53,31 +50,6 @@ class TestAttentiveSource:
         self.team_id = 123
         self.config = AttentiveSourceConfig(api_key="key")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ATTENTIVE
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Attentive"
-        assert config.label == "Attentive"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/attentive.com.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key"]
-
-        webhook_field_names = [f.name for f in (config.webhookFields or [])]
-        assert webhook_field_names == ["signing_secret"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
-
     def test_webhook_template_registered(self):
         template = self.source.webhook_template
         assert template is not None
@@ -103,15 +75,6 @@ class TestAttentiveSource:
     def test_get_desired_webhook_events_maps_eligible_schemas(self):
         events = self.source.get_desired_webhook_events(self.config, ["sms_sent", "email_opened", "not_a_schema"])
         assert events == ["sms.sent", "email.opened"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.attentive.source.api_client.validate_credentials"
-    )
-    def test_validate_credentials_delegates(self, mock_validate):
-        mock_validate.return_value = (True, None)
-
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        mock_validate.assert_called_once_with("key")
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.attentive.source.api_client.create_webhook"

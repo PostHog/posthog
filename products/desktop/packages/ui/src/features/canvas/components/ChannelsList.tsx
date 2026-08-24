@@ -489,6 +489,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       id: item.id,
       title: item.title,
       isPinned: item.pinned,
+      task: item.task ?? undefined,
       // Ticks the space the session is already in, inside "File to…".
       channelId: spaceId,
       onAddToCommandCenter: actions.commandCenterAssigner(item.id),

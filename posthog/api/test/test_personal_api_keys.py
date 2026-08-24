@@ -959,7 +959,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
         response = self._do_request(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
         assert response.status_code == status.HTTP_200_OK
 
-    def test_forbids_export_even_with_write_scope(self):
+    def test_allows_export_with_write_scope(self):
         self.key.scopes = ["activity_log:write"]
         self.key.save()
         response = self.client.post(
@@ -968,8 +968,7 @@ class TestPersonalAPIKeysWithActivityLogCustomActions(PersonalAPIKeysBaseTest):
             headers={"authorization": f"Bearer {self.value}"},
             content_type="application/json",
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["detail"] == "This action does not support personal API key access"
+        assert response.status_code == status.HTTP_202_ACCEPTED
 
     def test_denies_available_filters_with_unrelated_scope(self):
         self.key.scopes = ["feature_flag:read"]

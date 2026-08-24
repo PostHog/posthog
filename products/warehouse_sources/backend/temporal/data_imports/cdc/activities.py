@@ -1670,14 +1670,21 @@ class CDCExtractActivity:
             self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
     def _capture_unclassified(self, exc: BaseException) -> None:
-        # Send the exception types in the cause chain — never str(exc), which can embed the customer's
-        # host, database, schema, or table names — so the taxonomy can be extended to catch this.
+        # Send the exception types and psycopg SQLSTATE codes in the cause chain — never str(exc),
+        # which can embed the customer's host, database, schema, or table names — so the taxonomy can
+        # be extended to catch this. A SQLSTATE is a fixed 5-character code (e.g. 42501 = insufficient
+        # privilege), carries no customer data, and pins down which deterministic error is looping
+        # where the exception type alone is ambiguous (many map to the same psycopg class).
         seen: set[int] = set()
         type_names: list[str] = []
+        sqlstates: list[str] = []
         current: BaseException | None = exc
         while current is not None and id(current) not in seen:
             seen.add(id(current))
             type_names.append(type(current).__name__)
+            sqlstate = getattr(current, "sqlstate", None)
+            if isinstance(sqlstate, str) and sqlstate not in sqlstates:
+                sqlstates.append(sqlstate)
             current = current.__cause__ or current.__context__
         # Best-effort: analytics must never mask the failure the caller is about to re-raise.
         try:
@@ -1688,6 +1695,7 @@ class CDCExtractActivity:
                     "team_id": self.inputs.team_id,
                     "source_id": str(self.inputs.source_id),
                     "exception_types": type_names,
+                    "sqlstates": sqlstates,
                 },
             )
         except Exception:
