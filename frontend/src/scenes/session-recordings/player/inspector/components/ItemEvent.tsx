@@ -53,7 +53,7 @@ function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.El
                     value={
                         <>
                             {event.rating}
-                            {isNumber(event.value) ? `: ${event.value.toFixed(2)}` : ''}
+                            {isNumber(event.value) && `: ${event.value.toFixed(2)}`}
                         </>
                     }
                 />
