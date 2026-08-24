@@ -203,4 +203,22 @@ describe('scannerScoutLogic', () => {
         expect(firstName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
         expect(secondName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest-2')
     })
+
+    it('separates a failed report load from a scout that filed nothing', async () => {
+        // Both leave the list empty. Reading a failure as "filed nothing" offers Run now, and that
+        // click spends credits on a scout whose reports may already exist.
+        mockReportsList.mockRejectedValueOnce(new Error('boom'))
+        logic = scannerScoutLogic({ scannerId: SCANNER_ID, scannerName: 'Rage clicks on checkout' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoutReports).toEqual([])
+        expect(logic.values.scoutReportsFailed).toBe(true)
+
+        mockReportsList.mockResolvedValueOnce([makeReport()])
+        logic.actions.loadScoutReports()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.scoutReportsFailed).toBe(false)
+    })
 })

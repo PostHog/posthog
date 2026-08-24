@@ -36,10 +36,18 @@ export function ScannerScoutRow({
         expandedSkillNames,
         reportsBySkill,
         scoutReportsLoading,
+        scoutReportsFailed,
         rollups,
     } = useValues(logic)
-    const { openScoutSettings, updateScoutConfig, deleteScout, toggleScoutExpanded, openReport, runScoutNow } =
-        useActions(logic)
+    const {
+        openScoutSettings,
+        updateScoutConfig,
+        deleteScout,
+        toggleScoutExpanded,
+        openReport,
+        runScoutNow,
+        loadScoutReports,
+    } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     // Deleting a scout or switching it off changes what this scanner watches.
@@ -136,9 +144,23 @@ export function ScannerScoutRow({
                     <LemonSkeleton className="h-8 w-full" />
                 </div>
             )}
+            {expanded && !scoutReportsLoading && scoutReportsFailed && (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 pl-12">
+                    <span className="text-sm text-muted">Couldn't load this scout's reports.</span>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={() => loadScoutReports()}
+                        data-attr="vision-scout-row-reports-retry"
+                    >
+                        Try again
+                    </LemonButton>
+                </div>
+            )}
             {/* "No reports filed yet" is a verdict about reports that arrived, and Run now spends
-                credits, so neither belongs on a roster whose reports have not loaded. */}
-            {expanded && !scoutReportsLoading && reports.length === 0 && (
+                credits, so neither belongs on a roster whose reports failed to load or have not
+                loaded: both leave the list empty, and neither means the scout filed nothing. */}
+            {expanded && !scoutReportsLoading && !scoutReportsFailed && reports.length === 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 pl-12">
                     <span className="text-sm text-muted">
                         No reports filed yet. The first arrives after the next scheduled run.
@@ -155,7 +177,7 @@ export function ScannerScoutRow({
                     </LemonButton>
                 </div>
             )}
-            {expanded && !scoutReportsLoading && reports.length > 0 && (
+            {expanded && !scoutReportsLoading && !scoutReportsFailed && reports.length > 0 && (
                 <div className="border-t border-primary px-4 py-2 pl-12">
                     {/* Same shape as the scanner's observation history, so the two lists read alike. */}
                     <LemonTable
