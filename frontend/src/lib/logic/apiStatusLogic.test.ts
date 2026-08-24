@@ -12,6 +12,16 @@ import { UserType } from '~/types'
 
 import { apiStatusLogic } from './apiStatusLogic'
 
+// Mutate document visibility and fire the event the disposables plugin listens for.
+const setHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (hidden ? 'hidden' : 'visible'),
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
 const MOCK_IMPERSONATED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
     is_impersonated: true,
@@ -91,6 +101,7 @@ describe('apiStatusLogic', () => {
         })
 
         afterEach(() => {
+            setHidden(false)
             jest.useRealTimers()
         })
 
@@ -135,6 +146,18 @@ describe('apiStatusLogic', () => {
             expect(logic.values.internetConnectionIssue).toBe(true)
 
             await jest.advanceTimersByTimeAsync(30_000)
+            expect(logic.values.internetConnectionIssue).toBe(false)
+        })
+
+        it('keeps clearing itself even while the tab is hidden', () => {
+            logic.actions.setInternetConnectionIssue(true)
+            expect(logic.values.internetConnectionIssue).toBe(true)
+
+            // Backgrounding the tab must not pause the safety-net timer. Advance synchronously so
+            // the tab stays hidden across the whole timeout — the async helper fires a paused timer
+            // in jsdom and would hide a regression here.
+            setHidden(true)
+            jest.advanceTimersByTime(30_000)
             expect(logic.values.internetConnectionIssue).toBe(false)
         })
     })

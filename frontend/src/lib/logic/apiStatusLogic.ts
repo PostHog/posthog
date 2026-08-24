@@ -96,12 +96,19 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         setInternetConnectionIssue: ({ issue }) => {
             if (issue) {
                 // Clear the warning on its own if no successful response arrives to clear it.
-                cache.disposables.add(() => {
-                    const timer = setTimeout(() => {
-                        actions.setInternetConnectionIssue(false)
-                    }, CONNECTION_ISSUE_AUTO_CLEAR_MS)
-                    return () => clearTimeout(timer)
-                }, 'connection-issue-auto-clear')
+                // pauseOnPageHidden: false keeps the timer decaying in a backgrounded tab — the
+                // idlest page of all — so the banner is already gone when the person returns
+                // instead of restarting a fresh countdown on show.
+                cache.disposables.add(
+                    () => {
+                        const timer = setTimeout(() => {
+                            actions.setInternetConnectionIssue(false)
+                        }, CONNECTION_ISSUE_AUTO_CLEAR_MS)
+                        return () => clearTimeout(timer)
+                    },
+                    'connection-issue-auto-clear',
+                    { pauseOnPageHidden: false }
+                )
             } else {
                 cache.connectionFailures = []
                 cache.disposables.dispose('connection-issue-auto-clear')
