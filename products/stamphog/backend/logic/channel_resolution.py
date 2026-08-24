@@ -156,7 +156,15 @@ def _fetch_channel_map(integration: Integration) -> dict[str, SlackChannel]:
     }
 
 
-def _read_repo_routing(repo_config: StamphogRepoConfig) -> tuple[dict[str, TeamEntry], str | None]:
+@frozen
+class _RepoRouting:
+    """What one repository declares about routing: its team registry, and its own digest channel."""
+
+    registry: dict[str, TeamEntry]
+    declared_channel: str | None
+
+
+def _read_repo_routing(repo_config: StamphogRepoConfig) -> _RepoRouting:
     """One repo's routing config: its root registry, and the digest channel it declared.
 
     Both reads answer to one failure contract. A transient fetch failure for either file raises
@@ -172,9 +180,10 @@ def _read_repo_routing(repo_config: StamphogRepoConfig) -> tuple[dict[str, TeamE
     except Exception as e:
         raise RoutingUnavailable(f"could not read routing config for {repo_config.repository}: {e}") from e
 
-    registry = teams_registry(raw) if raw is not None else {}
-    declared = digest_config.channel if digest_config is not None and digest_config.channel else None
-    return registry, declared
+    return _RepoRouting(
+        registry=teams_registry(raw) if raw is not None else {},
+        declared_channel=digest_config.channel if digest_config is not None and digest_config.channel else None,
+    )
 
 
 def build_routing_context(team_id: int) -> RoutingContext | None:
@@ -190,10 +199,10 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
     registry_by_repo: dict[str, dict[str, TeamEntry]] = {}
     declared_repo_channel: dict[str, str] = {}
     for repo_config in _candidate_repo_configs(team_id):
-        registry, declared_channel = _read_repo_routing(repo_config)
-        registry_by_repo[repo_config.repository] = registry
-        if declared_channel is not None:
-            declared_repo_channel[repo_config.repository] = declared_channel
+        routing = _read_repo_routing(repo_config)
+        registry_by_repo[repo_config.repository] = routing.registry
+        if routing.declared_channel is not None:
+            declared_repo_channel[repo_config.repository] = routing.declared_channel
 
     try:
         channels_by_name = _fetch_channel_map(integration)
