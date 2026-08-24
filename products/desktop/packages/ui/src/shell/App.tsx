@@ -3,7 +3,6 @@ import { ToastProvider } from "@posthog/quill";
 import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/authQueries";
-import { useAuthUiStateStore } from "@posthog/ui/features/auth/authUiStateStore";
 import { AuthScreen } from "@posthog/ui/features/auth/components/AuthScreen";
 import { DesktopAccessScreen } from "@posthog/ui/features/auth/components/DesktopAccessScreen";
 import { ScopeReauthPrompt } from "@posthog/ui/features/auth/components/ScopeReauthPrompt";
@@ -60,9 +59,6 @@ function App({ devToolbar }: AppProps) {
   );
   const isAuthenticated = authState.status === "authenticated";
   const desktopAccess = authState.desktopAccess;
-  const inviteCode = useAuthUiStateStore((state) => state.inviteCode);
-  const setInviteCode = useAuthUiStateStore((state) => state.setInviteCode);
-  const resetInviteCode = useAuthUiStateStore((state) => state.resetInviteCode);
   const selectProjectMutation = useSelectProjectMutation();
   const switchOrgMutation = useSwitchOrgMutation();
   const retryDesktopAccessMutation = useRetryDesktopAccessMutation();
@@ -238,7 +234,6 @@ function App({ devToolbar }: AppProps) {
             isRetrying={retryDesktopAccessMutation.isPending}
             isRedeemingInviteCode={redeemInviteCodeMutation.isPending}
             isLoggingOut={logoutMutation.isPending}
-            inviteCode={inviteCode}
             switchError={switchError}
             redemptionError={redeemInviteCodeMutation.error?.message ?? null}
             onSelectOrganization={(organizationId) =>
@@ -247,11 +242,8 @@ function App({ devToolbar }: AppProps) {
             onSelectProject={(projectId) =>
               selectProjectMutation.mutate(projectId)
             }
-            onInviteCodeChange={setInviteCode}
-            onRedeemInviteCode={() =>
-              redeemInviteCodeMutation.mutate(inviteCode.trim(), {
-                onSuccess: resetInviteCode,
-              })
+            onRedeemInviteCode={(inviteCode) =>
+              redeemInviteCodeMutation.mutate(inviteCode)
             }
             onRetry={() => retryDesktopAccessMutation.mutate()}
             onLogout={() => logoutMutation.mutate()}

@@ -54,13 +54,11 @@ interface DesktopAccessScreenProps {
   isRetrying: boolean;
   isRedeemingInviteCode: boolean;
   isLoggingOut: boolean;
-  inviteCode: string;
   switchError: string | null;
   redemptionError: string | null;
   onSelectOrganization: (organizationId: string) => void;
   onSelectProject: (projectId: number) => void;
-  onInviteCodeChange: (inviteCode: string) => void;
-  onRedeemInviteCode: () => void;
+  onRedeemInviteCode: (inviteCode: string) => void;
   onRetry: () => void;
   onLogout: () => void;
   onOpenSupport: () => void;
@@ -75,12 +73,10 @@ export function DesktopAccessScreen({
   isRetrying,
   isRedeemingInviteCode,
   isLoggingOut,
-  inviteCode,
   switchError,
   redemptionError,
   onSelectOrganization,
   onSelectProject,
-  onInviteCodeChange,
   onRedeemInviteCode,
   onRetry,
   onLogout,
@@ -88,6 +84,7 @@ export function DesktopAccessScreen({
 }: DesktopAccessScreenProps) {
   const [organizationOpen, setOrganizationOpen] = useState(false);
   const [projectOpen, setProjectOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
   const organizationAnchorRef = useRef<HTMLButtonElement>(null);
   const projectAnchorRef = useRef<HTMLButtonElement>(null);
 
@@ -178,7 +175,7 @@ export function DesktopAccessScreen({
                   className="flex w-full flex-col gap-2"
                   onSubmit={(event) => {
                     event.preventDefault();
-                    onRedeemInviteCode();
+                    onRedeemInviteCode(inviteCode.trim());
                   }}
                 >
                   <Field>
@@ -189,7 +186,7 @@ export function DesktopAccessScreen({
                       id="desktop-access-invite-code"
                       value={inviteCode}
                       onChange={(event) =>
-                        onInviteCodeChange(event.currentTarget.value)
+                        setInviteCode(event.currentTarget.value)
                       }
                       disabled={isRedeemingInviteCode || isSwitching}
                       autoComplete="off"

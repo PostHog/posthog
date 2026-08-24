@@ -28,7 +28,6 @@ function renderScreen(
 ) {
   const onSelectOrganization = vi.fn();
   const onSelectProject = vi.fn();
-  const onInviteCodeChange = vi.fn();
   const onRedeemInviteCode = vi.fn();
   const onRetry = vi.fn();
   const onLogout = vi.fn();
@@ -43,12 +42,10 @@ function renderScreen(
       isRetrying={false}
       isRedeemingInviteCode={false}
       isLoggingOut={false}
-      inviteCode="INVITE"
       switchError={null}
       redemptionError={null}
       onSelectOrganization={onSelectOrganization}
       onSelectProject={onSelectProject}
-      onInviteCodeChange={onInviteCodeChange}
       onRedeemInviteCode={onRedeemInviteCode}
       onRetry={onRetry}
       onLogout={onLogout}
@@ -59,7 +56,6 @@ function renderScreen(
     ...result,
     onSelectOrganization,
     onSelectProject,
-    onInviteCodeChange,
     onRedeemInviteCode,
     onRetry,
     onLogout,
@@ -88,9 +84,10 @@ describe("DesktopAccessScreen", () => {
     });
 
     expect(screen.getByText("Enter your invite code")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Invite code"), "INVITE");
     await user.click(screen.getByText("Redeem invite code"));
 
-    expect(onRedeemInviteCode).toHaveBeenCalledOnce();
+    expect(onRedeemInviteCode).toHaveBeenCalledWith("INVITE");
   });
 
   it.each([
