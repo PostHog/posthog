@@ -188,6 +188,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                         ? {
                               outputs,
                               producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                              producedRefCacheWindowMs:
+                                  (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
                           }
                         : undefined
                 ),

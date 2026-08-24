@@ -5,7 +5,12 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { MAX_REPLAYS, replayBatch } from './dlq-replay'
 import { REPLAY_COUNT_HEADER } from './image-batcher'
 
-function parked(ref: string, bytes: string, replayCount?: number): Message {
+function parked(
+    ref: string,
+    bytes: string,
+    replayCount?: number,
+    transportHeaders: Record<string, string> = {}
+): Message {
     return {
         topic: 'session_replay_image_scrub_dlq',
         partition: 0,
@@ -13,6 +18,7 @@ function parked(ref: string, bytes: string, replayCount?: number): Message {
         key: Buffer.from(ref),
         value: Buffer.from(bytes),
         headers: [
+            ...Object.entries(transportHeaders).map(([key, value]) => ({ [key]: Buffer.from(value) })),
             { reason: Buffer.from('rejected') },
             ...(replayCount === undefined ? [] : [{ [REPLAY_COUNT_HEADER]: Buffer.from(String(replayCount)) }]),
         ],
@@ -48,7 +54,7 @@ describe('replayBatch', () => {
                 key: 'ref-1',
                 value: 'original-image',
                 // The park's diagnostic headers describe an old failure and must not travel with a
-                // fresh attempt; only the count that bounds the round trips survives.
+                // fresh attempt. This inline image has no transport headers, so only the count survives.
                 headers: { [REPLAY_COUNT_HEADER]: '1' },
             },
         ])
@@ -73,5 +79,24 @@ describe('replayBatch', () => {
         await replayBatch([parked('ref-1', 'image', 1)], producer, 'session_replay_image_scrub')
 
         expect(produced[0].headers).toEqual({ [REPLAY_COUNT_HEADER]: '2' })
+    })
+
+    it('preserves the content headers needed to decode a replayed URL image', async () => {
+        await replayBatch(
+            [
+                parked('ref-1', 'compressed-image', undefined, {
+                    'content-type': 'image/png',
+                    'content-encoding': 'gzip',
+                }),
+            ],
+            producer,
+            'session_replay_image_scrub'
+        )
+
+        expect(produced[0].headers).toEqual({
+            'content-type': 'image/png',
+            'content-encoding': 'gzip',
+            [REPLAY_COUNT_HEADER]: '1',
+        })
     })
 })
