@@ -218,8 +218,11 @@ fn resolve_release_id(
 /// lands on the same row `sourcemap inject --release-mode=event` would have injected.
 pub fn resolve_release(release: ReleaseArgs) -> Result<Option<Release>> {
     let cwd = std::env::current_dir()?;
-    let release_args_were_provided =
-        release.name.is_some() || release.version.is_some() || release.build.is_some();
+    let release_args_were_provided = release.name.is_some()
+        || release.version.is_some()
+        || release.build.is_some()
+        || release.info_plist.is_some();
+    let release = release.resolve_info_plist()?;
     let mut builder: ReleaseBuilder = release.into();
     add_git_info_to_release_builder(&cwd, &mut builder, release_args_were_provided)?;
     if !builder.can_create() {
@@ -235,6 +238,11 @@ pub fn get_release_for_maps<'a>(
 ) -> Result<Option<Release>> {
     // We need to fetch or create a release if: the user specified one, any pair is missing one, or the user
     // forced release overriding
+    let release_args_were_provided = release.name.is_some()
+        || release.version.is_some()
+        || release.build.is_some()
+        || release.info_plist.is_some();
+    let release = release.resolve_info_plist()?;
     let needs_release = release.name.is_some()
         || release.version.is_some()
         || release.build.is_some()
@@ -242,8 +250,6 @@ pub fn get_release_for_maps<'a>(
 
     let mut created_release = None;
     if needs_release {
-        let release_args_were_provided =
-            release.name.is_some() || release.version.is_some() || release.build.is_some();
         let mut builder: ReleaseBuilder = release.into();
 
         add_git_info_to_release_builder(directory, &mut builder, release_args_were_provided)?;
@@ -359,6 +365,7 @@ mod tests {
             name: name.map(String::from),
             version: version.map(String::from),
             build: build.map(String::from),
+            info_plist: None,
             skip_release_on_fail: true,
         }
     }

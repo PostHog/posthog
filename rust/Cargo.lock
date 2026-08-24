@@ -8978,7 +8978,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -8990,6 +8990,7 @@ dependencies = [
  "libdeflater",
  "lz4",
  "memchr",
+ "percent-encoding",
  "public-suffix",
  "serde",
  "serde_json",

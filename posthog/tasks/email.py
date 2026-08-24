@@ -769,6 +769,10 @@ def send_batch_export_run_failure(
         "batch_export__team", "batch_export_on_demand__team"
     ).get(id=batch_export_run_id)
     batch_export = batch_export_run.parent
+    # On-demand exports do not have a page for this email to link to.
+    if not isinstance(batch_export, BatchExport):
+        return
+
     team: Team = batch_export.team
 
     pipeline_id = f"batch_export:{batch_export.id}"
@@ -783,11 +787,7 @@ def send_batch_export_run_failure(
 
     campaign_key: str = f"batch_export_run_email_batch_export_{batch_export.id}_last_updated_at_{last_updated_at_date}"
 
-    subject = (
-        f"PostHog: {batch_export.name} batch export run failure"
-        if isinstance(batch_export, BatchExport)
-        else "PostHog: batch export on demand run failure"
-    )
+    subject = f"PostHog: {batch_export.name} batch export run failure"
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
@@ -796,7 +796,7 @@ def send_batch_export_run_failure(
             "time": batch_export_run.last_updated_at.strftime("%I:%M%p %Z on %B %d"),
             "team": team,
             "id": batch_export.id,
-            "name": batch_export.name if isinstance(batch_export, BatchExport) else "",
+            "name": batch_export.name,
         },
     )
     logger.info("Prepared notification email for campaign %s", campaign_key)

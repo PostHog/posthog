@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-21 20:03:50 UTC
+// Generated at: 2026-08-24 10:14:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -54,7 +54,6 @@ export type CanonicalProvider =
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'darkbloom-fp4'
-    | 'darkbloom-fp8'
     | 'decart-fp4'
     | 'deepinfra'
     | 'deepinfra-base'
@@ -72,6 +71,7 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
+    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
