@@ -977,18 +977,16 @@ Jane Smith,{person2.uuid},jane@example.com
         side_effect=calculate_cohort_from_list,
     )
     def test_static_cohort_csv_upload_multicolumn_with_bom_prefixed_header(self, patch_calculate_cohort_from_list):
-        """Excel and Google Sheets prefix the first header with a byte order mark; the person_id column must still match"""
         person1 = create_person(team=self.team, distinct_ids=["user123"])
         person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             "excel_export.csv",
-            str.encode(
-                f"""﻿person_id,email
+            b"\xef\xbb\xbf"
+            + f"""person_id,email
 {person1.uuid},john@example.com
 {person2.uuid},jane@example.com
-"""
-            ),
+""".encode(),
             content_type="application/csv",
         )
 
@@ -1011,18 +1009,16 @@ Jane Smith,{person2.uuid},jane@example.com
         side_effect=calculate_cohort_from_list,
     )
     def test_static_cohort_csv_upload_single_column_with_bom_prefixed_header(self, patch_calculate_cohort_from_list):
-        """A BOM-prefixed single person_id column is a header, so its text must not be imported as a member"""
         person1 = create_person(team=self.team, distinct_ids=["user123"])
         person2 = create_person(team=self.team, distinct_ids=["user456"])
 
         csv = SimpleUploadedFile(
             "excel_single_column.csv",
-            str.encode(
-                f"""﻿person_id
+            b"\xef\xbb\xbf"
+            + f"""person_id
 {person1.uuid}
 {person2.uuid}
-"""
-            ),
+""".encode(),
             content_type="application/csv",
         )
 

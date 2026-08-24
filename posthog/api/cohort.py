@@ -846,24 +846,19 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         non_empty_cols = [col for col in first_row if col.strip()]
         return len(non_empty_cols) <= 1
 
-    @staticmethod
-    def _normalize_header(header: str) -> str:
-        # Drop the byte order mark so a BOM-prefixed header still matches a supported ID header
-        return header.replace("\ufeff", "").strip()
-
     def _is_person_id_header(self, header: str) -> bool:
         """Check if header indicates person_id column"""
         person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
-        return self._normalize_header(header).lower() in person_id_headers_lower
+        return header.strip().lower() in person_id_headers_lower
 
     def _is_email_header(self, header: str) -> bool:
         """Check if header indicates email column"""
         email_headers_lower = [h.lower() for h in CSVConfig.EMAIL_HEADERS]
-        return self._normalize_header(header).lower() in email_headers_lower
+        return header.strip().lower() in email_headers_lower
 
     def _find_id_column(self, headers: list[str]) -> tuple[int, str, str] | None:
         """Find the index, type, and actual column name of the ID column in headers, with preference order: person_id > distinct_id > email"""
-        normalized_headers = [self._normalize_header(h) for h in headers]
+        normalized_headers = [h.strip() for h in headers]
         normalized_lower_headers = [h.lower() for h in normalized_headers]
 
         # First, look for person_id columns (preferred) - use case-insensitive matching
@@ -992,7 +987,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 elif first_row and self._is_email_header(first_row[0]):
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
                     id_type = "email"
-                    email_property_key = self._normalize_header(first_row[0])
+                    email_property_key = first_row[0].strip()
                 else:
                     # Single column format treated as distinct_ids for backwards compatibility
                     ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
@@ -1003,7 +998,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 result = self._find_id_column(first_row)
 
                 if result is None:
-                    available_headers = [self._normalize_header(h) for h in first_row if self._normalize_header(h)]
+                    available_headers = [h.strip() for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
