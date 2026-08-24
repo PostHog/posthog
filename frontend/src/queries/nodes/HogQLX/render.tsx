@@ -5,7 +5,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ExplainCSPViolationButton } from 'lib/components/LLMButton/ExplainCSPViolationButton'
-import { QuillSparkline } from 'lib/components/Sparkline'
+import { Sparkline } from 'lib/components/Sparkline'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { LightErrorBoundary } from '~/layout/ErrorBoundary/ErrorBoundary'
@@ -84,7 +84,7 @@ export function renderHogQLX(value: any): JSX.Element {
 
             return (
                 <LightErrorBoundary>
-                    <QuillSparkline className="h-8" {...props} data={data ?? children ?? []} type={type} />
+                    <Sparkline className="h-8" {...props} data={data ?? children ?? []} type={type} />
                 </LightErrorBoundary>
             )
         } else if (tag === 'ExplainCSPReport') {

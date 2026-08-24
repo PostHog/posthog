@@ -194,10 +194,9 @@ function resolveSparklineColor(color: string | undefined): string {
     return /^(#|rgb|hsl|var\()/.test(value) ? value : getColorVar(value)
 }
 
-/** The quill rendering path. Exported for the callers that must never fall back to
- *  `LegacySparkline`: HogQLX, whose author-supplied tags would otherwise trip the legacy-prop
- *  dispatch, and Storybook, where implicit-action args inject an `onSelectionChange` spy the
- *  dispatch reads as a legacy-only feature. Everything else uses `Sparkline`. */
+/** The quill rendering path. Exported for Storybook only — the dispatch in `Sparkline` is
+ *  unusable there (Storybook's implicit-action args inject an `onSelectionChange` spy, which the
+ *  dispatch reads as a legacy-only feature). Consumers always use `Sparkline`. */
 export function QuillSparkline({
     data,
     color,
