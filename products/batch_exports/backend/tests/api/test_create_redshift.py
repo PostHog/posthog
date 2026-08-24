@@ -7,7 +7,7 @@ from rest_framework import status
 from posthog.models.integration import Integration
 
 from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
-from products.batch_exports.backend.tests.api.operations import create_batch_export
+from products.batch_exports.backend.tests.api.operations import create_batch_export, get_batch_export_ok
 
 pytestmark = [
     pytest.mark.django_db,
@@ -363,3 +363,9 @@ def test_create_redshift_batch_export_validates_copy_integration_ids(
 
     if expected_status == status.HTTP_400_BAD_REQUEST:
         assert "does not reference an AWS S3 integration" in response.json()["detail"]
+    else:
+        # EncryptedJSONField stringifies the stored ids; responses must restore them to ints
+        # to honor the generated types.
+        batch_export = get_batch_export_ok(client, team.pk, response.json()["id"])
+        assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == integration_id
+        assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == integration_id

@@ -612,6 +612,16 @@ def coerce_config_to_declared_types(destination_type: str, config: dict[str, typ
                 except ValueError:
                     pass
         coerced[key] = value
+
+    if destination_type == "Redshift" and isinstance(coerced.get("copy_inputs"), dict):
+        copy_inputs = {**coerced["copy_inputs"]}
+        # Integration ids nested in copy_inputs also read back as digit strings.
+        for key in ("authorization", "bucket_credentials"):
+            value = copy_inputs.get(key)
+            if isinstance(value, str) and value.isdigit():
+                copy_inputs[key] = int(value)
+        coerced["copy_inputs"] = copy_inputs
+
     return coerced
 
 
