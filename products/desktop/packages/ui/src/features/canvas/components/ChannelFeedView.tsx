@@ -726,7 +726,7 @@ const FeedItem = memo(function FeedItem({
   const statusDisplay = useTaskStatusDisplay(task);
   const taskData = useChannelTaskData(task);
   const { togglePin } = usePinnedTasks();
-  const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
+  const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
   const [editingTitle, setEditingTitle] = useState(false);

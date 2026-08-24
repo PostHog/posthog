@@ -1,15 +1,16 @@
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
-
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.tests._seeder import seed_metric
+from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
 
 
 def _seed_point(
@@ -28,7 +29,8 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
+        cache.clear()
 
     def test_rejects_out_of_range_limit(self):
         with self.assertRaises(ValueError):
@@ -53,12 +55,15 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             timestamp=anchor,
             metric_type="histogram",
         )
-        _seed_point(
+        # A distinct label-set, so this is a second series under the same name —
+        # otherwise the two seeds collapse to one series row and the GROUP BY
+        # never has to do anything.
+        seed_metric(
             team_id=self.team.id,
             metric_name="http.server.duration",
-            value=2.0,
-            timestamp=anchor,
+            points=[(anchor, 2.0)],
             metric_type="histogram",
+            labels={"route": "/checkout"},
         )
         _seed_point(
             team_id=self.team.id,
@@ -78,14 +83,52 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(by_name["http.server.duration"], "histogram")
         self.assertEqual(by_name["queue.depth"], "gauge")
 
-    def test_search_filters_by_substring(self):
+    @parameterized.expand(
+        [
+            ("substring", "server", ["http.server.duration"]),
+            # '_' and '%' are ILIKE wildcards. Prometheus names are full of
+            # underscores, so an unescaped search matches far too much.
+            ("underscore_is_literal", "a_b", ["a_b"]),
+            ("percent_is_literal", "c%d", ["c%d"]),
+        ]
+    )
+    def test_search_filters_by_substring(self, _name: str, search: str, expected: list[str]):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        _seed_point(team_id=self.team.id, metric_name="http.server.duration", value=1.0, timestamp=anchor)
-        _seed_point(team_id=self.team.id, metric_name="queue.depth", value=12.0, timestamp=anchor)
+        for metric_name in ("http.server.duration", "queue.depth", "a_b", "axb", "c%d", "cxxd"):
+            _seed_point(team_id=self.team.id, metric_name=metric_name, value=1.0, timestamp=anchor)
 
-        runner = MetricNamesQueryRunner(team=self.team, search="server")
-        results = runner.run()
-        self.assertEqual([row["name"] for row in results], ["http.server.duration"])
+        runner = MetricNamesQueryRunner(team=self.team, search=search)
+        self.assertEqual([row["name"] for row in runner.run()], expected)
+
+    def test_reads_series_written_without_a_raw_datapoint_row(self):
+        # seed_metric_event writes metric_series1 + metric_samples1 and no metrics1
+        # row, so this is the one test that fails if the runner goes back to
+        # aggregating posthog.metrics. Seeding twice lands two unmerged
+        # ReplacingMergeTree parts for one fingerprint, which must still collapse
+        # to a single picker row without FINAL.
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for offset in (10, 1):
+            seed_metric_event(
+                team_id=self.team.id,
+                metric_name="queue.depth",
+                points=[(anchor - dt.timedelta(minutes=offset), 3.0)],
+                metric_type="gauge",
+            )
+
+        runner = MetricNamesQueryRunner(team=self.team)
+        self.assertEqual(runner.run(), [{"name": "queue.depth", "metric_type": "gauge"}])
+
+    def test_cache_covers_the_unsearched_list_only(self):
+        with patch.object(MetricNamesQueryRunner, "run") as run:
+            run.return_value = [{"name": "m1", "metric_type": "gauge"}]
+            self.assertEqual(cached_metric_names(self.team), run.return_value)
+            self.assertEqual(cached_metric_names(self.team), run.return_value)
+            self.assertEqual(run.call_count, 1)
+
+            # A search must never be answered from the unsearched list's cache.
+            run.return_value = [{"name": "m2", "metric_type": "sum"}]
+            self.assertEqual(cached_metric_names(self.team, search="m2"), run.return_value)
+            self.assertEqual(run.call_count, 2)
 
     def test_exact_match_floats_to_top(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -130,7 +173,8 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        truncate_metrics_tables()
+        cache.clear()
 
     def test_values_requires_authentication(self):
         self.client.logout()

@@ -19,6 +19,7 @@ import {
   useAuthStateFetched,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
+import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -26,6 +27,10 @@ import { useActiveRepoStore } from "@posthog/ui/shell/activeRepoStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ConsentRequirement,
+  sampleConsentRequirement,
+} from "./consentRequirement";
 import { useHasImportableConfig } from "./useHasImportableConfig";
 
 export type { DetectedRepo };
@@ -149,6 +154,32 @@ export function useOnboardingFlow() {
         : undefined,
     [authFetched, orgProjectsMap],
   );
+  const consent = useOrgConsent(hasCodeAccess === true);
+  const consentSatisfied =
+    consent.status === "resolved" ? consent.satisfied : undefined;
+  const [consentRequirement, setConsentRequirement] =
+    useState<ConsentRequirement>();
+
+  useEffect(() => {
+    if (consent.status !== "resolved") return;
+    setConsentRequirement((current) =>
+      sampleConsentRequirement(
+        current,
+        consent.organizationId,
+        consent.needsAiConsent,
+        consent.needsBetaTerms,
+      ),
+    );
+  }, [consent]);
+
+  const consentRequired =
+    consentRequirement?.organizationId === consent.organizationId
+      ? consentRequirement?.required
+      : undefined;
+  const sampledConsentRequirement =
+    consentRequirement?.organizationId === consent.organizationId
+      ? consentRequirement
+      : undefined;
 
   const activeSteps = useMemo(
     () =>
@@ -157,8 +188,15 @@ export function useOnboardingFlow() {
         hasImportableConfig,
         hasGithubIntegration,
         projectCount,
+        consentRequired,
       }),
-    [hasCodeAccess, hasImportableConfig, hasGithubIntegration, projectCount],
+    [
+      hasCodeAccess,
+      hasImportableConfig,
+      hasGithubIntegration,
+      projectCount,
+      consentRequired,
+    ],
   );
 
   useEffect(() => {
@@ -210,5 +248,7 @@ export function useOnboardingFlow() {
     selectedCloudRepo,
     handleCloudRepoChange,
     hasGithubIntegration,
+    consentSatisfied,
+    consentRequirement: sampledConsentRequirement,
   };
 }
