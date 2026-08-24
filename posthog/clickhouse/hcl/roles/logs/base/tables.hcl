@@ -916,6 +916,9 @@ database "posthog" {
     column "attributes" {
       type = "Map(LowCardinality(String), String)"
     }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
       broker_list          = "warpstream_logs"
       topic_list           = "kafka_topic_list = 'clickhouse_logs'"
@@ -926,6 +929,9 @@ database "posthog" {
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
       thread_per_consumer  = true
+    }
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
     }
   }
 
