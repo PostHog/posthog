@@ -389,24 +389,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(resolved, {"sibling_prop": PropertyType.Numeric})
 
-    def test_fetch_event_property_types_prefers_own_team_definition(self):
-        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
-        PropertyDefinition.objects.create(
-            team=sibling,
-            project=self.team.project,
-            type=PropertyDefinition.Type.EVENT,
-            name="shared_prop",
-            property_type=PropertyType.Numeric,
-        )
-        PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.EVENT, name="shared_prop", property_type=PropertyType.String
-        )
-        toolkit = DummyToolkit(self.team, self.user)
-
-        resolved = toolkit._fetch_event_property_types(["shared_prop"])
-
-        self.assertEqual(resolved, {"shared_prop": PropertyType.String})
-
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team, self.user)

@@ -300,10 +300,10 @@ class TaxonomyAgentToolkit:
         property definitions. The coalesce expression matches the posthog_propdef_proj_uniq
         index (COALESCE(project_id, team_id), name, type, ...), turning the lookup into one
         index seek per name. It is also the same project-level scoping the taxonomy REST API
-        applies to this table. When sibling environments define the same property, the row
-        belonging to this exact team wins.
+        applies to this table, and that unique index guarantees at most one definition per
+        name within a project scope.
         """
-        rows = (
+        return dict(
             PropertyDefinition.objects.alias(
                 effective_project_id=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField())
             )
@@ -312,13 +312,8 @@ class TaxonomyAgentToolkit:
                 type=PropertyDefinition.Type.EVENT,
                 name__in=names,
             )
-            .values_list("name", "property_type", "team_id")
+            .values_list("name", "property_type")
         )
-        property_to_type: dict[str, str | None] = {}
-        for name, property_type, team_id in rows:
-            if name not in property_to_type or team_id == self._team.id:
-                property_to_type[name] = property_type
-        return property_to_type
 
     def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
