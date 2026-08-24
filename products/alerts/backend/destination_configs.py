@@ -221,7 +221,9 @@ class _WebhookUrlDestination(DestinationSpec):
         webhook_url = data.get("webhook_url")
         if webhook_url is None:
             return data
-        return {**data, "webhook_url": _redact_url(webhook_url)}
+        redacted = data.copy()
+        redacted["webhook_url"] = _redact_url(webhook_url)
+        return redacted
 
 
 class WebhookDestination(_WebhookUrlDestination):
