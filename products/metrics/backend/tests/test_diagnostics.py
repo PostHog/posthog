@@ -267,6 +267,35 @@ class TestCounterBoundary(ClickhouseTestMixin, APIBaseTest):
         assert decomposition.actual_value == 40.0
         assert decomposition.agrees is True
 
+    def test_agrees_when_the_predecessor_sits_further_back_than_one_bucket(self) -> None:
+        # A minute chart of a series scraped every few minutes: the reference
+        # reduction and the runner have to reach back over the same window, or
+        # one of them finds a predecessor the other doesn't and the tab reports
+        # a disagreement the chart never had.
+        seed_metric(
+            team_id=self.team.pk,
+            metric_name="packets_total",
+            metric_type="sum",
+            aggregation_temporality="cumulative",
+            is_monotonic=True,
+            points=[
+                (BUCKET - dt.timedelta(minutes=3), 100.0),
+                (BUCKET + dt.timedelta(seconds=30), 120.0),
+            ],
+        )
+
+        decomposition = decompose_bucket(
+            team=self.team,
+            metric_name="packets_total",
+            aggregation="increase",
+            bucket_start=BUCKET,
+            interval="minute",
+        )
+
+        assert decomposition.reference_value == 20.0
+        assert decomposition.actual_value == 20.0
+        assert decomposition.agrees is True
+
     def test_rate_normalizes_the_boundary_increase_too(self) -> None:
         decomposition = decompose_bucket(
             team=self.team,

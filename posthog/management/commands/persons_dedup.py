@@ -106,6 +106,7 @@ from __future__ import annotations
 import os
 import json
 import time
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -123,6 +124,9 @@ from posthog.dataclasses import frozen
 from posthog.persons_db import persons_db_connection, persons_db_url
 
 logger = structlog.get_logger(__name__)
+# The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING at
+# client init, so every INFO record this command emits is dropped and a run leaves no log.
+logging.getLogger(__name__).setLevel(logging.INFO)
 
 VICTIMS_TABLE = "pg_temp.persons_dedup_victims"
 

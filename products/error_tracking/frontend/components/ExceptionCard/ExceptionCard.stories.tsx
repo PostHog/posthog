@@ -2,6 +2,8 @@ import { Meta } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { LemonCard } from '@posthog/lemon-ui'
+
 import { ErrorEventType } from 'lib/components/Errors/types'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -46,7 +48,7 @@ function asErrorEventType(event: unknown): ErrorEventType {
 export function ExceptionCardBase(): JSX.Element {
     return (
         <div className="w-[1000px] h-[700px]">
-            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
                 <OpenTimelineTab>
                     <ExceptionCard
                         issueId="issue-id"
@@ -233,7 +235,7 @@ function ExceptionCardSessionTimelineStory({
 }): JSX.Element {
     return (
         <div className={containerClassName}>
-            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id' }}>
+            <BindLogic logic={exceptionCardLogic} props={{ issueId: 'issue-id', loading: false }}>
                 <OpenTimelineTab>
                     <ExceptionCard issueId="issue-id" issueName="Test Issue" loading={false} event={event} />
                 </OpenTimelineTab>
@@ -548,7 +550,7 @@ function buildSessionTimelineEvent(
 }
 
 function OpenTimelineTab({ children }: { children: JSX.Element }): JSX.Element {
-    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id' }))
+    const { setCurrentTab } = useActions(exceptionCardLogic({ issueId: 'issue-id', loading: false }))
 
     useEffect(() => {
         setCurrentTab('timeline')
@@ -562,12 +564,18 @@ function OpenTimelineTab({ children }: { children: JSX.Element }): JSX.Element {
 function ExceptionCardWrapperAllEvents({
     children,
 }: {
-    children: (issueId: string, event: Partial<ErrorEventType>) => JSX.Element
+    children: (issueId: string, event: ErrorEventType) => JSX.Element
 }): JSX.Element {
     return (
-        <div className="space-y-8">
-            {Object.entries(TEST_EVENTS).map(([name, evt]: [string, any]) => {
-                return <div key={name}>{children(name, evt)}</div>
+        <div className="space-y-4">
+            {Object.entries(TEST_EVENTS).map(([name, fixture]) => {
+                const event = { ...asErrorEventType(fixture), uuid: name }
+
+                return (
+                    <LemonCard key={name} hoverEffect={false} className="h-96 w-[1000px] overflow-hidden p-0">
+                        {children(name, event)}
+                    </LemonCard>
+                )
             })}
         </div>
     )
@@ -576,9 +584,7 @@ function ExceptionCardWrapperAllEvents({
 export function ExceptionCardAllEvents(): JSX.Element {
     return (
         <ExceptionCardWrapperAllEvents>
-            {(issueId, event) => (
-                <ExceptionCard issueId={issueId} issueName={null} loading={false} event={event as ErrorEventType} />
-            )}
+            {(issueId, event) => <ExceptionCard issueId={issueId} issueName={null} loading={false} event={event} />}
         </ExceptionCardWrapperAllEvents>
     )
 }

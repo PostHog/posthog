@@ -40,6 +40,7 @@ import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
+import { mainFocusUrl } from './mainFocusUrl'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
 import { SandboxComposerSurfaces, Thread } from './Thread'
@@ -104,7 +105,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
     // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
     // harmless (unconditional hooks).
-    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { canGoBack: panelCanGoBack, activeCreation: panelActiveCreation } = useValues(
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
+    )
     const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
@@ -117,6 +120,12 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const isNewView = effectivePhaiView === 'new'
     const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+
+    const openAsMainFocusUrl = mainFocusUrl({
+        isNewView,
+        activeCreation: panelActiveCreation,
+        conversationId,
+    })
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
@@ -221,7 +230,8 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                     buttonProps={{
                         iconOnly: true,
                     }}
-                    to={urls.ai(conversationId ?? undefined)}
+                    to={openAsMainFocusUrl ?? undefined}
+                    disabledReason={openAsMainFocusUrl ? undefined : 'This chat is still starting'}
                     onClick={() => {
                         closeSidePanel()
                     }}

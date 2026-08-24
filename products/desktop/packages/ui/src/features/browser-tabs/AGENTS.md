@@ -1,22 +1,22 @@
 # Browser tabs (Channels canvas surface)
 
-A browser-style tab strip in the Channels title bar (`/website/*`), each tab
+A browser-style tab strip in the Channels title bar (`/spaces/*`), each tab
 fronting an open **canvas, task, or channel sub-section** (a `TabIdentity`:
 `dashboardId | taskId | channel(+section) | blank`).
 This file documents the UX and the model; edit it when the behaviour changes.
 
 Canvases and tasks are equal citizens: navigating to either
-(`/website/$channelId/dashboards/$dashboardId` or
-`/website/$channelId/tasks/$taskId`) replaces the active tab's target in place,
+(`/spaces/$channelId/dashboards/$dashboardId` or
+`/spaces/$channelId/tasks/$taskId`) replaces the active tab's target in place,
 the label resolves from the canvas name or the task title, and switching back
 returns to whichever the tab points at. `setTabTarget` is the in-tab-nav
 primitive for both.
 
 Channel sub-sections are tabs too: the header nav (`Loops`, `Recents`,
 `CONTEXT.md` — see `canvas/channelSections.ts`) routes to
-`/website/$channelId/<section>`, which is identified by `channelId` +
+`/spaces/$channelId/<section>`, which is identified by `channelId` +
 `channelSection`. The tab labels by the section (`Recents`) with a `#` icon; the
-channel home (`/website/$channelId`, no section) labels by the channel name.
+channel home (`/spaces/$channelId`, no section) labels by the channel name.
 Every channel tab's hover leads with `#<channel>` then the page name (the home
 tab, whose label already is the channel, shows just the one line). Switching
 sections is an in-tab replace — one channel tab, the section is sub-navigation
@@ -42,8 +42,8 @@ The feature is deliberately split so the rules are portable and testable:
   `TabsSnapshot` / `TabTarget`), the transforms (`openOrFocusTab`, `newBlankTab`,
   `setTabTarget`, `closeTab`, `closeTabs`, `setTabOrder`), `decideTabNavigation` (what a
   location change means for the strip), and the snapshot predicates
-  (`primaryWindow`, `activeTabIsBlank`, `primaryWindowHasNoTabs`) the `/website`
-  index uses to choose the new-tab screen over a first-channel redirect. No
+  (`primaryWindow`, `activeTabIsBlank`, `primaryWindowHasNoTabs`) — `activeTabIsBlank`
+  gates the blank new-tab placeholder on the `/spaces` index. No
   React, no I/O. This is where behaviour is unit-tested. Back/forward is driven by
   router history + `decideTabNavigation`, not a separate action stack.
 - **`@posthog/workspace-server` (`services/browser-tabs/`, `db/`)** — the
@@ -110,7 +110,7 @@ differ. Desktop ships first.
 - Closing the active tab focuses its neighbour.
 - Closing the last tab of a **secondary** window closes the window; closing the
   last tab of the **primary** window empties the strip and lands on the
-  **new-tab screen** at `/website` — it does *not* jump to the first channel
+  **new-tab screen** at `/spaces` — it does *not* jump to the first channel
   (see Gotchas).
 
 ### Context menu & pinning
@@ -199,21 +199,18 @@ differ. Desktop ships first.
   cannot nest inside the Button (button-in-button is invalid + fails a11y lint);
   it's an absolutely-positioned sibling. The wrapper is `flex` so it hugs the
   button height (a block wrapper adds an inline line-box ~2px taller).
-- **The `/website` index must not redirect to `channels[0]` while a blank tab is
-  active or the strip is empty.** The blank `+` tab and the closed-all-tabs state
-  both park at `/website`, whose `WebsiteChannelsIndex` otherwise `<Navigate>`s to
-  the first channel. That puts a channel in the route, so `decideTabNavigation`
-  opens a tab for it — hijacking the blank tab to `channels[0]`, or silently
-  re-filling a strip the user just emptied. It's guarded with `activeTabIsBlank`
-  (blank `+` tab) and `primaryWindowHasNoTabs` (closed-all → render
-  `BlankTabView`), plus an `onIndexPath` check: TanStack renders this *stale*
-  index for a couple of frames **after** the URL has already left `/website`
-  (the `__root` Outlet un-suppresses on the way to `/website/$channelId` before
-  the matched leaf settles), and that stale render must not redirect.
+- **`/spaces` is a page, not a redirect.** It used to bounce to `channels[0]`,
+  which put a channel in the route and made `decideTabNavigation` open a tab for
+  it — hijacking a blank `+` tab, or re-filling a strip the user had just
+  emptied. Three guards existed only to hold that bounce off
+  (`activeTabIsBlank`, `primaryWindowHasNoTabs`, and an `onIndexPath` check for
+  the frames TanStack renders the stale index after the URL has already moved).
+  The index renders the space list in place now, so none of them are needed and
+  the blank `+` tab keeps its placeholder through `showBlankTab` in `__root`.
+  Don't reintroduce a redirect here.
 - **All writes are local-first (`tabsSync.ts`).** Close/open/new/reorder apply
   their shared transform to the mirror and navigate in the same tick; the
-  `/website` index therefore always renders against post-mutation state and
-  can't redirect (re-opening a tab) mid-flight. Mutation results and
+  `/spaces` index therefore always renders against post-mutation state. Mutation results and
   subscription pushes are never applied while writes are in flight — only the
   last settle reconciles. Don't add a mutation `onSuccess` that calls
   `setSnapshot`; route new writes through `applyLocalTransform` +
@@ -229,7 +226,7 @@ differ. Desktop ships first.
   stamp / noop decision the strip makes on every navigation (including "back
   returns to the previous tab" and the inherited-tag in-tab case) — plus the
   snapshot predicates (`activeTabIsBlank`, `primaryWindowHasNoTabs`,
-  `primaryWindow`) that gate the index's new-tab-screen-vs-redirect choice.
+  `primaryWindow`).
   `BrowserTabStrip`'s effect dispatches that decision, so the tested function is
   the one that runs.
 - **Presentational** rendering is tested in `TabStrip.test.tsx` (active styling,
@@ -249,7 +246,7 @@ content area, splitting the scene into a resizable two-pane
   1. **Router-less target pane** (what the prototype did): the secondary pane
      renders the tab's target directly by id. `WebsiteDashboard` already takes
      `dashboardId` as a prop and `TaskDetail` takes a `task` (replicate the
-     cache-first fetch from `routes/website/$channelId/tasks/$taskId.tsx`) —
+     cache-first fetch from `routes/_shell/spaces/$channelId/tasks/$taskId.tsx`) —
      both mount standalone today. **Channel views (inbox/artifacts/…) are the
      blocker**: they read route params/loaders throughout, so they need a
      props-parameterization pass before they can render in a pane. That
