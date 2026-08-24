@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import RE2 from 're2'
 
-import { JSON_NO_MESSAGE, MASK_RULES, PATTERN_VERSION, computeLogPattern, maskString } from './log-pattern-mask'
+import { JSON_ARRAY, MASK_RULES, PATTERN_VERSION, computeLogPattern, maskString } from './log-pattern-mask'
 
 const NO_CAP = 100_000
 
@@ -87,8 +87,8 @@ describe('log-pattern-mask', () => {
             ],
             ['json object with msg', '{"msg":"hi 9"}', 'json_object_or_array', 'hi <N>'],
             ['json object with event', '{"event":"click 3"}', 'json_object_or_array', 'click <N>'],
-            ['json object without message key', '{"level":"info"}', 'json_object_or_array', JSON_NO_MESSAGE],
-            ['json array', '[1,2]', 'json_object_or_array', JSON_NO_MESSAGE],
+            ['json object without message key', '{"level":"info"}', 'json_object_or_array', '<JSON:level>'],
+            ['json array', '[1,2]', 'json_object_or_array', JSON_ARRAY],
             ['json string', '"quoted 7"', 'json_string', 'quoted <N>'],
             ['json number primitive', '42', 'primitive', '<N>'],
             ['prose body', 'plain text 3', 'invalid_json', 'plain text <N>'],
@@ -96,6 +96,38 @@ describe('log-pattern-mask', () => {
             const result = computeLogPattern(body, NO_CAP, NO_CAP)
             expect(result.bodyKind).toEqual(expectedKind)
             expect(result.pattern).toEqual(expectedPattern)
+        })
+
+        describe('key-set identity for message-less JSON objects', () => {
+            const patternOf = (body: string): string => computeLogPattern(body, NO_CAP, NO_CAP).pattern
+
+            it('is independent of source key order', () => {
+                expect(patternOf('{"b":1,"a":2}')).toEqual('<JSON:a,b>')
+                expect(patternOf('{"a":2,"b":1}')).toEqual('<JSON:a,b>')
+            })
+
+            it('caps at 32 keys with a dropped-key suffix, deterministically across orderings', () => {
+                const keys = Array.from({ length: 40 }, (_, i) => `k${String(i).padStart(2, '0')}`)
+                const forward = JSON.stringify(Object.fromEntries(keys.map((k) => [k, 1])))
+                const reversed = JSON.stringify(Object.fromEntries([...keys].reverse().map((k) => [k, 1])))
+                const expected = `<JSON:${keys.slice(0, 32).join(',')},+8>`
+                expect(patternOf(forward)).toEqual(expected)
+                expect(patternOf(reversed)).toEqual(expected)
+            })
+
+            it('renders an empty object as an empty key set', () => {
+                expect(patternOf('{}')).toEqual('<JSON:>')
+            })
+
+            it('takes only top-level keys from nested objects', () => {
+                expect(patternOf('{"outer":{"inner":1},"other":[1,2]}')).toEqual('<JSON:other,outer>')
+            })
+
+            it('never masks keys, so value-shaped keys stay verbatim', () => {
+                expect(patternOf('{"10.0.0.1":1,"7141":2,"user@example.com":3}')).toEqual(
+                    '<JSON:10.0.0.1,7141,user@example.com>'
+                )
+            })
         })
     })
 

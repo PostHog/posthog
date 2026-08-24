@@ -42,8 +42,11 @@ export const MASK_RULES: readonly MaskRule[] = [
     { name: 'num', pattern: '\\b\\d+', replacement: '<N>' },
 ]
 
-/** Bucket for JSON object/array bodies with no string `message`/`msg`/`event` key. */
-export const JSON_NO_MESSAGE = '<JSON_NO_MESSAGE>'
+/** Bucket for JSON array bodies; key-set identity only applies to objects. */
+export const JSON_ARRAY = '<JSON_ARRAY>'
+
+/** Over the cap, the key-set pattern keeps the first keys after sorting and appends `,+N`. */
+const KEY_SET_MAX_KEYS = 32
 
 const MASK_COMBINED_RE = createTrackedRE2(
     MASK_RULES.map((rule) => `(${rule.pattern})`).join('|'),
@@ -100,6 +103,18 @@ function extractJsonMessage(value: object): string | null {
 }
 
 /**
+ * Sorted top-level key list as a deterministic identity for message-less JSON objects: sort so
+ * source key order does not matter, top-level only, keys verbatim. Keys are schema, not values,
+ * so the mask rules never run on this pattern.
+ */
+function jsonKeySetPattern(value: object): string {
+    const keys = Object.keys(value).sort()
+    const kept = keys.slice(0, KEY_SET_MAX_KEYS)
+    const overflow = keys.length - kept.length
+    return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
+}
+
+/**
  * Cap the input, mask, then truncate the masked result. Mask before truncate so masking shortens
  * the line first and more real content survives the cut.
  */
@@ -126,9 +141,21 @@ export function computeLogPattern(
         case 'empty':
             maskInput = ''
             break
-        case 'json_object_or_array':
-            maskInput = extractJsonMessage(parsed.value) ?? JSON_NO_MESSAGE
+        case 'json_object_or_array': {
+            const message = extractJsonMessage(parsed.value)
+            if (message === null) {
+                const pattern = Array.isArray(parsed.value) ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
+                return {
+                    pattern: pattern.length > maxOutputChars ? pattern.slice(0, maxOutputChars) : pattern,
+                    bodyKind,
+                    inputCapped,
+                    maskedLength: pattern.length,
+                    ruleFires: [],
+                }
+            }
+            maskInput = message
             break
+        }
         case 'json_string':
             maskInput = parsed.value
             break
