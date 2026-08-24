@@ -52,7 +52,8 @@ class TestResaveHogFunctions(BaseTest):
     def test_resave_hog_functions(self, mock_reload):
         """Test that the command correctly identifies and resaves HogFunctions connected to integrations."""
 
-        call_command("resave_hog_functions")
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("resave_hog_functions")
 
         # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(
@@ -89,7 +90,8 @@ class TestResaveHogFunctions(BaseTest):
                 inputs={"integration": {"value": str(self.integration2.id)}},
             )
 
-        call_command("resave_hog_functions")
+        with self.captureOnCommitCallbacks(execute=True):
+            call_command("resave_hog_functions")
 
         # any_order: the command applies no ORDER BY, so reload order isn't deterministic.
         mock_reload.assert_has_calls(

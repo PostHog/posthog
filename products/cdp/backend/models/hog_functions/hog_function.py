@@ -1,10 +1,10 @@
 import enum
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -296,6 +296,12 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         return f"HogFunction {self.id}: {self.name}"
 
 
+def _refresh_workers_after_commit(dispatch: Callable[[], object]) -> None:
+    # A worker refresh is best effort: defer it until the write commits, and let robust=True log
+    # and swallow any broker error so it can never fail the write that triggered it.
+    transaction.on_commit(dispatch, robust=True)
+
+
 @receiver(post_save, sender=HogFunction)
 def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
     # A draft-only write stages config for a human to review; pushing it to workers would defeat
@@ -304,7 +310,9 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         return
 
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
-        reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+        _refresh_workers_after_commit(
+            lambda: reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+        )
 
 
 @receiver(post_save, sender=Action)
@@ -314,14 +322,14 @@ def action_saved(sender, instance: Action, created, **kwargs):
 
     from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_affected_hog_functions.delay(action_id=instance.id)
+    _refresh_workers_after_commit(lambda: refresh_affected_hog_functions.delay(action_id=instance.id))
 
 
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: Team, created, **kwargs):
     from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-    refresh_affected_hog_functions.delay(team_id=instance.id)
+    _refresh_workers_after_commit(lambda: refresh_affected_hog_functions.delay(team_id=instance.id))
 
 
 @receiver(post_save, sender="cohorts.Cohort")
@@ -341,7 +349,7 @@ def cohort_saved(sender, instance, **kwargs):
     ):
         from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
-        refresh_affected_hog_functions.delay(cohort_id=instance.id)
+        _refresh_workers_after_commit(lambda: refresh_affected_hog_functions.delay(cohort_id=instance.id))
 
 
 @mutable_receiver([post_save, post_delete], sender=HogFunction)
