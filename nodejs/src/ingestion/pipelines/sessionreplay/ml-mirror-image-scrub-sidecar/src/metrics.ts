@@ -4,6 +4,26 @@ import { type StageTimings } from './scrub.ts'
 
 export const register = new Registry()
 
+type SourceFormatLabel = 'avif' | 'gif' | 'heif' | 'jpeg' | 'jp2' | 'png' | 'raw' | 'svg' | 'tiff' | 'webp' | 'other'
+
+function sourceFormatLabel(format: string): SourceFormatLabel {
+    switch (format) {
+        case 'avif':
+        case 'gif':
+        case 'heif':
+        case 'jpeg':
+        case 'jp2':
+        case 'png':
+        case 'raw':
+        case 'svg':
+        case 'tiff':
+        case 'webp':
+            return format
+        default:
+            return 'other'
+    }
+}
+
 const scrubbed = new Counter({
     name: 'ml_mirror_image_scrub_scrubbed_total',
     help: 'Images scrubbed',
@@ -17,6 +37,11 @@ const failed = new Counter({
 const undecodable = new Counter({
     name: 'ml_mirror_image_scrub_undecodable_total',
     help: 'Inputs sharp could not decode (422) — permanently skipped, never retried',
+    registers: [register],
+})
+const optedOut = new Counter({
+    name: 'ml_mirror_image_scrub_opted_out_total',
+    help: 'Images skipped because embedded PLUS metadata prohibits AI training',
     registers: [register],
 })
 const rejected = new Counter({
@@ -69,7 +94,7 @@ const stageDuration = new Histogram({
 // decode-side optimization is bounded by this distribution.
 const sourceFormat = new Counter({
     name: 'ml_mirror_image_scrub_source_format_total',
-    help: 'Decoded images by source container format',
+    help: 'Decoded images by bounded source container format',
     labelNames: ['format'],
     registers: [register],
 })
@@ -83,7 +108,7 @@ const storedMegapixels = new Histogram({
 })
 const sourceMegapixels = new Histogram({
     name: 'ml_mirror_image_scrub_source_megapixels',
-    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by format. Mass above the SCRUB_MAX_PIXELS budget is the traffic that actually gets downscaled',
+    help: 'Source megapixels before the SCRUB_MAX_PIXELS downscale, by bounded format. Mass above the SCRUB_MAX_PIXELS budget is the traffic that actually gets downscaled',
     labelNames: ['format'],
     buckets: [0.1, 0.25, 0.5, 1, 2, 2.56, 4, 8, 16, 50],
     registers: [register],
@@ -182,6 +207,7 @@ export const ScrubMetrics = {
     incScrubbed: () => scrubbed.inc(),
     incFailed: () => failed.inc(),
     incUndecodable: () => undecodable.inc(),
+    incOptedOut: () => optedOut.inc(),
     incRejected: () => rejected.inc(),
     incTooLarge: () => tooLarge.inc(),
     incAborted: () => aborted.inc(),
@@ -201,8 +227,9 @@ export const ScrubMetrics = {
         textBoxesRedacted.inc(t.textBoxes)
         codesRedacted.inc(t.codes)
 
-        sourceFormat.labels(t.format).inc()
-        sourceMegapixels.labels(t.format).observe(t.inputPixels / 1e6)
+        const format = sourceFormatLabel(t.format)
+        sourceFormat.labels(format).inc()
+        sourceMegapixels.labels(format).observe(t.inputPixels / 1e6)
         stageDuration.labels('decode').observe(t.decodeMs / 1000)
         // Each early return skips the stages below it, and recording their zeros would drag those
         // quantiles toward zero rather than describing the work they do. A uniform frame returns

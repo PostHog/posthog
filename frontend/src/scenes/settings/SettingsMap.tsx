@@ -6,6 +6,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { McpStoreSettings } from '@posthog/products-mcp-store/frontend/McpStoreSettings'
@@ -587,6 +588,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Automatically assign errors to team members based on rules you define.',
                 component: <AssignmentRules />,
                 keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
+            },
+            {
+                id: 'error-tracking-severity-rules',
+                title: 'Severity rules',
+                description: 'Set the initial severity of new issues based on rules you define.',
+                component: <SeverityRules />,
+                flag: 'ERROR_TRACKING_SEVERITY_RULES',
+                keywords: ['severity', 'priority', 'triage', 'critical', 'rule'],
             },
             {
                 id: 'error-tracking-custom-grouping',
@@ -1448,7 +1457,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Notifications',
                 description: 'Get notified about activity log events via configured destinations.',
                 component: <ActivityLogNotifications />,
-                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
                 allowForTeam: (t) => (t?.effective_membership_level ?? 0) >= OrganizationMembershipLevel.Admin,
                 keywords: ['notification', 'alert', 'activity', 'webhook'],
             },
@@ -1556,7 +1564,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Slack integration',
                 description:
                     'Integrate with Slack to subscribe to insights or dashboards for regular reports to channels of your choice.',
-                docsUrl: 'https://posthog.com/docs/webhooks/slack',
+                docsUrl: Slack.docsUrl,
                 component: <Slack.SettingsSection />,
                 keywords: ['slack', 'channel', 'notification', 'subscribe', 'report'],
             },
@@ -1564,7 +1572,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-github',
                 title: 'GitHub integration',
                 description: 'Connect GitHub to link issues and pull requests with PostHog insights.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: GitHub.docsUrl,
                 component: <GitHub.SettingsSection connectSurface="settings" />,
                 keywords: ['github', 'git', 'repository', 'issue', 'pr'],
             },
@@ -1572,15 +1580,41 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-linear',
                 title: 'Linear integration',
                 description: 'Connect Linear to create and link issues directly from PostHog.',
-                docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+                docsUrl: Linear.docsUrl,
                 component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],
             },
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
+                description:
+                    'Integrations connected from other product areas, such as pipeline destinations, data warehouse sources, error tracking, and marketing analytics.',
+                component: (
+                    <IntegrationsList
+                        omitKinds={['slack', 'github', 'linear']}
+                        titleText=""
+                        emptyState={
+                            <div className="px-4 py-6 text-center text-sm text-secondary rounded border bg-surface-primary">
+                                <p className="mb-1">No other integrations connected</p>
+                                <p className="text-xs text-muted text-balance mb-0">
+                                    These connect from the product area that uses them:{' '}
+                                    <Link to={urls.destinations()}>pipeline destinations</Link>,{' '}
+                                    <Link to={urls.sources()}>data warehouse sources</Link>,{' '}
+                                    <Link
+                                        to={urls.settings('environment-error-tracking', 'error-tracking-integrations')}
+                                    >
+                                        error tracking
+                                    </Link>{' '}
+                                    and{' '}
+                                    <Link to={urls.settings('environment-marketing-analytics', 'marketing-settings')}>
+                                        marketing analytics
+                                    </Link>
+                                    .
+                                </p>
+                            </div>
+                        }
+                    />
+                ),
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {

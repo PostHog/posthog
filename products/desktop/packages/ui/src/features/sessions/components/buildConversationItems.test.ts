@@ -801,10 +801,12 @@ describe("buildConversationItems", () => {
       });
     });
 
-    it("hides debug-level console logs by default and renders them inline when showDebugLogs is true", () => {
+    it("hides internal console logs by default and renders them inline when showDebugLogs is true", () => {
       const events: AcpMessage[] = [
         progressMsg(1, "sandbox", "in_progress", "Setting up sandbox"),
         consoleMsg(2, "sandbox provisioned", "debug"),
+        consoleMsg(3, "handoff skipped", "warn"),
+        consoleMsg(4, "checkpoint captured", "info"),
       ];
 
       const hidden = buildConversationItems(events, null);
@@ -819,11 +821,11 @@ describe("buildConversationItems", () => {
         showDebugLogs: true,
       });
       expect(
-        shown.items.some(
+        shown.items.filter(
           (i) =>
             i.type === "session_update" && i.update.sessionUpdate === "console",
         ),
-      ).toBe(true);
+      ).toHaveLength(3);
     });
 
     it("emits no progress group for a conversation without progress notifications", () => {

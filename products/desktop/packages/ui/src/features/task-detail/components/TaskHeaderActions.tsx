@@ -27,6 +27,7 @@ import {
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Flex } from "@radix-ui/themes";
 import { useState } from "react";
+import { TaskAnalysisButton } from "./TaskAnalysisButton";
 
 const CLOUD_HANDOFF_FLAG = "phc-cloud-handoff";
 
@@ -147,6 +148,9 @@ export function TaskHeaderActions({ task }: { task: Task }) {
     >
       <div className="no-drag">
         <AutoresearchHeaderButton taskId={task.id} />
+      </div>
+      <div className="no-drag">
+        <TaskAnalysisButton task={task} />
       </div>
       {workspace && (workspace.branchName || workspace.baseBranch) && (
         <div className="no-drag flex h-full min-w-0 items-center">

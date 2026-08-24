@@ -8,7 +8,7 @@ import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import serializers, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.generics import get_object_or_404
@@ -31,6 +31,7 @@ from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_prope
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
@@ -271,7 +272,9 @@ class EvaluationConditionSerializer(serializers.Serializer):
     )
 
 
-class EvaluationSerializer(serializers.ModelSerializer):
+class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """An evaluation that scores LLM generations, traces, or sessions."""
+
     created_by = UserBasicSerializer(
         read_only=True,
         allow_null=True,
@@ -357,6 +360,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "deleted",
+            "user_access_level",
         ]
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
         # system transitions). Clients toggle `enabled`; the model's save() keeps the status fields consistent.
@@ -1174,6 +1178,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
+
         serializer = TestHogRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"error": serializer.errors}, status=400)

@@ -87,7 +87,8 @@ describe('replayScannerLogic', () => {
                 enabled: true,
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
-                sampling_rate: 1,
+                sampling_rate: 0.2,
+                sampling_mode: 'balanced',
             })
         })
 
