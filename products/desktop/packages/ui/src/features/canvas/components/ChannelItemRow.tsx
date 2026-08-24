@@ -17,6 +17,7 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
@@ -63,6 +64,7 @@ export interface ChannelItemActions {
   archive: (item: ChannelItemModel) => void;
   /** Canvases only — a task is archived, not deleted. */
   remove: (item: ChannelItemModel) => void;
+  fileCanvas: (item: ChannelItemModel, channelId: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -300,9 +302,17 @@ export function ChannelItemRow({
     item.task != null &&
     item.authorUser?.id != null &&
     currentUser.data?.id === item.authorUser.id;
+  const canFileCanvas =
+    item.kind === "canvas" &&
+    item.authorUser?.id != null &&
+    currentUser.data?.id === item.authorUser.id;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
-      if (item.kind !== "task") return;
+      if (item.kind === "canvas") {
+        writeCanvasDragData(event.dataTransfer, item.id);
+        event.dataTransfer.effectAllowed = "copy";
+        return;
+      }
 
       writeTaskDragData(event.dataTransfer, item.id);
       // Both, always. Command Center tiles ask for `copy` and the pinned run
@@ -314,9 +324,8 @@ export function ChannelItemRow({
     [item.id, item.kind, onDragStart],
   );
 
-  // A canvas gets the same menu with the items it actually has: pin, and delete
-  // instead of archive. Filing and command-centre cells are task-shaped, and the
-  // menu drops them rather than showing them dead.
+  // A canvas gets the same menu with the items it actually has: command-centre
+  // placement, pin, filing, and delete instead of archive.
   //
   // Memoized because it travels to the shared preview card as the trigger's
   // payload, which is written to the card's store whenever its identity changes.
@@ -328,7 +337,15 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            channelId,
+            ...(canFileCanvas
+              ? {
+                  onFile: (targetChannelId: string) =>
+                    actions.fileCanvas(item, targetChannelId),
+                }
+              : {}),
             onTogglePin: () => actions.togglePin(item),
+            onAddToCommandCenter,
             // Confirm first, like the canvas menus in the artifacts grid and
             // the canvas header: the canvas and its history go for everyone.
             onDelete: () => setConfirmDeleteOpen(true),
@@ -338,6 +355,7 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            task: item.task ?? undefined,
             channelId,
             onAddToCommandCenter,
             onRename,
@@ -347,7 +365,15 @@ export function ChannelItemRow({
           },
     // canHandoff rides on the currentUser query, so it belongs in deps for a
     // sign-in refresh to re-evaluate.
-    [item, channelId, actions, onAddToCommandCenter, onRename, canHandoff],
+    [
+      item,
+      channelId,
+      actions,
+      onAddToCommandCenter,
+      onRename,
+      canHandoff,
+      canFileCanvas,
+    ],
   );
 
   if (isEditing) {
@@ -374,7 +400,7 @@ export function ChannelItemRow({
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}
-        draggable={item.kind === "task"}
+        draggable
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
         onClick={(e) => (onClick ? onClick(e) : actions.open(item))}

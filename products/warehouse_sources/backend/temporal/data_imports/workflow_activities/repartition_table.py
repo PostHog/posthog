@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
+    RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -673,17 +674,26 @@ def _give_up(
     schema.clear_repartition_swap()
     schema.clear_repartition_rewrite()
     schema.stamp_last_repartition_at()
+    error = RepartitionAttemptsExhausted(
+        f"repartition gave up after {MAX_REPARTITION_ATTEMPTS} attempts that did not survive to record "
+        f"an outcome (trigger_reason={trigger_reason})"
+    )
     props = base_event_props(schema, schema.source, inputs.job_id)
     props.update(
         {
             "trigger_reason": trigger_reason,
             "attempts": int((pending or {}).get("attempts", 0)),
             "final": True,
-            "error_type": "RepartitionAttemptsExhausted",
-            "error_message": "attempts exhausted without any surviving to record an outcome",
+            "error_type": type(error).__name__,
+            "error_message": str(error),
         }
     )
     capture_repartition_event("warehouse_repartition_failed", props)
+    # Terminal, and the only terminal path that did not already report to error tracking: every attempt
+    # was hard-killed before it could run `_handle_failure` (which captures). Capture here too so a table
+    # the controller has abandoned surfaces as an issue instead of only a metric — the sync context is
+    # already bound (bind_job_context) so the issue is attributed to the connector and table.
+    capture_exception(error)
     DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
 
 

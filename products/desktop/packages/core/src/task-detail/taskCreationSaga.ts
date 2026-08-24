@@ -65,6 +65,7 @@ function buildCloudFirstMessage(
     input.channelContext,
     input.channelName,
     input.channelContextId,
+    input.channelContextPath,
   );
   const pendingUserMessage =
     [messageText, customInstructionsText, channelContextText]
@@ -87,6 +88,17 @@ export class TaskCreationSaga extends Saga<
     logger?: SagaLogger,
   ) {
     super(logger);
+  }
+
+  private notifyTaskReady(output: TaskCreationOutput): void {
+    try {
+      this.deps.onTaskReady?.(output);
+    } catch (error) {
+      this.log.error("Task-ready callback failed", {
+        taskId: output.task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   protected async execute(
@@ -140,9 +152,7 @@ export class TaskCreationSaga extends Saga<
 
     if (hasProvisioning) {
       this.deps.host.setProvisioningActive(task.id);
-      if (this.deps.onTaskReady) {
-        this.deps.onTaskReady({ task, workspace });
-      }
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (repoPath) {
@@ -332,7 +342,7 @@ export class TaskCreationSaga extends Saga<
       if (!taskId && workspaceMode === "cloud") {
         await this.deps.sessionService.watchCreatedCloudTask(task);
       }
-      this.deps.onTaskReady?.({ task, workspace });
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (hasProvisioning) {
@@ -486,7 +496,7 @@ export class TaskCreationSaga extends Saga<
 
       if (!hasProvisioning) {
         await this.deps.sessionService.watchCreatedCloudTask(task);
-        this.deps.onTaskReady?.({ task, workspace });
+        this.notifyTaskReady({ task, workspace });
       }
     }
 
@@ -518,6 +528,7 @@ export class TaskCreationSaga extends Saga<
         input.channelContext,
         input.channelName,
         input.channelContextId,
+        input.channelContextPath,
       );
       if (initialPrompt && channelContextBlock) {
         initialPrompt.push(channelContextBlock);
@@ -530,13 +541,22 @@ export class TaskCreationSaga extends Saga<
             const thinkingLevel = PI_THINKING_LEVELS.find(
               (level) => level === input.reasoningLevel,
             );
+            const channelContextText = buildChannelContextText(
+              input.channelContext,
+              input.channelName,
+              input.channelContextId,
+              input.channelContextPath,
+            );
+            const prompt = [input.content, channelContextText]
+              .filter((part): part is string => !!part)
+              .join("\n\n");
 
             await this.deps.piRunner.create({
               taskId: task.id,
               cwd: agentCwd ?? "",
               projectTrustPath:
                 workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
-              prompt: input.content ?? "",
+              prompt,
               model: input.model,
               thinkingLevel,
             });
