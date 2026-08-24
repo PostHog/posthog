@@ -161,6 +161,45 @@ def test_create_redshift_batch_export_validates_copy_inputs(
         assert "Missing required" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("authorization", [["arn:aws:iam::123456789012:role/my-role"], True, 1.5])
+def test_create_redshift_batch_export_rejects_invalid_authorization_type(
+    client: HttpClient, authorization, temporal, organization, team, user
+):
+    """Test 'authorization' values that are neither credentials, a role, nor an id are a 400.
+
+    These used to pass validation and crash with a TypeError when the export synced.
+    """
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": "localhost",
+            "mode": "COPY",
+            "copy_inputs": {
+                "s3_bucket": "my-production-s3-bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "posthog-events/",
+                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "authorization": authorization,
+            },
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "Authorization for 'COPY'" in response.json()["detail"]
+
+
 def create_aws_redshift_role_integration(team, user) -> Integration:
     return Integration.objects.create(
         team=team,

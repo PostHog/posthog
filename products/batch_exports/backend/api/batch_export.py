@@ -1610,8 +1610,13 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     if isinstance(authorization, dict):
                         if credential_keys - authorization.keys():
                             raise serializers.ValidationError("Missing required credentials for 'COPY'")
-                    elif isinstance(authorization, str) and not authorization.strip():
-                        raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+                    elif isinstance(authorization, str):
+                        if not authorization.strip():
+                            raise serializers.ValidationError("Missing required IAM role for 'COPY'")
+                    else:
+                        raise serializers.ValidationError(
+                            "Authorization for 'COPY' must be an IAM role ARN, AWS credentials, or an integration ID."
+                        )
 
         if destination_type == BatchExportDestination.Destination.WORKFLOWS:
             team_id = self.context["team_id"]
