@@ -124,6 +124,7 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
         # silently drop never-attempted orgs instead of selecting them (same gotcha as
         # backfill_harmonic_ownership's has_key dance) — spell out "no key yet" explicitly.
         never_attempted = ~Q(data__has_key=ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY)
+        # nosemgrep: orm-field-injection -- ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY is a module constant, not user input
         due_for_retry = Q(data__has_key=ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY) & Q(
             **{f"data__{ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY}__lte": attempt_cutoff}
         )
