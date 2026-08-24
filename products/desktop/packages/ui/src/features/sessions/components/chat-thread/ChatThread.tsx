@@ -638,53 +638,56 @@ function UserBubble({
               )}
             </ChatMessageHeader>
           )}
-          <ChatBubble
-            align={peerAgentMessage ? "start" : "end"}
-            variant={peerAgentMessage ? "outline" : "default"}
-            className={cn(
-              "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
-              keyboardFocused && "ring-[3px]",
-            )}
-          >
-            <ChatBubbleContent>
-              <div
-                ref={textRef}
-                className={cn(
-                  "[&_p]:my-0",
-                  !isExpanded && "max-h-[5lh] overflow-hidden",
-                  // Fade the clamped text out at the bottom so it reads as "continues below". Only
-                  // when actually overflowing — a short collapsed message shouldn't fade. The mask is
-                  // paint-only, so it doesn't affect the overflow measurement above.
-                  !isExpanded &&
-                    isOverflowing &&
-                    "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
-                )}
-              >
-                {containsFileMentions ? (
-                  parseFileMentions(displayContent)
-                ) : (
-                  <ChatMarkdown content={displayContent} />
-                )}
-              </div>
-              {attachments.length > 0 && !containsFileMentions && (
-                <div className="mt-1.5">
-                  <UserMessageAttachments attachments={attachments} />
-                </div>
+          {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
+          {(!!displayContent || attachments.length > 0) && (
+            <ChatBubble
+              align={peerAgentMessage ? "start" : "end"}
+              variant={peerAgentMessage ? "outline" : "default"}
+              className={cn(
+                "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
+                keyboardFocused && "ring-[3px]",
               )}
-              {isOverflowing && (
-                <button
-                  type="button"
-                  onClick={() => setIsExpanded((v) => !v)}
-                  className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
+            >
+              <ChatBubbleContent>
+                <div
+                  ref={textRef}
+                  className={cn(
+                    "[&_p]:my-0",
+                    !isExpanded && "max-h-[5lh] overflow-hidden",
+                    // Fade the clamped text out at the bottom so it reads as "continues below". Only
+                    // when actually overflowing — a short collapsed message shouldn't fade. The mask is
+                    // paint-only, so it doesn't affect the overflow measurement above.
+                    !isExpanded &&
+                      isOverflowing &&
+                      "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
+                  )}
                 >
-                  Show {isExpanded ? "less" : "more"}
-                  <CaretDown
-                    className={cn("size-3", isExpanded && "rotate-180")}
-                  />
-                </button>
-              )}
-            </ChatBubbleContent>
-          </ChatBubble>
+                  {containsFileMentions ? (
+                    parseFileMentions(displayContent)
+                  ) : (
+                    <ChatMarkdown content={displayContent} />
+                  )}
+                </div>
+                {attachments.length > 0 && !containsFileMentions && (
+                  <div className="mt-1.5">
+                    <UserMessageAttachments attachments={attachments} />
+                  </div>
+                )}
+                {isOverflowing && (
+                  <button
+                    type="button"
+                    onClick={() => setIsExpanded((v) => !v)}
+                    className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
+                  >
+                    Show {isExpanded ? "less" : "more"}
+                    <CaretDown
+                      className={cn("size-3", isExpanded && "rotate-180")}
+                    />
+                  </button>
+                )}
+              </ChatBubbleContent>
+            </ChatBubble>
+          )}
           {timestamp != null && (
             <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}
