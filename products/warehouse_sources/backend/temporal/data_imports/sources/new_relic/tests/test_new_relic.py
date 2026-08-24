@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.
     new_relic_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source import NewRelicSource
 
 ACCOUNT_ID = 1234567
 NEW_RELIC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic"
@@ -143,6 +144,9 @@ class TestExecuteGraphql:
             ("timeout", "NRQL query timeout after 120 seconds"),
             ("deadline", "Deadline exceeded"),
             ("throttled", "Too many requests"),
+            # The reported symptom: New Relic's generic resolver failure must retry, not fail
+            # the whole sync.
+            ("generic_resolver", "An error occurred resolving this field"),
         ]
     )
     def test_transient_graphql_errors_are_retryable(self, _name: str, message: str) -> None:
@@ -153,6 +157,24 @@ class TestExecuteGraphql:
     def test_returns_data_on_success(self) -> None:
         body = {"data": {"actor": {"account": {"id": ACCOUNT_ID}}}}
         assert self._execute(self._response(body=body)) == body["data"]
+
+    @parameterized.expand(
+        [
+            ("permanent_graphql", {"errors": [{"message": "authentication required"}]}, 200),
+            ("retryable_graphql", {"errors": [{"message": "An error occurred resolving this field"}]}, 200),
+            ("retryable_status", None, 503),
+        ]
+    )
+    def test_escaping_errors_map_to_a_friendly_message(self, _name: str, body: dict | None, status: int) -> None:
+        # Whatever message the client raises, a persistent failure must resolve to a friendly
+        # customer message. Producing the exception from the real client (not a hardcoded
+        # string) guards the coupling between the raised prefix and the source's keys. If the
+        # prefix drifts, the customer sees raw NerdGraph text again, the reported symptom.
+        with pytest.raises((NewRelicGraphQLError, NewRelicRetryableError)) as exc_info:
+            self._execute(self._response(status_code=status, body=body))
+
+        friendly = NewRelicSource().get_non_retryable_errors()
+        assert any(key in str(exc_info.value) and value is not None for key, value in friendly.items())
 
 
 class TestFetchEventWindow:

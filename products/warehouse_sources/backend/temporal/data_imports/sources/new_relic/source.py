@@ -113,11 +113,19 @@ If your account is hosted in New Relic's EU data center, select the EU region.
         # per-request path.
         invalid_key = "Your New Relic API key is invalid or has been revoked. Create a new User API key in your New Relic account, then reconnect."
         missing_permissions = "Your New Relic API key does not have permission to read this data. Check the key's user permissions in New Relic, then reconnect."
+        # NerdGraph reports these inside an `errors` array on an HTTP 200 (see new_relic.py).
+        # The keys mirror the exact message prefixes raised there; the colon after "error"
+        # keeps the permanent prefix from also matching the "(retryable)" one.
+        rejected_query = "New Relic could not run the query for this sync. Check that the API key can read this account and has the required permissions in New Relic, then reconnect."
+        api_unavailable = "New Relic's API kept returning errors, so PostHog stopped this sync after several retries. This is usually temporary and the next scheduled sync should recover."
         return {
             "401 Client Error: Unauthorized for url: https://api.newrelic.com": invalid_key,
             "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com": invalid_key,
             "403 Client Error: Forbidden for url: https://api.newrelic.com": missing_permissions,
             "403 Client Error: Forbidden for url: https://api.eu.newrelic.com": missing_permissions,
+            "New Relic GraphQL error:": rejected_query,
+            "New Relic GraphQL error (retryable):": api_unavailable,
+            "New Relic API error (retryable):": api_unavailable,
         }
 
     def get_schemas(
