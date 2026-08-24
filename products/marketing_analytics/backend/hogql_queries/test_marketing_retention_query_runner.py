@@ -357,6 +357,17 @@ class TestMarketingAnalyticsRetentionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.truncatedCohorts, 90 - MAX_COHORTS)
         self.assertTrue(all(0 <= row.cohortIndex < MAX_COHORTS for row in response.results))
 
+    def test_an_inverted_date_range_returns_an_empty_table_instead_of_raising(self):
+        # A range ending before it starts spans no periods. Every expression anchors on the first cohort
+        # start, so an empty cohort list crashes the whole query on an index error rather than returning
+        # the empty table the range describes.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", WEEK_0, utm_source="google")
+
+        response = self._run(date_from="2023-03-01", date_to="2023-01-01")
+
+        self.assertEqual(response.results, [])
+
     @parameterized.expand(
         [
             ("interval_count_negative", {"total_intervals": -1}, "interval_count", 1),

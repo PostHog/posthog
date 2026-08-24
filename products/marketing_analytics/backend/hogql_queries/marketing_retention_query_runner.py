@@ -41,7 +41,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange, date_to_start_of_interval
 
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
 
@@ -142,7 +142,7 @@ class MarketingAnalyticsRetentionQueryRunner(
     @cached_property
     def query_date_range(self) -> QueryDateRange:
         """Overrides the base runner's interval-less range: every expression here buckets by period, and
-        `all_values()` needs an interval to enumerate the cohort rows."""
+        the cohort rows are one per period, so the range has to know which interval it is counting in."""
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
@@ -151,8 +151,27 @@ class MarketingAnalyticsRetentionQueryRunner(
         )
 
     @cached_property
-    def _all_period_starts(self) -> list[datetime]:
-        return self.query_date_range.all_values()
+    def _period_count(self) -> int:
+        """Aligned periods the requested range spans, before the cohort clamp.
+
+        Computed arithmetically rather than by enumerating the range, because `dateRange` is
+        caller-controlled: a daily grain over years 0001-9999 would materialize millions of datetimes
+        just to slice off the last MAX_COHORTS. Zero or negative when the range is inverted, which
+        `cohort_starts` floors at one.
+        """
+        start = self._aligned(self.query_date_range.date_from())
+        end = self._aligned(self.query_date_range.date_to())
+        if self.retention_interval == MarketingAnalyticsRetentionInterval.MONTH:
+            spans = (end.year - start.year) * 12 + end.month - start.month
+        elif self.retention_interval == MarketingAnalyticsRetentionInterval.WEEK:
+            spans = (end - start).days // 7
+        else:
+            spans = (end - start).days
+        return spans + 1
+
+    def _aligned(self, moment: datetime) -> datetime:
+        interval = _INTERVAL_TO_TYPE[self.retention_interval]
+        return date_to_start_of_interval(moment, interval, self.team)
 
     @cached_property
     def cohort_starts(self) -> list[datetime]:
@@ -160,14 +179,21 @@ class MarketingAnalyticsRetentionQueryRunner(
 
         Truncated to the most recent MAX_COHORTS, because an old cohort with few columns left to show is
         the least interesting part of a range someone widened by accident.
+
+        Always at least one entry. An inverted range spans no periods, and every expression below reads
+        `cohort_starts[0]` as the window's anchor, so an empty list would fail the query on an index
+        error rather than return the empty table the range actually describes.
         """
-        return self._all_period_starts[-MAX_COHORTS:]
+        kept = max(1, min(self._period_count, MAX_COHORTS))
+        end = self._aligned(self.query_date_range.date_to())
+        step = self.query_date_range.interval_relativedelta()
+        return [end - step * offset for offset in reversed(range(kept))]
 
     @property
     def truncated_cohorts(self) -> int:
         """Older cohorts the clamp dropped. Reported, because the clamp also pulls the whole scan's
         lower bound forward — the table then covers less than the date range the filter bar shows."""
-        return len(self._all_period_starts) - len(self.cohort_starts)
+        return max(self._period_count - len(self.cohort_starts), 0)
 
     @property
     def interval_count(self) -> int:
