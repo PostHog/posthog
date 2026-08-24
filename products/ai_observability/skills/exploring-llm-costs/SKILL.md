@@ -31,6 +31,7 @@ regression debugging, and materializing results as insights, dashboards, or aler
 | `posthog:insight-create`        | Materialize a cost chart as a saved insight                         |
 | `posthog:dashboard-create`      | Bundle cost insights into a dashboard                               |
 | `posthog:alert-create`          | Alert when cost crosses a threshold                                 |
+| `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI            |
 
 ## Core rules
 
