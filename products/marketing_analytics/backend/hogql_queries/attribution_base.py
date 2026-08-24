@@ -9,7 +9,15 @@ drifting on what a journey is.
 from functools import cached_property
 from typing import Generic
 
-from posthog.schema import BaseMathType, MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionQuery
+from posthog.schema import (
+    BaseMathType,
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    MarketingAnalyticsAttributionPathsQuery,
+    MarketingAnalyticsAttributionQuery,
+    PropertyMathType,
+)
 
 from posthog.hogql import ast
 
@@ -17,8 +25,11 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import DAY_IN_SECONDS
+from .conversion_goal_conditions import conversion_goal_condition
 from .marketing_analytics_base_query_runner import ResponseType
 from .session_breakdown_base import MarketingSessionBreakdownQueryRunnerBase
+
+ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
 
 # Both runners collect per-person arrays under this name before diverging.
 PERSON_ARRAYS_CTE = "person_arrays"
@@ -35,6 +46,78 @@ MAX_TOUCHPOINTS_PER_PERSON = 500
 class AttributionQueryRunnerBase(MarketingSessionBreakdownQueryRunnerBase[ResponseType], Generic[ResponseType]):
     # Narrower than the session-breakdown base's union: everything below reads attribution-only fields.
     query: MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery
+
+    @cached_property
+    def goal(self) -> ConversionGoal:
+        """The requested goal, found among the team's configured goals.
+
+        Data warehouse goals are rejected rather than silently mis-attributed: their conversions live in
+        a warehouse table keyed by distinct_id, but these queries collect conversions from one `events`
+        scan grouped by person_id, so there is nothing to join them on here.
+        """
+        all_goals = self._get_team_conversion_goals()
+        goals, skipped_goals = self._filter_invalid_conversion_goals(all_goals)
+        self._valid_conversion_goals_count = len(goals)
+
+        for goal in goals:
+            if goal.conversion_goal_id == self.query.conversionGoalId:
+                if goal.kind == "DataWarehouseNode":
+                    raise ValueError(
+                        f"Conversion goal '{goal.conversion_goal_name}' is backed by a data warehouse table, "
+                        "which attribution doesn't support yet. Pick an event or action goal."
+                    )
+                return goal
+
+        # Only one goal is queried at a time, so another goal being unusable is not this query's problem.
+        # Only report it when it's the goal that was actually asked for.
+        skipped = next((g for g in all_goals if g.conversion_goal_id == self.query.conversionGoalId), None)
+        if skipped is not None:
+            reason = next(
+                (s.message for s in skipped_goals if s.conversion_goal_id == self.query.conversionGoalId), None
+            )
+            raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
+
+        raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
+
+    @cached_property
+    def conversion_condition(self) -> ast.Expr:
+        """True for an event row that counts as a conversion for this goal.
+
+        Shared with the Dashboard's pipeline so the two can't drift on what a conversion is, which
+        includes the goal's own property filters: a goal scoped to purchases over $100 has to mean that
+        here too, or this table reports a different number than the Dashboard for the same goal.
+
+        Cached because the query references it three times, and the action branch hits Postgres.
+        """
+        goal = self.goal
+        condition = conversion_goal_condition(goal, self.team)
+        if condition is None:
+            # Validation already rejected the goals with nothing to match on, so what's left is an
+            # action-based goal whose action was deleted.
+            raise ValueError(
+                f"Conversion goal '{goal.conversion_goal_name}' points to an action that no longer exists. "
+                "Update the goal in marketing analytics settings, or pick another goal."
+            )
+        return condition
+
+    def _conversion_value_expr(self) -> ast.Expr:
+        """Value of one conversion: the goal's math property under SUM math, otherwise 1.
+
+        Mirrors `ConversionGoalProcessor._get_conversion_value_expr` — these must stay in lockstep, or
+        the same goal would report different revenue on the Dashboard and here.
+        """
+        goal = self.goal
+        math_type = goal.math
+        if math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
+            if goal.math_property:
+                return ast.Call(
+                    name="coalesce",
+                    args=[
+                        ast.Call(name="toFloat", args=[ast.Field(chain=["events", "properties", goal.math_property])]),
+                        ast.Constant(value=0.0),
+                    ],
+                )
+        return ast.Call(name="toFloat", args=[ast.Constant(value=1)])
 
     @property
     def lookback_window_days(self) -> int:
