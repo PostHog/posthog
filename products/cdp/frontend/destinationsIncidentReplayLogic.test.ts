@@ -3,7 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { destinationsIncidentReplayLogic, incidentReplayWindow } from './destinationsIncidentReplayLogic'
+import {
+    destinationsIncidentReplayLogic,
+    incidentCountWindowStart,
+    incidentReplayWindow,
+} from './destinationsIncidentReplayLogic'
 
 const MASKED_ONLY_ID = '019d244c-42c9-0000-ec6c-752c8b265c4f'
 const FAILED_ONLY_ID = '019d9146-223a-0000-8165-1a3489e88b3d'
@@ -144,6 +148,16 @@ describe('destinationsIncidentReplayLogic', () => {
                 enabled: true,
             },
         ])
+    })
+
+    describe('incidentCountWindowStart', () => {
+        // The replay sends the incident start as UTC. If the count read it as team-local wall time
+        // instead, the two would cover spans a whole timezone offset apart.
+        it('renders the same instant the replay sends, in the team timezone', () => {
+            expect(incidentCountWindowStart('UTC')).toEqual('2026-08-18 13:30:00.000')
+            expect(incidentCountWindowStart('US/Pacific')).toEqual('2026-08-18 06:30:00.000')
+            expect(incidentCountWindowStart('Europe/Berlin')).toEqual('2026-08-18 15:30:00.000')
+        })
     })
 
     describe('incidentReplayWindow', () => {

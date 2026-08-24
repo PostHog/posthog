@@ -4,10 +4,12 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { dateClauseFor } from 'scenes/hog-functions/invocations/hogInvocationsLogic'
+import { projectTimezoneOf } from 'scenes/hog-functions/invocations/hogInvocationsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { hogql } from '~/queries/utils'
 import type { HogFunctionTypeType } from '~/types'
@@ -112,16 +114,32 @@ function hasSecretInput(hogFunction: HogFunctionApi): boolean {
 }
 
 /**
+ * The incident start as a `scheduled_at` literal, in the team's timezone.
+ *
+ * Not `dateClauseFor`: that runs the bound through `dayjs.tz(value, zone)`, which reads the string
+ * as wall time in the team's zone and discards the `Z`. The instant would shift by the team's
+ * offset, so the count would cover a different span than the replay, which sends the same boundary
+ * as UTC. Parsing as UTC first and rendering in the team's zone keeps the two in step.
+ *
+ * Exported for the unit test.
+ */
+export function incidentCountWindowStart(timezone: string): string {
+    return dayjs(INCIDENT_WINDOW_START).tz(timezone).format('YYYY-MM-DD HH:mm:ss.SSS')
+}
+
+/**
  * Counts, per destination, the invocations whose latest status is still failed since the incident
  * began. One query rather than one per destination, and it doubles as the discovery step.
  *
  * There is deliberately no upper bound on `scheduled_at`: a replay writes its lifecycle rows into
  * the partition of the replay time, not the original one. Collapsing every partition from the
- * incident start to now is what makes a recovered invocation read as succeeded, so a count shrinks
- * as a replay drains and the destination leaves the banner when it reaches zero.
+ * incident start onwards is what makes a recovered invocation read as succeeded, so a count shrinks
+ * as a replay drains and the destination leaves the banner when it reaches zero. Leaving the bound
+ * off also keeps the query text stable between mounts, which a `< now` bound did not.
  */
 async function loadFailedCountsByDestination(): Promise<Map<string, number>> {
-    const dateClause = dateClauseFor({ date_from: INCIDENT_WINDOW_START })
+    const timezone = projectTimezoneOf(teamLogic.findMounted()?.values.currentTeam)
+    const dateClause = hogql.raw(`AND scheduled_at >= '${incidentCountWindowStart(timezone)}'`)
     const query = hogql`
         SELECT function_id, count() AS failed_count FROM (
             SELECT

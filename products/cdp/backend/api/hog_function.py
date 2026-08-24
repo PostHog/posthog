@@ -1082,9 +1082,16 @@ class HogFunctionViewSet(
         cannot be restored from our side, so each listed input has to be entered again.
         """
         affected = []
+        # Access filtering runs only for the `list` action, and a detail route relies on object
+        # permissions instead - a collection action like this one gets neither. Without this a
+        # member restricted to some functions would learn which of the others hold a broken
+        # credential, and under which input keys.
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            self.get_queryset(), resource="hog_function"
+        )
         # Only the columns the scan reads: the rest include large text/JSON fields (hog, bytecode,
         # transpiled, draft, ...) that would be transferred and deserialized for every row for nothing.
-        scan = self.get_queryset().only("id", "name", "type", "enabled", "encrypted_inputs", "draft_encrypted_inputs")
+        scan = accessible.only("id", "name", "type", "enabled", "encrypted_inputs", "draft_encrypted_inputs")
         for hog_function in scan.order_by("-updated_at").iterator(chunk_size=100):
             input_keys = masked_secret_input_keys(hog_function.encrypted_inputs)
             draft_input_keys = masked_secret_input_keys(hog_function.draft_encrypted_inputs)
