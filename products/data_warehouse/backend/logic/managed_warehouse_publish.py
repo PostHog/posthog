@@ -26,7 +26,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.facade.team_state import resolve_events_persons_tables
 from products.managed_warehouse.backend.facade.temporal import PrunePublishedSnapshotInputs, PublishTableInputs
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade import api as warehouse_sources
 
 LOGGER = get_logger(__name__)
 
@@ -104,9 +104,9 @@ def create_publication(
             "underscores, and be at most 128 characters."
         )
 
-    name_taken = DataWarehouseTable.objects.filter(team_id=team.pk, name=resolved_name).exclude(
-        deleted=True
-    ).exists() or managed_warehouse.managed_warehouse_published_table_name_exists(team.pk, resolved_name)
+    name_taken = warehouse_sources.active_table_name_exists(
+        team_id=team.pk, name=resolved_name
+    ) or managed_warehouse.managed_warehouse_published_table_name_exists(team.pk, resolved_name)
     if name_taken:
         raise PublishValidationError(f"A warehouse table named '{resolved_name}' already exists.")
 
@@ -159,9 +159,7 @@ def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTableRec
 def delete_publication(publication: ManagedWarehousePublishedTableRecord) -> None:
     with transaction.atomic():
         if publication.table_id is not None:
-            table = DataWarehouseTable.objects.filter(team_id=publication.team_id, id=publication.table_id).first()
-            if table is not None:
-                table.soft_delete()
+            warehouse_sources.soft_delete_table_if_exists(team_id=publication.team_id, table_id=publication.table_id)
 
         managed_warehouse.mark_managed_warehouse_published_table_deleted(publication.team_id, publication.id)
 

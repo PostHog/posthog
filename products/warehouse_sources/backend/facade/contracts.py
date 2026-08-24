@@ -16,6 +16,7 @@ demand map). The HogQL system-table model classes cross the boundary as objects 
 ``facade/hogql.py``, and temporal/source wiring via ``facade/temporal.py`` — not here.
 """
 
+from collections.abc import Mapping
 from datetime import datetime, time, timedelta
 from uuid import UUID
 
@@ -135,6 +136,15 @@ class DataWarehouseTable:
     external_data_source_id: UUID | None
     credential_id: UUID | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class PublishedWarehouseTableRegistration:
+    table_id: UUID
+    team_id: int
+    name: str
+    url_pattern: str
+    columns: Mapping[str, object]
 
 
 # --- Job ---

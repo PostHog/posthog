@@ -11,15 +11,17 @@ type mappings) lives in ``facade/hogql.py``; temporal/source wiring in
 transforms (prefix/URL validation, column converters) so config-only consumers
 don't drag heavy imports onto the ``django.setup()`` path.
 
-Write paths (create/update of sources, schemas, tables, jobs) remain inside
-``products/data_warehouse`` for now — a legacy-leak swept in Phase 2 — so this
-first facade serves the read consumers and the framework-free helpers.
+The write surface stays capability-specific. Published managed-warehouse snapshots
+can be prepared, saved, and soft-deleted here without exposing the table model or a
+generic trusted-URL escape hatch to other products.
 """
 
 from collections.abc import Collection
 from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet
+
+from products.warehouse_sources.backend import published_tables
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -67,6 +69,10 @@ __all__ = [
     "get_table",
     "get_queryable_table",
     "list_tables_for_source",
+    "active_table_name_exists",
+    "prepare_published_table_registration",
+    "save_published_table_registration",
+    "soft_delete_table_if_exists",
     "list_jobs_for_source",
     "list_column_statistics",
     # framework-free helper transforms
@@ -320,6 +326,50 @@ def get_queryable_table(table_id: UUID, team_id: int) -> contracts.DataWarehouse
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:
     qs = _DataWarehouseTable.objects.filter(team_id=team_id, external_data_source_id=source_id).exclude(deleted=True)
     return [_to_table(t) for t in qs]
+
+
+def active_table_name_exists(*, team_id: int, name: str) -> bool:
+    return published_tables.active_table_name_exists(team_id=team_id, name=name)
+
+
+def prepare_published_table_registration(
+    *, team_id: int, table_id: UUID | None, name: str, url_pattern: str
+) -> contracts.PublishedWarehouseTableRegistration:
+    table = published_tables.prepare_table_registration(
+        team_id=team_id,
+        table_id=table_id,
+        name=name,
+        url_pattern=url_pattern,
+    )
+    return contracts.PublishedWarehouseTableRegistration(
+        table_id=table.id,
+        team_id=table.team_id,
+        name=table.name,
+        url_pattern=table.url_pattern,
+        columns=table.columns or {},
+    )
+
+
+def save_published_table_registration(
+    registration: contracts.PublishedWarehouseTableRegistration,
+    *,
+    row_count: int,
+    size_in_s3_mib: float,
+) -> contracts.DataWarehouseTable:
+    table = published_tables.save_table_registration(
+        table_id=registration.table_id,
+        team_id=registration.team_id,
+        name=registration.name,
+        url_pattern=registration.url_pattern,
+        columns=registration.columns,
+        row_count=row_count,
+        size_in_s3_mib=size_in_s3_mib,
+    )
+    return _to_table(table)
+
+
+def soft_delete_table_if_exists(*, team_id: int, table_id: UUID) -> bool:
+    return published_tables.soft_delete_table_if_exists(team_id=team_id, table_id=table_id)
 
 
 def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:

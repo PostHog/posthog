@@ -37,8 +37,8 @@ from products.managed_warehouse.backend.publish import (
     sum_publish_version_size_bytes,
 )
 from products.managed_warehouse.backend.storage import setup_duckgres_session
+from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.warehouse_sources.backend.facade.constants import S3_DELETE_TIME_BUFFER
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -167,30 +167,21 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> str | None
     folder = publish_folder(inputs.team_id, publication.id.hex)
     url_pattern = publish_url_pattern(inputs.bucket, inputs.bucket_region, folder, inputs.folder_version)
 
-    table: DataWarehouseTable | None = None
-    if publication.table_id is not None:
-        table = DataWarehouseTable.objects.filter(team_id=inputs.team_id, id=publication.table_id).first()
-    if table is None:
-        table = DataWarehouseTable(
-            team_id=inputs.team_id,
-            name=publication.name,
-            format=DataWarehouseTable.TableFormat.Parquet,
-            url_pattern=url_pattern,
-        )
-    else:
-        table.format = DataWarehouseTable.TableFormat.Parquet
-        table.url_pattern = url_pattern
-
-    columns = table.get_columns()
+    registration = warehouse_sources.prepare_published_table_registration(
+        team_id=inputs.team_id,
+        table_id=publication.table_id,
+        name=publication.name,
+        url_pattern=url_pattern,
+    )
     size_in_s3_mib = sum_publish_version_size_bytes(inputs.bucket, folder, inputs.folder_version) / (1024 * 1024)
 
     superseded_version = publication.folder_version
     with transaction.atomic():
-        table.save(internally_computed_url_pattern=True)
-        table.set_columns(columns)
-        table.row_count = inputs.row_count
-        table.size_in_s3_mib = size_in_s3_mib
-        table.save()
+        table = warehouse_sources.save_published_table_registration(
+            registration,
+            row_count=inputs.row_count,
+            size_in_s3_mib=size_in_s3_mib,
+        )
 
         publication.table_id = table.id
         publication.status = ManagedWarehousePublishedTable.Status.COMPLETED

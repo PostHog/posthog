@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.models import Team
 
@@ -196,6 +197,39 @@ class TestWarehouseSourcesFacade(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         with self.assertRaises(ExternalDataSource.DoesNotExist):
             api.get_source(self.source.id, other_team.pk)
+
+    def test_published_table_write_capabilities_enforce_team_isolation(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other_table = DataWarehouseTable.objects.create(
+            team_id=other_team.pk,
+            name="published_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://other/version/**.parquet",
+        )
+
+        assert not api.active_table_name_exists(team_id=self.team.pk, name=other_table.name)
+        assert not api.soft_delete_table_if_exists(team_id=self.team.pk, table_id=other_table.id)
+
+        with patch.object(
+            DataWarehouseTable,
+            "get_columns",
+            return_value={"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}},
+        ):
+            registration = api.prepare_published_table_registration(
+                team_id=self.team.pk,
+                table_id=other_table.id,
+                name=other_table.name,
+                url_pattern="s3://ours/version/**.parquet",
+            )
+
+        assert registration.table_id != other_table.id
+        saved = api.save_published_table_registration(registration, row_count=3, size_in_s3_mib=1.5)
+        assert saved.team_id == self.team.pk
+        assert saved.columns == registration.columns
+
+        other_table.refresh_from_db()
+        assert not other_table.deleted
+        assert other_table.url_pattern == "s3://other/version/**.parquet"
 
 
 def test_hogql_reexports_are_the_model_classes() -> None:
