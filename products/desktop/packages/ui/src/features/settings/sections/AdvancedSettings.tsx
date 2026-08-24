@@ -1,5 +1,8 @@
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { ONBOARDING_TEST_TOOLS_FLAG } from "@posthog/shared";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import {
@@ -15,6 +18,7 @@ import { clearApplicationStorage } from "@posthog/ui/utils/clearStorage";
 import { Button, Checkbox, Flex, Switch, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
+import { OnboardingTestTools } from "./OnboardingTestTools";
 
 export function AdvancedSettings() {
   const showDebugLogsToggle =
@@ -34,9 +38,15 @@ export function AdvancedSettings() {
   const hostTRPC = useHostTRPC();
   const { data: rtkStatus } = useQuery(hostTRPC.agent.rtkStatus.queryOptions());
   const devModeClient = useServiceOptional<DevModeClient>(DEV_MODE_CLIENT);
+  const authenticatedClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: authenticatedClient });
+  const showOnboardingTestTools =
+    useFeatureFlag(ONBOARDING_TEST_TOOLS_FLAG) &&
+    currentUser?.is_staff === true;
 
   return (
     <Flex direction="column">
+      {showOnboardingTestTools && <OnboardingTestTools />}
       <SettingRow
         label="Always create pull requests for cloud runs"
         description="Cloud runs push their changes and open a draft pull request when they finish, without waiting for you to ask"

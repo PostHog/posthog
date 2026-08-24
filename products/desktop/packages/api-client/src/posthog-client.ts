@@ -2931,6 +2931,52 @@ export class PostHogAPIClient {
     return data.task_id ?? null;
   }
 
+  async startOnboardingTestSession(input: {
+    company_domain: string;
+    joining_existing_organization: boolean;
+    has_events: boolean;
+    signal_reports_waiting: number;
+    other_members: string[];
+    sources_enabled: string[];
+    sources_watching: string[];
+    sources_newly_enabled: boolean;
+    include_teaching_canvas: boolean;
+  }): Promise<{ task_id: string; channel_id: string }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/onboarding_session_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(input) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start test onboarding session: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { task_id: string; channel_id: string };
+  }
+
+  async createTeachingCanvasForTest(): Promise<{
+    canvas_id: string;
+    channel_id: string;
+  }> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/teaching_canvas_test/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to create teaching canvas: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { canvas_id: string; channel_id: string };
+  }
+
   async updateTaskChannelRepositories(
     id: string,
     githubIntegration: number | null,

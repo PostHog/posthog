@@ -1,6 +1,6 @@
 """Open a new user's first agent session."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -152,9 +152,17 @@ def _teaching_canvas(team_id: int, channel_id: UUID, user: User) -> TeachingCanv
         return None
 
 
-def start_onboarding_session(team: Team, user: User) -> UUID | None:
+def start_onboarding_session(
+    team: Team,
+    user: User,
+    *,
+    facts_override: OnboardingFacts | None = None,
+    homepage_override: str = "",
+    force: bool = False,
+    include_teaching_canvas: bool = True,
+) -> UUID | None:
     """Create the session a new user lands in. ``None`` when no session was started."""
-    if not _session_enabled(team, user):
+    if not force and not _session_enabled(team, user):
         logger.info("onboarding_session_skipped", team_id=team.id, reason="flag_disabled")
         return None
 
@@ -163,15 +171,17 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="no_general_channel")
         return None
 
-    started = _started_session_id(team.id, user.id)
+    started = None if force else _started_session_id(team.id, user.id)
     if started is not None:
         logger.info("onboarding_session_skipped", team_id=team.id, reason="already_started")
         return started
 
-    origin_key = _origin_key(user.id)
+    origin_key = f"{ONBOARDING_ORIGIN_KEY_PREFIX}_test:{user.id}:{uuid4()}" if force else _origin_key(user.id)
 
-    teaching = _teaching_canvas(team.id, channel_id, user)
-    facts, homepage = gather_onboarding_facts(team, user)
+    teaching = _teaching_canvas(team.id, channel_id, user) if include_teaching_canvas else None
+    facts, homepage = (
+        (facts_override, homepage_override) if facts_override is not None else gather_onboarding_facts(team, user)
+    )
     prompt = load_onboarding_prompt()
     missing_placeholders = missing_onboarding_prompt_placeholders(prompt.prompt)
     prompt_template = prompt.prompt
@@ -247,3 +257,40 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         groups=groups(team.organization, team),
     )
     return created.task_id
+
+
+def start_onboarding_test_session(
+    team: Team,
+    user: User,
+    *,
+    company_domain: str,
+    joining_existing_organization: bool,
+    has_events: bool,
+    signal_reports_waiting: int,
+    other_members: list[str],
+    sources_enabled: list[str],
+    sources_watching: list[str],
+    sources_newly_enabled: bool,
+    include_teaching_canvas: bool,
+) -> UUID | None:
+    domain = normalize_target(company_domain) if company_domain else None
+    research = research_domain(domain) if domain and not joining_existing_organization else None
+    facts = OnboardingFacts(
+        org_has_context=joining_existing_organization,
+        research=research,
+        has_events=has_events,
+        signal_reports_waiting=signal_reports_waiting,
+        other_members=prose_list(other_members),
+        sources_enabled=tuple(sources_enabled),
+        sources_watching=tuple(sources_watching),
+        sources_newly_enabled=sources_newly_enabled,
+    )
+    homepage = research.markdown or "" if research and research.outcome == "scraped" else ""
+    return start_onboarding_session(
+        team,
+        user,
+        facts_override=facts,
+        homepage_override=homepage,
+        force=True,
+        include_teaching_canvas=include_teaching_canvas,
+    )

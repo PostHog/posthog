@@ -51206,6 +51206,56 @@ export namespace Schemas {
       task_id: string;
     }
 
+    export interface OnboardingSessionTest {
+      /**
+         * Company domain to research. Blank simulates a personal email address.
+         * @maxLength 253
+         */
+      company_domain?: string;
+      /** Whether the user is joining an organization that already has shared context. */
+      joining_existing_organization?: boolean;
+      /** Whether the project has ingested events. */
+      has_events?: boolean;
+      /**
+         * Number of findings waiting in #general.
+         * @minimum 0
+         * @maximum 10000
+         */
+      signal_reports_waiting?: number;
+      /**
+         * Display names of other Desktop users in the organization.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      other_members?: string[];
+      /**
+         * Signal sources that were already enabled.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_enabled?: string[];
+      /**
+         * Signal sources the onboarding flow is watching.
+         * @maxItems 25
+         * @items.maxLength 100
+         */
+      sources_watching?: string[];
+      /** Whether onboarding enabled any signal sources. */
+      sources_newly_enabled?: boolean;
+      /** Whether the session prompt should offer the teaching canvas. */
+      include_teaching_canvas?: boolean;
+    }
+
+    /**
+     * The first-run session that was started for the requester.
+     */
+    export interface OnboardingSessionTestResponse {
+      /** The agent session opened in the team's #general space. */
+      task_id: string;
+      /** The #general space containing the session. */
+      channel_id: string;
+    }
+
     /**
      * * `later` - Later
      * * `other` - Other
@@ -82870,6 +82920,13 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
+    }
+
+    export interface TeachingCanvas {
+      /** The teaching canvas that was resolved or created. */
+      canvas_id: string;
+      /** The #general space containing the canvas. */
+      channel_id: string;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };

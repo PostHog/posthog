@@ -1056,6 +1056,79 @@ export const TaskChannelsStarCreateBody = /* @__PURE__ */ zod
     .describe('Request body for starring\/unstarring a channel for the requesting user.')
 
 /**
+ * Staff-only test path that creates a repeatable session from explicit prompt-building inputs.
+ * @summary Start a test first-run onboarding session
+ */
+export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault = ``
+export const taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax = 253
+
+export const taskChannelsOnboardingSessionTestCreateBodyJoiningExistingOrganizationDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodyHasEventsDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingDefault = 0
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMin = 0
+export const taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMax = 10000
+
+export const taskChannelsOnboardingSessionTestCreateBodyOtherMembersItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodyOtherMembersMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesEnabledItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesEnabledMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax = 100
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax = 25
+
+export const taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault = false
+export const taskChannelsOnboardingSessionTestCreateBodyIncludeTeachingCanvasDefault = true
+
+export const TaskChannelsOnboardingSessionTestCreateBody = /* @__PURE__ */ zod.object({
+    company_domain: zod
+        .string()
+        .max(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainMax)
+        .default(taskChannelsOnboardingSessionTestCreateBodyCompanyDomainDefault)
+        .describe('Company domain to research. Blank simulates a personal email address.'),
+    joining_existing_organization: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyJoiningExistingOrganizationDefault)
+        .describe('Whether the user is joining an organization that already has shared context.'),
+    has_events: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyHasEventsDefault)
+        .describe('Whether the project has ingested events.'),
+    signal_reports_waiting: zod
+        .number()
+        .min(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMin)
+        .max(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingMax)
+        .default(taskChannelsOnboardingSessionTestCreateBodySignalReportsWaitingDefault)
+        .describe('Number of findings waiting in #general.'),
+    other_members: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodyOtherMembersItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodyOtherMembersMax)
+        .optional()
+        .describe('Display names of other Desktop users in the organization.'),
+    sources_enabled: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodySourcesEnabledItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodySourcesEnabledMax)
+        .optional()
+        .describe('Signal sources that were already enabled.'),
+    sources_watching: zod
+        .array(zod.string().max(taskChannelsOnboardingSessionTestCreateBodySourcesWatchingItemMax))
+        .max(taskChannelsOnboardingSessionTestCreateBodySourcesWatchingMax)
+        .optional()
+        .describe('Signal sources the onboarding flow is watching.'),
+    sources_newly_enabled: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodySourcesNewlyEnabledDefault)
+        .describe('Whether onboarding enabled any signal sources.'),
+    include_teaching_canvas: zod
+        .boolean()
+        .default(taskChannelsOnboardingSessionTestCreateBodyIncludeTeachingCanvasDefault)
+        .describe('Whether the session prompt should offer the teaching canvas.'),
+})
+
+/**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export const tasksCreateBodyTitleMax = 255
