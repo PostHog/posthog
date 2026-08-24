@@ -89,12 +89,7 @@ from posthog.utils import relative_date_parse_with_delta_mapping
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.feature_flags.backend.user_blast_radius import (
-    PERSON_BATCH_SIZE,
-    BlastRadiusResult,
-    get_user_blast_radius,
-    get_user_blast_radius_persons,
-)
+from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
@@ -142,7 +137,6 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     get_batch_audience_count,
     get_batch_audience_person_ids,
-    use_workflows_batch_audience_query,
 )
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
@@ -832,6 +826,21 @@ class BlastRadiusSerializer(serializers.Serializer):
             "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
         ),
     )
+
+
+class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
+    """Response contract for the internal blast-radius persons endpoint. Mirrors
+    BlastRadiusPersonsResponse in nodejs hogflow-batch-person-query.service.ts."""
+
+    users_affected = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Person identifiers in this page, in stable pagination order.",
+    )
+    cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Cursor for the next call, or null when this page is the last.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -4021,9 +4030,9 @@ class HogFlowViewSet(
         # the legacy person-count query is skipped entirely, "total" comes straight from
         # the cached team-wide count it would have returned anyway. The applied key is
         # echoed back so the frontend labels the count from the response instead of
-        # guessing whether the flag-gated dedup actually ran.
+        # guessing whether the dedup actually ran.
         applied_dedupe_key = None
-        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+        if dedupe_key is not None and group_type_index is None:
             total = self.team.persons_seen_so_far
             affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
             blast_radius = BlastRadiusResult(affected=affected, total=total)
@@ -4754,20 +4763,17 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            if use_workflows_batch_audience_query(team):
-                users_affected = get_batch_audience_person_ids(
-                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
-                )
-                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
-            else:
-                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
-                batch_size = PERSON_BATCH_SIZE
+            users_affected = get_batch_audience_person_ids(
+                team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+            )
             return Response(
-                {
-                    "users_affected": users_affected,
-                    "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == batch_size,
-                }
+                InternalBlastRadiusPersonsSerializer(
+                    {
+                        "users_affected": users_affected,
+                        "cursor": users_affected[-1] if users_affected else None,
+                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
