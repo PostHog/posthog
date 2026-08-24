@@ -58,6 +58,7 @@ import {
     InsightVizNode,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
+    Node,
     NodeKind,
     PersonsNode,
     QueryStatus,
@@ -160,6 +161,22 @@ function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
     return typeof refresh === 'string' && VALID_REFRESH_TYPES.has(refresh as RefreshType)
         ? (refresh as RefreshType)
         : undefined
+}
+
+// Dashboard cards hand each insight its stored payload as cachedResults. That payload carries
+// the query it was computed for. This tells whether the cached query still matches what the
+// insight now runs. A stale cache, after an edit, no longer counts as reusable.
+function cachedResultsMatchQuery(cachedResults: AnyResponseType | undefined, query: DataNode): boolean {
+    if (!cachedResults || typeof cachedResults !== 'object' || !('query' in cachedResults)) {
+        return false
+    }
+    const cachedQuery = (cachedResults as { query?: unknown }).query
+    if (!cachedQuery || typeof cachedQuery !== 'object') {
+        return false
+    }
+    // The insight model wraps the runnable source node in an InsightVizNode.
+    const cachedSource = 'source' in cachedQuery ? (cachedQuery as { source?: Node }).source : (cachedQuery as Node)
+    return !!cachedSource && compareDataNodeQuery(query, cachedSource, { ignoreVisualizationOnlyChanges: true })
 }
 
 const concurrencyController = new ConcurrencyController(1)
@@ -904,7 +921,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         } else if (
             hasQueryChanged &&
             props.autoLoad &&
-            !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
+            // Reuse a dashboard card's cached payload only while it still matches the current
+            // query. After the user edits the insight, the cache is stale. Gate on the query the
+            // payload carries, not on the logic key. The key keeps saying "on-dashboard" after
+            // the edit, which used to suppress the reload and re-apply stale results.
+            !(
+                props.cachedResults &&
+                props.key.includes('dashboard') &&
+                cachedResultsMatchQuery(props.cachedResults, props.query)
+            ) &&
             (!props.cachedResults ||
                 (isInsightQueryNode(props.query) &&
                     typeof props.cachedResults === 'object' &&
