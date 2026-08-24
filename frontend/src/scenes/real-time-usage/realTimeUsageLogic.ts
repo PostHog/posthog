@@ -42,7 +42,9 @@ function bucketLabels(range: UsageRange, granularity: UsageGranularity): string[
 function usageQuery(range: UsageRange, granularity: UsageGranularity, timeSeries: boolean): string {
     const interval = RANGE_INTERVALS[range]
     const bucket = `dateTrunc('${granularity}', recorded_at)`
-    const canonicalRecords = `SELECT producer_id, usage_key, unit, record_id, version, argMax(quantity, event_timestamp) AS quantity, max(event_timestamp) AS recorded_at FROM posthog.billing_usage_records WHERE event_timestamp >= now() - INTERVAL ${interval} GROUP BY producer_id, usage_key, unit, record_id, version`
+    // Grouped by the table's sorting key so un-merged duplicates of one record collapse instead
+    // of summing. argMax on inserted_at picks the same row a merge would keep.
+    const canonicalRecords = `SELECT producer_id, usage_key, unit, record_id, argMax(quantity, inserted_at) AS quantity, max(event_timestamp) AS recorded_at FROM posthog.billing_usage_records WHERE event_timestamp >= now() - INTERVAL ${interval} GROUP BY producer_id, usage_key, unit, record_id`
 
     return timeSeries
         ? `SELECT ${bucket} AS bucket, concat(producer_id, ': ', usage_key, ' (', unit, ')') AS series, sum(quantity) AS quantity FROM (${canonicalRecords}) GROUP BY bucket, series ORDER BY bucket, series`
