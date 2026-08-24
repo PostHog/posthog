@@ -1,19 +1,3 @@
-"""
-Per-person spend limit for gateway-routed model spend.
-
-The limit is an ai-gateway attribution budget on the `user` node, keyed by the
-person's gateway user node (`posthog.models.user_gateway_node`). Cloud runs pin
-that same value into their scoped token and the desktop asserts it as
-`X-PostHog-User`, so the node the gateway counts spend against is the node this
-endpoint configures. Keying it on anything else (the user uuid, say) writes a
-budget nothing ever debits.
-
-Endpoints (all scoped to the requesting user, who can only reach their own):
-- GET    /api/projects/:team_id/ai_gateway/@me/spend_limit/
-- POST   /api/projects/:team_id/ai_gateway/@me/spend_limit/
-- DELETE /api/projects/:team_id/ai_gateway/@me/spend_limit/clear/
-"""
-
 from __future__ import annotations
 
 from decimal import Decimal
@@ -117,8 +101,6 @@ class UserSpendLimitScopePermission(BasePermission):
 
 
 class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """The requesting user's own spend limit for model traffic through the gateway."""
-
     # The limit belongs to the person, not to the team's data, so it rides the
     # same scope as /api/users/@me/ rather than a team resource scope.
     scope_object = "user"
@@ -216,8 +198,6 @@ class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
 
 def _scope_value(request: Request | ValidatedRequest) -> str:
-    # IsAuthenticated has already run, so the anonymous branch of the union
-    # cannot be reached here.
     return gateway_user_node(cast(User, request.user))
 
 

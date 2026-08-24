@@ -169,12 +169,8 @@ def _error_detail(response: httpx.Response) -> str:
     return f"HTTP {response.status_code}"
 
 
-# The attribution node a per-person limit hangs off. It matches the
-# `X-PostHog-User` header the desktop agent asserts on every gateway request,
-# so the node the gate counts is the node this configures.
+# Must match the X-PostHog-User node used for gateway spend attribution.
 USER_SCOPE_TYPE = "user"
-# Ledger/audit provenance for a limit someone set on themselves, as opposed to
-# the operator grants ADMIN_ACTOR covers.
 USER_ACTOR = "posthog-user"
 
 
@@ -209,9 +205,7 @@ def _budgets_path(team_id: int) -> str:
 
 
 def get_user_budget(team_id: int, scope_value: str) -> UserBudget | None:
-    # The gateway lists a team's budgets rather than serving one node, so the
-    # match happens here. A team holds one row per person, not per request, so
-    # the list stays small.
+    # The gateway returns a team's budgets, so match the requested user node here.
     response = _request("GET", _budgets_path(team_id), what="budget read")
     data = _json_body(response, "budget")
     for row in data.get("budgets") or []:
@@ -221,8 +215,7 @@ def get_user_budget(team_id: int, scope_value: str) -> UserBudget | None:
 
 
 def set_user_budget(team_id: int, scope_value: str, limit_usd: str, window_seconds: int) -> UserBudget:
-    # A config replace rather than a ledger movement, so there is no
-    # idempotency key: the last write for a node is the limit that holds.
+    # Replacing a budget does not move ledger funds, so it needs no idempotency key.
     response = _request(
         "PUT",
         _budgets_path(team_id),
