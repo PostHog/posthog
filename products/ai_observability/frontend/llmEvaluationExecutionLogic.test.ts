@@ -7,9 +7,20 @@ import { initKeaTests } from '~/test/init'
 
 import { llmEvaluationExecutionLogic } from './llmEvaluationExecutionLogic'
 
+// A fault must keep failing the loader so it still reaches error tracking. The status-less case
+// is the sharp one: `api.ts` throws it for a 2xx whose body could not be read, where the run may
+// already have started, so swallowing it would lose a started run and report nothing.
+const RUN_FAULTS: [string, () => [number, Record<string, unknown>] | Response][] = [
+    ['a server error', () => [500, { error: 'Failed to start evaluation' }]],
+    [
+        'a response with no readable body',
+        () => new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'application/json' } }),
+    ],
+]
+
 describe('llmEvaluationExecutionLogic', () => {
     let logic: ReturnType<typeof llmEvaluationExecutionLogic.build>
-    let runResponse: [number, Record<string, unknown>]
+    let runResponse: [number, Record<string, unknown>] | Response
 
     beforeEach(() => {
         useMocks({
@@ -48,13 +59,14 @@ describe('llmEvaluationExecutionLogic', () => {
         expect(logic.values.lastRunWorkflowId).toBeNull()
     })
 
-    // A server fault is a defect, so it must keep failing the loader and reaching error tracking.
-    it('keeps failing the loader on a server error', async () => {
-        runResponse = [500, { error: 'Failed to start evaluation' }]
-        jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as any)
+    it.each(RUN_FAULTS)('keeps failing the loader on %s', async (_, buildResponse) => {
+        runResponse = buildResponse()
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as any)
 
         await expectLogic(logic, () => {
             logic.actions.runEvaluation('eval-1', 'event-1', '2026-08-06T00:00:00Z', '$ai_generation')
         }).toDispatchActions(['runEvaluationFailure'])
+
+        expect(toast).toHaveBeenCalledWith('Failed to start evaluation')
     })
 })

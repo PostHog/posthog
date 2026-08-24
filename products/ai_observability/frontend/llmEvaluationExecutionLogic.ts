@@ -102,6 +102,10 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
         }),
     }),
     loaders(({ values }) => ({
+        // A null value means the run was rejected, not that one is pending: the loader swallows a
+        // client error so it does not reach error tracking. Anything reacting to
+        // `runEvaluationSuccess`, `evaluationRun`, or `lastRunWorkflowId` must treat null as "no
+        // run started" — a listener that assumes success gets rejections too.
         evaluationRun: [
             null as { workflow_id: string } | null,
             {
@@ -133,12 +137,21 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                         lemonToast.success('Evaluation started successfully')
                         return response
                     } catch (error) {
-                        lemonToast.error(evaluationErrorMessage(error, 'Failed to start evaluation'))
+                        const status = error instanceof ApiError ? error.status : undefined
+                        // An answer from the backend explains itself, so show it. A failure with no
+                        // status never reached one, and its message is internal ("Malformed JSON
+                        // response …"), so that keeps the generic text.
+                        lemonToast.error(
+                            status === undefined
+                                ? 'Failed to start evaluation'
+                                : evaluationErrorMessage(error, 'Failed to start evaluation')
+                        )
                         // The backend turns some runs down on purpose — a trace- or session-target
                         // evaluation cannot be re-run against one generation. That answer is not a
                         // defect, so it must not reach error tracking as an unhandled exception.
-                        // A server fault still throws, so it keeps being reported.
-                        const status = error instanceof ApiError ? error.status : undefined
+                        // Only a client error is swallowed: `api.ts` classifies a missing status
+                        // (a dropped connection, or a 2xx whose body could not be read) as a fault
+                        // like any 5xx, and there the run may already have started.
                         if (status !== undefined && status < 500) {
                             return null
                         }
