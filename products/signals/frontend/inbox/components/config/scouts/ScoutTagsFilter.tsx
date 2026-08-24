@@ -39,12 +39,7 @@ export function ScoutTagsFilter({
 
     return (
         <LemonMenu items={items} closeOnClickInside={false} placement="bottom-end">
-            <LemonButton
-                type="secondary"
-                size="xsmall"
-                sideIcon={<IconChevronDown />}
-                aria-label="Filter scouts by tag"
-            >
+            <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />} aria-label="Filter scouts by tag">
                 {label}
             </LemonButton>
         </LemonMenu>

@@ -4,11 +4,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { mockLargeScoutFleet, mockScoutConfigs } from '../../../__mocks__/scoutConfigs'
+import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
 import { ScoutsRoster } from './ScoutsRoster'
 
-// The flat roster: one alphabetical table with a sortable Status column. Use this to check the
-// column layout, the status dots, and how a wide fleet reads without lifecycle sections.
+// The roster: one column of scout cards under the search, filter, and sort toolbar. Use this to
+// check the card layout, the status dots, the run strips, and how a wide fleet reads.
 
 const meta: Meta<typeof ScoutsRoster> = {
     title: 'Scenes-App/Inbox/ScoutsRoster',
@@ -40,6 +40,7 @@ export const Roster: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/scout/configs/': () => [200, mockScoutConfigs],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout/': () => [200, mockScoutRuns],
             },
         }),
     ],

@@ -37,9 +37,18 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import { compareScoutsByName, groupScouts, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import {
+    compareScoutsByName,
+    groupScouts,
+    SCOUT_GROUP_ORDER,
+    scoutGroup,
+    ScoutGroupKey,
+    ScoutRosterRow,
+} from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
+/** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */
+export type ScoutRosterSort = 'name' | 'status'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -132,6 +141,7 @@ export interface scoutFleetLogicValues {
     scoutEnabledFilter: ScoutEnabledFilter
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
+    scoutRosterSort: ScoutRosterSort
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsLoadedOnce: boolean
     scoutRunsLoading: boolean
@@ -253,6 +263,9 @@ export interface scoutFleetLogicActions {
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
+    setScoutRosterSort: (sort: ScoutRosterSort) => {
+        sort: ScoutRosterSort
+    }
     setScoutSearch: (search: string) => {
         search: string
     }
@@ -312,7 +325,8 @@ export interface scoutFleetLogicMeta {
             rollups: Map<string, ScoutRollup>,
             activeScoutTags: string[],
             scoutSearch: string,
-            scoutEnabledFilter: ScoutEnabledFilter
+            scoutEnabledFilter: ScoutEnabledFilter,
+            scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
         rosterGroupCounts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -366,6 +380,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         setScoutTagFilter: (tags: string[]) => ({ tags }),
         setScoutSearch: (search: string) => ({ search }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
+        setScoutRosterSort: (sort: ScoutRosterSort) => ({ sort }),
         runScoutNow: (configId: string) => ({ configId }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
@@ -540,6 +555,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 setScoutEnabledFilter: (_, { filter }) => filter,
             },
         ],
+        scoutRosterSort: [
+            'name' as ScoutRosterSort,
+            {
+                setScoutRosterSort: (_, { sort }) => sort,
+            },
+        ],
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -657,17 +678,25 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
          * cross between Working and Watching, so the Status column stays in step.
          */
         rosterScouts: [
-            (s) => [s.scoutConfigs, s.rollups, s.activeScoutTags, s.scoutSearch, s.scoutEnabledFilter],
+            (s) => [
+                s.scoutConfigs,
+                s.rollups,
+                s.activeScoutTags,
+                s.scoutSearch,
+                s.scoutEnabledFilter,
+                s.scoutRosterSort,
+            ],
             (
                 scoutConfigs: SignalScoutConfig[] | null,
                 rollups: Map<string, ScoutRollup>,
                 activeScoutTags: string[],
                 scoutSearch: string,
-                scoutEnabledFilter: ScoutEnabledFilter
+                scoutEnabledFilter: ScoutEnabledFilter,
+                scoutRosterSort: ScoutRosterSort
             ): ScoutRosterRow[] => {
                 const query = scoutSearch.trim().toLowerCase()
                 const now = new Date()
-                return [...(scoutConfigs ?? [])]
+                const rows = [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
                     .filter(
                         (config) =>
@@ -682,6 +711,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
+                if (scoutRosterSort === 'status') {
+                    // Stable: rows are already A to Z, so scouts in one group keep their name order.
+                    rows.sort((a, b) => SCOUT_GROUP_ORDER.indexOf(a.group) - SCOUT_GROUP_ORDER.indexOf(b.group))
+                }
+                return rows
             },
         ],
         /**

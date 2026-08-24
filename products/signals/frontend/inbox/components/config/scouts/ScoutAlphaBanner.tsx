@@ -15,7 +15,7 @@ export function ScoutAlphaBanner(): JSX.Element | null {
         return null
     }
     return (
-        <LemonBanner type="info" className="mx-6 mt-4" dismissKey={`signals-scout-banner-${scoutBannerMessage}`}>
+        <LemonBanner type="info" dismissKey={`signals-scout-banner-${scoutBannerMessage}`}>
             {scoutBannerMessage}
         </LemonBanner>
     )

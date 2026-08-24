@@ -1,4 +1,4 @@
-import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalScoutConfigApi, SignalScoutRunSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 type MockScoutOverrides = Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'description'> &
     Partial<Omit<SignalScoutConfigApi, 'id' | 'skill_name' | 'description'>>
@@ -104,4 +104,56 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'experiments with unexpected or inconclusive results',
         emit: false,
     }),
+]
+
+type MockRunOverrides = Pick<SignalScoutRunSummaryApi, 'run_id' | 'skill_name' | 'started_at'> &
+    Partial<Omit<SignalScoutRunSummaryApi, 'run_id' | 'skill_name' | 'started_at'>>
+
+function makeMockRun(overrides: MockRunOverrides): SignalScoutRunSummaryApi {
+    const completedAt = new Date(new Date(overrides.started_at).getTime() + 4 * 60 * 1000).toISOString()
+    return {
+        skill_version: 3,
+        status: 'completed',
+        created_at: overrides.started_at,
+        completed_at: completedAt,
+        task_url: `/project/1/tasks/task-${overrides.run_id}?runId=${overrides.run_id}`,
+        summary: 'Checked the window and found nothing new.',
+        emitted_count: 0,
+        emitted_finding_ids: [],
+        emitted_report_ids: [],
+        edited_report_ids: [],
+        metadata: { report_channel: 'both', skill_origin: 'canonical' },
+        ...overrides,
+    }
+}
+
+/** A week of runs for `mockScoutConfigs`: a busy hourly scout with mixed outcomes, and a quiet daily one. */
+export const mockScoutRuns: SignalScoutRunSummaryApi[] = [
+    ...Array.from({ length: 18 }, (_, index) => {
+        const startedAt = new Date(Date.UTC(2026, 5, 10, 23 - index, 30)).toISOString()
+        const emitted = index % 5 === 0
+        const failed = index === 7
+        return makeMockRun({
+            run_id: `run-error-tracking-${index}`,
+            skill_name: 'signals-scout-error-tracking',
+            started_at: startedAt,
+            status: failed ? 'failed' : 'completed',
+            summary: failed ? '' : emitted ? 'A new exception group crossed the spike threshold.' : undefined,
+            error: failed ? 'Query timed out after 120 seconds' : null,
+            failure_reason: failed ? 'Query timed out after 120 seconds' : null,
+            emitted_count: emitted ? 1 : 0,
+            emitted_finding_ids: emitted ? [`finding-${index}`] : [],
+        })
+    }),
+    ...Array.from({ length: 6 }, (_, index) =>
+        makeMockRun({
+            run_id: `run-session-replay-${index}`,
+            skill_name: 'signals-scout-session-replay',
+            started_at: new Date(Date.UTC(2026, 5, 10 - index, 12, 0)).toISOString(),
+            ...(index === 0 ? { status: 'in_progress', completed_at: null } : {}),
+            ...(index === 2
+                ? { emitted_report_ids: ['report-replay-2'], summary: 'Filed a report on a checkout rage-click loop.' }
+                : {}),
+        })
+    ),
 ]

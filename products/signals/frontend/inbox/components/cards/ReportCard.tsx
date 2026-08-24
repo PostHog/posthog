@@ -29,7 +29,8 @@ import {
     SourceProductIconRow,
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
-import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
+import { inboxCardRowClassName } from './inboxCardRowClassName'
+import { useReportArchive } from './useReportArchive'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
 

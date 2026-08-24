@@ -78,7 +78,7 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element {
 
 /**
  * List view: the page tab bar (Reports / Scouts / Settings) over the active tab's body. The Reports
- * tab owns its view switcher, filters, and keyed report lists; Scouts is the full-width roster;
+ * tab owns its filters and keyed report lists; Scouts is the roster in the same column;
  * Settings is every agent-setup control on one page.
  */
 function InboxListView(): JSX.Element {

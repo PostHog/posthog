@@ -19,7 +19,7 @@ import {
     mockTask,
     mockTeamConfig,
 } from './__mocks__/inboxMocks'
-import { mockLargeScoutFleet, mockScoutConfigs } from './__mocks__/scoutConfigs'
+import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
 
@@ -100,6 +100,7 @@ export const Scouts: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns],
             },
         }),
     ],
