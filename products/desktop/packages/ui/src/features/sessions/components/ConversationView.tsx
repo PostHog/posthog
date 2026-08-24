@@ -15,12 +15,8 @@ import type {
   ConversationItem,
   TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { CloudArtifactDownloads } from "@posthog/ui/features/sessions/components/CloudArtifactDownloads";
 import { ConversationSearchBar } from "@posthog/ui/features/sessions/components/ConversationSearchBar";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
@@ -35,7 +31,6 @@ import type {
   ThreadGrouping,
   ThreadRow,
 } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import type { CollapseMode } from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
 import { createIncrementalThreadGrouper } from "@posthog/ui/features/sessions/components/new-thread/incrementalThreadGrouping";
 import { ToolCallGroupChip } from "@posthog/ui/features/sessions/components/new-thread/ToolCallGroupChip";
 import { SessionFooter } from "@posthog/ui/features/sessions/components/SessionFooter";
@@ -51,7 +46,6 @@ import {
 } from "@posthog/ui/features/sessions/components/VirtualizedList";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
-import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import { useConversationSearch } from "@posthog/ui/features/sessions/hooks/useConversationSearch";
 import {
@@ -67,6 +61,7 @@ import {
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import {
   DIFF_WORKER_FACTORY,
@@ -94,12 +89,6 @@ export interface ConversationViewProps {
   slackThreadUrl?: string;
   compact?: boolean;
   /**
-   * Override the global collapse setting for this view. Used by surfaces like
-   * the live-agent chat preview, where folding the agent's prose into a tool
-   * chip hides the response — they pass `"none"` to render everything inline.
-   */
-  collapseMode?: CollapseMode;
-  /**
    * Allow horizontal scrolling of the transcript viewport. Defaults to true.
    * Narrow surfaces (the Agent Builder dock) pass false to avoid a horizontal
    * scrollbar from off-edge content; nested code blocks keep their own scroll.
@@ -110,6 +99,10 @@ export interface ConversationViewProps {
    * plain Up/Down presses (caret at the input boundary) to it.
    */
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
+  /** See `SharedChatThreadProps.olderHistoryCursor`. */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export function ConversationView({
@@ -121,7 +114,6 @@ export function ConversationView({
   task,
   slackThreadUrl,
   compact = false,
-  collapseMode: collapseModeProp,
   scrollX = true,
   promptRecallRef,
 }: ConversationViewProps) {
@@ -144,14 +136,8 @@ export function ConversationView({
   const debugLogsCloudRuns = useSettingsStore((s) => s.debugLogsCloudRuns);
   const showDebugLogs = debugLogsCloudRuns;
 
-  const collapseModeSetting = useSettingsStore(
-    (s) => s.conversationCollapseMode,
-  );
-  const collapseMode = collapseModeProp ?? collapseModeSetting;
   const groupOverrides = useGroupOverrides();
   const sessionViewActions = useSessionViewActions();
-
-  const contextUsage = useContextUsage(events);
 
   // Streaming appends one event per token. The parse is incremental — each
   // event is handled once and completed turns are reused by reference — so per
@@ -162,7 +148,10 @@ export function ConversationView({
     items: conversationItems,
     lastTurnInfo,
     isCompacting,
+    isClearing,
+    isBackgroundTurnActive,
     completedToolCallCount,
+    lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -212,8 +201,8 @@ export function ConversationView({
   threadGrouperRef.current ??= createIncrementalThreadGrouper();
   const threadGrouper = threadGrouperRef.current;
   const grouping = useMemo<ThreadGrouping>(
-    () => threadGrouper.update(items, collapseMode, groupOverrides),
-    [items, collapseMode, groupOverrides, threadGrouper],
+    () => threadGrouper.update(items, groupOverrides),
+    [items, groupOverrides, threadGrouper],
   );
   const threadRows = grouping.rows;
   const rowKeepMounted = grouping.keepMounted;
@@ -236,12 +225,6 @@ export function ConversationView({
     }
     return result;
   }, [grouping.idToRowIndex, rowToTurnIndex]);
-
-  // Changing the global mode wipes ephemeral per-chip overrides.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on collapseMode only
-  useEffect(() => {
-    sessionViewActions.clearGroupOverrides();
-  }, [collapseMode]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -315,7 +298,7 @@ export function ConversationView({
       const nextMessage = userMessages[nextIndex];
       if (!nextMessage) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextMessage.id);
       scrollToUserMessage(nextMessage.id, nextMessage.index);
     },
@@ -347,9 +330,12 @@ export function ConversationView({
   const handleJumpToMessage = useCallback(
     (id: string) => {
       const message = userMessages.find((entry) => entry.id === id);
-      if (!message) return;
+      // Reported, not swallowed: a request for a message this list has not built yet is
+      // retried by the caller rather than dropped.
+      if (!message) return false;
       setKeyboardFocusedMessageId(id);
       scrollToUserMessage(id, message.index);
+      return true;
     },
     [userMessages, scrollToUserMessage],
   );
@@ -497,7 +483,6 @@ export function ConversationView({
 
   const footer = (
     <div className={compact ? "pb-1" : "pb-16"}>
-      <CloudArtifactDownloads taskId={taskId} task={task} />
       <SessionFooter
         task={task}
         isPromptPending={isPromptPending}
@@ -512,8 +497,10 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
-        usage={contextUsage}
+        isClearing={isClearing}
+        isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );
@@ -528,10 +515,6 @@ export function ConversationView({
         className="group/thread relative flex-1"
         onPointerDownCapture={clearKeyboardFocus}
       >
-        <div
-          id="fullscreen-portal"
-          className="pointer-events-none absolute inset-0 z-20"
-        />
         {search.open && (
           <ConversationSearchBar
             ref={search.searchBarRef}

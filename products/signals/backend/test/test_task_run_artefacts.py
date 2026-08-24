@@ -1,9 +1,11 @@
 import json
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from products.signals.backend.billing import first_billable_pr_run_at
 from products.signals.backend.custom_agent.persistence import create_custom_agent_ready_report
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
@@ -21,6 +23,7 @@ from products.signals.backend.task_run_artefacts import (
     aappend_task_run_artefact,
     append_task_run_artefact,
     record_implementation_task,
+    release_quota_cancelled_implementation,
     signals_task_ids,
 )
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -226,6 +229,20 @@ class TestTaskRunArtefacts(BaseTest):
             assert artefact.task_id is None
             assert artefact.created_by_id is None
 
+    def test_custom_agent_report_is_stamped_first_visible_at_creation(self):
+        # Born READY without passing through transition_to, so creation must stamp first_visible_at
+        # or the daily report limit would never count custom-agent reports.
+        persisted = create_custom_agent_ready_report(
+            team_id=self.team.id,
+            final_report=self._final_report(),
+            repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+            task_id=None,
+            agent_identifier=("billing", "anomaly_scan"),
+        )
+
+        report = SignalReport.objects.get(id=persisted.report_id)
+        assert report.first_visible_at is not None
+
 
 class TestAssociatedTaskRunsFilter(BaseTest):
     """`SignalReport.associated_task_runs_filter` matches a TaskRun whose task is associated with
@@ -360,3 +377,81 @@ class TestReportsForTaskFilter(BaseTest):
         )
         assert self._matched_report_ids(other_task) == set()
         assert self._matched_report_ids(task) == {str(report.id)}
+
+
+class TestReleaseQuotaCancelledImplementation(BaseTest):
+    def _report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="t",
+            summary="s",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+    def test_release_removes_gate_records_and_leaves_only_the_report(self):
+        # The auto-start gate reads both the SignalReportTask row and the implementation artefact;
+        # leaving either behind after a quota cancel would permanently block re-implementation.
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        # A research artefact from another task must survive the release untouched.
+        research_task = self._task()
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_RESEARCH,
+            task_id=str(research_task.id),
+        )
+
+        released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
+
+        assert released == [str(report.id)]
+        assert not SignalReportTask.objects.filter(task_id=task.id).exists()
+        assert not SignalReport.associated_task_runs(
+            report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+        assert SignalReport.associated_task_runs(
+            report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_RESEARCH
+        )
+        note = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.NOTE)
+        assert "pull request limit" in json.loads(note.content)["note"]
+
+    def test_release_without_implementation_link_is_a_noop(self):
+        task = self._task()
+        assert release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id)) == []
+
+    def test_release_skips_report_whose_billable_pr_shipped_from_a_sibling_run(self):
+        # The cancel decision is run-scoped but this delete is task-scoped: a sibling run of the
+        # same task can have shipped the report's billable PR in an earlier period. The bridge row
+        # is billing's evidence for that charge (billed-earlier dedup, refund eligibility), so the
+        # release must leave the report untouched instead of re-opening it for a second billing.
+        report = self._report()
+        task = self._task()
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            output={"pr_url": "https://github.com/x/y/pull/1"},
+            created_at=datetime(2026, 6, 10, tzinfo=UTC),
+        )
+
+        released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
+
+        assert released == []
+        assert SignalReportTask.objects.filter(task_id=task.id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists()
+        assert first_billable_pr_run_at(report.id) is not None
+        # Auto-start must still see a started implementation — the report is implemented, not stuck.
+        assert SignalReport.associated_task_runs(
+            report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )

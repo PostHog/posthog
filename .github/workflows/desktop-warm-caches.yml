@@ -15,6 +15,8 @@ on:
 
 concurrency:
     group: desktop-warm-caches-${{ github.ref }}
+    # hogli-lint: allow-master-cancel -- a cache warmed for the newest master commit supersedes
+    # the older run's, so cancelling that run loses nothing.
     cancel-in-progress: true
 
 jobs:

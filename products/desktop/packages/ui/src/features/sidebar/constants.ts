@@ -10,6 +10,10 @@ export const SIDEBAR_MIN_WIDTH = 240;
  */
 export const CHANNELS_SIDEBAR_MIN_WIDTH = 272;
 
+/** Sits outside the sidebar, so anything measuring from the window's left edge
+ *  has to add it. */
+export const NAV_RAIL_WIDTH = 44;
+
 export const CUSTOMIZABLE_NAV_ITEMS = [
   { id: "inbox", label: "Inbox", analyticsId: "inbox", defaultVisible: true },
   {
@@ -31,8 +35,14 @@ export const CUSTOMIZABLE_NAV_ITEMS = [
     defaultVisible: true,
   },
   {
+    id: "contexts",
+    label: "Context",
+    analyticsId: "contexts",
+    defaultVisible: true,
+  },
+  {
     id: "configure",
-    label: "Configure",
+    label: "Settings",
     analyticsId: "configure",
     defaultVisible: true,
   },

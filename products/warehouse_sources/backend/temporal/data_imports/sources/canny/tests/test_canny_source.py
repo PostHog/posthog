@@ -116,9 +116,25 @@ class TestCannySource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is CannyResumeConfig
 
+    def test_default_version_is_v2(self) -> None:
+        # New sources are created on the newest wire; a NULL pin resolves to it too.
+        assert self.source.default_version == "v2"
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.resolve_api_version(None) == "v2"
+
+    @pytest.mark.parametrize(
+        ("pin", "expected_version"),
+        [
+            (None, "v2"),
+            ("v1", "v1"),
+            ("v2", "v2"),
+        ],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.canny.source.canny_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(schema_name="comments", team_id=99, job_id="job-xyz")
+    def test_source_for_pipeline_plumbs_resolved_version(
+        self, mock_source: mock.MagicMock, pin: str | None, expected_version: str
+    ) -> None:
+        inputs = _make_inputs(schema_name="comments", team_id=99, job_id="job-xyz", api_version=pin)
         manager = mock.MagicMock(spec=ResumableSourceManager)
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -129,6 +145,7 @@ class TestCannySource:
             team_id=99,
             job_id="job-xyz",
             resumable_source_manager=manager,
+            api_version=expected_version,
         )
 
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:

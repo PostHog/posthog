@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -166,12 +167,20 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         )
                     } catch (e) {
                         if (!extraSessionProperties.length) {
-                            throw e
+                            // These are supplementary columns on the recordings list. A backend blip shouldn't
+                            // toast, it should just leave this batch's rows without properties.
+                            posthog.captureException(e)
+                            return values.recordingProperties
                         }
-                        response = await api.queryHogQL(
-                            buildPropertiesQuery(sessionIds, oldestTimestamp, newestTimestamp, []),
-                            QUERY_TAGS
-                        )
+                        try {
+                            response = await api.queryHogQL(
+                                buildPropertiesQuery(sessionIds, oldestTimestamp, newestTimestamp, []),
+                                QUERY_TAGS
+                            )
+                        } catch (fallbackError) {
+                            posthog.captureException(fallbackError)
+                            return values.recordingProperties
+                        }
                         // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch
                         if (e instanceof ApiError && e.status === 400) {
                             actions.markExtraPropertiesUnqueryable(extraSessionProperties)

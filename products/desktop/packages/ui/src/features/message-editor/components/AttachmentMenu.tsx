@@ -1,9 +1,4 @@
-import {
-  File,
-  FolderSimple,
-  GithubLogo,
-  Paperclip,
-} from "@phosphor-icons/react";
+import { File, FolderSimple, GithubLogo, Plus } from "@phosphor-icons/react";
 import {
   deriveFileLabel,
   type FileAttachment,
@@ -20,6 +15,7 @@ import { isRasterImageFile } from "@posthog/shared";
 import { useAddDirectoryDialogStore } from "@posthog/ui/features/folder-picker/addDirectoryDialogStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useQuery } from "@tanstack/react-query";
+import { SquareSlash } from "lucide-react";
 import { useRef, useState } from "react";
 import { getGhStatus, selectAttachments } from "../hostApi";
 import {
@@ -37,6 +33,12 @@ interface AttachmentMenuProps {
   onAttachFiles?: (files: File[]) => void;
   onInsertChip: (chip: MentionChip) => void;
   onRemoveChip?: (chipId: string) => void;
+  /**
+   * Writes a slash at the start of the composer, opening the command list the
+   * same way typing one does. Omitted where the menu has no editor to write
+   * into, which hides the item.
+   */
+  onInsertSlashCommand?: () => void;
   iconSize?: number;
   attachTooltip?: string;
 }
@@ -61,13 +63,14 @@ export function AttachmentMenu({
   onAttachFiles,
   onInsertChip,
   onRemoveChip,
+  onInsertSlashCommand,
   iconSize = 14,
   attachTooltip = "Attach",
 }: AttachmentMenuProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [issuePickerOpen, setIssuePickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const paperclipRef = useRef<HTMLButtonElement>(null);
+  const attachButtonRef = useRef<HTMLButtonElement>(null);
   const showAddDirectoryDialog = useAddDirectoryDialogStore((s) => s.show);
 
   const { data: ghStatus } = useQuery({
@@ -167,6 +170,13 @@ export function AttachmentMenu({
     setIssuePickerOpen(true);
   };
 
+  // Close first: the command list opens against the composer, and leaving this
+  // menu up would stack one popup over the other.
+  const handleInsertSlashCommand = () => {
+    setMenuOpen(false);
+    onInsertSlashCommand?.();
+  };
+
   const handleIssueSelect = (chip: MentionChip) => {
     onInsertChip(chip);
     setIssuePickerOpen(false);
@@ -185,7 +195,7 @@ export function AttachmentMenu({
         <DropdownMenuTrigger
           render={
             <Button
-              ref={paperclipRef}
+              ref={attachButtonRef}
               type="button"
               variant="default"
               size="icon-sm"
@@ -193,7 +203,7 @@ export function AttachmentMenu({
               aria-label={attachTooltip}
               title={attachTooltip}
             >
-              <Paperclip size={iconSize} weight="bold" />
+              <Plus size={iconSize} weight="bold" />
             </Button>
           }
         />
@@ -206,17 +216,17 @@ export function AttachmentMenu({
           {isWindows ? (
             <>
               <DropdownMenuItem onClick={handleAddFile}>
-                <File size={14} weight="bold" />
+                <File size={14} />
                 Add file
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleAddFolder}>
-                <FolderSimple size={14} weight="bold" />
+                <FolderSimple size={14} />
                 Add folder
               </DropdownMenuItem>
             </>
           ) : (
             <DropdownMenuItem onClick={handleAddFileOrFolder}>
-              <File size={14} weight="bold" />
+              <File size={14} />
               Add file or folder
             </DropdownMenuItem>
           )}
@@ -225,9 +235,18 @@ export function AttachmentMenu({
             onClick={handleOpenIssuePicker}
             title={issueDisabledReason ?? undefined}
           >
-            <GithubLogo size={14} weight="bold" />
+            <GithubLogo size={14} />
             Add issue or pull request
           </DropdownMenuItem>
+          {onInsertSlashCommand && (
+            <DropdownMenuItem onClick={handleInsertSlashCommand}>
+              {/* Lucide's default stroke is heavier than Phosphor's regular
+                  weight at the same size: 2/24 of the viewBox against 16/256.
+                  1.5 lands on the same rendered thickness as the icons above. */}
+              <SquareSlash size={14} strokeWidth={1.5} />
+              Slash commands
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
       <IssuePicker
@@ -235,7 +254,7 @@ export function AttachmentMenu({
         open={issuePickerOpen}
         onOpenChange={setIssuePickerOpen}
         onSelect={handleIssueSelect}
-        anchor={paperclipRef}
+        anchor={attachButtonRef}
       />
     </>
   );

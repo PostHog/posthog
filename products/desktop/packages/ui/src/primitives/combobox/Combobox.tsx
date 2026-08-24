@@ -272,7 +272,9 @@ function ComboboxContent<T>({
 
   const content = (
     <Popover.Content
-      className={`combobox-content p-0 size-${size} variant-${variant} ${className}`}
+      // `combobox-` prefixed: a bare `size-1` is also a Tailwind utility, which
+      // would win and shrink the popup to 4px square.
+      className={`combobox-content combobox-size-${size} combobox-variant-${variant} ${className}`}
       side={side}
       sideOffset={sideOffset}
       align={align}

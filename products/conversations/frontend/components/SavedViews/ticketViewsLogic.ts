@@ -12,7 +12,7 @@ import {
     conversationsViewsList,
     conversationsViewsPartialUpdate,
 } from '../../generated/api'
-import type { PatchedTicketViewApi, TicketViewApiFilters } from '../../generated/api.schemas'
+import type { PatchedTicketViewApi, TicketViewFiltersApi } from '../../generated/api.schemas'
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import type { SavedTicketView, TicketViewFilters } from '../../types'
 
@@ -187,7 +187,7 @@ export const ticketViewsLogic = kea<ticketViewsLogicType>([
                 createView: async ({ name, filters }: { name: string; filters: TicketViewFilters }) => {
                     const created = (await conversationsViewsCreate(String(values.currentTeamId), {
                         name,
-                        filters: filters as TicketViewApiFilters,
+                        filters: filters as TicketViewFiltersApi,
                     })) as unknown as SavedTicketView
                     lemonToast.success('View saved')
                     return [created, ...values.views]

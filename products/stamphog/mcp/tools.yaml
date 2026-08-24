@@ -93,8 +93,12 @@ tools:
             destructive: false
             idempotent: true
         title: Get stamphog pull request
-        description: |
-            Get a single pull request by id, including its repository, title, author, head branch, and merge details.
+        description:
+            Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its
+            internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the
+            repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use
+            `stamphog-pull-requests-list` with `pr_number`. For CI status or merge-timing analytics on a PR, use the
+            engineering analytics `pull-requests` or `pr-lifecycle` tools instead.
         feature_flag: stamphog
     stamphog-pull-requests-list:
         operation: stamphog_pull_requests_list

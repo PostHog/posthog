@@ -188,6 +188,37 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         )
         return [actor[0] for actor in actors]
 
+    def _run_days_of_week_strict_funnel(self, days_of_week):
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2020-01-06", date_to="2020-01-20", daysOfWeek=days_of_week),
+            funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT, funnelWindowInterval=14),
+        )
+        return FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+    def test_days_of_week_hides_intervening_events_from_strict_order(self):
+        # Strict order inspects every event, not just funnel steps, so it can spot one breaking the
+        # sequence — but daysOfWeek filters that stream too. An interrupt on an excluded day is
+        # invisible and no longer breaks strictness, so excluding days can report *more*
+        # conversions than not filtering at all. Surprising, deliberate, pinned here.
+        # 2020-01-10 is a Friday, 2020-01-11 a Saturday, 2020-01-13 a Monday.
+        journeys_for(
+            {
+                "user_interrupted_on_saturday": [
+                    {"event": "step one", "timestamp": datetime(2020, 1, 10, 12)},
+                    {"event": "interrupt", "timestamp": datetime(2020, 1, 11, 12)},
+                    {"event": "step two", "timestamp": datetime(2020, 1, 13, 12)},
+                ],
+            },
+            self.team,
+        )
+
+        weekdays_only = self._run_days_of_week_strict_funnel([1, 2, 3, 4, 5])
+        unfiltered = self._run_days_of_week_strict_funnel(None)
+
+        self.assertEqual(weekdays_only[1]["count"], 1)
+        self.assertEqual(unfiltered[1]["count"], 0)
+
     def test_basic_strict_funnel(self):
         query = FunnelsQuery(
             series=[

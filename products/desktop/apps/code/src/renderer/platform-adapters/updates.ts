@@ -11,7 +11,6 @@ import {
   UPDATES_CLIENT,
   type UpdatesClient,
 } from "@posthog/ui/features/updates/updatesClient";
-import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { hostTrpcClient } from "@renderer/trpc/client";
@@ -129,31 +128,11 @@ function syncAutoDownload(enabled: boolean): void {
     );
 }
 
-// Auto-show "What's New" once on the first launch after the version changes.
-function maybeShowWhatsNew(): void {
-  void hostTrpcClient.os.getAppVersion
-    .query()
-    .then((currentVersion) => {
-      const settings = useSettingsStore.getState();
-      const lastSeen = settings.lastSeenChangelogVersion;
-      if (lastSeen && lastSeen !== currentVersion) {
-        useWhatsNewStore.getState().open();
-      }
-      if (lastSeen !== currentVersion) {
-        settings.setLastSeenChangelogVersion(currentVersion);
-      }
-    })
-    .catch((error: unknown) =>
-      log.error("Failed to evaluate What's New", { error }),
-    );
-}
-
 function onSettingsReady(): void {
   syncAutoDownload(useSettingsStore.getState().downloadUpdatesAutomatically);
   useSettingsStore.subscribe((state) =>
     syncAutoDownload(state.downloadUpdatesAutomatically),
   );
-  maybeShowWhatsNew();
 }
 
 if (useSettingsStore.persist.hasHydrated()) {

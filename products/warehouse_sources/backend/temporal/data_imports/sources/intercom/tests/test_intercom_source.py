@@ -105,6 +105,21 @@ class TestIntercomSource:
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "400 Client Error: Bad Request for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_exists_exhaustion_is_retryable(self, error_msg):
+        # Opening a companies scroll retries a `scroll_exists` lock inline (see
+        # `_open_companies_scroll`), but a lock held longer than that budget exhausts it and
+        # the raw error propagates. A fresh Temporal attempt opens cleanly once the stale
+        # scroll expires, so this should stay out of error tracking the same way the 404
+        # scroll-expiry case above does.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
@@ -117,6 +132,17 @@ class TestIntercomSource:
             expected = name in INCREMENTAL_ENDPOINTS
             assert schema.supports_incremental is expected, name
             assert schema.supports_append is expected, name
+
+    def test_canonical_descriptions_cover_every_endpoint(self):
+        # Endpoints missing from the curated map fall back to LLM enrichment, which is
+        # both slower and less accurate than the vendor's own docs. Adding a table
+        # without its description is the easy thing to forget.
+        descriptions = self.source.get_canonical_descriptions()
+
+        assert set(descriptions) == set(INTERCOM_ENDPOINTS)
+        for name, entry in descriptions.items():
+            assert entry.get("description"), name
+            assert entry.get("columns"), name
 
     def test_get_schemas_names_filter(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])

@@ -18,6 +18,7 @@ export interface HandoffSagaInput {
   taskId: string;
   runId: string;
   repoPath: string;
+  repositoryPaths?: Record<string, string>;
   apiHost: string;
   teamId: number;
   sessionId?: string;

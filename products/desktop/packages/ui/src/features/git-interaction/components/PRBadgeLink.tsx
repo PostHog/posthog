@@ -1,10 +1,14 @@
 import {
   getPrVisualConfig,
-  type PrVisualConfig,
   parsePrNumber,
 } from "@posthog/core/git-interaction/prStatus";
-import { Button, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Button, cn, Spinner } from "@posthog/quill";
 import { getPrVisualIcon } from "../prIcon";
+import {
+  PR_TONE_BORDER,
+  PR_TONE_FILL_COMPACT,
+  prBadgeToneProps,
+} from "../prTone";
 
 interface PRBadgeLinkProps {
   prUrl: string;
@@ -13,24 +17,17 @@ interface PRBadgeLinkProps {
   draft: boolean;
   isPrPending?: boolean;
   /**
-   * When true, flatten the right edge so a dropdown trigger button can sit
-   * flush against this badge (used by TaskActionsMenu's combined control).
-   */
-  attachedRight?: boolean;
-  /**
    * Compact pill matching the other badges in the command-center cell header
    * (text-[10px], small padding). Renders as a plain anchor instead of a
-   * Radix Button.
+   * button.
    */
   compact?: boolean;
+  /**
+   * How many further PRs the task has beyond this one — rendered as a "+N"
+   * suffix so multi-repo tasks signal their other PRs at a glance.
+   */
+  otherCount?: number;
 }
-
-const COMPACT_COLOR_CLASSES: Record<PrVisualConfig["color"], string> = {
-  gray: "bg-(--gray-3) text-(--gray-11) hover:bg-(--gray-4)",
-  green: "bg-(--green-3) text-(--green-11) hover:bg-(--green-4)",
-  red: "bg-(--red-3) text-(--red-11) hover:bg-(--red-4)",
-  purple: "bg-(--purple-3) text-(--purple-11) hover:bg-(--purple-4)",
-};
 
 /**
  * The colored "open this PR on GitHub" badge — styled by the PR's lifecycle
@@ -44,12 +41,17 @@ export function PRBadgeLink({
   merged,
   draft,
   isPrPending = false,
-  attachedRight = false,
   compact = false,
+  otherCount = 0,
 }: PRBadgeLinkProps) {
   const config = getPrVisualConfig(prState, merged, draft);
   const PrIcon = getPrVisualIcon(config.icon);
   const prNumber = parsePrNumber(prUrl);
+  const tone = prBadgeToneProps(config);
+
+  const totalCount = otherCount + 1;
+  const stackTitle =
+    otherCount > 0 ? `${totalCount} pull requests on this task` : undefined;
 
   if (compact) {
     return (
@@ -58,10 +60,11 @@ export function PRBadgeLink({
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
-        className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] no-underline ${COMPACT_COLOR_CLASSES[config.color]}`}
+        title={stackTitle}
+        className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] no-underline ${PR_TONE_FILL_COMPACT[config.color]}`}
       >
         {isPrPending ? (
-          <Spinner size="1" />
+          <Spinner className="size-2.5" />
         ) : (
           <PrIcon size={10} weight="bold" />
         )}
@@ -69,36 +72,44 @@ export function PRBadgeLink({
           {config.label}
           {prNumber && ` #${prNumber}`}
         </span>
+        {otherCount > 0 && <span className="ml-0.5">{totalCount}</span>}
       </a>
     );
   }
 
   return (
     <Button
-      size="1"
-      variant="soft"
-      color={config.color}
-      asChild
-      className={attachedRight ? "rounded-r-none" : undefined}
+      size="sm"
+      // The anchor is the button, so the badge is one thing to click and one
+      // thing to tab to — and inside a `ButtonGroup` it takes the group's own
+      // corner treatment instead of a hand-flattened right edge.
+      render={
+        // biome-ignore lint/a11y/useAnchorContent: the content is the button's children, across a render prop the rule can't follow, and `aria-label` names it anyway
+        <a
+          href={prUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={stackTitle}
+          // The label the button's own children spell out. Named here because
+          // the anchor is the rendered element, and its content arrives from
+          // the button around it.
+          aria-label={`Open ${config.label}${prNumber ? ` #${prNumber}` : ""} on GitHub${stackTitle ? `, ${totalCount} on this task` : ""}`}
+          onClick={(e) => e.stopPropagation()}
+        />
+      }
+      variant={tone.variant}
+      className={cn("no-underline", tone.className)}
     >
-      <a
-        href={prUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Flex align="center" gap="2">
-          {isPrPending ? (
-            <Spinner size="1" />
-          ) : (
-            <PrIcon size={12} weight="bold" />
-          )}
-          <Text size="1">
-            {config.label}
-            {prNumber && ` #${prNumber}`}
-          </Text>
-        </Flex>
-      </a>
+      {isPrPending ? <Spinner className="size-3" /> : <PrIcon weight="bold" />}
+      <span>
+        {config.label}
+        {prNumber && ` #${prNumber}`}
+      </span>
+      {otherCount > 0 && (
+        <span className={`border-l pl-2 ${PR_TONE_BORDER[config.color]}`}>
+          {totalCount}
+        </span>
+      )}
     </Button>
   );
 }

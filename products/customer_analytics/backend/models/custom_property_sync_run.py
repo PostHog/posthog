@@ -7,6 +7,10 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel
 class SyncTrigger(models.TextChoices):
     # A run started automatically as a child of the underlying warehouse sync.
     SCHEDULED = "scheduled", "scheduled"
+    # The same warehouse sync, started from the UI ("Sync now"). Rides the scheduled pipeline, so the
+    # activity records its outcome as "scheduled" — the recorder keeps this trigger on the row so the
+    # history still shows who asked for it.
+    SYNC = "sync", "sync"
     # A full-table backfill the user kicked off from the UI (the "Backfill" button).
     MANUAL = "manual", "manual"
     # A full-table read from S3 to populate historical rows a new/changed mapping never saw.
@@ -32,10 +36,13 @@ class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     source = models.ForeignKey(
         "customer_analytics.CustomPropertySource", on_delete=models.CASCADE, related_name="sync_runs"
     )
-    # The warehouse schema the rows came from. Kept as a plain id (not an FK) because a schema can be
-    # deleted while its historical runs stay meaningful.
+    # The warehouse object the rows came from — exactly one is set, matching the source's binding.
+    # Both are plain ids (not FKs) because a schema or view can be deleted while its historical runs
+    # stay meaningful.
     schema_id = models.UUIDField(null=True, blank=True)
-    # The import job this run rode on. Null for backfill/manual runs that don't come from an import job.
+    saved_query_id = models.UUIDField(null=True, blank=True)
+    # The warehouse job this run rode on: an import job, or a view materialization. Null for
+    # backfill/manual runs, which read the table directly instead of riding a job.
     job_id = models.CharField(max_length=400, null=True, blank=True)
 
     trigger = models.CharField(max_length=20, choices=SyncTrigger.choices)

@@ -58,6 +58,10 @@ def create_test_app(
         app.state.http_client = MagicMock()
         app.state.plan_resolver = AsyncMock()
         app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        app.state.billing_period_resolver = AsyncMock()
+        app.state.billing_period_resolver.get_period = AsyncMock(return_value=None)
+        app.state.desktop_access_resolver = AsyncMock()
+        app.state.desktop_access_resolver.has_access = AsyncMock(return_value=True)
         app.state.anthropic_circuit_breaker = None
         app.state.quota_resolver = quota_resolver
         yield
@@ -76,6 +80,7 @@ def mock_db_pool() -> MagicMock:
     conn = AsyncMock()
     conn.fetchrow = AsyncMock(return_value=None)
     conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(return_value=[])
     pool.acquire = AsyncMock(return_value=conn)
     pool.release = AsyncMock()
     return pool

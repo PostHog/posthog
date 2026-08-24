@@ -1,13 +1,17 @@
-"""Inbound email webhook endpoint for Mailgun routes."""
+"""Email webhook endpoints for Mailgun routes."""
 
 import re
-from email.utils import getaddresses, parseaddr
+import json
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any, cast
 
 from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.http import HttpRequest, HttpResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
@@ -18,22 +22,60 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
-from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
+from products.conversations.backend.models import (
+    Channel,
+    EmailChannel,
+    EmailChannelConnectionStatus,
+    EmailChannelKind,
+    EmailMessageMapping,
+    EmailThreadMessageDirection,
+    Status,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
-from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.services.email_channel_setup import (
+    FORWARDING_CHALLENGE_HEADER,
+    FORWARDING_CHALLENGE_MARKER,
+    ForwardingChallengeResult,
+    capture_google_forwarding_confirmation,
+    process_forwarding_challenges,
+)
+from products.conversations.backend.services.email_thread_ingestion import (
+    EmailAddress,
+    ParsedEmail,
+    ingest_customer_email,
+)
+from products.conversations.backend.services.region_routing import (
+    is_primary_region,
+    proxy_to_secondary_region,
+    request_secondary_region_status,
+)
 
 logger = structlog.get_logger(__name__)
 
 INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
+OUTBOUND_CAPTURE_LOCAL_PART = "sent"
+OUTBOUND_SENDER_LOOKUP_QUERY_PARAM = "sender_lookup"
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
+_FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
+_DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
+# Sender-controlled To/Cc headers can list far more addresses than a real thread carries, and each
+# one becomes a per-recipient participant upsert. Cap the count so one message can't fan out into
+# an unbounded batch of queries under the held thread lock.
+MAX_RECIPIENTS = 100
+MAX_FORWARDING_CHALLENGE_TOKENS = 10
+# The sender controls the Date header, so a far-future value would latch a thread's last_message_at
+# and freeze its preview. Reject dates beyond a small clock-skew allowance and fall back to the
+# authenticated webhook timestamp (or now) instead.
+MAX_SENT_AT_CLOCK_SKEW = timedelta(minutes=5)
 
 
 def _extract_inbound_token(recipient: str) -> str | None:
@@ -44,14 +86,14 @@ def _extract_inbound_token(recipient: str) -> str | None:
 def _find_thread_ticket(
     team_id: int,
     in_reply_to: str | None,
-    references: str | None,
+    references: tuple[str, ...],
 ) -> Ticket | None:
     """Look up an existing ticket via email threading headers."""
     # Try In-Reply-To first (most specific)
     if in_reply_to:
         mapping = (
             EmailMessageMapping.objects.filter(
-                message_id=in_reply_to.strip(),
+                message_id=in_reply_to,
                 team_id=team_id,
             )
             .select_related("ticket")
@@ -60,28 +102,26 @@ def _find_thread_ticket(
         if mapping:
             return mapping.ticket
 
-    # Fall back to References (space-separated list of message-ids, newest last)
+    # Fall back to References (newest last)
     if references:
-        ref_ids = [r.strip() for r in references.strip().split()]
         mapping_by_id = {
             m.message_id: m
             for m in EmailMessageMapping.objects.filter(
-                message_id__in=ref_ids,
+                message_id__in=references,
                 team_id=team_id,
             ).select_related("ticket")
         }
-        for ref_id in reversed(ref_ids):
+        for ref_id in reversed(references):
             if ref_id in mapping_by_id:
                 return mapping_by_id[ref_id].ticket
 
     return None
 
 
-def _extract_attachments(request: HttpRequest, team: Team) -> list[dict[str, Any]]:
-    """Read file uploads from the Mailgun webhook and persist them."""
+def _extract_attachments(uploaded_files: tuple[UploadedFile, ...], team: Team) -> list[dict[str, Any]]:
+    """Persist files from the Mailgun webhook within the configured limits."""
     attachments: list[dict[str, Any]] = []
-    for _key in list(request.FILES.keys())[:MAX_ATTACHMENTS]:
-        uploaded_file = cast(UploadedFile, request.FILES[_key])
+    for uploaded_file in uploaded_files:
         if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
             logger.warning(
                 "email_inbound_attachment_too_large",
@@ -223,34 +263,214 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
-def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
-    """Verify the From header domain is authenticated before trusting it for identity.
-
-    We require SPF pass + envelope-to-From domain alignment:
-      - SPF pass means the sending IP is authorized by the envelope sender's
-        domain DNS (X-Mailgun-Spf). An attacker can't pass SPF for posthog.com
-        without controlling posthog.com's DNS records.
-      - Domain alignment means the envelope sender (MAIL FROM) domain matches
-        the From header domain, preventing an attacker from passing SPF on
-        evil.com while forging From: teammate@posthog.com.
-
-    DKIM alone is insufficient — Mailgun's X-Mailgun-Dkim-Check-Result only
-    confirms a valid signature exists without reporting which domain signed it.
-    An attacker signing with evil.com's key but forging From: teammate@posthog.com
-    would still get DKIM Pass.
-    """
-    spf_passed = request.POST.get("X-Mailgun-Spf", "").lower() == "pass"
-    if not spf_passed:
+def _dkim_aligned_with_sender(request: HttpRequest, sender_domain: str) -> bool:
+    if not _mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"):
         return False
+
+    signing_domains: list[str] = []
+    for signature in _message_header_values(request, "DKIM-Signature"):
+        match = _DKIM_DOMAIN_RE.search(signature)
+        if match:
+            signing_domains.append(match.group(1).rstrip(".").lower())
+    return bool(signing_domains) and all(domain == sender_domain for domain in signing_domains)
+
+
+def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+    """Verify the From header domain before trusting it for identity.
+
+    Mailgun SPF checks can fail for legitimate senders, so aligned DKIM is accepted as a fallback.
+    A DKIM pass is trusted only when every signature uses the From domain, which prevents an unrelated
+    valid signature from authenticating a forged From address.
+    """
     envelope_sender = request.POST.get("sender", "")
     envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
     from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
-    return bool(envelope_domain and from_domain and envelope_domain == from_domain)
+    if not envelope_domain or not from_domain or envelope_domain != from_domain:
+        return False
+
+    spf_passed = _mailgun_authentication_passed(request, "X-Mailgun-Spf")
+    return spf_passed or _dkim_aligned_with_sender(request, from_domain)
+
+
+def _outbound_sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
+    _, envelope_sender = parseaddr(request.POST.get("sender", ""))
+    return envelope_sender.strip().lower() == sender_email.lower() and _sender_authenticated(request, sender_email)
+
+
+def _parse_message_ids(value: str) -> tuple[str, ...]:
+    message_ids = _MESSAGE_ID_RE.findall(value)
+    if not message_ids:
+        message_ids = value.split()
+    return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
+
+
+def _iter_message_header_values(request: HttpRequest, header_name: str) -> Iterator[str]:
+    direct_value = request.POST.get(header_name, "")
+    if direct_value:
+        yield direct_value
+
+    raw_headers = request.POST.get("message-headers", "")
+    if not raw_headers:
+        return
+    try:
+        parsed_headers = json.loads(raw_headers)
+    except (TypeError, ValueError):
+        return
+    if not isinstance(parsed_headers, list):
+        return
+    for header in parsed_headers:
+        if (
+            isinstance(header, list)
+            and len(header) == 2
+            and isinstance(header[0], str)
+            and isinstance(header[1], str)
+            and header[0].lower() == header_name.lower()
+        ):
+            yield header[1]
+
+
+def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(_iter_message_header_values(request, header_name)))
+
+
+def _forwarding_challenge_tokens(request: HttpRequest) -> tuple[str, ...]:
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    def append_token(raw_token: str) -> bool:
+        token = raw_token.strip()
+        if not token or len(token) > 1000 or token in seen:
+            return False
+        seen.add(token)
+        tokens.append(token)
+        return len(tokens) >= MAX_FORWARDING_CHALLENGE_TOKENS
+
+    for header_value in _iter_message_header_values(request, FORWARDING_CHALLENGE_HEADER):
+        if append_token(header_value):
+            return tuple(tokens)
+    for field_name in ("body-html", "body-plain", "stripped-text"):
+        for match in _FORWARDING_CHALLENGE_RE.finditer(request.POST.get(field_name, "")):
+            if append_token(match.group("token")):
+                return tuple(tokens)
+    return tuple(tokens)
+
+
+def _mailgun_authentication_passed(request: HttpRequest, header_name: str) -> bool:
+    results = tuple(
+        dict.fromkeys(value.strip().lower() for value in _message_header_values(request, header_name) if value.strip())
+    )
+    return results == ("pass",)
+
+
+def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
+    domains: list[str] = []
+    for signature in _message_header_values(request, "DKIM-Signature"):
+        tags: dict[str, str] = {}
+        for raw_tag in signature.split(";"):
+            key, separator, value = raw_tag.partition("=")
+            if separator:
+                tags[key.strip().lower()] = value.strip()
+        signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
+        domain = tags.get("d", "").rstrip(".").lower()
+        if not domain or not {"from", "subject"}.issubset(signed_headers) or "l" in tags:
+            return ()
+        domains.append(domain)
+    return tuple(dict.fromkeys(domains))
+
+
+def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
+    addresses: list[EmailAddress] = []
+    seen: set[str] = set()
+    for name, address in getaddresses([value]):
+        normalized_email = address.strip().lower()[:400]
+        if not normalized_email or normalized_email in seen:
+            continue
+        seen.add(normalized_email)
+        addresses.append(EmailAddress(name=name.strip()[:400], email=normalized_email))
+        if len(addresses) >= MAX_RECIPIENTS:
+            break
+    return tuple(addresses)
+
+
+def _parse_sent_at(request: HttpRequest) -> datetime:
+    now = timezone.now()
+    date_header = request.POST.get("Date", "") or request.POST.get("date", "")
+    if date_header:
+        try:
+            sent_at = parsedate_to_datetime(date_header)
+            if sent_at.tzinfo is None:
+                sent_at = sent_at.replace(tzinfo=UTC)
+            if sent_at <= now + MAX_SENT_AT_CLOCK_SKEW:
+                return sent_at
+            logger.warning("email_inbound_future_date_header")
+        except (TypeError, ValueError, OverflowError):
+            logger.warning("email_inbound_invalid_date_header")
+
+    webhook_timestamp = request.POST.get("timestamp", "")
+    if webhook_timestamp:
+        try:
+            return datetime.fromtimestamp(float(webhook_timestamp), tz=UTC)
+        except (ValueError, OverflowError):
+            logger.warning("email_inbound_invalid_timestamp")
+    return now
+
+
+def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedEmail | None:
+    message_ids = _parse_message_ids(request.POST.get("Message-Id", ""))
+    if not message_ids:
+        return None
+
+    from_header = request.POST.get("from", "")
+    sender_name, sender_email = parseaddr(from_header)
+    if not sender_email:
+        sender_email = request.POST.get("sender", "")
+    sender_email = sender_email.strip().lower()[:400]
+    if not sender_name:
+        sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
+    sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
+
+    stripped_text = request.POST.get("stripped-text", "")
+    stripped_signature = request.POST.get("stripped-signature", "")
+    if stripped_signature and stripped_text:
+        stripped_text = f"{stripped_text}\n\n{stripped_signature}"
+
+    in_reply_to_ids = _parse_message_ids(request.POST.get("In-Reply-To", ""))
+    attachments: list[UploadedFile] = []
+    for key in list(request.FILES.keys())[:MAX_ATTACHMENTS]:
+        uploaded_file = cast(UploadedFile, request.FILES[key])
+        if uploaded_file.size is not None and uploaded_file.size > MAX_ATTACHMENT_SIZE:
+            logger.warning(
+                "email_inbound_attachment_too_large",
+                team_id=config.team_id,
+                file_name=uploaded_file.name,
+                size=uploaded_file.size,
+            )
+            continue
+        attachments.append(uploaded_file)
+
+    return ParsedEmail(
+        message_id=message_ids[0],
+        in_reply_to=in_reply_to_ids[0] if in_reply_to_ids else None,
+        references=_parse_message_ids(request.POST.get("References", "")),
+        sent_at=_parse_sent_at(request),
+        sender=EmailAddress(name=sender_name[:400], email=sender_email),
+        to_recipients=_parse_addresses(request.POST.get("To", "")),
+        cc_recipients=_parse_addresses(request.POST.get("Cc", "")),
+        subject=request.POST.get("subject", "")[:500],
+        body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
+        stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
+        sender_authenticated=_sender_authenticated(request, sender_email),
+        dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
+        dkim_signing_domains=_dkim_signing_domains(request),
+        capture_address=request.POST.get("recipient", "").strip().lower(),
+        attachments=tuple(attachments),
+        forwarding_challenge_tokens=_forwarding_challenge_tokens(request),
+    )
 
 
 def _collect_participants(
-    to_header: str,
-    cc_header: str,
+    to_recipients: tuple[EmailAddress, ...],
+    cc_recipients: tuple[EmailAddress, ...],
     inbound_token: str,
     channel_email: str,
     sender_email: str,
@@ -267,8 +487,8 @@ def _collect_participants(
     team_inbound_address = f"team-{inbound_token}@"
     excluded = {channel_email.lower(), sender_email.lower()}
     participants: list[str] = []
-    for _name, addr in getaddresses([to_header, cc_header]):
-        low = addr.lower()
+    for recipient in (*to_recipients, *cc_recipients):
+        low = recipient.email.lower()
         if not low or low in excluded or low.startswith(team_inbound_address):
             continue
         if low not in participants:
@@ -291,114 +511,44 @@ def _resolve_team_member(email: str, team: Team) -> User | None:
     return membership.user if membership else None
 
 
-@csrf_exempt
-def email_inbound_handler(request: HttpRequest) -> HttpResponse:
-    if request.method != "POST":
-        return HttpResponse(status=405)
-
-    # 1. Authenticate webhook
-    token = request.POST.get("token", "")
-    timestamp = request.POST.get("timestamp", "")
-    signature = request.POST.get("signature", "")
-
-    if not validate_webhook_signature(token, timestamp, signature):
-        logger.warning("email_inbound_invalid_signature")
-        return HttpResponse("Invalid signature", status=403)
-
-    # 2. Route to team via recipient address
-    recipient = request.POST.get("recipient", "")
-    inbound_token = _extract_inbound_token(recipient)
-    if not inbound_token:
-        logger.warning("email_inbound_no_token", recipient=recipient)
-        return HttpResponse("Invalid recipient", status=400)
-
-    try:
-        config = EmailChannel.objects.select_related("team").get(inbound_token=inbound_token)
-    except EmailChannel.DoesNotExist:
-        if is_primary_region(request):
-            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
-            return HttpResponse(status=200 if success else 502)
-        logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
-        return HttpResponse("Unknown recipient", status=404)
-
+def _process_support_email(
+    *,
+    config: EmailChannel,
+    inbound_token: str,
+    email: ParsedEmail,
+) -> HttpResponse:
     team = config.team
-
-    # 3. Check email_enabled
     settings_dict = team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         logger.info("email_inbound_disabled", team_id=team.id)
         return HttpResponse(status=200)
 
-    # 4. Deduplicate by Message-Id
-    email_message_id = request.POST.get("Message-Id", "").strip()
-    if not email_message_id:
-        logger.warning("email_inbound_no_message_id", team_id=team.id)
+    if EmailMessageMapping.objects.filter(message_id=email.message_id, team=team).exists():
+        logger.info("email_inbound_duplicate", message_id=email.message_id)
         return HttpResponse(status=200)
 
-    if EmailMessageMapping.objects.filter(message_id=email_message_id, team=team).exists():
-        logger.info("email_inbound_duplicate", message_id=email_message_id)
-        return HttpResponse(status=200)
-
-    # 5. Thread matching
-    in_reply_to = request.POST.get("In-Reply-To")
-    references = request.POST.get("References")
-    existing_ticket = _find_thread_ticket(team.id, in_reply_to, references)
-
-    # 6. Parse sender
-    from_header = request.POST.get("from", "")
-    sender_name, sender_email = parseaddr(from_header)
-    if not sender_email:
-        sender_email = request.POST.get("sender", "")
-    if not sender_name:
-        sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
-
-    # 6a. Recover original sender when From was rewritten by DMARC-compliant
-    # forwarding (e.g. Google Groups rewrites From to the group address for
-    # senders whose domain has p=quarantine or p=reject).
-    sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
-
-    # 6b. Parse other thread participants from To + Cc. We fold both into a single
-    # list (dropping the support inbox itself and the sender) so a direct recipient
-    # who only CC'd the support address still shows up and stays on replies.
+    existing_ticket = _find_thread_ticket(team.id, email.in_reply_to, email.references)
+    sender_name = email.sender.name
+    sender_email = email.sender.email
     cc_list = _collect_participants(
-        to_header=request.POST.get("To", ""),
-        cc_header=request.POST.get("Cc", ""),
+        to_recipients=email.to_recipients,
+        cc_recipients=email.cc_recipients,
         inbound_token=inbound_token,
         channel_email=config.from_email,
         sender_email=sender_email,
     )
 
-    # 7. Get content. Mailgun's stripped-text removes quoted parts, which is right for
-    # replies (the quoted trail is the thread we already store) but wrong for a first
-    # message: a forwarded email's original content lives in the "quoted" block, so
-    # stripping would drop the very context the customer forwarded in. Keep the full
-    # plain body for new tickets; strip quotes only on replies to existing tickets.
-    # Mailgun's signature detection also cuts real content (e.g. a trailing list of
-    # bare emails/links), so reattach stripped-signature after stripped-text.
-    body_plain = request.POST.get("body-plain", "")
-    stripped_text = request.POST.get("stripped-text", "")
-    stripped_signature = request.POST.get("stripped-signature", "")
-    if stripped_signature and stripped_text:
-        stripped_text = f"{stripped_text}\n\n{stripped_signature}"
     if existing_ticket:
-        content = stripped_text or body_plain
+        content = email.stripped_text or email.body_plain
     else:
-        content = body_plain or stripped_text
-    content = content[:MAX_EMAIL_BODY_LENGTH]
-    subject = request.POST.get("subject", "")[:500]
+        content = email.body_plain or email.stripped_text
 
-    # 7b. Detect team member sender — only trust From when DKIM passes
-    # AND the envelope-sender domain aligns with the From domain.
-    sender_authenticated = _sender_authenticated(request, sender_email)
-    posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
+    posthog_user = _resolve_team_member(sender_email, team) if email.sender_authenticated else None
     is_team_member = posthog_user is not None
 
-    # 8. Create ticket/comment/mapping in a transaction
-    # Attachments are extracted inside the transaction so UploadedMedia rows roll back
-    # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
     try:
         with transaction.atomic():
-            attachments = _extract_attachments(request, team)
+            attachments = _extract_attachments(email.attachments, team)
             content, rich_content = _build_content_with_attachments(content, attachments)
 
             ticket: Ticket | None = None
@@ -419,14 +569,14 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                         "name": sender_name,
                         "email": sender_email,
                     },
-                    email_subject=subject,
+                    email_subject=email.subject,
                     email_from=sender_email,
                     cc_participants=cc_list,
                     unread_team_count=0 if is_team_member else 1,
-                    identity_verified=sender_authenticated,
+                    identity_verified=email.sender_authenticated,
                 )
             elif (
-                sender_authenticated
+                email.sender_authenticated
                 and not ticket.identity_verified
                 and sender_email.lower() == (ticket.email_from or ticket.distinct_id or "").lower()
             ):
@@ -445,7 +595,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 "from_email": True,
                 "email_from": sender_email,
                 "email_from_name": sender_name,
-                "email_message_id": email_message_id,
+                "email_message_id": email.message_id,
                 "email_attachments": attachments if attachments else None,
             }
 
@@ -477,13 +627,13 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     qs.update(cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)))
 
             EmailMessageMapping.objects.create(
-                message_id=email_message_id,
+                message_id=email.message_id,
                 team=team,
                 ticket=ticket,
                 comment=comment,
             )
     except IntegrityError:
-        logger.info("email_inbound_duplicate_race", message_id=email_message_id)
+        logger.info("email_inbound_duplicate_race", message_id=email.message_id)
         return HttpResponse(status=200)
 
     logger.info(
@@ -492,5 +642,227 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         ticket_id=str(ticket.id),
         is_reply=existing_ticket is not None,
     )
-
     return HttpResponse(status=200)
+
+
+def _is_outbound_capture_recipient(recipient: str) -> bool:
+    local_part, separator, domain = recipient.strip().lower().partition("@")
+    return local_part == OUTBOUND_CAPTURE_LOCAL_PART and bool(separator and domain)
+
+
+def _has_external_recipient(*, config: EmailChannel, email: ParsedEmail) -> bool:
+    recipient_emails = {
+        recipient.email
+        for recipient in (*email.to_recipients, *email.cc_recipients)
+        if recipient.email and recipient.email != email.capture_address
+    }
+    if not recipient_emails:
+        return False
+
+    internal_emails = {
+        member_email.lower()
+        for member_email in OrganizationMembership.objects.filter(
+            organization_id=config.team.organization_id,
+            user__email__in=recipient_emails,
+            user__is_active=True,
+        ).values_list("user__email", flat=True)
+    }
+    internal_emails.add(config.from_email.lower())
+    if config.owner is not None:
+        internal_emails.add(config.owner.email.lower())
+    return bool(recipient_emails - internal_emails)
+
+
+@csrf_exempt
+def email_outbound_handler(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    token = request.POST.get("token", "")
+    timestamp = request.POST.get("timestamp", "")
+    signature = request.POST.get("signature", "")
+    if not validate_webhook_signature(token, timestamp, signature):
+        logger.warning("email_outbound_invalid_signature")
+        return HttpResponse("Invalid signature", status=403)
+
+    recipient = request.POST.get("recipient", "")
+    if not _is_outbound_capture_recipient(recipient):
+        logger.warning("email_outbound_invalid_recipient", recipient=recipient)
+        return HttpResponse("Invalid recipient", status=400)
+
+    _, sender_email = parseaddr(request.POST.get("from", ""))
+    if not sender_email:
+        sender_email = request.POST.get("sender", "")
+    sender_email = sender_email.strip().lower()[:400]
+    if not sender_email or not _outbound_sender_authenticated(request, sender_email):
+        logger.warning("email_outbound_unauthenticated_sender", sender_email=sender_email)
+        return HttpResponse(status=200)
+
+    config = (
+        EmailChannel.objects.select_related("team", "owner")
+        .filter(
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            connection_status=EmailChannelConnectionStatus.ACTIVE,
+            from_email__iexact=sender_email,
+        )
+        .first()
+    )
+    lookup_only = request.GET.get(OUTBOUND_SENDER_LOOKUP_QUERY_PARAM) == "1"
+    if config is None:
+        if lookup_only:
+            return HttpResponse(status=404)
+        if is_primary_region(request):
+            success = proxy_to_secondary_region(request, log_prefix="email_outbound", timeout=10)
+            return HttpResponse(status=200 if success else 502)
+        logger.info("email_outbound_unknown_sender", sender_email=sender_email)
+        return HttpResponse(status=200)
+
+    if lookup_only:
+        return HttpResponse(status=204)
+
+    if is_primary_region(request):
+        secondary_status = request_secondary_region_status(
+            request,
+            log_prefix="email_outbound_sender_lookup",
+            timeout=10,
+            query_params={OUTBOUND_SENDER_LOOKUP_QUERY_PARAM: "1"},
+            accepted_statuses=frozenset({404}),
+        )
+        if secondary_status is None or secondary_status >= 500:
+            return HttpResponse(status=502)
+        if secondary_status == 204:
+            logger.error(
+                "email_outbound_sender_region_ambiguous",
+                sender_email=sender_email,
+                team_id=config.team_id,
+                config_id=str(config.id),
+            )
+            return HttpResponse(status=200)
+        if secondary_status != 404:
+            return HttpResponse(status=502)
+
+    email = _parse_inbound_email(request, config)
+    if email is None:
+        logger.warning("email_outbound_no_message_id", team_id=config.team_id)
+        return HttpResponse(status=200)
+
+    if not _has_external_recipient(config=config, email=email):
+        logger.info("email_outbound_internal_only", team_id=config.team_id, config_id=str(config.id))
+        return HttpResponse(status=200)
+
+    result = ingest_customer_email(
+        team_id=config.team_id,
+        channel=config,
+        email=email,
+        direction=EmailThreadMessageDirection.OUTBOUND,
+    )
+    logger.info(
+        "customer_email_outbound_processed",
+        team_id=config.team_id,
+        config_id=str(config.id),
+        thread_id=str(result.thread_id),
+        message_id=str(result.message_id),
+        created=result.created,
+    )
+    return HttpResponse(status=200)
+
+
+@csrf_exempt
+def email_inbound_handler(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    token = request.POST.get("token", "")
+    timestamp = request.POST.get("timestamp", "")
+    signature = request.POST.get("signature", "")
+    if not validate_webhook_signature(token, timestamp, signature):
+        logger.warning("email_inbound_invalid_signature")
+        return HttpResponse("Invalid signature", status=403)
+
+    recipient = request.POST.get("recipient", "")
+    inbound_token = _extract_inbound_token(recipient)
+    if not inbound_token:
+        logger.warning("email_inbound_no_token", recipient=recipient)
+        return HttpResponse("Invalid recipient", status=400)
+
+    try:
+        config = EmailChannel.objects.select_related("team", "owner").get(inbound_token=inbound_token)
+    except EmailChannel.DoesNotExist:
+        if is_primary_region(request):
+            success = proxy_to_secondary_region(request, log_prefix="email_inbound", timeout=10)
+            return HttpResponse(status=200 if success else 502)
+        logger.warning("email_inbound_unknown_token", inbound_token=inbound_token)
+        return HttpResponse("Unknown recipient", status=404)
+
+    email = _parse_inbound_email(request, config)
+    if email is None:
+        logger.warning("email_inbound_no_message_id", team_id=config.team_id)
+        return HttpResponse(status=200)
+
+    if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+        challenge_result = process_forwarding_challenges(
+            team_id=config.team_id,
+            channel=config,
+            capture_address=email.capture_address,
+            challenge_tokens=email.forwarding_challenge_tokens,
+        )
+        if challenge_result != ForwardingChallengeResult.NOT_CHALLENGE:
+            logger.info(
+                "customer_email_forwarding_challenge_processed",
+                team_id=config.team_id,
+                config_id=str(config.id),
+                result=challenge_result,
+            )
+            return HttpResponse(status=200)
+
+        if config.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+            captured = capture_google_forwarding_confirmation(
+                team_id=config.team_id,
+                channel=config,
+                email=email,
+            )
+            logger.info(
+                "customer_email_confirmation_candidate_processed",
+                team_id=config.team_id,
+                config_id=str(config.id),
+                captured=captured,
+            )
+            return HttpResponse(status=200)
+        if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
+            return HttpResponse(status=200)
+
+        try:
+            result = ingest_customer_email(
+                team_id=config.team_id,
+                channel=config,
+                email=email,
+                direction=EmailThreadMessageDirection.INBOUND,
+            )
+        except ValueError as error:
+            # A misconfigured channel (e.g. a dangling owner) can't be fixed by redelivery, so log
+            # and ack rather than 500 into a Mailgun retry loop.
+            logger.warning(
+                "customer_email_channel_misconfigured",
+                team_id=config.team_id,
+                config_id=str(config.id),
+                error=str(error),
+            )
+            return HttpResponse(status=200)
+        logger.info(
+            "customer_email_inbound_processed",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            thread_id=str(result.thread_id),
+            message_id=str(result.message_id),
+            created=result.created,
+        )
+        return HttpResponse(status=200)
+
+    return _process_support_email(config=config, inbound_token=inbound_token, email=email)
+
+
+@csrf_exempt
+def email_capture_handler(request: HttpRequest) -> HttpResponse:
+    if _is_outbound_capture_recipient(request.POST.get("recipient", "")):
+        return email_outbound_handler(request)
+    return email_inbound_handler(request)

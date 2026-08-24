@@ -1,5 +1,4 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { CaretDown, ChartLineUp, Shapes } from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -11,7 +10,6 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { getModeStyle } from "@posthog/ui/features/sessions/modeStyles";
 import { flattenSelectOptions } from "@posthog/ui/features/sessions/sessionStore";
 import { useRetainedConfigOption } from "@posthog/ui/features/sessions/useRetainedConfigOption";
 import { useRef, useState } from "react";
@@ -31,16 +29,6 @@ interface ModeSelectorProps {
     active: boolean;
     onToggle: () => void;
   };
-  /**
-   * When provided, a "Canvas" toggle renders in the same trailing section
-   * (channels composer only). Arming it makes the next submit generate a
-   * canvas from the prompt instead of creating a plain task; while armed the
-   * trigger reads "Canvas" so the composer's state is visible at a glance.
-   */
-  canvas?: {
-    active: boolean;
-    onToggle: () => void;
-  };
 }
 
 export function ModeSelector({
@@ -49,7 +37,6 @@ export function ModeSelector({
   allowBypassPermissions,
   disabled,
   autoresearch,
-  canvas,
 }: ModeSelectorProps) {
   const [open, setOpen] = useState(false);
   const pendingValueRef = useRef<string | null>(null);
@@ -76,37 +63,22 @@ export function ModeSelector({
   if (options.length === 0) return null;
 
   const currentValue = displayOption.currentValue;
-  const canvasActive = !!canvas?.active;
-  const currentStyle = canvasActive
-    ? { icon: <Shapes size={12} weight="fill" />, className: "text-teal-11" }
-    : getModeStyle(currentValue);
-  const currentLabel = canvasActive
-    ? "Canvas"
-    : (allOptions.find((opt) => opt.value === currentValue)?.name ??
-      currentValue);
+  const currentLabel =
+    allOptions.find((opt) => opt.value === currentValue)?.name ?? currentValue;
+  // Running unsupervised is the only mode the trigger colours at all, and it
+  // does so as a whole destructive button rather than a tinted label — a mode
+  // tint per mode turns the toolbar into a palette and stops reading as a
+  // warning where it matters.
+  const bypassActive =
+    currentValue === "bypassPermissions" || currentValue === "full-access";
 
   const toggles: Array<{
     label: string;
     active: boolean;
     onToggle: () => void;
-    icon: React.ReactNode;
-    className: string;
   }> = [];
-  if (canvas) {
-    toggles.push({
-      label: "Canvas",
-      ...canvas,
-      icon: <Shapes size={12} weight="fill" />,
-      className: "text-teal-11",
-    });
-  }
   if (autoresearch) {
-    toggles.push({
-      label: "Autoresearch",
-      ...autoresearch,
-      icon: <ChartLineUp size={12} />,
-      className: "text-muted-foreground",
-    });
+    toggles.push({ label: "Autoresearch", ...autoresearch });
   }
 
   return (
@@ -118,8 +90,6 @@ export function ModeSelector({
         if (pendingValueRef.current !== null) {
           onChange(pendingValueRef.current);
           pendingValueRef.current = null;
-          // Picking a plain mode leaves canvas mode; the two are exclusive.
-          if (canvasActive) canvas?.onToggle();
         }
         const pendingToggle = pendingToggleRef.current;
         pendingToggleRef.current = null;
@@ -130,18 +100,12 @@ export function ModeSelector({
         render={
           <Button
             type="button"
-            variant="default"
+            variant={bypassActive ? "destructive" : "default"}
             size="sm"
             disabled={isDisabled}
             aria-label="Mode"
           >
-            <span className={currentStyle.className}>{currentStyle.icon}</span>
-            <span className={currentStyle.className}>{currentLabel}</span>
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
+            <span>{currentLabel}</span>
           </Button>
         }
       />
@@ -153,23 +117,17 @@ export function ModeSelector({
       >
         <MenuLabel>Mode</MenuLabel>
         <DropdownMenuRadioGroup
-          // While canvas mode is armed it reads as the selected mode, so no
-          // plain-mode radio shows checked.
-          value={canvasActive ? "" : currentValue}
+          value={currentValue}
           onValueChange={(value) => {
             pendingValueRef.current = value;
             setOpen(false);
           }}
         >
-          {options.map((option) => {
-            const style = getModeStyle(option.value);
-            return (
-              <DropdownMenuRadioItem key={option.value} value={option.value}>
-                <span className={`${style.className}`}>{style.icon}</span>
-                <span className="whitespace-nowrap">{option.name}</span>
-              </DropdownMenuRadioItem>
-            );
-          })}
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              <span className="whitespace-nowrap">{option.name}</span>
+            </DropdownMenuRadioItem>
+          ))}
         </DropdownMenuRadioGroup>
         {toggles.length > 0 && <DropdownMenuSeparator />}
         {toggles.map((toggle) => (
@@ -181,7 +139,6 @@ export function ModeSelector({
               setOpen(false);
             }}
           >
-            <span className={toggle.className}>{toggle.icon}</span>
             <span className="whitespace-nowrap">{toggle.label}</span>
           </DropdownMenuCheckboxItem>
         ))}

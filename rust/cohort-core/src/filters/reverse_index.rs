@@ -23,7 +23,7 @@ use crate::leaf_state::variant::StateVariant;
 use crate::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
 };
-use crate::seed::BehavioralShapeHash;
+use crate::seed::{BehavioralShapeHash, PersonShapeHash};
 
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
@@ -73,6 +73,8 @@ pub struct TeamFilters {
     pub cohorts: HashMap<CohortId, CohortTree>,
     /// Persisted behavioral leaf-shape hashes used to fence reconcile work from cohort edits.
     pub behavioral_shape_hashes: HashMap<CohortId, BehavioralShapeHash>,
+    /// The person-property counterpart, fencing a person-property run's reconcile.
+    pub person_shape_hashes: HashMap<CohortId, PersonShapeHash>,
     /// The team's resolved IANA timezone, used by bucket variants for calendar-day computation.
     pub timezone: Tz,
 }
@@ -98,6 +100,7 @@ impl Default for TeamFilters {
             eligibility: HashMap::new(),
             cohorts: HashMap::new(),
             behavioral_shape_hashes: HashMap::new(),
+            person_shape_hashes: HashMap::new(),
             timezone: UTC,
         }
     }
@@ -123,6 +126,7 @@ pub struct TeamFiltersBuilder {
     /// Per-cohort eligibility signals captured during parse.
     flags: HashMap<CohortId, CohortParseFlags>,
     behavioral_shape_hashes: HashMap<CohortId, BehavioralShapeHash>,
+    person_shape_hashes: HashMap<CohortId, PersonShapeHash>,
 }
 
 impl LeafSink for TeamFiltersBuilder {
@@ -165,6 +169,11 @@ impl TeamFiltersBuilder {
     /// no cohort with that id parsed successfully.
     pub fn set_behavioral_shape_hash(&mut self, cohort_id: CohortId, hash: BehavioralShapeHash) {
         self.behavioral_shape_hashes.insert(cohort_id, hash);
+    }
+
+    /// The person-property counterpart of [`TeamFiltersBuilder::set_behavioral_shape_hash`].
+    pub fn set_person_shape_hash(&mut self, cohort_id: CohortId, hash: PersonShapeHash) {
+        self.person_shape_hashes.insert(cohort_id, hash);
     }
 
     pub fn add_cohort(
@@ -290,6 +299,8 @@ impl TeamFiltersBuilder {
             .collect();
         let mut behavioral_shape_hashes = self.behavioral_shape_hashes;
         behavioral_shape_hashes.retain(|cohort_id, _| self.cohorts.contains_key(cohort_id));
+        let mut person_shape_hashes = self.person_shape_hashes;
+        person_shape_hashes.retain(|cohort_id, _| self.cohorts.contains_key(cohort_id));
 
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
@@ -308,6 +319,7 @@ impl TeamFiltersBuilder {
             eligibility,
             cohorts: self.cohorts,
             behavioral_shape_hashes,
+            person_shape_hashes,
             timezone,
         }
     }
@@ -520,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn freeze_retains_behavioral_shape_hashes_only_for_parsed_cohorts() {
+    fn freeze_retains_shape_hashes_only_for_parsed_cohorts() {
         let mut builder = TeamFiltersBuilder::default();
         builder.set_behavioral_shape_hash(
             CohortId(1),
@@ -528,11 +540,16 @@ mod tests {
         );
         builder
             .set_behavioral_shape_hash(CohortId(99), BehavioralShapeHash::parse("orphan").unwrap());
+        builder.set_person_shape_hash(
+            CohortId(1),
+            PersonShapeHash::parse("persisted-person").unwrap(),
+        );
+        builder.set_person_shape_hash(CohortId(99), PersonShapeHash::parse("orphan").unwrap());
         builder
             .add_cohort(
                 CohortId(1),
                 TeamId(7),
-                &wrap(vec![behavioral_performed_event(7)]),
+                &wrap(vec![behavioral_performed_event(7), person_leaf()]),
             )
             .unwrap();
 
@@ -541,7 +558,12 @@ mod tests {
             frozen.behavioral_shape_hashes[&CohortId(1)].as_str(),
             "persisted",
         );
+        assert_eq!(
+            frozen.person_shape_hashes[&CohortId(1)].as_str(),
+            "persisted-person",
+        );
         assert!(!frozen.behavioral_shape_hashes.contains_key(&CohortId(99)));
+        assert!(!frozen.person_shape_hashes.contains_key(&CohortId(99)));
     }
 
     #[test]

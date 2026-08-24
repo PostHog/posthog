@@ -33,9 +33,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeMultiSelect } from '../../components/Assignee'
 import { clearFilterButtonProps } from '../../components/clearFilterButtonProps'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
-import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
 import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import {
     type AITriageFilterValue,
     type Ticket,
@@ -58,6 +58,7 @@ export const scene: SceneExport = {
     component: SupportTicketsScene,
     logic: supportTicketsSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
+    emptyState: supportEmptyState,
 }
 
 interface SupportTicketsTableProps {
@@ -302,6 +303,7 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
         setTagsExcludeFilter,
         setDateRange,
         loadTickets,
+        resetFilters,
     } = useActions(logic)
     const { aiEnabled } = useValues(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
@@ -317,6 +319,9 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     onChange={setSearchQuery}
                     size="small"
                     className="min-w-64"
+                    // Matches MAX_SEARCH_LENGTH in ticket_filters.py — the backend ignores
+                    // longer searches and rejects saving them in a view.
+                    maxLength={200}
                 />
                 <Tooltip
                     title={
@@ -591,6 +596,11 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     </LemonButton>
                 </LemonDropdown>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
+                {hasActiveFilters && (
+                    <LemonButton type="secondary" size="small" onClick={resetFilters} data-attr="clear-ticket-filters">
+                        Clear all filters
+                    </LemonButton>
+                )}
             </div>
             <div className="flex items-center gap-2">
                 <SupportTicketsBulkActions />
@@ -613,9 +623,6 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
 }
 
 export function SupportTicketsScene(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const conversationsDisabled = !!currentTeam && !currentTeam.conversations_enabled
-
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
@@ -627,7 +634,6 @@ export function SupportTicketsScene(): JSX.Element {
                 actions={<ComposeTicketButton />}
             />
             <ScenesTabs />
-            {conversationsDisabled ? <ConversationsDisabledBanner /> : null}
             <SupportTicketsTableFilters />
             <SupportTicketsTable />
         </SceneContent>

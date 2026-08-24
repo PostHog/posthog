@@ -1,31 +1,39 @@
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { FreeformCanvasView } from "@posthog/ui/features/canvas/freeform/FreeformCanvasView";
+import { GridCanvasView } from "@posthog/ui/features/canvas/grid/GridCanvasView";
 import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsDashboardEditing } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
-import { useFreeformChatStore } from "@posthog/ui/features/canvas/stores/freeformChatStore";
-import { useEffect } from "react";
+import { track } from "@posthog/ui/shell/analytics";
+import { useEffect, useRef } from "react";
 
-// Renders a canvas's React app in a sandboxed iframe (view + edit). Edit mode
-// adds the chat panel + version controls; generation runs as a dedicated task.
+// Renders a canvas's app in a sandboxed iframe (view + edit). Edit mode adds
+// the chat panel + version controls; generation runs as a dedicated task. The
+// view fetches its own record/source/build lifecycle — including the author
+// context, which the side panel edits against the saved record directly.
+// Grid-kind canvases render the widget-grid surface instead of the single app.
 export function WebsiteDashboard({ dashboardId }: { dashboardId: string }) {
   const editing = useIsDashboardEditing(dashboardId);
   const { dashboard } = useDashboard(dashboardId);
-  const syncFromRecord = useFreeformChatStore((s) => s.syncFromRecord);
+  const viewedDashboardIdRef = useRef<string | undefined>(undefined);
 
-  const threadId = `dashboard:${dashboardId}`;
-
-  // Seed the thread from the saved record (code + version history) when its data
-  // lands, so undo/redo and the live render reflect what's stored — and adopt a
-  // version a generation task just published.
   useEffect(() => {
-    if (!dashboard) return;
-    syncFromRecord(threadId, {
-      code: dashboard.code,
-      versions: dashboard.versions,
-      currentVersionId: dashboard.currentVersionId,
-      templateId: dashboard.templateId,
-      context: dashboard.context,
+    if (!dashboard || viewedDashboardIdRef.current === dashboard.id) return;
+    viewedDashboardIdRef.current = dashboard.id;
+    track(ANALYTICS_EVENTS.CANVAS_VIEWED, {
+      channel_id: dashboard.channelId,
+      dashboard_id: dashboard.id,
+      canvas_kind: dashboard.kind,
+      template_id: dashboard.templateId,
     });
-  }, [dashboard, threadId, syncFromRecord]);
+  }, [dashboard]);
 
-  return <FreeformCanvasView threadId={threadId} interactive={editing} />;
+  if (dashboard?.kind === "grid") {
+    return <GridCanvasView canvasId={dashboardId} interactive={editing} />;
+  }
+  return (
+    <FreeformCanvasView
+      threadId={`dashboard:${dashboardId}`}
+      interactive={editing}
+    />
+  );
 }

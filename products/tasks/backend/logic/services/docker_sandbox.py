@@ -7,12 +7,16 @@ import uuid
 import shlex
 import base64
 import shutil
+import signal
 import socket
 import hashlib
 import logging
 import tempfile
+import threading
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -98,6 +102,11 @@ _DOCKER_URL_ENV_KEYS = frozenset(
 # Temporal then discards the real error in favor of an opaque "Failure exceeds size
 # limit." Keep the tail — Docker prints the failing step and error there.
 _MAX_CAPTURED_OUTPUT_CHARS = 8000
+_SUBPROCESS_CANCEL_POLL_SECONDS = 0.1
+_SUBPROCESS_TERMINATE_TIMEOUT_SECONDS = 5
+_subprocess_cancel_event: ContextVar[threading.Event | None] = ContextVar(
+    "docker_sandbox_subprocess_cancel_event", default=None
+)
 
 
 def _truncate_output(output: str | None) -> str:
@@ -106,6 +115,59 @@ def _truncate_output(output: str | None) -> str:
     if len(output) <= _MAX_CAPTURED_OUTPUT_CHARS:
         return output
     return f"...[truncated {len(output) - _MAX_CAPTURED_OUTPUT_CHARS} chars]...\n{output[-_MAX_CAPTURED_OUTPUT_CHARS:]}"
+
+
+def _terminate_subprocess(process: subprocess.Popen[str]) -> tuple[str, str]:
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    try:
+        return process.communicate(timeout=_SUBPROCESS_TERMINATE_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return process.communicate()
+
+
+def _run_cancellable_subprocess(
+    args: list[str], cancel_event: threading.Event, timeout: int | None
+) -> subprocess.CompletedProcess[str]:
+    if cancel_event.is_set():
+        raise subprocess.SubprocessError("Docker subprocess cancelled before launch")
+
+    process = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    started_at = time.monotonic()
+
+    while True:
+        if cancel_event.is_set():
+            _terminate_subprocess(process)
+            raise subprocess.SubprocessError("Docker subprocess cancelled")
+
+        remaining = None if timeout is None else timeout - (time.monotonic() - started_at)
+        if remaining is not None and remaining <= 0:
+            stdout, stderr = _terminate_subprocess(process)
+            assert timeout is not None
+            raise subprocess.TimeoutExpired(args, timeout, output=stdout, stderr=stderr)
+
+        poll_timeout = (
+            _SUBPROCESS_CANCEL_POLL_SECONDS if remaining is None else min(_SUBPROCESS_CANCEL_POLL_SECONDS, remaining)
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=poll_timeout)
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired:
+            continue
 
 
 class DockerSandbox(SandboxBase):
@@ -122,6 +184,18 @@ class DockerSandbox(SandboxBase):
     needs that socket to create() containers — runs unsandboxed by default (see
     _SANDBOX_DEFAULT_EXCLUDES in the devenv generator). No extra config needed.
     """
+
+    supports_creation_cancellation = True
+    creation_timeout_seconds = 30 * 60
+
+    @staticmethod
+    @contextmanager
+    def creation_cancellation_scope(cancel_event: threading.Event) -> Iterator[None]:
+        token = _subprocess_cancel_event.set(cancel_event)
+        try:
+            yield
+        finally:
+            _subprocess_cancel_event.reset(token)
 
     id: str
     config: SandboxConfig
@@ -154,7 +228,13 @@ class DockerSandbox(SandboxBase):
     def _run(args: list[str], check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess:
         """Run a subprocess command with logging."""
         logger.debug(f"Running: {redact_sandbox_command(' '.join(args))}")
-        result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+        cancel_event = _subprocess_cancel_event.get()
+        if cancel_event is None:
+            result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
+        else:
+            result = _run_cancellable_subprocess(args, cancel_event, timeout)
+            if check:
+                result.check_returncode()
         if result.stdout:
             logger.debug(f"stdout: {result.stdout[:500]}")
         if result.stderr:
@@ -178,6 +258,7 @@ class DockerSandbox(SandboxBase):
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
             os.path.join(monorepo_root, "patches"),
+            os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
                 for package_name in ("agent", "harness", "shared", "git", "enricher")
@@ -254,11 +335,14 @@ class DockerSandbox(SandboxBase):
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace_path = os.path.join(tmpdir, "local-workspace")
             packages_path = os.path.join(workspace_path, "packages")
+            scripts_path = os.path.join(workspace_path, "scripts")
             os.makedirs(packages_path)
+            os.makedirs(scripts_path)
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
             shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
+            shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
             for package_name in ("agent", "harness", "shared", "git", "enricher"):
                 shutil.copytree(
@@ -680,8 +764,10 @@ class DockerSandbox(SandboxBase):
         encoded_payload = base64.b64encode(payload).decode("utf-8")
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        for index in range(0, len(encoded_payload), chunk_size):
-            chunk = encoded_payload[index : index + chunk_size]
+        # An empty payload still has to produce an empty file: with no chunks the temp path is
+        # never created and the mv below fails. Blanking a credential file is exactly this case.
+        chunks = [encoded_payload[start : start + chunk_size] for start in range(0, len(encoded_payload), chunk_size)]
+        for index, chunk in enumerate(chunks or [""]):
             write_mode = "wb" if index == 0 else "ab"
             command = (
                 "python3 - <<'EOF_SANDBOX_WRITE'\n"
@@ -719,12 +805,13 @@ class DockerSandbox(SandboxBase):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch)
+        return super().clone_repository(repository, github_token, shallow, branch, blobless)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -791,6 +878,7 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -813,6 +901,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -906,6 +995,7 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -983,6 +1073,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
@@ -1038,6 +1129,7 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
             )
             if self._launch_and_check(command):
@@ -1164,6 +1256,11 @@ class DockerSandbox(SandboxBase):
 
     def create_directory_snapshot(self, path: str) -> str:
         return self.create_snapshot()
+
+    def prune_snapshot_heavy_dirs(self, path: str) -> None:
+        # Docker snapshots the whole container image, not a directory subtree, so there is no
+        # targeted prune to do here (and local dev never approaches Modal's file-count cap).
+        return None
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:
@@ -1301,3 +1398,13 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         labels={_AGENT_VERSION_LABEL: latest or "unknown"},
         force=True,
     )
+
+
+def ensure_template_image(template: SandboxTemplate) -> str:
+    """Build ``template``'s image if it is missing, and return its name.
+
+    Sandbox creation does this itself, but a cold build can take minutes — longer than
+    the budget of whatever is provisioning the sandbox. Callers that know a template is
+    coming can pay that cost up front instead. A present image returns immediately.
+    """
+    return DockerSandbox._ensure_image_exists(template)

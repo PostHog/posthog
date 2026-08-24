@@ -35,6 +35,12 @@ pub struct Args {
     /// Implies --force unless --skip-on-conflict is set. [default: false]
     #[arg(long, default_value_t = false)]
     pub include_source: bool,
+
+    /// Don't bind the uploaded symbol sets to the release. The release is still created, so the
+    /// server resolves it from the app version and namespace the SDK sends on every event, but the
+    /// chunks stay content-addressed and release-independent. [default: false]
+    #[arg(long, default_value_t = false)]
+    pub no_release_bind: bool,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -44,6 +50,7 @@ pub fn upload(args: &Args) -> Result<()> {
         conflict,
         main_dsym,
         include_source,
+        no_release_bind,
     } = args;
     let release_args = release;
 
@@ -168,6 +175,15 @@ pub fn upload(args: &Args) -> Result<()> {
 
     let release_id = created_release.map(|r| r.id.to_string());
 
+    // With --no-release-bind the release is still created above (so the server can resolve it from
+    // the app metadata the SDK sends on each event), but the uploaded chunks are left
+    // release-independent.
+    let chunk_release_id = if *no_release_bind {
+        None
+    } else {
+        release_id.clone()
+    };
+
     // Process each dSYM
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
 
@@ -176,7 +192,7 @@ pub fn upload(args: &Args) -> Result<()> {
 
         match DsymFile::new(&dsym_path, *include_source) {
             Ok(mut dsym_file) => {
-                dsym_file.release_id = release_id.clone();
+                dsym_file.release_id = chunk_release_id.clone();
                 info!(
                     "  UUIDs: {} ({})",
                     dsym_file.uuids().join(", "),

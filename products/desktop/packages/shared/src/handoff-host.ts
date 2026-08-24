@@ -29,6 +29,7 @@ export interface HandoffResumeStateResult {
   resumeState: {
     conversation: unknown[];
     latestGitCheckpoint: GitHandoffCheckpoint | null;
+    latestGitCheckpoints?: GitHandoffCheckpoint[];
   };
   cloudLogUrl: string | null;
 }

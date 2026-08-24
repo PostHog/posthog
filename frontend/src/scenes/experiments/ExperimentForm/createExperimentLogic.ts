@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -21,67 +21,48 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
-import type { ExperimentFeatureFlagFiltersApi } from 'products/experiments/frontend/generated/api.schemas'
+import { experimentsCreate } from 'products/experiments/frontend/generated/api'
+import type {
+    ExperimentApi,
+    ExperimentFeatureFlagFiltersApi,
+    ExperimentTypeEnumApi,
+} from 'products/experiments/frontend/generated/api.schemas'
+import { visionScannersCreate } from 'products/replay_vision/frontend/generated/api'
 
-import type { ProductIntentProperties } from '../../../lib/utils/product-intents'
+import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { FeatureFlagType } from '../../../types'
 import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { getExperimentVariants, toExperimentWritePayload, toFlagVariantsInput } from '../utils'
+import { experimentScannerBody, experimentScannerFilters } from '../replayVisionScanner'
+import {
+    type ExperimentWritePayload,
+    getExperimentVariants,
+    toExperimentWritePayload,
+    toFlagVariantsInput,
+} from '../utils'
+import { loadUnlinkableEventNames } from '../viewRecordingsLinkabilityLogic'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
 import { validateVariants } from './variantsPanelValidation'
 
-const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
-
-// Scope the draft key per project so a draft started in one project can't prefill or be submitted in another within the same browser session.
-export const DRAFT_STORAGE_KEY = `experiment-draft-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
-
-type ExperimentDraft = {
-    experiment: Experiment
-    timestamp: number
+function experimentFromApi(experiment: ExperimentApi): Experiment {
+    return experiment as unknown as Experiment
 }
 
-const readDraftFromStorage = (): Experiment | null => {
-    if (typeof sessionStorage === 'undefined') {
-        return null
-    }
-    const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY)
-    if (!raw) {
-        return null
-    }
-    try {
-        const parsed = JSON.parse(raw) as ExperimentDraft | Experiment
-        if (parsed && typeof parsed === 'object' && 'experiment' in parsed && 'timestamp' in parsed) {
-            const { experiment, timestamp } = parsed as ExperimentDraft
-            if (Date.now() - timestamp > DRAFT_TTL_MS) {
-                sessionStorage.removeItem(DRAFT_STORAGE_KEY)
-                return null
-            }
-            return experiment
-        }
-        return parsed as Experiment
-    } catch {
-        return null
-    }
+function experimentTypeForApi(type: Experiment['type']): ExperimentTypeEnumApi | undefined {
+    return type === 'web' || type === 'product' ? type : undefined
 }
 
-const writeDraftToStorage = (experiment: Experiment): void => {
-    if (typeof sessionStorage === 'undefined') {
-        return
-    }
-    const draft: ExperimentDraft = { experiment, timestamp: Date.now() }
-    sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
-}
-
-const clearDraftStorage = (): void => {
-    if (typeof sessionStorage === 'undefined') {
-        return
-    }
-    sessionStorage.removeItem(DRAFT_STORAGE_KEY)
+function experimentWritePayloadForApi(
+    experiment: ExperimentWritePayload<Experiment>
+): Parameters<typeof experimentsCreate>[1] {
+    return {
+        ...experiment,
+        type: experimentTypeForApi(experiment.type),
+    } as unknown as Parameters<typeof experimentsCreate>[1]
 }
 
 export interface CreateExperimentLogicProps {}
@@ -92,12 +73,12 @@ export interface createExperimentLogicValues {
     featureFlagKeyValidation: FeatureFlagKeyValidation | null // variantsPanelLogic
     featureFlagKeyValidationLoading: boolean // variantsPanelLogic
     canSubmitExperiment: boolean
+    createReplayVisionScanner: boolean
     experiment: Experiment & {
         feature_flag_filters?: FeatureFlagFilters
     }
     experimentErrors: Record<string, string>
     experimentValidationErrors: string | undefined
-    formCanceled: boolean
     isExperimentSubmitting: boolean
     mode: 'create' | 'link'
     sharedMetrics: {
@@ -129,9 +110,7 @@ export interface createExperimentLogicActions {
         flag: FeatureFlagType
     } // featureFlagsLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
-    cancelForm: () => {
-        value: true
-    }
+    addProductIntentForCrossSell: (properties: ProductCrossSellProperties) => ProductCrossSellProperties // teamLogic
     createExperimentSuccess: () => {
         value: true
     }
@@ -149,6 +128,9 @@ export interface createExperimentLogicActions {
     }
     saveExperimentSuccess: () => {
         value: true
+    }
+    setCreateReplayVisionScanner: (enabled: boolean) => {
+        enabled: boolean
     }
     setExperiment: (experiment: Experiment) => {
         experiment: Experiment
@@ -242,15 +224,15 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             featureFlagsLogic,
             ['updateFlag'],
             teamLogic,
-            ['addProductIntent'],
+            ['addProductIntent', 'addProductIntentForCrossSell'],
         ],
     })),
     actions(() => ({
         setExperiment: (experiment: Experiment) => ({ experiment }),
         setExperimentValue: (name: string, value: any) => ({ name, value }),
         resetExperiment: true,
-        cancelForm: true,
         setExposureCriteria: (criteria: ExperimentExposureCriteria) => ({ criteria }),
+        setCreateReplayVisionScanner: (enabled: boolean) => ({ enabled }),
         setFeatureFlagConfig: (config: {
             feature_flag_key?: string
             variants?: MultivariateFlagVariant[]
@@ -308,6 +290,14 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 resetExperiment: () => ({ ...NEW_EXPERIMENT }),
             },
         ],
+        createReplayVisionScanner: [
+            false,
+            {
+                setCreateReplayVisionScanner: (_, { enabled }) => enabled,
+                resetExperiment: () => false,
+                saveExperimentSuccess: () => false,
+            },
+        ],
         sharedMetrics: [
             { primary: [], secondary: [] } as { primary: ExperimentMetric[]; secondary: ExperimentMetric[] },
             {
@@ -329,12 +319,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 saveExperimentSuccess: () => ({}),
                 createExperimentSuccess: () => ({}),
                 resetExperiment: () => ({}),
-            },
-        ],
-        formCanceled: [
-            false,
-            {
-                cancelForm: () => true,
             },
         ],
     })),
@@ -406,30 +390,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             } catch (error) {
                 console.error('Error parsing metric from URL', error)
                 lemonToast.error('Error parsing metric from URL')
-                // Continue to draft fallback
             }
-
-            const draft = readDraftFromStorage()
-            if (draft) {
-                actions.setExperiment(draft)
-            }
-        },
-        beforeUnmount: () => {
-            if (values.formCanceled || values.experiment.id !== 'new') {
-                return
-            }
-            // Use cases covered:
-            // - navigating away from the form without saving
-            writeDraftToStorage(values.experiment)
         },
     })),
     listeners(({ values, actions }) => ({
-        cancelForm: () => {
-            if (values.experiment.id !== 'new') {
-                return
-            }
-            clearDraftStorage()
-        },
         setExperiment: () => {},
         setExperimentValue: () => {},
         validateField: ({ field }) => {
@@ -534,10 +498,12 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     saved_metrics_ids: savedMetrics,
                 }
 
-                const response = (await api.create(
-                    `api/projects/${values.currentProjectId}/experiments`,
-                    experimentPayload
-                )) as Experiment
+                const response = experimentFromApi(
+                    await experimentsCreate(
+                        String(values.currentProjectId),
+                        experimentWritePayloadForApi(experimentPayload)
+                    )
+                )
 
                 if (response.id) {
                     // Refresh tree navigation
@@ -556,14 +522,59 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     })
                     actions.createExperimentSuccess()
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
-                    lemonToast.success('Experiment created successfully!')
+
+                    let replayScannerId: string | null = null
+                    let replayScannerCreationFailed = false
+                    if (values.createReplayVisionScanner) {
+                        const { filters, usedExposureFallback } = experimentScannerFilters(
+                            response,
+                            await loadUnlinkableEventNames(response)
+                        )
+                        try {
+                            const replayScanner = await visionScannersCreate(
+                                String(values.currentProjectId),
+                                experimentScannerBody(response, filters, usedExposureFallback)
+                            )
+                            replayScannerId = replayScanner.id
+                            actions.addProductIntentForCrossSell({
+                                from: ProductKey.EXPERIMENTS,
+                                to: ProductKey.REPLAY_VISION,
+                                intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
+                            })
+                        } catch (scannerError) {
+                            // Captured rather than swallowed: a systematically failing create (quota, access)
+                            // is otherwise invisible, since the experiment itself still succeeds.
+                            posthog.captureException(scannerError)
+                            replayScannerCreationFailed = true
+                        }
+                    }
+
+                    if (replayScannerCreationFailed) {
+                        lemonToast.error("Experiment created, but the Replay Vision scanner wasn't.", {
+                            button: {
+                                label: 'Set up scanner',
+                                action: () => router.actions.push(urls.replayVisionTemplates()),
+                            },
+                        })
+                    } else if (replayScannerId) {
+                        lemonToast.success(
+                            'Experiment created. The Replay Vision scanner is off until you turn it on.',
+                            {
+                                button: {
+                                    label: 'View scanner',
+                                    action: () => router.actions.push(urls.replayVision(replayScannerId)),
+                                },
+                            }
+                        )
+                    } else {
+                        lemonToast.success('Experiment created successfully!')
+                    }
                     tryShowMCPHint('experiments.create', {
                         derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
                     })
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()
-                    clearDraftStorage()
 
                     const sceneLogicInstance = experimentSceneLogic.findMounted()
                     if (sceneLogicInstance) {

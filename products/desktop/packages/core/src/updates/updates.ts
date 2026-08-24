@@ -29,6 +29,8 @@ import {
   type UpdatesStatusPayload,
 } from "./schemas";
 
+import { isVersionNewer } from "./version";
+
 type CheckSource = "user" | "periodic";
 type UpdateState =
   | "idle"
@@ -55,6 +57,8 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
   // inside partial shutdown get cut off and quitAndInstall proceeds without
   // any teardown at all.
   private static readonly INSTALL_SHUTDOWN_TIMEOUT_MS = 20_000;
+  private static readonly PRE_INSTALL_CHECK_TIMEOUT_MS = 5_000;
+  private static readonly DOWNLOAD_STALL_TIMEOUT_MS = 60_000;
 
   @inject(UPDATE_LIFECYCLE_SERVICE)
   private lifecycle!: IUpdateLifecycle;
@@ -96,6 +100,13 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
   private downloadProgress: UpdateDownloadProgress | null = null;
   private autoDownloadEnabled = false;
   private lastProgressEmit = 0;
+  private activeDownload: Promise<void> | null = null;
+  private pendingInstall: Promise<InstallUpdateOutput> | null = null;
+  private installIntent = false;
+  private installGate: (() => void) | null = null;
+  private installGateTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private downloadStallTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private isShuttingDown = false;
 
   get hasUpdateReady(): boolean {
     return this.isUpdateStaged();
@@ -128,9 +139,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
 
   setAutoDownloadEnabled(enabled: boolean): void {
     this.autoDownloadEnabled = enabled;
-    if (this.isEnabled) {
-      this.updater.setAutoDownload(enabled);
-    }
     this.log.info("Auto-download preference updated", { enabled });
 
     if (enabled && this.state === "available") {
@@ -152,8 +160,16 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
     this.log.info("Downloading update...", {
       version: this.availableInfo?.version,
     });
-    this.updater.download();
+    this.queueDownload();
     this.emitStatus(this.downloadingStatusPayload());
+  }
+
+  // electron-updater silently returns the in-flight promise while a previous
+  // download is still fetching or staging, so a re-download must wait its turn.
+  private queueDownload(): void {
+    const start = () => Promise.resolve(this.updater.download());
+    this.activeDownload =
+      this.activeDownload === null ? start() : this.activeDownload.then(start);
   }
 
   getStatus(): UpdatesStatusPayload {
@@ -191,31 +207,39 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       return { success: false, errorMessage: reason, errorCode: "disabled" };
     }
 
-    if (this.isUpdateStaged()) {
+    if (this.state === "installing") {
       this.logStateTransition(this.state, {
         source,
         skippedBecauseUpdateStaged: true,
-        reason: "check skipped because update is already staged",
+        reason: "check skipped because install is in progress",
       });
-
       if (source === "user") {
         this.pendingNotification = true;
         this.flushPendingNotification();
         this.emitStatus(this.stagedStatusPayload());
       }
-
       return { success: true };
     }
 
-    if (source === "periodic" && this.state === "available") {
-      this.logStateTransition(this.state, {
-        source,
-        reason: "periodic check skipped because an update is already available",
-      });
-      return { success: true };
+    if (this.state === "ready" && source === "user") {
+      this.pendingNotification = true;
+      this.flushPendingNotification();
+      this.emitStatus(this.stagedStatusPayload());
+      return this.performBackgroundCheck(source);
     }
 
-    if (this.state === "checking" || this.state === "downloading") {
+    if (
+      source === "periodic" &&
+      (this.state === "ready" || this.state === "available")
+    ) {
+      return this.performBackgroundCheck(source);
+    }
+
+    if (
+      this.state === "checking" ||
+      this.state === "downloading" ||
+      this.checkTimeoutId !== null
+    ) {
       return {
         success: false,
         errorMessage: "Already checking for updates",
@@ -239,6 +263,11 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       return { installed: true };
     }
 
+    if (this.pendingInstall !== null) {
+      this.log.info("Install already requested, joining the in-flight request");
+      return this.pendingInstall;
+    }
+
     if (this.state !== "ready") {
       this.log.warn("installUpdate called but no update is ready", {
         state: this.state,
@@ -246,6 +275,107 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       return { installed: false };
     }
 
+    const pending = this.runInstall();
+    this.pendingInstall = pending;
+    try {
+      return await pending;
+    } finally {
+      this.pendingInstall = null;
+    }
+  }
+
+  private async runInstall(): Promise<InstallUpdateOutput> {
+    await this.waitForFreshestUpdate();
+
+    if (this.isShuttingDown) {
+      this.log.warn("Abandoning install because the service is shutting down", {
+        stagedVersion: this.downloadedVersion,
+      });
+      return { installed: false };
+    }
+
+    if (this.state !== "ready") {
+      this.log.warn("No update staged after the pre-install check", {
+        state: this.state,
+      });
+      return { installed: false };
+    }
+
+    return this.performInstall();
+  }
+
+  private waitForFreshestUpdate(): Promise<void> {
+    this.installIntent = true;
+    this.log.info("Checking for a newer release before installing", {
+      stagedVersion: this.downloadedVersion,
+    });
+
+    return new Promise<void>((resolve) => {
+      this.installGate = resolve;
+      this.installGateTimeoutId = setTimeout(() => {
+        this.installGateTimeoutId = null;
+        if (this.state === "downloading") {
+          this.armDownloadStallWatchdog();
+          return;
+        }
+        this.log.warn(
+          "Pre-install update check timed out, installing the staged build",
+          { stagedVersion: this.downloadedVersion },
+        );
+        this.settleInstallGate("pre-install check timed out");
+      }, UpdatesService.PRE_INSTALL_CHECK_TIMEOUT_MS);
+
+      if (this.checkTimeoutId === null) {
+        this.performCheck();
+      }
+    });
+  }
+
+  // Settle only: the partial build must not be installed.
+  private armDownloadStallWatchdog(): void {
+    this.clearDownloadStallWatchdog();
+    this.downloadStallTimeoutId = setTimeout(() => {
+      this.downloadStallTimeoutId = null;
+      this.log.warn("Pre-install download stalled, abandoning the install", {
+        stalledForMs: UpdatesService.DOWNLOAD_STALL_TIMEOUT_MS,
+        stagedVersion: this.downloadedVersion,
+        incomingVersion: this.availableInfo?.version ?? null,
+      });
+      this.settleInstallGate("pre-install download stalled");
+    }, UpdatesService.DOWNLOAD_STALL_TIMEOUT_MS);
+  }
+
+  private clearDownloadStallWatchdog(): void {
+    if (this.downloadStallTimeoutId !== null) {
+      clearTimeout(this.downloadStallTimeoutId);
+      this.downloadStallTimeoutId = null;
+    }
+  }
+
+  private settleInstallGate(reason: string): void {
+    this.clearDownloadStallWatchdog();
+
+    if (this.installGate === null) {
+      return;
+    }
+
+    this.log.info("Pre-install check settled", {
+      reason,
+      stagedVersion: this.downloadedVersion,
+      state: this.state,
+    });
+
+    if (this.installGateTimeoutId !== null) {
+      clearTimeout(this.installGateTimeoutId);
+      this.installGateTimeoutId = null;
+    }
+    const resolve = this.installGate;
+    this.installGate = null;
+    this.installIntent = false;
+    resolve();
+  }
+
+  private async performInstall(): Promise<InstallUpdateOutput> {
     this.log.info("Installing update and restarting...", {
       downloadedVersion: this.downloadedVersion,
     });
@@ -361,23 +491,43 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
         reason: "updater error ignored because update is staged",
         error: error.message,
       });
+      this.settleInstallGate("updater error while staged");
+      return;
+    }
+
+    // Re-emit so a menu check that deferred to this background check resolves.
+    if (this.state === "available") {
+      this.emitStatus(this.availableStatusPayload());
       return;
     }
 
     if (this.state === "checking" || this.state === "downloading") {
+      if (this.downloadedVersion !== null) {
+        this.availableInfo = null;
+        this.transitionTo("ready", {
+          reason: "updater error, falling back to staged update",
+          error: error.message,
+        });
+        this.emitStatus(this.stagedStatusPayload());
+        this.settleInstallGate("updater error, staged build still installable");
+        return;
+      }
       this.lastError = error.message;
       this.transitionTo("error", { error: error.message });
       this.emitStatus({
         checking: false,
         error: error.message,
       });
+      this.settleInstallGate("updater error with nothing staged");
     }
   }
 
   private handleUpdateAvailable(info: UpdateAvailableInfo): void {
-    if (this.isUpdateStaged()) {
+    this.clearCheckTimeout();
+
+    if (this.state === "installing") {
       this.log.info(
-        "Ignoring update-available because an update is already staged",
+        "Ignoring update-available because install is in progress",
         {
           downloadedVersion: this.downloadedVersion,
         },
@@ -385,19 +535,50 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       return;
     }
 
-    this.clearCheckTimeout();
+    // Strictly newer only: a manifest rollback must not downgrade what is
+    // already staged, regardless of state — an offer accepted while
+    // "available" or "downloading" would still re-stage over the download.
+    // A pulled release is recovered by fix-forward or the no-update
+    // fallback, never by re-staging an older signed build.
+    if (
+      this.downloadedVersion !== null &&
+      !isVersionNewer(info.version, this.downloadedVersion)
+    ) {
+      this.log.info(
+        "Ignoring update-available because it is not newer than the staged version",
+        {
+          downloadedVersion: this.downloadedVersion,
+          incomingVersion: info.version,
+        },
+      );
+      this.settleInstallGate("staged build is already the newest on the feed");
+      return;
+    }
+
+    if (
+      this.state === "available" &&
+      info.version === this.availableInfo?.version
+    ) {
+      this.availableInfo = info;
+      this.emitStatus(this.availableStatusPayload());
+      return;
+    }
+
     this.availableInfo = info;
     this.downloadProgress = null;
 
-    if (this.autoDownloadEnabled) {
+    if (this.autoDownloadEnabled || this.installIntent) {
       this.transitionTo("downloading", {
-        reason: "update available (auto-download)",
+        reason: this.installIntent
+          ? "newer build found during pre-install check"
+          : "update available (auto-download)",
         incomingVersion: info.version,
       });
-      this.log.info("Update available, auto-downloading...", {
+      this.log.info("Update available, downloading...", {
         version: info.version,
+        forInstall: this.installIntent,
       });
-      this.updater.download();
+      this.queueDownload();
       this.emitStatus(this.downloadingStatusPayload());
       return;
     }
@@ -417,6 +598,9 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       return;
     }
     this.downloadProgress = progress;
+    if (this.downloadStallTimeoutId !== null) {
+      this.armDownloadStallWatchdog();
+    }
     const now = Date.now();
     if (now - this.lastProgressEmit >= 400 || progress.percent >= 100) {
       this.lastProgressEmit = now;
@@ -431,30 +615,51 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       this.log.info("Ignoring update-not-available because update is staged", {
         downloadedVersion: this.downloadedVersion,
       });
+      this.settleInstallGate("feed reports no update beyond the staged build");
       return;
     }
 
     this.log.info("No updates available", {
       currentVersion: this.appMeta.version,
     });
-    if (this.state === "checking" || this.state === "downloading") {
+    if (
+      this.state === "checking" ||
+      this.state === "downloading" ||
+      this.state === "available"
+    ) {
+      this.availableInfo = null;
+      if (this.downloadedVersion !== null) {
+        this.transitionTo("ready", {
+          reason: "feed no longer offers an update, keeping staged update",
+        });
+        this.emitStatus(this.stagedStatusPayload());
+        this.settleInstallGate(
+          "feed pulled the newer build, staged one stands",
+        );
+        return;
+      }
       this.transitionTo("idle", { reason: "no update available" });
       this.emitStatus({
         checking: false,
         upToDate: true,
         version: this.appMeta.version,
       });
+      this.settleInstallGate("nothing left to install");
     }
   }
 
   private handleUpdateDownloaded(version?: string): void {
     this.clearCheckTimeout();
 
-    if (this.isUpdateStaged()) {
+    if (
+      this.state === "installing" ||
+      (this.state === "ready" && (version ?? null) === this.downloadedVersion)
+    ) {
       this.log.info("Ignoring duplicate update-downloaded event", {
         existingVersion: this.downloadedVersion,
         incomingVersion: version,
       });
+      this.settleInstallGate("duplicate update-downloaded event");
       return;
     }
 
@@ -463,7 +668,6 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
       reason: "update downloaded",
       incomingVersion: version ?? null,
     });
-    this.clearCheckInterval();
     this.emitStatus(this.stagedStatusPayload());
 
     this.log.info("Update downloaded, awaiting user confirmation", {
@@ -479,6 +683,8 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
         version: this.downloadedVersion,
       });
     }
+
+    this.settleInstallGate("newer build downloaded and staged");
   }
 
   private flushPendingNotification(): void {
@@ -496,10 +702,28 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
     this.emit(UpdatesEvent.Status, status);
   }
 
+  private performBackgroundCheck(source: CheckSource): CheckForUpdatesOutput {
+    if (this.checkTimeoutId !== null) {
+      return {
+        success: false,
+        errorMessage: "Already checking for updates",
+        errorCode: "already_checking",
+      };
+    }
+
+    this.logStateTransition(this.state, {
+      source,
+      reason: "background check while an update is available or staged",
+    });
+    this.performCheck();
+    return { success: true };
+  }
+
   private performCheck(): void {
     this.clearCheckTimeout();
 
     this.checkTimeoutId = setTimeout(() => {
+      this.checkTimeoutId = null;
       if (this.state === "checking" || this.state === "downloading") {
         const timeoutSeconds = UpdatesService.CHECK_TIMEOUT_MS / 1000;
         const message = "Update check timed out. Please try again.";
@@ -507,7 +731,13 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
         this.lastError = message;
         this.transitionTo("error", { error: message });
         this.emitStatus({ checking: false, error: message });
+        this.settleInstallGate("update check timed out");
+        return;
       }
+      if (this.state === "available") {
+        this.emitStatus(this.availableStatusPayload());
+      }
+      this.log.warn("Background update check timed out", { state: this.state });
     }, UpdatesService.CHECK_TIMEOUT_MS);
 
     try {
@@ -515,6 +745,9 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
     } catch (error) {
       this.clearCheckTimeout();
       this.log.error("Failed to check for updates", { error });
+      if (this.state !== "checking" && this.state !== "downloading") {
+        return;
+      }
       this.lastError = "Failed to check for updates. Please try again.";
       this.transitionTo("error", {
         error: error instanceof Error ? error.message : String(error),
@@ -569,8 +802,10 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
 
   @preDestroy()
   shutdown(): void {
+    this.isShuttingDown = true;
     this.clearCheckTimeout();
     this.clearCheckInterval();
+    this.settleInstallGate("service shutting down");
     for (const unsub of this.unsubscribes) unsub();
     this.unsubscribes = [];
   }

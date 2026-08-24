@@ -7,8 +7,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
@@ -19,7 +19,7 @@ from products.replay_vision.backend.api.vision_actions import (
     _redact_webhook_url,
 )
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
 # The webhook destination template lives in the nodejs registry (no Python source object like Slack's).
@@ -50,11 +50,6 @@ class _VisionActionAPITestCase(APIBaseTest):
         # template from the DB — sync both delivery templates so slack and webhook targets provision.
         sync_template_to_db(template_slack)
         sync_template_to_db(_WEBHOOK_TEMPLATE)
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         # Saving a HogFunction pushes it to the CDP workers; there are none in tests.
         self.reload_patcher = patch(
             "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
@@ -65,7 +60,6 @@ class _VisionActionAPITestCase(APIBaseTest):
 
     def tearDown(self) -> None:
         self.reload_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     @property
@@ -78,7 +72,7 @@ class _VisionActionAPITestCase(APIBaseTest):
             name=name,
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self, team: Team | None = None) -> Integration:
@@ -107,6 +101,26 @@ class _VisionActionAPITestCase(APIBaseTest):
 
 
 class TestVisionActionViewSet(_VisionActionAPITestCase):
+    def test_create_rejects_an_inline_scan_as_the_target(self) -> None:
+        # Binding an action to an inline scan would put a scheduled digest on a row minted for one
+        # throwaway question, and keep it alive past the reaper by giving it observations forever.
+        scan = ReplayScanner.all_origins.create(
+            team=self.team,
+            name="",
+            origin=ScannerOrigin.INLINE,
+            inline_key="k",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "one-off"},
+            model=ScannerModel.GEMINI_3_7_FLASH,
+            enabled=False,
+            sampling_rate=0.0,
+        )
+
+        resp = self.client.post(self.actions_url, data=self._create_payload(scanner=str(scan.id)), format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn("scanner", resp.json()["attr"] or "")
+
     def test_create_happy_path(self) -> None:
         resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
@@ -261,6 +275,38 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         # The promotion rolled back: the restricted digest is untouched and the summary wasn't flagged.
         self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
 
+    def test_creating_a_digest_dedupes_a_taken_name(self) -> None:
+        # The "Turn on featured digest" button derives a fixed name from the scanner. If another action
+        # already holds it, the create must succeed with a suffixed name, not 400 on (team, name).
+        taken = f"Featured digest: {self.scanner.name}"
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name=taken,
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name=taken, is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertTrue(resp.json()["is_scanner_digest"])
+        self.assertEqual(resp.json()["name"], f"{taken} (2)")
+
+    def test_creating_a_digest_with_a_user_typed_duplicate_name_still_400s(self) -> None:
+        # Dedupe applies only to the auto-derived name; a user-typed name that collides must keep
+        # the explicit duplicate error rather than being silently renamed.
+        VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="my-digest",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        resp = self.client.post(
+            self.actions_url, data=self._create_payload(name="my-digest", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertEqual(resp.json()["attr"], "name")
+
     def test_alert_cannot_be_featured_digest(self) -> None:
         payload = self._create_payload(
             name="an-alert",
@@ -299,17 +345,6 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         resp = self.client.get(self.actions_url, data={"scanner": "not-a-uuid"})
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.json()["results"], [])
-
-    def test_actions_flag_off_hides_endpoint(self) -> None:
-        # `replay-vision-actions` gates the sub-feature even when product-level `replay-vision` is on.
-        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key != "replay-vision-actions"
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
-            list_resp = self.client.get(self.actions_url)
-            create_resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
-        self.assertEqual(list_resp.status_code, 404, list_resp.content)
-        self.assertEqual(create_resp.status_code, 404, create_resp.content)
 
     def test_retrieve(self) -> None:
         created = self.client.post(self.actions_url, data=self._create_payload(), format="json").json()
@@ -659,16 +694,6 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         resp = self.client.get(self.runs_url("not-a-uuid"))
         self.assertEqual(resp.status_code, 404)
 
-    def test_flag_off_hides_endpoint(self) -> None:
-        self._create_run()
-
-        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key != "replay-vision-actions"
-
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
-            resp = self.client.get(self.runs_url())
-        self.assertEqual(resp.status_code, 404, resp.content)
-
 
 class TestVisionActionRunCrossTeamIDOR(_VisionActionAPITestCase):
     def setUp(self) -> None:
@@ -714,6 +739,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         from products.replay_vision.backend.temporal.constants import (
             PROCESS_VISION_ACTION_WORKFLOW_NAME,
             build_process_vision_action_workflow_id,
+            on_demand_priority,
         )
 
         mock_sync_connect.return_value = MagicMock()
@@ -731,6 +757,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
 
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        self.assertEqual(kwargs["priority"], on_demand_priority(self.team.id))
         inputs = args[1]
         self.assertEqual(inputs.vision_action_id, action.id)
         self.assertEqual(inputs.mode, "group_summary")

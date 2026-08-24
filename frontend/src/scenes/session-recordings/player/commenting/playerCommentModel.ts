@@ -19,6 +19,11 @@ export type playerCommentModelType = MakeLogicType<{}, playerCommentModelActions
  * the currently active player will listen to this
  * and can e.g. enter or exit comment mode in response
  * it relies on being used when there is always a mounted player with a logic listening for this
+ *
+ * dispatch into it from another logic with connect({ actions: [playerCommentModel, ['commentEdited']] })
+ * or from a component with useActions, so the action creator binds at build time
+ * calling playerCommentModel.actions.x() at runtime resolves through kea's wrapper proxy,
+ * which throws "is not mounted" once the built instance has been evicted from the build cache
  */
 export const playerCommentModel = kea<playerCommentModelType>([
     path(['scenes', 'session-recordings', 'player', 'playerCommentModel']),

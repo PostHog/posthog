@@ -27,20 +27,22 @@ import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
+import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
   copyFromContextMenu,
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
+import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
-import { SessionResourcesBar } from "@posthog/ui/features/sessions/components/SessionResourcesBar";
+import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -49,6 +51,7 @@ import {
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
+import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
 import { useToggleMessagingMode } from "@posthog/ui/features/sessions/hooks/useToggleMessagingMode";
@@ -77,6 +80,13 @@ import {
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+export function getNewAttachments(
+  previousIds: ReadonlySet<string>,
+  attachments: FileAttachment[],
+): FileAttachment[] {
+  return attachments.filter(({ id }) => !previousIds.has(id));
+}
 
 interface SessionViewProps {
   events: AcpMessage[];
@@ -112,49 +122,6 @@ interface SessionViewProps {
 
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
-
-/** Centers composer-slot content at the chat width (or compact padding). */
-function ComposerWidth({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      className={compact ? "p-1" : "mx-auto pb-2"}
-      style={compact ? undefined : { maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-/**
- * Input region replacing the composer: `shrink-0` keeps it from being
- * compressed by the scroller above, and `min-h-0 overflow-y-auto` lets tall
- * content scroll inside itself.
- */
-function ComposerSlot({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      className={
-        compact
-          ? "max-h-[50%] min-h-0 overflow-y-auto"
-          : "min-h-0 shrink-0 overflow-y-auto"
-      }
-    >
-      <ComposerWidth compact={compact}>{children}</ComposerWidth>
-    </Box>
-  );
-}
 
 export function SessionView({
   events,
@@ -208,11 +175,21 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
-  const useNewChatThread = useSettingsStore((s) => s.useNewChatThread);
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
+  const olderHistoryCursor = useSessionSelector(taskId, (session) =>
+    isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const isLoadingOlderHistory = useSessionSelector(
+    taskId,
+    (session) => session?.isLoadingOlderTranscript ?? false,
+  );
+  const handleLoadOlderHistory = useCallback(() => {
+    if (!taskId) return;
+    void sessionService.loadOlderCloudTranscript(taskId);
+  }, [sessionService, taskId]);
 
   useEffect(() => {
     if (!taskId) return;
@@ -284,38 +261,71 @@ export function SessionView({
 
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
+  const contextUsage = useContextUsage(events);
   const sendInFlightRef = useRef(false);
   const composerSubmissionRef = useRef(0);
-  const attachmentUploadRef = useRef(0);
+  const attachmentIdsRef = useRef<Set<string>>(new Set());
+  const attachmentUploadTokensRef = useRef<Map<string, symbol>>(new Map());
   const [attachmentUploadStatuses, setAttachmentUploadStatuses] = useState<
     Record<string, AttachmentUploadStatus>
   >({});
 
   const handleAttachmentsChange = useCallback(
     (attachments: FileAttachment[]) => {
-      const requestId = ++attachmentUploadRef.current;
+      const attachmentIds = new Set(attachments.map(({ id }) => id));
+      const addedAttachments = getNewAttachments(
+        attachmentIdsRef.current,
+        attachments,
+      );
+      attachmentIdsRef.current = attachmentIds;
+
       if (!isCloudRun || !taskId || attachments.length === 0) {
         setAttachmentUploadStatuses({});
         return;
       }
 
-      setAttachmentUploadStatuses(
-        Object.fromEntries(attachments.map(({ id }) => [id, "uploading"])),
+      const uploadToken = Symbol();
+      for (const { id } of addedAttachments) {
+        attachmentUploadTokensRef.current.set(id, uploadToken);
+      }
+
+      setAttachmentUploadStatuses((statuses) =>
+        Object.fromEntries([
+          ...Object.entries(statuses).filter(([id]) => attachmentIds.has(id)),
+          ...addedAttachments.map(({ id }) => [id, "uploading"] as const),
+        ]),
       );
+      if (addedAttachments.length === 0) return;
+
+      const isCurrentUpload = (id: string) =>
+        attachmentUploadTokensRef.current.get(id) === uploadToken;
+
       void sessionService
         .prepareCloudAttachments(
           taskId,
-          attachments.map(({ id }) => id),
+          addedAttachments.map(({ id }) => id),
         )
         .then(() => {
-          if (attachmentUploadRef.current === requestId) {
-            setAttachmentUploadStatuses({});
-          }
+          const uploadedIds = new Set(addedAttachments.map(({ id }) => id));
+          setAttachmentUploadStatuses((statuses) =>
+            Object.fromEntries(
+              Object.entries(statuses).filter(
+                ([id]) => !uploadedIds.has(id) || !isCurrentUpload(id),
+              ),
+            ),
+          );
         })
         .catch((error) => {
-          if (attachmentUploadRef.current !== requestId) return;
-          setAttachmentUploadStatuses(
-            Object.fromEntries(attachments.map(({ id }) => [id, "error"])),
+          setAttachmentUploadStatuses((statuses) =>
+            Object.fromEntries([
+              ...Object.entries(statuses),
+              ...addedAttachments
+                .filter(
+                  ({ id }) =>
+                    attachmentIdsRef.current.has(id) && isCurrentUpload(id),
+                )
+                .map(({ id }) => [id, "error"] as const),
+            ]),
           );
           toast.error("Failed to upload attachments", {
             description:
@@ -399,6 +409,7 @@ export function SessionView({
     (s) => !!s?.editingQueuedId,
   );
   const cancelQueuedEdit = useCancelQueuedMessageEdit(taskId);
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
@@ -503,10 +514,6 @@ export function SessionView({
       .catch(() => toast.error("Failed to attach files"));
   }, []);
 
-  const handlePaneClick = useCallback((event: React.MouseEvent) => {
-    focusComposerOnPaneClick(event, () => editorRef.current?.focus());
-  }, []);
-
   useAutoFocusOnTyping(editorRef, !isActiveSession);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -540,13 +547,16 @@ export function SessionView({
             direction="column"
             height="100%"
             className="relative bg-background"
-            onClick={handlePaneClick}
             onContextMenu={handleContextMenu}
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
+            <div
+              id="fullscreen-portal"
+              className="pointer-events-none absolute inset-0 z-20"
+            />
             {isSuspended ? (
               <>
                 <ThreadView
@@ -647,9 +657,10 @@ export function SessionView({
                   compact={compact}
                   scrollX={false}
                   promptRecallRef={promptRecallRef}
+                  olderHistoryCursor={olderHistoryCursor}
+                  isLoadingOlderHistory={isLoadingOlderHistory}
+                  onLoadOlderHistory={handleLoadOlderHistory}
                 />
-
-                {!useNewChatThread && <SessionResourcesBar events={events} />}
 
                 <PlanStatusBar plan={latestPlan} />
 
@@ -697,14 +708,21 @@ export function SessionView({
                     </Flex>
                   </Flex>
                 ) : hideInput ? null : firstPendingPermission ? (
-                  <ComposerSlot compact={compact}>
+                  // Keyed on when the prompt arrived, not just which tool call
+                  // it belongs to, so a re-asked permission for the same call
+                  // arrives shown rather than inheriting the last one's hidden
+                  // state.
+                  <PermissionDock
+                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
+                    compact={compact}
+                  >
                     <PermissionSelector
                       toolCall={firstPendingPermission.toolCall}
                       options={firstPendingPermission.options}
                       onSelect={handlePermissionSelect}
                       onCancel={handlePermissionCancel}
                     />
-                  </ComposerSlot>
+                  </PermissionDock>
                 ) : (
                   <Box className="relative shrink-0">
                     <Box
@@ -724,11 +742,17 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
+                        {taskId && (
+                          <SideQuestionCard
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
                         {taskId && <QueuedMessagesDock taskId={taskId} />}
                         <PromptInput
                           ref={editorRef}
                           sessionId={sessionId}
-                          placeholder="Type a message... @ to mention files, ! for bash mode, / for skills"
+                          placeholder="Type a message... ! for bash mode, / for skills"
                           disabled={!isRunning && !handoffInProgress}
                           submitDisabledExternal={
                             handoffInProgress ||
@@ -775,6 +799,13 @@ export function SessionView({
                             taskId ? (
                               <SteerQueueToggle taskId={taskId} />
                             ) : undefined
+                          }
+                          toolbarEndSlot={
+                            <ContextUsageIndicator
+                              usage={contextUsage}
+                              taskId={taskId}
+                              focused={isActiveSession !== false}
+                            />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

@@ -10,9 +10,14 @@ import re
 import time
 import asyncio
 import functools
+from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -28,7 +33,8 @@ from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import function_calls, run_tool_loop
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -47,6 +53,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     TextSegment,
 )
+from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
@@ -119,28 +126,72 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
             sync_to_async(_load_team_name)(inputs.team_id),
             _load_llm_inputs(inputs.observation_id),
         )
-    scanner = scanner_from_snapshot(snapshot)
+    scanner: BaseScanner = scanner_from_snapshot(snapshot)
+    scanner = await _inject_known_freeform_tags(scanner, inputs)
+    return await run_scan(
+        snapshot=snapshot,
+        scanner=scanner,
+        llm_inputs=llm_inputs,
+        team_name=team_name,
+        file_uri=inputs.file_uri,
+        mime_type=inputs.mime_type,
+        team_id=inputs.team_id,
+        trace_id=_scan_trace_id(inputs),
+    )
 
+
+async def run_scan(
+    *,
+    snapshot: ScannerSnapshot,
+    scanner: BaseScanner,
+    llm_inputs: ScannerLlmInputs,
+    team_name: str,
+    file_uri: str,
+    mime_type: str,
+    team_id: int,
+    trace_id: str | None = None,
+) -> ScannerCallOutput:
+    """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
+
+    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
+    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
+    tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
+    silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
+    before calling this; any other caller must do the same before recording data reaches the provider (the eval
+    suite is covered because dataset collection is consent-gated and time-boxed).
+    """
     preamble_text = scanner.preamble(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
+        product_context=llm_inputs.product_context,
+        event_descriptions=llm_inputs.event_descriptions,
     )
-    video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
+    video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
 
     finalized, signals = await _run_mission(
         scanner=scanner,
         snapshot=snapshot,
         video_part=video_part,
         preamble_text=preamble_text,
-        team_id=inputs.team_id,
+        team_id=team_id,
         llm_inputs=llm_inputs,
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(finalized, scanner, duration_ms)
     return ScannerCallOutput(model_output=finalized, signals=signals)
+
+
+def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
+    """LLM analytics trace id for one scan: the observation id, so every step, tool round-trip, and retry of
+    a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
+    re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
+    if inputs.snapshot_override is not None:
+        return str(uuid4())
+    return str(inputs.observation_id)
 
 
 def _resolve_citations(
@@ -188,6 +239,81 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     return "".join(plain_parts), segments
 
 
+# Bounds for the known-freeform-tags prompt context: a recent window so tags that stopped being emitted
+# (renamed, promoted into the vocabulary, off-topic) age out, a row cap to bound the read, and a tag cap
+# to bound prompt size.
+_KNOWN_FREEFORM_TAGS_DAYS = 30
+_KNOWN_FREEFORM_TAGS_MAX_ROWS = 300
+_KNOWN_FREEFORM_TAGS_MAX = 30
+# Stored tags are model output derived from untrusted recording content, and this path echoes them into
+# future scan instructions. Real tag identifiers are a few short words (the suggestion flow asks for <= 4);
+# anything longer is more likely a smuggled instruction than a label, so cap both characters and words.
+_KNOWN_FREEFORM_TAG_MAX_LENGTH = 60
+_KNOWN_FREEFORM_TAG_MAX_WORDS = 5
+
+
+def _is_taglike(slug: str) -> bool:
+    return (
+        0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
+        and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
+    )
+
+
+def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:
+    """No-op unless `scanner` is a freeform-emitting classifier and there are tags to inject."""
+    if not tags or not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
+        return scanner
+    return scanner.model_copy(update={"known_freeform_tags": tags})
+
+
+async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give a freeform-emitting classifier the freeform tags it recently coined, so it reuses established
+    names instead of inventing synonyms per scan. Best effort: a lookup failure must not fail the scan."""
+    if not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
+        return scanner
+    try:
+        known = await sync_to_async(_load_known_freeform_tags)(inputs.observation_id, inputs.team_id)
+    except Exception:
+        logger.warning("replay_vision.call_scanner_provider.known_freeform_tags_failed", exc_info=True)
+        return scanner
+    return apply_known_freeform_tags(scanner, known)
+
+
+def rank_freeform_tags(tag_lists: Iterable[Any]) -> list[str]:
+    """Slug-normalized freeform tags ranked most frequent first, capped to bound prompt size."""
+    counts: Counter[str] = Counter()
+    for tags in tag_lists:
+        if not isinstance(tags, list):
+            continue
+        # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
+        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
+    # Alphabetical tie-break so equal-count tags keep a stable order across scans.
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
+
+
+def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
+    """Freeform tags this observation's scanner emitted on recent recordings, most frequent first."""
+    scanner_id = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_id", flat=True)
+        .first()
+    )
+    if scanner_id is None:
+        return []
+    recent = (
+        ReplayObservation.objects.filter(
+            team_id=team_id,
+            scanner_id=scanner_id,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=timezone.now() - timedelta(days=_KNOWN_FREEFORM_TAGS_DAYS),
+        )
+        .order_by("-created_at")
+        .values_list("scanner_result__model_output__tags_freeform", flat=True)[:_KNOWN_FREEFORM_TAGS_MAX_ROWS]
+    )
+    return rank_freeform_tags(recent)
+
+
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
     raw = (
         ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
@@ -225,6 +351,7 @@ async def _run_mission(
     preamble_text: str,
     team_id: int,
     llm_inputs: ScannerLlmInputs,
+    trace_id: str,
 ) -> tuple[BaseScannerOutput, list[SignalFinding]]:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
@@ -239,6 +366,7 @@ async def _run_mission(
             "ai_product": "replay_vision",
             "feature": "scanner",
             "scanner_type": snapshot.scanner_type.value,
+            "team_id": team_id,
         },
     )
     cache_client = GoogleGenAIClient(api_key=api_key)
@@ -265,6 +393,7 @@ async def _run_mission(
         dispatch=dispatch,
         team_id=team_id,
         metric_labels=metric_labels,
+        trace_id=trace_id,
     )
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
@@ -333,6 +462,7 @@ async def _run_steps(
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
+    trace_id: str,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -347,9 +477,12 @@ async def _run_steps(
             step=step,
             convo=convo,
             cache_name=cache_name,
+            video_part=video_part,
+            preamble_text=preamble_text,
             dispatch=dispatch,
             team_id=team_id,
             metric_labels=metric_labels,
+            trace_id=trace_id,
         )
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
@@ -384,9 +517,12 @@ async def _run_step(
     step: MissionStep,
     convo: list[Any],
     cache_name: str | None,
+    video_part: types.Part,
+    preamble_text: str,
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
+    trace_id: str,
 ) -> "_StepResult":
     """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
@@ -395,6 +531,9 @@ async def _run_step(
     """
     config = _step_config(step, cache_name)
     forced_config = _step_config(step, cache_name, allow_tools=False)
+    # The forced final turn runs inline (it can't reuse the cache, which pins the tool on). When the run is cached,
+    # `convo` omits the video + preamble prefix — those live in the cache — so re-supply them inline for that turn.
+    forced_prefix = [video_part, types.Part(text=preamble_text)] if cache_name else []
 
     async def _generate(c: list[Any], cfg: types.GenerateContentConfig = config) -> Any:
         return await client.models.generate_content(
@@ -402,6 +541,8 @@ async def _run_step(
             contents=c,
             config=cfg,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
+            posthog_trace_id=trace_id,
+            posthog_properties={"$ai_span_name": step.name},
             posthog_groups={"project": str(team_id)},
         )
 
@@ -424,7 +565,10 @@ async def _run_step(
                 )
                 started = time.monotonic()
                 response = await _force_final_answer(
-                    generate=lambda c: _generate(c, forced_config), convo=convo, exhausted=response, dispatch=dispatch
+                    generate=lambda c: _generate(forced_prefix + c, forced_config),
+                    convo=convo,
+                    exhausted=response,
+                    dispatch=dispatch,
                 )
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
@@ -511,20 +655,25 @@ async def _force_final_answer(*, generate: Any, convo: list[Any], exhausted: Any
 def _step_config(step: MissionStep, cache_name: str | None, *, allow_tools: bool = True) -> types.GenerateContentConfig:
     """Generation config for one step: its JSON schema, plus the events tool (from the cache when cached).
 
-    `allow_tools=False` is the forced final turn after the tool budget runs out — the model must answer from what it
-    has, so calling is suppressed: omit the tool inline, or disable function-calling on the cached tool.
+    Normal turns offer the tool — from the cache when the video is cached (the tool lives there alongside it), or
+    inline otherwise. The forced final turn (`allow_tools=False`, after the tool budget runs out) must answer from
+    what it has, so no tool is offered. It never references the cache: Gemini rejects a `GenerateContent` request
+    that sets `tools`, `tool_config`, or `system_instruction` alongside `cached_content`, so there's no way to
+    disable the cached tool per-request. That turn always runs inline with the tool simply absent — the caller
+    re-supplies the video + preamble inline for it (see `forced_prefix` in `_run_step`).
     """
     kwargs: dict[str, Any] = {
         "response_mime_type": "application/json",
         "response_json_schema": step.response_model.model_json_schema(),
+        # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
+        # unaffected (`response.text` skips thought parts); models with thinking off just return none.
+        "thinking_config": types.ThinkingConfig(include_thoughts=True),
     }
+    if not allow_tools:
+        return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now
     if cache_name:
         kwargs["cached_content"] = cache_name  # video, preamble, and the tool all live in the cache
-        if not allow_tools:
-            kwargs["tool_config"] = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.NONE)
-            )
-    elif allow_tools:
+    else:
         kwargs["tools"] = [events_tool()]
     return types.GenerateContentConfig(**kwargs)
 
@@ -573,4 +722,4 @@ async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> Non
         logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
-__all__ = ["call_scanner_provider_activity"]
+__all__ = ["apply_known_freeform_tags", "call_scanner_provider_activity", "rank_freeform_tags", "run_scan"]

@@ -6,10 +6,14 @@ name: Desktop Update E2E (macOS)
 # installed app became 2.0.0. Nightly and on demand only, never on PRs: it builds
 # twice and exercises a real install, so it is too slow and too flaky for the gate.
 #
-# Two legs run against the same new (2.0.0) feed:
-#   1. electron-builder -> electron-builder: the forward-compatibility baseline.
-#   2. Forge -> electron-builder: a real Electron Forge build (v0.55.132, the last
-#      Forge release, what users run today) updating via the genuine built-in
+# Three legs run:
+#   1. electron-builder -> electron-builder: the forward-compatibility baseline
+#      against the new (2.0.0) feed.
+#   2. Chained re-stage: with 2.0.0 already staged, the feed bumps to 3.0.0 and
+#      the background poll downloads and re-stages it; the restart must land on
+#      3.0.0. Proves replacing a staged Squirrel.Mac update is safe.
+#   3. Forge -> electron-builder: a real Electron Forge build (v0.55.132, the last
+#      Forge release) updating via the genuine built-in
 #      Squirrel.Mac client to the electron-builder build we ship now.
 
 on:
@@ -105,8 +109,10 @@ jobs:
                   pnpm --filter @posthog/harness run build
                   pnpm --filter @posthog/agent run build
 
-            - name: Build old + new update pair
+            - name: Build old + new update pair (and 3.0.0 chain feed)
               working-directory: products/desktop/apps/code
+              env:
+                  CHAIN_VERSION: '3.0.0'
               run: bash scripts/dev-update/build-pair.sh
 
             - name: Install Playwright
@@ -128,8 +134,26 @@ jobs:
                     }
                   '
 
+            # Chained re-stage leg: reuses the same old app and feeds built above, so
+            # it only costs one more download/install cycle, not another build.
+            - name: Run macOS chained update E2E
+              working-directory: products/desktop/apps/code
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/products/desktop/apps/code/out/update-chain-report.json
+              run: |
+                  pnpm exec playwright test --config=tests/e2e/playwright.update-chain.config.ts
+                  node -e '
+                    const r = require(process.env.GITHUB_WORKSPACE + "/products/desktop/apps/code/out/update-chain-report.json");
+                    const s = r.stats || {};
+                    console.log("chain update e2e stats:", JSON.stringify(s));
+                    if (s.expected !== 1 || s.skipped || s.unexpected || s.flaky) {
+                      console.error("FAIL: expected exactly one passing chained update test");
+                      process.exit(1);
+                    }
+                  '
+
             # Forge -> electron-builder leg. The old Forge app is a fixed pinned build
-            # (cb0ca68db), byte-identical on every run, so cache it and skip the ~11 min
+            # (cb0ca68db), byte-identical on every run, so cache it and skip the
             # rebuild that dominates this job. The key tracks the build script, which
             # pins the ref; bump the script to force a rebuild. Built after the baseline
             # leg so a flake in the (riskier) old-build step can never mask the baseline.
@@ -141,8 +165,8 @@ jobs:
                   key: forge-app-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('products/desktop/apps/code/scripts/dev-update/build-old-forge.sh') }}
 
             # Reuse the cached app only if its signature still verifies, otherwise rebuild.
-            # This makes a missing or tar-corrupted restore degrade to today's behaviour
-            # (a full build) instead of a confusing swap failure in the Forge leg.
+            # This makes a missing or tar-corrupted restore degrade to a full build
+            # instead of a confusing swap failure in the Forge leg.
             - name: Build old Forge app if not cached
               working-directory: products/desktop/apps/code
               env:
@@ -182,6 +206,7 @@ jobs:
                     const fs = require("fs");
                     const proofs = [
                       ["out/update-proof/proof.json", "macOS auto-update proof (builder -> builder)"],
+                      ["out/update-proof-chain/proof.json", "macOS auto-update proof (chained re-stage)"],
                       ["out/update-proof-forge/proof.json", "macOS auto-update proof (Forge -> builder)"],
                     ];
                     const cell = (v) => v === undefined || v === null ? "-" : String(v).replace(/\|/g, "\\|").replace(/\n/g, " ");
@@ -194,6 +219,8 @@ jobs:
                         ["New version", d.newVersion],
                         ["Booted on", d.bootedOn],
                         ["Feed offered", d.feedAvailableVersion],
+                        ["Intermediate version", d.intermediateVersion],
+                        ["Re-staged version", d.restagedVersion],
                         ["Downloaded", d.downloaded],
                         ["Bundle after swap", d.bundleVersionAfterSwap],
                         ["Auto-relaunched exe", d.autoRelaunchedExecutable],
@@ -218,12 +245,18 @@ jobs:
                   name: update-e2e-macos
                   path: |
                       products/desktop/apps/code/out/update-proof/
+                      products/desktop/apps/code/out/update-proof-chain/
                       products/desktop/apps/code/out/update-proof-forge/
                       products/desktop/apps/code/out/update-report.json
+                      products/desktop/apps/code/out/update-chain-report.json
                       products/desktop/apps/code/out/update-forge-report.json
                       products/desktop/apps/code/playwright-results/
                       /Users/runner/.posthog-code/logs/
                       /Users/runner/Library/Caches/com.posthog.array.ShipIt/
+                      !/Users/runner/Library/Caches/com.posthog.array.ShipIt/update.*/**
+                  # The app log dir lives under hidden ~/.posthog-code and is silently
+                  # dropped without this.
+                  include-hidden-files: true
                   if-no-files-found: ignore
                   retention-days: 7
 
@@ -233,8 +266,8 @@ jobs:
               with:
                   name: update-old-build-1.0.0
                   path: |
-                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip
-                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip.blockmap
+                      products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip
+                      products/desktop/apps/code/out/PostHog-Desktop-1.0.0-arm64-mac.zip.blockmap
                   if-no-files-found: warn
                   retention-days: 7
 

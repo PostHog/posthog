@@ -64,7 +64,7 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
                             Open in PostHog Desktop
                         </LemonButton>
                     )}
-                    <LemonButton type="secondary" to="https://posthog.com/code" targetBlank>
+                    <LemonButton type="secondary" to="https://posthog.com/desktop" targetBlank>
                         Download PostHog Desktop
                     </LemonButton>
                 </div>

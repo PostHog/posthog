@@ -311,18 +311,29 @@ interface BuildConfigArgs {
     timezone: string
     goalLines?: GoalLine[]
     ySeriesData?: SqlLineYSeries[] | null
+    /** Wraps each legend row, e.g. with the series right-click menu. Passed straight through to
+     *  quill so this module stays free of JSX. */
+    legendRenderItem?: ChartLegendConfig['renderItem']
 }
 
 export interface BuildBarConfigArgs extends BuildConfigArgs {
     visualizationType: ChartDisplayType
 }
 
-function buildXAxisConfig(xData: AxisSeries<string>, chartSettings: ChartSettings, timezone: string): XAxisConfig {
+const SQL_BAR_TICK_LABEL_ROTATION = -45
+
+function buildXAxisConfig(
+    xData: AxisSeries<string>,
+    chartSettings: ChartSettings,
+    timezone: string,
+    tickLabelRotation?: number
+): XAxisConfig {
     const isDateAxis = xData.column.type.name === 'DATE' || xData.column.type.name === 'DATETIME'
 
     return {
         label: chartSettings.xAxisLabel,
         tickFormatter: isDateAxis ? createXAxisTickCallback({ allDays: xData.data, timezone }) : undefined,
+        tickLabelRotation: isDateAxis ? undefined : tickLabelRotation,
         hide: chartSettings.showXAxisTicks === false,
     }
 }
@@ -360,8 +371,13 @@ function buildYAxisConfig(
     }
 }
 
-function buildLegendConfig(chartSettings: ChartSettings): ChartLegendConfig {
-    return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true }
+function buildLegendConfig(
+    chartSettings: ChartSettings,
+    renderItem: ChartLegendConfig['renderItem']
+): ChartLegendConfig {
+    // No `hiddenKeys`, so the legend is uncontrolled: quill owns which series are toggled off, and
+    // isolating a series works without SQL charts having to persist anything.
+    return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true, renderItem }
 }
 
 /** The X/Y axis-border toggles map onto quill's per-edge axis lines — undefined when both are on
@@ -398,6 +414,7 @@ export function buildLineChartConfig({
     timezone,
     goalLines,
     ySeriesData,
+    legendRenderItem,
 }: BuildConfigArgs): TimeSeriesLineChartConfig {
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
@@ -424,7 +441,7 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         showAxisLines: buildAxisLinesConfig(chartSettings),
         trendLines: buildTrendLineConfigs(ySeriesData),
-        legend: buildLegendConfig(chartSettings),
+        legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         curve: chartStyleCurve(chartSettings.chartStyle),
         tooltip: {
@@ -441,6 +458,7 @@ export function buildBarChartConfig({
     goalLines,
     visualizationType,
     ySeriesData,
+    legendRenderItem,
 }: BuildBarConfigArgs): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
@@ -448,7 +466,7 @@ export function buildBarChartConfig({
     const rightSeries = seriesForAxis(ySeriesData, 'right')
 
     return {
-        xAxis: buildXAxisConfig(xData, chartSettings, timezone),
+        xAxis: buildXAxisConfig(xData, chartSettings, timezone, SQL_BAR_TICK_LABEL_ROTATION),
         yAxis:
             rightSeries.length > 0
                 ? [
@@ -475,7 +493,7 @@ export function buildBarChartConfig({
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.
         trendLines: barLayout === 'percent' ? [] : buildTrendLineConfigs(ySeriesData),
-        legend: buildLegendConfig(chartSettings),
+        legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {
             ...buildSqlTooltipConfig(chartSettings, ySeriesData),
@@ -491,6 +509,7 @@ export function buildComboChartConfig({
     goalLines,
     visualizationType,
     ySeriesData,
+    legendRenderItem,
 }: BuildBarConfigArgs): TimeSeriesComboChartConfig & { yAxis?: YAxisConfig } {
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
@@ -528,7 +547,7 @@ export function buildComboChartConfig({
         // render off-scale and invisible.
         trendLines: isPercent ? [] : buildTrendLineConfigs(ySeriesData),
         curve: chartStyleCurve(chartSettings.chartStyle),
-        legend: buildLegendConfig(chartSettings),
+        legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {
             ...buildSqlTooltipConfig(chartSettings, ySeriesData),

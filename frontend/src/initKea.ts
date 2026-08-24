@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -37,9 +37,24 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
+    'loadWaitlistResponsesCount', // Soft-fails to a dash on the features list when survey access is missing
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
+    'loadDataset', // Dataset scenes render their own retry state
+    'loadDatasetItems', // Dataset scenes render their own retry state
+    'loadDatasetRevisions', // Dataset scenes render their own retry state
+    'loadDatasetItemDetails', // Dataset item modals render their own retry state
+    'loadDatasetItemVersions', // Dataset item modals render their own retry state
+    'exportDataset', // Dataset scenes render their own retry state
+    'generateSummary', // Summary view renders its own retry state
+    'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
+    'loadToolDataEvents',
+    'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
+    'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
+    'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
+    'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
+    'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
 ]
 
 /*
@@ -51,12 +66,10 @@ other failures on these actions still toast.
 const ACCESS_DENIED_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 /*
-Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
-reach the backend), not application bugs, so we still toast the user a retryable failure but
-don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
-issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
+Write actions whose own logic toasts the duplicate-key 400 (code `unique` on attr `key`), so the
+generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
-const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -137,7 +150,7 @@ export function initKea({
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
+                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
                 ) {
@@ -145,6 +158,14 @@ export function initKea({
                     const isTwoFactorError =
                         error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
                     const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
+                    // Only the 403 access-block gets the dedicated toast in apiStatusLogic; a 400
+                    // with this code is form validation (e.g. inviting an outside-domain email)
+                    // and must keep the generic error toast.
+                    const isVerifiedDomainError = error.code === 'verified_domain_required' && error.status === 403
+                    const isFeatureFlagDuplicateKey =
+                        error.code === 'unique' &&
+                        error.attr === 'key' &&
+                        DUPLICATE_KEY_SELF_HANDLED.has(String(actionKey))
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -157,7 +178,13 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError) {
+                    if (
+                        isTwoFactorError ||
+                        isSensitiveActionError ||
+                        isVerifiedDomainError ||
+                        isFeatureFlagDuplicateKey
+                    ) {
+                        // These are handled by their own dedicated toasts elsewhere.
                         errorMessage = null
                     }
                     if (errorMessage) {
@@ -177,7 +204,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                if (shouldReportApiFailure(error)) {
                     posthog.captureException(error)
                 }
             },

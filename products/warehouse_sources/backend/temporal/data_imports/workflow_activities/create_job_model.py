@@ -26,6 +26,10 @@ from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, Data
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
+    schema_binding,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
@@ -138,6 +142,33 @@ def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     }
 
 
+@retry_on_operational_error
+def _create_job(
+    *,
+    team_id: int,
+    source_id: uuid.UUID,
+    schema_id: uuid.UUID,
+    pipeline_version: str,
+    billable: bool,
+    schema_snapshot: dict[str, Any],
+) -> ExternalDataJob:
+    # A deadlock aborts the INSERT without creating a row, so retrying from scratch is safe. This
+    # activity has no Temporal-level retry (see external_data_job.py), because a retry after job
+    # creation succeeds would create a duplicate job — retrying just the INSERT avoids that.
+    return ExternalDataJob.objects.create(
+        team_id=team_id,
+        pipeline_id=source_id,
+        schema_id=schema_id,
+        status=ExternalDataJob.Status.RUNNING,
+        rows_synced=0,
+        workflow_id=activity.info().workflow_id,
+        workflow_run_id=activity.info().workflow_run_id,
+        pipeline_version=pipeline_version,
+        billable=billable,
+        schema_snapshot=schema_snapshot,
+    )
+
+
 # TODO: remove dependency
 
 
@@ -202,8 +233,6 @@ def create_external_data_job_model_activity(
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
-        schema.status = ExternalDataSchema.Status.RUNNING
-        schema.save()
 
         source: ExternalDataSource = schema.source
 
@@ -212,18 +241,19 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        job = ExternalDataJob.objects.create(
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        schema.status = ExternalDataSchema.Status.RUNNING
+        job = _create_job(
             team_id=inputs.team_id,
-            pipeline_id=inputs.source_id,
+            source_id=inputs.source_id,
             schema_id=inputs.schema_id,
-            status=ExternalDataJob.Status.RUNNING,
-            rows_synced=0,
-            workflow_id=activity.info().workflow_id,
-            workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
         )
+        schema.save(update_fields=["status", "updated_at"])
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -270,7 +300,7 @@ def create_external_data_job_model_activity(
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
         # customer_analytics via external_product_hooks; not imported here).
-        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema.id)
+        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),

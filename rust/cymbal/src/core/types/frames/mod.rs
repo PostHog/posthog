@@ -39,6 +39,8 @@ pub(crate) fn record_frame_resolution_failure(
     tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
 }
 
+pub mod releases;
+
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
 #[derive(Debug, Deserialize, Serialize, Clone)]

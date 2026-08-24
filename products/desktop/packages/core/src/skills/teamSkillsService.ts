@@ -2,7 +2,11 @@ import type {
   LlmSkillListItem,
   PostHogAPIClient,
 } from "@posthog/api-client/posthog-client";
-import type { ExportedSkill } from "@posthog/shared";
+import {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
+  type ExportedSkill,
+  isIgnoredSkillPath,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { SKILLS_WORKSPACE_CLIENT } from "./identifiers";
 
@@ -127,6 +131,10 @@ export class TeamSkillsService {
           body: exported.body,
           description: exported.description,
           files: exported.files,
+          metadata: withDisableModelInvocation(
+            existing.metadata,
+            exported.disableModelInvocation,
+          ),
           base_version: existing.latest_version ?? existing.version,
         })
       : await client.createLlmSkill({
@@ -134,6 +142,9 @@ export class TeamSkillsService {
           description: exported.description,
           body: exported.body,
           files: exported.files,
+          ...(exported.disableModelInvocation
+            ? { metadata: { [DISABLE_MODEL_INVOCATION_METADATA_KEY]: true } }
+            : {}),
         });
 
     return { version: published.version };
@@ -148,19 +159,38 @@ export class TeamSkillsService {
     name: string,
   ): Promise<ExportedSkill> {
     const detail = await client.getLlmSkillByName(name);
+    // Ignored entries in legacy-published skills are dropped downstream
+    // anyway; skipping the fetch avoids one request per junk file.
     const files = await Promise.all(
-      detail.files.map(async (manifest) => {
-        const file = await client.getLlmSkillFile(name, manifest.path);
-        return { path: file.path, content: file.content };
-      }),
+      detail.files
+        .filter((manifest) => !isIgnoredSkillPath(manifest.path))
+        .map(async (manifest) => {
+          const file = await client.getLlmSkillFile(name, manifest.path);
+          return { path: file.path, content: file.content };
+        }),
     );
     return {
       name: detail.name,
       description: detail.description,
       body: detail.body,
+      ...(detail.metadata?.[DISABLE_MODEL_INVOCATION_METADATA_KEY] === true
+        ? { disableModelInvocation: true }
+        : {}),
       files,
     };
   }
+}
+
+// Clearing the key keeps a republish that dropped the frontmatter from staying manual-only.
+function withDisableModelInvocation(
+  metadata: Record<string, unknown> | undefined,
+  disableModelInvocation: boolean | undefined,
+): Record<string, unknown> {
+  const { [DISABLE_MODEL_INVOCATION_METADATA_KEY]: _removed, ...rest } =
+    metadata ?? {};
+  return disableModelInvocation
+    ? { ...rest, [DISABLE_MODEL_INVOCATION_METADATA_KEY]: true }
+    : rest;
 }
 
 function toTeamSkillInfo(item: LlmSkillListItem): TeamSkillInfo {

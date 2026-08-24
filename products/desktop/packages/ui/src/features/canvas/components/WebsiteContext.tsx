@@ -1,5 +1,12 @@
-import { FileTextIcon, SparkleIcon } from "@phosphor-icons/react";
-import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
+import {
+  FileTextIcon,
+  GitBranchIcon,
+  SparkleIcon,
+} from "@phosphor-icons/react";
+import {
+  ContextWikiUnavailableError,
+  FolderInstructionsConflictError,
+} from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
   Empty,
@@ -11,9 +18,13 @@ import {
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { TaskChannel } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -21,16 +32,25 @@ import {
   useFolderInstructionsMutations,
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import {
+  useTaskChannels,
+  useUpdateTaskChannelRepositories,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/components/ContextWikiPagePane";
+import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
   PageHeader,
+  PageHeaderActions,
   PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
@@ -48,7 +68,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
-// Initial markdown shown when a folder has no instructions yet — gives both
+// Initial markdown shown when a channel has no instructions yet — gives both
 // humans and agents a structural starting point instead of a blank screen.
 const CHANNEL_EMPTY_TEMPLATE =
   "# Channel context\n\nDescribe what lives here.\n";
@@ -59,6 +79,104 @@ interface WebsiteContextProps {
 }
 
 export function WebsiteContext({ channelId }: WebsiteContextProps) {
+  const contextLayerEnabled = useContextLayerFlag();
+  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
+
+  if (contextLayerEnabled && wikiPage.isLoading) {
+    return (
+      <Flex align="center" justify="center" className="h-full">
+        <Spinner size="2" />
+      </Flex>
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.data) {
+    return (
+      <WikiWebsiteContext channelId={channelId} path={wikiPage.data.path} />
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.error) {
+    const unavailable = wikiPage.error instanceof ContextWikiUnavailableError;
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileTextIcon size={28} />
+          </EmptyMedia>
+          <EmptyTitle>
+            {unavailable
+              ? "Context wiki unavailable"
+              : "Could not load context"}
+          </EmptyTitle>
+          <EmptyDescription>{wikiPage.error.message}</EmptyDescription>
+        </EmptyHeader>
+        {!unavailable ? (
+          <EmptyContent>
+            <QuillButton variant="outline" onClick={() => wikiPage.refetch()}>
+              Try again
+            </QuillButton>
+          </EmptyContent>
+        ) : null}
+      </Empty>
+    );
+  }
+
+  return <LegacyWebsiteContext channelId={channelId} />;
+}
+
+function WikiWebsiteContext({
+  channelId,
+  path,
+}: {
+  channelId: string;
+  path: string;
+}) {
+  const spacesLayout = useChannelsLayout();
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
+  const headerContent = useMemo(
+    () => <ChannelHeader channelId={channelId} page="context" />,
+    [channelId],
+  );
+  useSetHeaderContent(headerContent);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {spacesLayout ? (
+        <PageHeader>
+          <PageHeaderHeading>
+            <PageHeaderTitleRow>
+              <PageHeaderTitle>Context</PageHeaderTitle>
+              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                {path}
+              </PageHeaderChip>
+            </PageHeaderTitleRow>
+            <PageHeaderDescription>
+              Agents working in this space can find this page in the shared
+              context wiki.
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+          <PageHeaderActions>
+            <QuillButton
+              variant="outline"
+              size="sm"
+              onClick={() => navigateToSpacesContext(path)}
+            >
+              Open in context wiki
+            </QuillButton>
+          </PageHeaderActions>
+        </PageHeader>
+      ) : null}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
+      <ContextWikiPagePane key={path} path={path} />
+    </div>
+  );
+}
+
+function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   const spacesLayout = useChannelsLayout();
   const emptyTemplate = spacesLayout
     ? SPACE_EMPTY_TEMPLATE
@@ -68,6 +186,8 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
 
   const {
     data: latest,
@@ -130,19 +250,20 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const isConflict = publishError instanceof FolderInstructionsConflictError;
 
   // Allow inspecting an older version read-only. When `null`, we're showing
-  // either the latest (rendered/edit) or the empty state.
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
-    null,
-  );
+  // either the latest (rendered/edit) or the empty state. Versions are keyed
+  // by their number — the version's identity on the channel.
+  const [selectedVersionNumber, setSelectedVersionNumber] = useState<
+    number | null
+  >(null);
 
   // Picking a past version forces rendered mode and shows that version's
   // metadata; we don't currently fetch the historical content body, so the
   // viewer falls back to "Open latest in editor" when there is no body.
   // (Backend exposes content only via the `latest` endpoint today.)
   const selectedVersion = useMemo(() => {
-    if (!selectedVersionId) return null;
-    return versions.find((v) => v.id === selectedVersionId) ?? null;
-  }, [selectedVersionId, versions]);
+    if (selectedVersionNumber == null) return null;
+    return versions.find((v) => v.version === selectedVersionNumber) ?? null;
+  }, [selectedVersionNumber, versions]);
 
   if (isLoadingLatest) {
     return (
@@ -157,7 +278,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
       <Flex direction="column" gap="3" p="4">
         <Callout.Root color="red" size="1">
           <Callout.Text>
-            Failed to load folder instructions: {latestError.message}
+            Failed to load channel instructions: {latestError.message}
           </Callout.Text>
         </Callout.Root>
       </Flex>
@@ -193,6 +314,9 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
       <Flex
         align="center"
         justify="between"
@@ -227,12 +351,16 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           {versions.length > 0 ? (
             <Select.Root
               size="1"
-              value={selectedVersionId ?? "latest"}
+              value={
+                selectedVersionNumber != null
+                  ? String(selectedVersionNumber)
+                  : "latest"
+              }
               onValueChange={(value) => {
                 if (value === "latest") {
-                  setSelectedVersionId(null);
+                  setSelectedVersionNumber(null);
                 } else {
-                  setSelectedVersionId(value);
+                  setSelectedVersionNumber(Number(value));
                   setMode("rendered");
                 }
               }}
@@ -244,9 +372,9 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   Latest (v{latest?.version ?? "—"})
                 </Select.Item>
                 {versions
-                  .filter((v) => !v.is_latest)
+                  .filter((v) => v.version !== latest?.version)
                   .map((v) => (
-                    <Select.Item key={v.id} value={v.id}>
+                    <Select.Item key={v.version} value={String(v.version)}>
                       v{v.version} · {formatTimestamp(v.created_at)}
                     </Select.Item>
                   ))}
@@ -299,22 +427,41 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         </Box>
       ) : null}
 
-      <ScrollArea
-        type="auto"
-        scrollbars="vertical"
-        className="scroll-area-constrain-width min-h-0 flex-1"
-      >
-        <Box p="4">
-          {selectedVersion ? (
-            <Callout.Root color="gray" size="1">
-              <Callout.Text>
-                Viewing v{selectedVersion.version} metadata. Past content is not
-                fetched today — switch to "Latest" to read or edit current
-                content.
-              </Callout.Text>
-            </Callout.Root>
-          ) : mode === "rendered" ? (
-            hasInstructions ? (
+      {!selectedVersion && mode === "edit" ? (
+        // The editor sits outside the scroll area so it grows with the window
+        // instead of scrolling the page around a fixed-height box.
+        <Box p="4" className="flex min-h-0 flex-1">
+          <TextArea
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHasDraft(true);
+            }}
+            size="2"
+            placeholder={
+              spacesLayout
+                ? "# Space context\n\nWrite markdown describing this space…"
+                : "# Channel context\n\nWrite markdown describing this channel…"
+            }
+            className="min-h-0 flex-1 font-[var(--code-font-family)]"
+          />
+        </Box>
+      ) : (
+        <ScrollArea
+          type="auto"
+          scrollbars="vertical"
+          className="scroll-area-constrain-width min-h-0 flex-1"
+        >
+          <Box p="4">
+            {selectedVersion ? (
+              <Callout.Root color="gray" size="1">
+                <Callout.Text>
+                  Viewing v{selectedVersion.version} metadata. Past content is
+                  not fetched today — switch to "Latest" to read or edit current
+                  content.
+                </Callout.Text>
+              </Callout.Root>
+            ) : hasInstructions ? (
               <Box className="text-[13px]">
                 <MarkdownRenderer content={renderedContent} />
               </Box>
@@ -328,27 +475,46 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   setMode("edit");
                 }}
               />
-            )
-          ) : (
-            <TextArea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setHasDraft(true);
-              }}
-              size="2"
-              rows={24}
-              placeholder={
-                spacesLayout
-                  ? "# Space context\n\nWrite markdown describing this space…"
-                  : "# Channel context\n\nWrite markdown describing this channel…"
-              }
-              className="font-[var(--code-font-family)]"
-            />
-          )}
-        </Box>
-      </ScrollArea>
+            )}
+          </Box>
+        </ScrollArea>
+      )}
     </Flex>
+  );
+}
+
+function SpaceRepositories({ channel }: { channel: TaskChannel }) {
+  const update = useUpdateTaskChannelRepositories();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const canEdit = currentUser?.id === channel.created_by?.id;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-b-(--gray-5) px-4 py-3">
+      <div className="flex items-center gap-2">
+        <GitBranchIcon size={15} className="text-muted-foreground" />
+        <span className="font-medium text-[13px]">Repositories</span>
+        {update.isPending ? (
+          <Spinner size="1" />
+        ) : update.error ? (
+          <span className="text-[12px] text-red-11">
+            Couldn't save. Try again.
+          </span>
+        ) : null}
+      </div>
+      <RepositoriesField
+        selected={channel.repositories ?? []}
+        integrationId={channel.github_integration ?? null}
+        disabled={!canEdit || update.isPending}
+        onChange={(repositories, githubIntegration) =>
+          update.mutate({
+            channelId: channel.id,
+            githubIntegration,
+            repositories,
+          })
+        }
+      />
+    </div>
   );
 }
 

@@ -1,11 +1,9 @@
 import { Brain, Pause } from "@phosphor-icons/react";
 import type { Task } from "@posthog/shared/domain-types";
-import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import {
   formatDuration,
   GeneratingIndicator,
 } from "@posthog/ui/features/sessions/components/GeneratingIndicator";
-import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Box, Flex, Text } from "@radix-ui/themes";
 import { DiffStatsChip } from "./DiffStatsChip";
 import { ImageBuilderBuildButton } from "./ImageBuilderBuildButton";
@@ -21,10 +19,17 @@ interface SessionFooterProps {
   hasPendingPermission?: boolean;
   pausedDurationMs?: number;
   isCompacting?: boolean;
-  usage?: ContextUsage | null;
+  /** A /clear is in flight. */
+  isClearing?: boolean;
+  /** A turn the agent started on its own, with no prompt RPC behind it, so
+   *  `isPromptPending` stays false while it generates. */
+  isBackgroundTurnActive?: boolean;
   /** Number of tool calls finished so far; the generating indicator advances
    *  its status word each time this changes. */
   completedToolCallCount?: number;
+  /** Timestamp (ms) of the newest event in the thread; the generating indicator
+   *  says how long it has been since one arrived. */
+  lastActivityAt?: number | null;
 }
 
 export function SessionFooter({
@@ -37,8 +42,10 @@ export function SessionFooter({
   hasPendingPermission = false,
   pausedDurationMs,
   isCompacting = false,
-  usage,
+  isClearing = false,
+  isBackgroundTurnActive = false,
   completedToolCallCount,
+  lastActivityAt,
 }: SessionFooterProps) {
   const rightSide = (
     <Flex align="center" gap="3" className="ml-auto shrink-0">
@@ -46,10 +53,13 @@ export function SessionFooter({
         <ImageBuilderBuildButton taskId={task.id} />
       )}
       {task && <DiffStatsChip task={task} />}
-      <ContextUsageIndicator usage={usage ?? null} />
     </Flex>
   );
-  if (isPromptPending && !isCompacting) {
+  if (
+    (isPromptPending || isBackgroundTurnActive) &&
+    !isCompacting &&
+    !isClearing
+  ) {
     if (hasPendingPermission) {
       return (
         <Box className="pt-3 pb-1 opacity-50 transition-opacity group-hover/thread:opacity-100">
@@ -79,13 +89,16 @@ export function SessionFooter({
               startedAt={promptStartedAt}
               pausedDurationMs={pausedDurationMs}
               activityKey={completedToolCallCount}
+              lastActivityAt={lastActivityAt}
             />
             {queuedCount > 0 && (
               <Text className="truncate text-[13px] text-muted-foreground">
                 ({queuedCount} queued)
               </Text>
             )}
-            <SlotMachineLever spinning={Boolean(isPromptPending)} />
+            <SlotMachineLever
+              spinning={Boolean(isPromptPending || isBackgroundTurnActive)}
+            />
           </Flex>
           {rightSide}
         </Flex>

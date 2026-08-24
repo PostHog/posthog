@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -65,6 +76,8 @@ export {
   type WindowBounds,
   windowBoundsSchema,
 } from "./browser-tabs-schemas";
+export * from "./canvas-contracts";
+export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 export {
   CLOUD_PROMPT_PREFIX,
@@ -88,9 +101,12 @@ export {
   getCloudTaskGatewayUrl,
   getProviderName,
   isAnthropicModel,
+  isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
+  isDeepseekModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -119,6 +135,7 @@ export {
   isDismissalReasonSnooze,
 } from "./dismissal-reasons";
 export {
+  type ArtifactSource,
   type ArtifactType,
   type CloudPermissionOption,
   type CloudTaskErrorUpdate,
@@ -127,7 +144,9 @@ export {
   type CloudTaskSnapshotUpdate,
   type CloudTaskStatusUpdate,
   type CloudTaskUpdatePayload,
+  isSkillBundleArtifactMetadata,
   isTerminalStatus,
+  type PostHogObjectArtifactMetadata,
   type SignalReportPriority,
   type Task,
   type TaskRun,
@@ -162,10 +181,7 @@ export {
 } from "./execution-modes";
 export * from "./flags";
 export * from "./git-domain";
-export type {
-  GitHandoffCheckpoint,
-  HandoffLocalGitState,
-} from "./git-handoff";
+export type { GitHandoffCheckpoint, HandoffLocalGitState } from "./git-handoff";
 export * from "./git-naming";
 export type { GitFileStatus } from "./git-types";
 export type {
@@ -207,16 +223,24 @@ export type {
 export {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
   EXTERNAL_INBOX_SOURCES,
+  filterInboxSourceOptions,
   sourceNeedsFullRefresh,
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
+  McpServerConnection,
 } from "./local-mcp-domain";
+export {
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolApprovalState,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type McpToolPolicy,
+} from "./mcp-tool-policy-domain";
 export {
   formatMention,
   type MentionSegment,
@@ -252,10 +276,7 @@ export {
   pathToFileUri,
   toRelativePath,
 } from "./path";
-export type {
-  PiMessagingMode,
-  PiRuntimeHealth,
-} from "./pi-session";
+export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
 export {
   buildPrOutput,
   mergePrUrls,
@@ -263,10 +284,7 @@ export {
   readPrSummaries,
   readPrUrls,
 } from "./pr-urls";
-export {
-  isPrivateIpv4Octets,
-  isPrivateIpv6Literal,
-} from "./private-network";
+export { isPrivateIpv4Octets, isPrivateIpv6Literal } from "./private-network";
 export {
   type CapabilityNotch,
   DEFAULT_REASONING_EFFORT,
@@ -278,6 +296,7 @@ export {
   supports1MContext,
   supportsFastMode,
 } from "./reasoning-effort";
+export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   type CloudRegion,
   formatRegionBadge,
@@ -286,12 +305,7 @@ export {
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
-export {
-  Saga,
-  type SagaLogger,
-  type SagaResult,
-  type SagaStep,
-} from "./saga";
+export { Saga, type SagaLogger, type SagaResult, type SagaStep } from "./saga";
 export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
   type AcpMessage,
@@ -323,6 +337,8 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
   SignalReportOrderingField,
@@ -337,32 +353,27 @@ export type {
   UploadableSkillSource,
 } from "./skills";
 export {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
+  isIgnoredSkillEntry,
+  isIgnoredSkillPath,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
-export {
-  type CreateTaskAutomationOptions,
-  createTaskAutomationSchema,
-  type TaskAutomation,
-  type TaskAutomationList,
-  type TaskAutomationValidationErrorDetails,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  type UpdateTaskAutomationOptions,
-  updateTaskAutomationSchema,
-} from "./task-automation";
 export type {
   TaskCreationInput,
   TaskCreationOutput,
 } from "./task-creation-domain";
 export {
+  formatAbsoluteDateTime,
   formatClockTime,
   formatDaySeparatorLabel,
+  formatRelativeAge,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
+  formatShortDayLabel,
   getLocalDayDiff,
   getLocalDayKey,
   getRelativeDateGroup,
@@ -373,6 +384,7 @@ export {
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

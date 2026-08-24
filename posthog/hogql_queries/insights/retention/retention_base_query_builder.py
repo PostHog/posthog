@@ -12,6 +12,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import entity_to_expr, property_to_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
 
 if TYPE_CHECKING:
@@ -78,14 +79,24 @@ class RetentionBaseQueryBuilder(ABC):
             return ast.Field(chain=[entity.table_name, entity.timestamp_field])
         return ast.Field(chain=["events", "timestamp"])
 
-    def entity_actor_id_column(self, entity: RetentionEntity) -> str:
-        # The column that identifies the actor (person or group) for an entity: the configured join field
-        # for a data warehouse entity, or the runner's resolved person/group column for events.
+    def entity_actor_id_expr(self, entity: RetentionEntity) -> ast.Expr:
+        # What identifies the actor (person or group) for an entity: the configured target for a data
+        # warehouse entity, or the runner's resolved person/group column for events. The warehouse target
+        # is parsed as HogQL, matching funnels and lifecycle, so it can reach a joined field such as
+        # `person.id` rather than only a column on the table itself.
         if entity.type == EntityType.DATA_WAREHOUSE:
             if not entity.aggregation_target_field:
                 raise ValidationError("A data warehouse retention series requires aggregation_target_field.")
-            return entity.aggregation_target_field
-        return self.aggregation_target_events_column
+            tag_contains_user_hogql()
+            return parse_expr(entity.aggregation_target_field)
+        return ast.Field(chain=[self.aggregation_target_events_column])
+
+    @property
+    def has_data_warehouse_series(self) -> bool:
+        return self.runner.has_data_warehouse_series
+
+    def coerce_actor_id_expr(self, actor_id_expr: ast.Expr) -> ast.Expr:
+        return self.runner.coerce_actor_id_expr(actor_id_expr)
 
     @cached_property
     def start_entity_expr_no_props(self) -> ast.Expr:

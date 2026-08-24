@@ -65,6 +65,7 @@ jobs:
                   gh run download "$BACKEND_RUN_ID" \
                       --pattern "junit-results-backend-core-*" \
                       --pattern "junit-results-backend-temporal-*" \
+                      --pattern "product-junit-results-*" \
                       --dir junit_artifacts || echo "::warning::No JUnit artifacts — statistical carrier detection"
 
             - name: Merge into .test_durations
@@ -74,9 +75,10 @@ jobs:
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
                       --segment Temporal --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
-                      --segment Products
+                      --segment Products --junit-dir junit_artifacts
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
-                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations \
+                      --replace-prefix products/
                   rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
 
             - name: Compute cache key

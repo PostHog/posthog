@@ -1,4 +1,5 @@
 import uuid
+import smtplib
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql.errors import QueryError
 
+from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
@@ -41,7 +43,9 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    deliver_subscription_v2,
     fetch_due_subscriptions_activity,
+    notify_subscription_delivery_failure,
     update_delivery_record,
     validate_subscription_for_delivery,
 )
@@ -53,6 +57,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -74,7 +79,7 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
@@ -101,6 +106,66 @@ async def test_subscription_workflows_accept_legacy_previous_target_payload() ->
     assert update_inputs.previous_target_value == "old@example.com"
 
 
+async def test_email_delivery_error_is_non_retryable(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def fail_send(_email: str) -> None:
+        raise EmailDeliveryError("provider rejected delivery")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_email(subscription, inputs, [], fail_send)
+
+    assert error.value.non_retryable is True
+    assert error.value.details[0]["recipient_results"][0]["status"] == "failed"
+
+
+async def test_mixed_permanent_and_transient_failures_are_retryable(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, target_value="a@posthog.com,b@posthog.com")
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def mixed_send(email: str) -> None:
+        if email == "a@posthog.com":
+            raise EmailDeliveryError("permanent rejection")
+        raise smtplib.SMTPException("transient relay timeout")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(smtplib.SMTPException):
+            await deliver_email(subscription, inputs, [], mixed_send)
+
+
+async def test_non_retryable_error_details_are_bounded(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(
+        team=team, target_value=",".join(f"user{i}@posthog.com" for i in range(120))
+    )
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def fail_send(_email: str) -> None:
+        raise EmailDeliveryError("permanent rejection")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_email(subscription, inputs, [], fail_send)
+
+    details = error.value.details[0]["recipient_results"]
+    assert error.value.non_retryable is True
+    assert len(details) == 51  # 50 capped results + truncation sentinel
+    assert details[-1]["truncated_count"] == 70
+
+
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
@@ -110,6 +175,8 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        deliver_subscription_v2,
+        notify_subscription_delivery_failure,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -124,6 +191,8 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        deliver_subscription_v2,
+        notify_subscription_delivery_failure,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -463,7 +532,7 @@ async def test_deliver_subscription_report_slack(
 async def test_process_subscription_records_missing_slack_integration_failure(
     mock_get_slack: MagicMock,
     mock_build_snapshot: MagicMock,
-    mock_send_notification: MagicMock,
+    _mock_send_notification: MagicMock,
     temporal_client: Client,
     team,
     user,
@@ -529,14 +598,13 @@ async def test_process_subscription_records_missing_slack_integration_failure(
                 "message": "Slack integration disconnected",
                 "type": "missing_integration",
             },
+            "human_readable_error": "Slack integration disconnected",
         }
     ]
     mock_get_slack.assert_not_called()
 
-    # Subscription is auto-disabled and owner is notified.
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
-    mock_send_notification.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -584,7 +652,7 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
     env = ActivityEnvironment()
 
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         # Always patched — only consulted on the slack branch, harmless otherwise.
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
@@ -605,7 +673,6 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
 
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
-    send_mock.assert_called_once()
     capture_mock.assert_called_once()
     # Must return cleanly — NOT raise
     assert result is not None
@@ -691,7 +758,7 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
 
     # First call: unsupported_target triggers auto-disable + per-recipient failure.
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         patch(
             "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
         ) as capture_mock,
@@ -702,7 +769,6 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
     error = first_result.recipient_results[0].error
     assert error is not None
     assert error["type"] == "unsupported_target"
-    send_mock.assert_called_once()
     capture_mock.assert_called_once()
 
     await sync_to_async(subscription.refresh_from_db)()
@@ -755,7 +821,7 @@ async def test_validate_subscription_for_delivery(
 
     env = ActivityEnvironment()
     with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
         patch(
             "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
         ) as capture_mock,
@@ -772,7 +838,6 @@ async def test_validate_subscription_for_delivery(
             assert abort_info.failed_recipient is None
     else:
         assert abort_info is None
-    assert send_mock.called is expects_failed_recipient
     assert capture_mock.called is expects_failed_recipient
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is expected_final_enabled
@@ -897,7 +962,6 @@ async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_e
         # Two captures: the real SlackApiError, and the synthetic Exception from the auto-disable helper.
         assert capture_mock.call_count == 2
         assert subscription.enabled is False
-        send_mock.assert_called_once()
         assert result is not None
         assert result.recipient_results[0].status == "failed"
         assert result.recipient_results[0].error == {
@@ -1526,6 +1590,8 @@ async def test_deliver_subscription_workflow_end_to_end(
 
     # 2 recipients
     assert mock_send_email.call_count == 2
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
+    assert {call.kwargs["delivery_id"] for call in mock_send_email.call_args_list} == {delivery.id}
 
     # Both started and completed events flow through posthog.slo.events
     started_calls = [
@@ -2090,7 +2156,7 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
     mock_exporter: MagicMock,
     mock_get_slack: MagicMock,
     mock_build_snapshot: MagicMock,
-    mock_send_notification: MagicMock,
+    _mock_send_notification: MagicMock,
     temporal_client: Client,
     team,
     user,
@@ -2162,7 +2228,6 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
     # Sanity: auto-disable wired correctly.
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
-    mock_send_notification.assert_called_once()
 
     delivery_completed_calls = [
         c

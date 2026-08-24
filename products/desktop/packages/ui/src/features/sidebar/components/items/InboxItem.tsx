@@ -46,7 +46,7 @@ export function InboxItem({
           badge={<Badge variant="warning">Beta</Badge>}
           isActive={isActive}
           onClick={onClick}
-          endContent={<SidebarKbdHint keys={SHORTCUTS.INBOX} />}
+          endHint={<SidebarKbdHint keys={SHORTCUTS.INBOX} />}
         />
       </div>
     </Tooltip>

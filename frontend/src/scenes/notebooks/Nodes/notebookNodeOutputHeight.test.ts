@@ -1,4 +1,4 @@
-import { countTextLines, outputHeightForShape } from './notebookNodeOutputHeight'
+import { countTextLines, initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
 
 describe('notebookNodeOutputHeight', () => {
     it('returns null when there is nothing to show', () => {
@@ -25,6 +25,19 @@ describe('notebookNodeOutputHeight', () => {
 
     it('leaves room for a figure', () => {
         expect(outputHeightForShape({ hasMedia: true })!).toBeGreaterThan(outputHeightForShape({ textLines: 1 })!)
+    })
+
+    it.each([
+        // An MCP run writes the envelope into the markdown but no height, so the cell arrives
+        // with a result it has never been sized for.
+        { when: 'a result that arrived without a height', hasResult: true, height: undefined, runId: 'run-1' },
+        { when: 'no result yet', hasResult: false, height: undefined, runId: null },
+    ])('treats $when as needing sizing', ({ hasResult, height, runId }) => {
+        expect(initialSizedRunId({ hasResult, height, runId })).toBeUndefined()
+    })
+
+    it('leaves a cell the editor already sized alone', () => {
+        expect(initialSizedRunId({ hasResult: true, height: 300, runId: 'run-1' })).toEqual('run-1')
     })
 
     it('counts text lines across streams, ignoring a trailing newline', () => {

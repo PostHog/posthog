@@ -48,11 +48,13 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
   navigateToAgents,
   navigateToCommandCenter,
+  navigateToContext: vi.fn(),
   navigateToInbox,
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
   navigateToWebsiteCommandCenter: vi.fn(),
+  navigateToWebsiteContext: vi.fn(),
   navigateToWebsiteMcpServers: vi.fn(),
   navigateToWebsiteSkills: vi.fn(),
 }));
@@ -114,7 +116,7 @@ describe("SidebarNavSection", () => {
     ["inbox", "Inbox"],
     ["command-center", "Command Center"],
     ["activity", "Activity"],
-    ["configure", "Configure"],
+    ["configure", "Settings"],
     ["loops", "Loops"],
   ] as const)("removes %s from the sidebar when hidden", (id, label) => {
     useSidebarStore.setState({ navItemOverrides: { [id]: false } });
@@ -144,7 +146,7 @@ describe("SidebarNavSection", () => {
     await user.click(screen.getByRole("button", { name: /Inbox/ }));
 
     expect(navigateToInbox).toHaveBeenCalledTimes(1);
-    // `layout` separates these from ChannelNav's identically-named clicks.
+    // `layout` separates these from the nav rail's identically-named clicks.
     expect(track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED,
       { item: "inbox", in_more: false, layout: "code" },

@@ -254,7 +254,7 @@ export function SubscriptionListItem({
                                 <TZLabel
                                     time={subscription.next_delivery_date}
                                     formatDate="ddd, MMM D"
-                                    formatTime="HH:mm"
+                                    formatTime="h:mm A"
                                     timestampStyle="absolute"
                                 />
                             </div>

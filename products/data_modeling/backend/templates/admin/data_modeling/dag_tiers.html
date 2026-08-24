@@ -34,7 +34,7 @@
   </tr>
   {% for tier in tiers %}
   <tr>
-    <td><a href="#tier-{{ tier.seconds }}"><strong>{{ tier.label }}</strong></a></td>
+    <td><a href="#tier-{{ tier.slug }}"><strong>{{ tier.label }}</strong></a></td>
     <td>
       {% if temporal_ui_host %}
         <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/execute-dag-{{ tier.schedule_id }}" target="_blank" rel="noreferrer">schedule ↗</a>
@@ -65,7 +65,7 @@
 </table>
 
 {% for tier in tiers %}
-<h2 class="tier-heading" id="tier-{{ tier.seconds }}">{{ tier.label }} — {{ tier.declared }} materializing node{{ tier.declared|pluralize }}</h2>
+<h2 class="tier-heading" id="tier-{{ tier.slug }}">{{ tier.label }} — {{ tier.declared }} materializing node{{ tier.declared|pluralize }}</h2>
 <p class="tier-meta">
   {% if tier.run_is_legacy %}
     This DAG has no schedule for this tier. The statuses below come from its pre-tier

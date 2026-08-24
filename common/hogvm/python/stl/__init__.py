@@ -12,7 +12,7 @@ import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
 from ..utils import HogVMException, _require_string, get_nested_value, like
-from .crypto import md5, sha256, sha256HmacChain
+from .crypto import md5, sha1, sha1HmacChain, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
     fromUnixTimestamp,
@@ -1060,9 +1060,25 @@ STL: dict[str, STLFunction] = {
         minArgs=1,
         maxArgs=2,
     ),
+    "sha1Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha1(args[0]), minArgs=1, maxArgs=1),
+    "sha1": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
+    ),
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
     "md5": STLFunction(
         fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
+    ),
+    "sha1HmacChainHex": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], "hex"),
+        minArgs=1,
+        maxArgs=1,
+    ),
+    "sha1HmacChain": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha1HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
     ),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),

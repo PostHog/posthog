@@ -241,10 +241,10 @@ export function GatewayAddServer({
             <Flex direction="column" gap="3">
               {isAdmin && (
                 <ToggleRow
-                  title="Enable for the whole team"
+                  title="Available to team members"
                   sub={
                     values.teamEnabled
-                      ? "Every member will see this server once it's added."
+                      ? "Members can find this server and connect their own account"
                       : "Only admins will see it until you enable it in Team settings."
                   }
                   checked={values.teamEnabled}

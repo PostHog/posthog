@@ -19,6 +19,7 @@ import {
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import type { FileReadClient } from "../files/identifiers";
 import type { PiRunner } from "../pi-runtime/piRunner";
 import type { TaskCreationApiClient } from "./taskCreationApiClient";
 import type {
@@ -26,6 +27,7 @@ import type {
   ImportedClaudeCliSession,
   ITaskCreationHost,
 } from "./taskCreationHost";
+import { buildTaskNamingSource } from "./taskDescription";
 import { resolveTaskRepository } from "./taskRepository";
 
 export interface TaskCreationDeps {
@@ -33,6 +35,7 @@ export interface TaskCreationDeps {
   host: ITaskCreationHost;
   sessionService: SessionService;
   piRunner: PiRunner;
+  fileReadClient: FileReadClient;
   onTaskReady?: (output: TaskCreationOutput) => void;
   track: (event: string, props?: Record<string, unknown>) => void;
 }
@@ -62,6 +65,7 @@ function buildCloudFirstMessage(
     input.channelContext,
     input.channelName,
     input.channelContextId,
+    input.channelContextPath,
   );
   const pendingUserMessage =
     [messageText, customInstructionsText, channelContextText]
@@ -515,6 +519,7 @@ export class TaskCreationSaga extends Saga<
         input.channelContext,
         input.channelName,
         input.channelContextId,
+        input.channelContextPath,
       );
       if (initialPrompt && channelContextBlock) {
         initialPrompt.push(channelContextBlock);
@@ -527,11 +532,22 @@ export class TaskCreationSaga extends Saga<
             const thinkingLevel = PI_THINKING_LEVELS.find(
               (level) => level === input.reasoningLevel,
             );
+            const channelContextText = buildChannelContextText(
+              input.channelContext,
+              input.channelName,
+              input.channelContextId,
+              input.channelContextPath,
+            );
+            const prompt = [input.content, channelContextText]
+              .filter((part): part is string => !!part)
+              .join("\n\n");
 
             await this.deps.piRunner.create({
               taskId: task.id,
               cwd: agentCwd ?? "",
-              prompt: input.content ?? "",
+              projectTrustPath:
+                workspace?.folderPath ?? repoPath ?? scratchCwd ?? undefined,
+              prompt,
               model: input.model,
               thinkingLevel,
             });
@@ -732,9 +748,10 @@ export class TaskCreationSaga extends Saga<
     };
 
     const lease =
-      input.repository && input.runtime !== "pi"
+      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
         ? this.deps.host.takeWarmTaskLease({
-            repository: input.repository,
+            repository: input.repository ?? null,
+            repositories: input.repositories,
             branch: input.branch ?? null,
             runtimeAdapter: input.adapter ?? null,
             model: input.model ?? null,
@@ -794,14 +811,23 @@ export class TaskCreationSaga extends Saga<
       name: "task_creation",
       execute: async () => {
         const description = input.taskDescription ?? input.content ?? "";
+        const namingSource = await buildTaskNamingSource(
+          description,
+          input.filePaths ?? [],
+          this.deps.fileReadClient,
+        );
         const canActivateWarmRun =
           input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
         const result = await this.deps.posthogClient.createTask({
           description,
-          repository: repository ?? undefined,
+          naming_source: namingSource,
+          repository: input.repositories
+            ? undefined
+            : (repository ?? undefined),
+          repositories: input.repositories,
           github_integration:
             input.workspaceMode === "cloud" &&
-            input.cloudRunSource === "signal_report"
+            (input.cloudRunSource === "signal_report" || input.repositories)
               ? input.githubIntegrationId
               : undefined,
           github_user_integration:

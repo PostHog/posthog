@@ -317,4 +317,40 @@ describe("HandoffSaga", () => {
       DEFAULT_LOCAL_GIT_STATE,
     );
   });
+
+  it("applies each repository checkpoint to its local checkout", async () => {
+    const posthog = createCheckpoint({ repository: "PostHog/posthog" });
+    const desktop = createCheckpoint({
+      repository: "PostHog/desktop",
+      checkpointId: "checkpoint-2",
+    });
+    const { deps, result } = await runSaga({
+      input: {
+        repositoryPaths: {
+          "posthog/posthog": "/repos/posthog",
+          "posthog/desktop": "/repos/desktop",
+        },
+      },
+      resumeState: {
+        latestGitCheckpoints: [posthog, desktop],
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(deps.applyGitCheckpoint).toHaveBeenCalledTimes(2);
+    expect(deps.applyGitCheckpoint).toHaveBeenCalledWith(
+      posthog,
+      "/repos/posthog",
+      "task-1",
+      "run-1",
+      undefined,
+    );
+    expect(deps.applyGitCheckpoint).toHaveBeenCalledWith(
+      desktop,
+      "/repos/desktop",
+      "task-1",
+      "run-1",
+      undefined,
+    );
+  });
 });

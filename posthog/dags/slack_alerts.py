@@ -25,6 +25,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_POSTHOG_AI.value: "#alerts-max-ai",
     JobOwners.TEAM_QUERY_PERFORMANCE.value: "#alerts-query-performance",
     JobOwners.TEAM_SECURITY.value: "#alerts-security",
+    JobOwners.TEAM_SELF_DRIVING.value: "#alerts-self-driving",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
 }
@@ -98,6 +99,16 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
         context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e)}")
 
 
+# A manually materialized or backfilled asset runs under Dagster's implicit `__ASSET_JOB`, whose
+# run tags carry no owner, so ownership has to come from the failed step names instead. First
+# matching prefix wins; assets whose names don't start with one of these fall back to the run tag.
+ASSET_NAME_PREFIX_OWNERS: tuple[tuple[str, JobOwners], ...] = (
+    ("web_", JobOwners.TEAM_WEB_ANALYTICS),
+    ("inbox_report_", JobOwners.TEAM_SELF_DRIVING),
+    ("inbox_signal_", JobOwners.TEAM_SELF_DRIVING),
+)
+
+
 def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) -> str:
     """Determine the correct job owner for alert routing, with special handling for asset jobs."""
     job_name = failed_run.job_name
@@ -105,16 +116,15 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
 
     # Special handling for manually launched asset jobs
     if job_name == "__ASSET_JOB":
-        # Check if the error message contains web_ prefixed failed steps
         # Pattern: "Steps failed: ['web_pre_aggregated_bounces', 'web_pre_aggregated_stats']"
-        web_step_pattern = r"Steps failed:.*?\[([^\]]+)\]"
-        match = re.search(web_step_pattern, error_message)
+        step_pattern = r"Steps failed:.*?\[([^\]]+)\]"
+        match = re.search(step_pattern, error_message)
 
         if match:
             steps_text = match.group(1)
-            # Check if any step starts with 'web_'
-            if re.search(r"'web_[^']*'", steps_text):
-                return JobOwners.TEAM_WEB_ANALYTICS.value
+            for prefix, owner in ASSET_NAME_PREFIX_OWNERS:
+                if re.search(rf"'{re.escape(prefix)}[^']*'", steps_text):
+                    return owner.value
 
     return job_owner
 

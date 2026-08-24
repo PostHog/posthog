@@ -2,13 +2,15 @@ import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
   Bell,
+  BookOpenTextIcon,
   DotsSixVertical,
   EnvelopeSimple,
-  Lightning,
   SlidersHorizontal,
+  SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
   CUSTOMIZABLE_NAV_ITEMS,
@@ -29,10 +31,11 @@ const ITEM_ICONS: Record<
   React.ComponentType<{ size?: number | string }>
 > = {
   inbox: EnvelopeSimple,
-  "command-center": Lightning,
+  "command-center": SquaresFourIcon,
   activity: Bell,
   configure: SlidersHorizontal,
   loops: LoopIcon,
+  contexts: BookOpenTextIcon,
 };
 
 function sameOrder(
@@ -48,6 +51,7 @@ export function CustomizeSidebarSettings() {
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const contextEnabled = useContextLayerFlag();
   const navItemOverrides = useSidebarStore((s) => s.navItemOverrides);
   const navItemOrder = useSidebarStore((s) => s.navItemOrder);
   const setNavItemVisible = useSidebarStore((s) => s.setNavItemVisible);
@@ -73,6 +77,7 @@ export function CustomizeSidebarSettings() {
     ({ id }) => {
       if (id === "loops") return loopsEnabled;
       if (id === "activity") return bluebirdEnabled;
+      if (id === "contexts") return contextEnabled;
       return true;
     },
   );

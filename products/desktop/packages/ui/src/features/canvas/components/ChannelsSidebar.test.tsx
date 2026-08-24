@@ -6,12 +6,19 @@ const mocks = vi.hoisted(() => ({
   featureFlags: new Map<string, boolean>(),
   channelsLayout: false,
   channelsEnabled: false,
-  channels: [] as { id: string; name: string; path: string }[],
+  channels: [] as {
+    id: string;
+    name: string;
+    channelType: "public" | "personal";
+    starred: boolean;
+  }[],
   channelsLoading: false,
   archivedTaskIds: new Set<string>(),
   navigateToArchived: vi.fn(),
   track: vi.fn(),
   routeChannelId: undefined as string | undefined,
+  fullPath: "/spaces/$channelId",
+  markChannelSeen: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({
@@ -30,11 +37,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     isLoading: mocks.channelsLoading,
   }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useMarkChannelSeen", () => ({
+  useMarkChannelSeen: (channelId: string | undefined) =>
+    mocks.markChannelSeen(channelId),
+}));
 vi.mock("@posthog/ui/features/archive/useArchivedTaskIds", () => ({
   useArchivedTaskIds: () => mocks.archivedTaskIds,
-}));
-vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
-  useChannelStars: () => ({ starredRefToShortcutId: new Map() }),
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToArchived: (...args: unknown[]) => mocks.navigateToArchived(...args),
@@ -42,8 +50,8 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 
 // The sidebar's children each mount their own query stack; this suite is about
 // the shell's own decisions, so they're stubbed out.
-vi.mock("@posthog/ui/features/canvas/components/ChannelNav", () => ({
-  ChannelNav: () => null,
+vi.mock("@posthog/ui/features/canvas/components/ActivityFeedList", () => ({
+  ActivityFeedList: () => <div data-testid="activity-feed" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelSidebar", () => ({
   ChannelSidebar: ({ channelId }: { channelId: string }) => (
@@ -71,14 +79,16 @@ vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
 vi.mock("@posthog/ui/features/sidebar/components/UpdateBanner", () => ({
   UpdateBanner: () => null,
 }));
-vi.mock("@posthog/ui/features/loops/components/LoopsPromoCard", () => ({
-  LoopsPromoCard: () => null,
-}));
 vi.mock("@posthog/ui/features/workspace/useWorkspace", () => ({
   useWorkspaces: () => ({ data: {}, isFetched: true }),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ channelId: mocks.routeChannelId }),
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { matches: { fullPath: string }[] }) => unknown;
+  }) => select({ matches: [{ fullPath: mocks.fullPath }] }),
 }));
 
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
@@ -89,17 +99,31 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { ChannelRouteSync } from "./ChannelRouteSync";
 import { ChannelsSidebar } from "./ChannelsSidebar";
 
+// The same pair the shell mounts: the column's contents follow the scoped space.
 function renderSidebar() {
   return render(
     <Theme>
+      <ChannelRouteSync />
       <ChannelsSidebar />
     </Theme>,
   );
 }
 
-const ME = { id: "me-id", name: "me", path: "/me" };
+const ME = {
+  id: "me-id",
+  name: "me",
+  channelType: "personal" as const,
+  starred: false,
+};
+const ENG = {
+  id: "eng-id",
+  name: "eng",
+  channelType: "public" as const,
+  starred: false,
+};
 
 describe("ChannelsSidebar", () => {
   beforeEach(() => {
@@ -111,22 +135,39 @@ describe("ChannelsSidebar", () => {
     mocks.archivedTaskIds = new Set();
     mocks.track.mockClear();
     mocks.routeChannelId = undefined;
+    mocks.fullPath = "/spaces/$channelId/";
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
-    useSidebarStore.setState({ channelsEnabled: false, open: true });
+    // hasUserSetOpen pins `open`, so the auto-open effect (which sees no
+    // workspaces in this harness) can't collapse it out from under the tests.
+    useSidebarStore.setState({
+      channelsEnabled: false,
+      open: true,
+      hasUserSetOpen: true,
+    });
   });
 
   // The sidebar is a two-pane slider: the channel list, and the channel you're
   // in. Both stay mounted, so "which one is showing" is the offscreen pane
   // being inert rather than unmounted.
   describe("the channel-list slider", () => {
-    const ENG = { id: "eng-id", name: "eng", path: "/eng" };
     const listIsInteractive = () =>
       !screen.getByTestId("channels-list").parentElement?.hasAttribute("inert");
 
     beforeEach(() => {
       mocks.channelsLayout = true;
       mocks.channels = [ME, ENG];
+    });
+
+    // Activity owns this column whenever its route does, so the space tree can
+    // never be what a reader finds under the Activity destination.
+    it("hands the column to the activity feed on the Activity route", () => {
+      mocks.routeChannelId = undefined;
+      mocks.fullPath = "/activity";
+      renderSidebar();
+
+      expect(screen.getByTestId("activity-feed")).toBeInTheDocument();
+      expect(screen.queryByTestId("channels-list")).not.toBeInTheDocument();
     });
 
     it("rests on the channel you're in", () => {
@@ -148,6 +189,25 @@ describe("ChannelsSidebar", () => {
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
     });
 
+    it("marks a channel seen only while its pane is visible", () => {
+      mocks.routeChannelId = ENG.id;
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(ENG.id);
+
+      act(() => showChannelList());
+
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
+    });
+
+    // ⌘B collapses the sidebar to zero width but keeps the pane mounted. A poll
+    // landing behind it must not stamp the channel seen — nobody saw the pane.
+    it("does not mark a channel seen while the sidebar is closed", () => {
+      mocks.routeChannelId = ENG.id;
+      useSidebarStore.setState({ open: false });
+      renderSidebar();
+      expect(mocks.markChannelSeen).toHaveBeenLastCalledWith(undefined);
+    });
+
     // Opening a channel from anywhere — a deep link, a mention, ⌘1-9 — has to
     // land on the channel even if the list was left open.
     it("follows the route back into a channel", () => {
@@ -158,6 +218,7 @@ describe("ChannelsSidebar", () => {
       mocks.routeChannelId = ME.id;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -171,6 +232,36 @@ describe("ChannelsSidebar", () => {
       renderSidebar();
       expect(listIsInteractive()).toBe(true);
       expect(screen.queryByTestId("channel-sidebar")).toBeNull();
+    });
+
+    // A deep link back to the channel is a request to see it, so a latch armed
+    // before an intervening channel-less route must not strand it on the list.
+    it("does not hold the list for a deep link after a channel-less route", () => {
+      mocks.routeChannelId = ENG.id;
+      const { rerender } = renderSidebar();
+      act(() => {
+        showChannelList(ENG.id);
+      });
+      expect(listIsInteractive()).toBe(true);
+
+      mocks.routeChannelId = undefined;
+      rerender(
+        <Theme>
+          <ChannelRouteSync />
+          <ChannelsSidebar />
+        </Theme>,
+      );
+
+      mocks.routeChannelId = ENG.id;
+      rerender(
+        <Theme>
+          <ChannelRouteSync />
+          <ChannelsSidebar />
+        </Theme>,
+      );
+
+      expect(listIsInteractive()).toBe(false);
+      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
     });
 
     // A trackpad swipe reaches the panes as a horizontal wheel. Right (negative
@@ -287,7 +378,7 @@ describe("ChannelsSidebar", () => {
   describe("auto-scoping to #me", () => {
     it("keeps a deep-linked channel instead of overwriting it with #me", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [ME, { id: "eng-id", name: "eng", path: "/eng" }];
+      mocks.channels = [ME, ENG];
       mocks.routeChannelId = "eng-id";
 
       renderSidebar();
@@ -314,6 +405,7 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = false;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -322,6 +414,7 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = true;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
@@ -330,7 +423,7 @@ describe("ChannelsSidebar", () => {
 
     it("does not scope to a channel the project does not have", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [{ id: "eng", name: "eng", path: "/eng" }];
+      mocks.channels = [ENG];
       renderSidebar();
       expect(useCurrentChannelStore.getState().currentChannelId).toBeNull();
       expect(screen.queryByTestId("channel-sidebar")).toBeNull();
@@ -359,7 +452,7 @@ describe("ChannelsSidebar", () => {
     // renders — so space adoption would have read as zero once the flag landed.
     it("fires from the shell under the channels layout", () => {
       mocks.channelsLayout = true;
-      mocks.channels = [ME, { id: "eng", name: "eng", path: "/eng" }];
+      mocks.channels = [ME, ENG];
       renderSidebar();
       expect(mocks.track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CHANNELS_SPACE_VIEWED,
@@ -384,12 +477,14 @@ describe("ChannelsSidebar", () => {
       mocks.channelsLayout = false;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );
       mocks.channelsLayout = true;
       rerender(
         <Theme>
+          <ChannelRouteSync />
           <ChannelsSidebar />
         </Theme>,
       );

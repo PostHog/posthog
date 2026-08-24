@@ -152,6 +152,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
 
             {canExport ? (
                 <SceneExportDropdownMenu
+                    insightShortId={insight.short_id}
                     dropdownMenuItems={[
                         {
                             format: ExporterFormat.PNG,
@@ -178,19 +179,17 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 Manage with Terraform
             </ButtonPrimitive>
 
-            {featureFlags[FEATURE_FLAGS.ENDPOINTS] ? (
-                <ButtonPrimitive
-                    onClick={openCreateFromInsightModal}
-                    menuItem
-                    disabledReasons={{
-                        'You must save the insight first before creating an endpoint from it': !isSavedInsight,
-                        ...(createEndpointAccessReason ? { [createEndpointAccessReason]: true } : {}),
-                    }}
-                >
-                    <IconEndpoints />
-                    Create endpoint
-                </ButtonPrimitive>
-            ) : null}
+            <ButtonPrimitive
+                onClick={openCreateFromInsightModal}
+                menuItem
+                disabledReasons={{
+                    'You must save the insight first before creating an endpoint from it': !isSavedInsight,
+                    ...(createEndpointAccessReason ? { [createEndpointAccessReason]: true } : {}),
+                }}
+            >
+                <IconEndpoints />
+                Create endpoint
+            </ButtonPrimitive>
 
             {featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] ? (
                 <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />

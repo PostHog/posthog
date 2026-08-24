@@ -65,52 +65,80 @@ describe("shouldLogUrl", () => {
 });
 
 describe("redactUrl", () => {
-  it.each([
-    "secret",
-    "token",
-    "access_token",
-    "refresh_token",
-    "id_token",
-    "code",
-    "signature",
-    "api_key",
-    "apikey",
-    "client_secret",
-    "password",
-    "session",
-    "x-amz-signature",
-    "x-amz-credential",
-    "x-amz-security-token",
-  ])("redacts %s query param", (param) => {
-    const redacted = redactUrl(`https://example.com/path?${param}=hunter2`);
-    expect(redacted).not.toContain("hunter2");
-    expect(redacted).toContain(`${param}=***`);
-  });
-
-  it("redacts case-insensitively", () => {
-    expect(redactUrl("https://s3.aws.com/log?X-Amz-Signature=abc123")).toBe(
-      "https://s3.aws.com/log?X-Amz-Signature=***",
+  it("preserves a plain scheme + host + path url", () => {
+    expect(redactUrl("https://us.posthog.com/api/projects/")).toBe(
+      "https://us.posthog.com/api/projects/",
     );
   });
 
-  it("collapses repeated sensitive params into one redacted value", () => {
-    const redacted = redactUrl("https://example.com/?token=a&token=b");
-    expect(redacted).not.toContain("=a");
-    expect(redacted).not.toContain("=b");
-    expect(redacted).toContain("token=***");
+  it("replaces the entire query string with a marker", () => {
+    // A secret under an arbitrary, non-allowlisted key must not survive.
+    const redacted = redactUrl(
+      "https://api.example.com/data?my_custom_key=supersecret123&limit=50",
+    );
+    expect(redacted).toBe("https://api.example.com/data?<redacted>");
+    expect(redacted).not.toContain("supersecret123");
+    expect(redacted).not.toContain("limit=50");
   });
 
-  it("leaves non-sensitive params untouched", () => {
+  it("redacts the query even for otherwise harmless-looking params", () => {
     expect(redactUrl("https://example.com/api?limit=50&offset=10")).toBe(
-      "https://example.com/api?limit=50&offset=10",
+      "https://example.com/api?<redacted>",
     );
   });
 
-  it("strips the whole query when the url does not parse", () => {
+  it("strips userinfo (user:pass@host) credentials", () => {
+    const redacted = redactUrl("https://alice:s3cr3tp%40ss@example.com/api");
+    expect(redacted).toBe("https://example.com/api");
+    expect(redacted).not.toContain("alice");
+    expect(redacted).not.toContain("s3cr3t");
+  });
+
+  it.each([
+    // Key-shaped path segment (e.g. an MCP endpoint keyed in the path).
+    [
+      "https://mcp.example.com/v1/sk-abc123def456ghi789jkl/messages",
+      "https://mcp.example.com/v1/<redacted>/messages",
+    ],
+    // Long hex digest embedded in the path.
+    [
+      "https://mcp.example.com/mcp/deadbeefdeadbeefdeadbeefdeadbeef/sse",
+      "https://mcp.example.com/mcp/<redacted>/sse",
+    ],
+    // Long high-entropy token mixing letters and digits.
+    [
+      "https://api.example.com/hooks/AKIAIOSFODNN7EXAMPLE/run",
+      "https://api.example.com/hooks/<redacted>/run",
+    ],
+  ])("redacts token-like path segments: %s", (url, expected) => {
+    const redacted = redactUrl(url);
+    expect(redacted).toBe(expected);
+  });
+
+  it("keeps short and uuid path segments for debuggability", () => {
+    expect(
+      redactUrl(
+        "https://us.posthog.com/api/projects/12345/insights/550e8400-e29b-41d4-a716-446655440000/",
+      ),
+    ).toBe(
+      "https://us.posthog.com/api/projects/12345/insights/550e8400-e29b-41d4-a716-446655440000/",
+    );
+  });
+
+  it("redacts a url fragment", () => {
+    expect(redactUrl("https://example.com/cb#access_token=abc123")).toBe(
+      "https://example.com/cb#<redacted>",
+    );
+  });
+
+  it("redacts query and token-like segments when the url does not parse", () => {
     expect(redactUrl("/relative/path?token=abc")).toBe(
       "/relative/path?<redacted>",
     );
     expect(redactUrl("/relative/path")).toBe("/relative/path");
+    expect(redactUrl("/relative/sk-abc123def456ghi789jkl/x")).toBe(
+      "/relative/<redacted>/x",
+    );
   });
 });
 
@@ -178,11 +206,11 @@ describe("formatNetworkLine", () => {
     );
   });
 
-  it("redacts sensitive query params in the line", () => {
+  it("redacts secrets in the url before writing the line", () => {
     const line = formatNetworkLine(
       entry({ url: "https://s3.aws.com/log?X-Amz-Signature=abc123" }),
     );
-    expect(line).toContain("X-Amz-Signature=***");
+    expect(line).toContain("https://s3.aws.com/log?<redacted>");
     expect(line).not.toContain("abc123");
   });
 });

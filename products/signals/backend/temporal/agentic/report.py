@@ -32,6 +32,7 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -364,6 +365,18 @@ async def _persist_agentic_report_artefacts(
         report_id=report_id,
         artefacts=artefacts,
     )
+
+    # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
+    # above, so re-promotions without new findings don't re-fire. Delivery is at-least-once
+    # (a retry of this activity re-captures an identical payload), so consumers read report
+    # state as the latest event per report_id rather than counting raw events.
+    if reviewers_content and has_new_finding:
+        await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
+            team_id=team_id,
+            report_id=report_id,
+            github_logins=[reviewer["github_login"] for reviewer in reviewers_content],
+            source="pipeline",
+        )
 
     # Backfill the research task's title now that research has produced the report title. At
     # task-creation time the report has no title yet (research is what produces it), so the task

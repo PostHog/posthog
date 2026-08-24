@@ -32,6 +32,12 @@ services:
         volumes:
             - redis7-data:/data
 
+    valkey:
+        extends:
+            file: docker-compose.base.yml
+            service: valkey
+        logging: *default-logging
+
     clickhouse:
         extends:
             file: docker-compose.base.yml
@@ -94,6 +100,7 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
@@ -153,6 +160,7 @@ services:
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -199,8 +207,16 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            LOGS_REDIS_HOST: redis7
+            LOGS_REDIS_PORT: 6379
+            LOGS_REDIS_TLS: 'false'
+            TRACES_REDIS_HOST: redis7
+            TRACES_REDIS_PORT: 6379
+            TRACES_REDIS_TLS: 'false'
+            # Every CDP process dual-writes to Valkey and refuses to start without a host.
+            CDP_VALKEY_HOST: valkey
+            CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
-            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -209,6 +225,7 @@ services:
         depends_on:
             - db
             - redis7
+            - valkey
             - clickhouse
             - kafka
             - objectstorage
@@ -224,11 +241,17 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # The combined-mode AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             - db
             - redis7
             - clickhouse
             - kafka
+            # The combined AI consumer's blob store healthchecks the ai-blobs bucket at startup
+            - objectstorage
+            - personhog-router
 
     ingestion-sessionreplay:
         extends:
@@ -256,6 +279,10 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # Must resolve to the same value as the web and worker services, which send it as
+            # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
+            # stays on the legacy shared secret until that scheme is rolled out.
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
         depends_on:
             - db
             - redis7
@@ -269,6 +296,7 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
             - db
             - redis7
@@ -280,6 +308,8 @@ services:
             service: ingestion-logs
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            LOGS_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -291,6 +321,8 @@ services:
             service: ingestion-traces
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
+        environment:
+            TRACES_REDIS_TLS: 'false'
         depends_on:
             - db
             - redis7
@@ -452,28 +484,20 @@ services:
             - temporal
             - browserless
 
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        build:
-            context: ./posthog/rust
-        logging: *default-logging
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     capture:
         build:
             context: ./posthog/rust
         extends:
             file: docker-compose.base.yml
             service: capture
+        logging: *default-logging
+
+    capture-logs:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
         logging: *default-logging
 
     replay-capture:
@@ -584,7 +608,9 @@ services:
                 TOPICS="clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \
+                    clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_ai \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
@@ -640,6 +666,10 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             ISSUE_BUCKETS_REDIS_URL: 'redis://redis7:6379/'
             RUST_LOG: 'info'
+            # Processing offloads all symbol resolution to cymbal-resolution over gRPC. Both are
+            # mandatory: startup aborts when either is empty, so omitting them crash-loops cymbal.
+            CYMBAL_REMOTE_RESOLUTION_HOST: 'cymbal-resolution'
+            INTERNAL_API_SECRET: $POSTHOG_SECRET
         depends_on:
             kafka-init:
                 condition: service_completed_successfully
@@ -649,6 +679,39 @@ services:
                 condition: service_healthy
             redis7:
                 condition: service_healthy
+            cymbal-resolution:
+                condition: service_started
+
+    # The cymbal binary in resolution mode: the gRPC symbol-resolution service that cymbal's
+    # processing mode calls. Needs only Postgres and object storage — no Kafka or Redis — hence
+    # the narrower env than cymbal above.
+    cymbal-resolution:
+        image: ghcr.io/posthog/posthog/cymbal:master
+        build:
+            context: ./posthog/rust
+            args:
+                BIN: cymbal
+        restart: on-failure
+        logging: *default-logging
+        environment:
+            CYMBAL_MODE: resolution
+            GRPC_ADDRESS: '0.0.0.0:50061'
+            OBJECT_STORAGE_BUCKET: posthog
+            OBJECT_STORAGE_ACCESS_KEY_ID: 'any'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'any'
+            OBJECT_STORAGE_ENDPOINT: 'http://seaweedfs:8333'
+            OBJECT_STORAGE_FORCE_PATH_STYLE: 'true'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            INTERNAL_API_SECRET: $POSTHOG_SECRET
+            RUST_LOG: 'info'
+        depends_on:
+            seaweedfs:
+                condition: service_healthy
+            db:
+                condition: service_healthy
+
+networks:
+    otel_network:
 
 volumes:
     zookeeper-data:

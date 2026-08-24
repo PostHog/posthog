@@ -1,3 +1,4 @@
+import type { TaskUsage } from "@posthog/api-client/posthog-client";
 import {
   CONTEXT_CATEGORIES,
   formatCostUsd,
@@ -5,40 +6,37 @@ import {
   getOverallUsageColor,
 } from "@posthog/ui/features/sessions/contextColors";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
-import { Flex, Text } from "@radix-ui/themes";
 
 interface ContextBreakdownPopoverProps {
   usage: ContextUsage;
-  showCost?: boolean;
+  taskUsage?: TaskUsage;
 }
 
 export function ContextBreakdownPopover({
   usage,
-  showCost = false,
+  taskUsage,
 }: ContextBreakdownPopoverProps) {
-  const { used, size, percentage, cost, breakdown } = usage;
+  const { used, size, percentage, breakdown } = usage;
   const fillColor = getOverallUsageColor(percentage);
   // The context window can be unknown (size 0) — show just the token count
   // rather than a misleading "~X / 0 tokens · 0% full".
   const hasSize = size > 0;
 
   return (
-    <Flex direction="column" gap="3" className="min-w-[280px]">
-      <Flex align="center" justify="between">
-        <Text className="font-medium text-(--gray-12) text-[13px]">
-          Context
-        </Text>
-        <Text className="text-(--gray-10) text-[12px] tabular-nums">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-6">
+        <span className="font-medium text-[13px] text-foreground">Context</span>
+        <span className="text-[12px] text-muted-foreground tabular-nums">
           {hasSize
             ? `~${formatTokensCompact(used)} / ${formatTokensCompact(size)} tokens`
             : `~${formatTokensCompact(used)} tokens`}
-        </Text>
-      </Flex>
+        </span>
+      </div>
 
       {hasSize && (
-        <Text className="font-semibold text-(--gray-12) text-[15px]">
+        <span className="font-semibold text-[15px] text-foreground">
           {percentage}% full
-        </Text>
+        </span>
       )}
 
       {breakdown ? (
@@ -48,48 +46,79 @@ export function ContextBreakdownPopover({
       )}
 
       {breakdown && (
-        <Flex direction="column" gap="2">
+        <div className="flex flex-col gap-2">
           {CONTEXT_CATEGORIES.filter((c) => breakdown[c.key] > 0).map((cat) => (
-            <Flex
+            <div
               key={cat.key}
-              align="center"
-              justify="between"
-              className="text-[13px]"
+              className="flex items-center justify-between gap-6 text-[13px]"
             >
-              <Flex align="center" gap="2">
+              <span className="flex items-center gap-2">
                 <span
                   className="inline-block size-2.5 rounded-sm"
                   style={{ backgroundColor: cat.color }}
                 />
-                <Text className="text-(--gray-12)">{cat.label}</Text>
-              </Flex>
-              <Text className="text-(--gray-11) tabular-nums">
+                <span className="text-foreground">{cat.label}</span>
+              </span>
+              <span className="text-muted-foreground tabular-nums">
                 {formatTokensCompact(breakdown[cat.key])}
-              </Text>
-            </Flex>
+              </span>
+            </div>
           ))}
-        </Flex>
+        </div>
       )}
 
       {!breakdown && usage.breakdownAvailable !== false && (
-        <Text className="text-(--gray-10) text-[12px]">
+        <span className="text-[12px] text-muted-foreground">
           Detailed breakdown available after the first response.
-        </Text>
+        </span>
       )}
 
-      {showCost && cost && (
-        <Flex
-          align="center"
-          justify="between"
-          className="border-(--gray-4) border-t pt-2 text-[13px]"
-        >
-          <Text className="text-(--gray-11)">Estimated cost</Text>
-          <Text className="font-medium text-(--gray-12) tabular-nums">
-            {formatCostUsd(cost.amount)}
-          </Text>
-        </Flex>
+      {taskUsage && (
+        <div className="border-border border-t pt-2.5">
+          <div className="overflow-hidden rounded-md border border-border/70 bg-muted/20">
+            <div className="flex items-center justify-between gap-6 px-2.5 py-1.5">
+              <span className="font-medium text-[11px] text-muted-foreground">
+                Estimated cost
+              </span>
+              <span className="font-semibold text-[15px] text-foreground tabular-nums leading-none">
+                {formatCostUsd(taskUsage.total_cost_usd)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 border-border/70 border-t bg-background/40">
+              <CostDetail label="Tokens" value={taskUsage.token_cost_usd} />
+              <CostDetail
+                label="Cloud compute"
+                value={taskUsage.compute_cost_usd}
+                divided
+              />
+            </div>
+          </div>
+        </div>
       )}
-    </Flex>
+    </div>
+  );
+}
+
+function CostDetail({
+  label,
+  value,
+  divided = false,
+}: {
+  label: string;
+  value: number;
+  divided?: boolean;
+}) {
+  return (
+    <div
+      className={`flex min-w-0 flex-col px-2.5 py-1.5 ${divided ? "border-border/70 border-l" : ""}`}
+    >
+      <span className="truncate text-[10px] text-muted-foreground">
+        {label}
+      </span>
+      <span className="font-medium text-[12px] text-foreground tabular-nums">
+        {formatCostUsd(value)}
+      </span>
+    </div>
   );
 }
 
@@ -103,13 +132,13 @@ function SegmentedBar({
   fallback: string;
 }) {
   if (size <= 0) {
-    return <div className="h-1.5 w-full rounded-full bg-(--gray-4)" />;
+    return <div className="h-1.5 w-full rounded-full bg-muted" />;
   }
 
   // Scale each segment to the full context window so the filled portion
   // matches the "% full" figure and the empty track reads as remaining context.
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-(--gray-4)">
+    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
       {CONTEXT_CATEGORIES.map((cat) => {
         const value = breakdown[cat.key];
         if (value <= 0) return null;
@@ -135,7 +164,7 @@ function SinglePercentBar({
   color: string;
 }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--gray-4)">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
       <div
         className="h-full rounded-full"
         style={{ width: `${percentage}%`, backgroundColor: color }}

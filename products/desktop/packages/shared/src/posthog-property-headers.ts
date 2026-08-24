@@ -2,6 +2,8 @@ export type PosthogPropertyValue = string | number | boolean | null | undefined;
 
 export type PosthogProperties = Record<string, PosthogPropertyValue>;
 
+export const POSTHOG_PROJECT_ID_HEADER = "X-PostHog-Project-Id";
+
 /**
  * Make a value safe to embed in an HTTP header value. Only printable ASCII
  * survives: latin1 is valid per RFC 9110 and undici accepts it, but Bun's
@@ -56,6 +58,40 @@ export function buildPosthogPropertyHeaderLines(
 ): string {
   return buildEntries(properties)
     .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
+export function buildPosthogProjectHeaderRecord(
+  projectId: number | null | undefined,
+): Record<string, string> {
+  return projectId ? { [POSTHOG_PROJECT_ID_HEADER]: String(projectId) } : {};
+}
+
+export function buildPosthogProjectHeaderLines(
+  projectId: number | null | undefined,
+): string {
+  return projectId ? `${POSTHOG_PROJECT_ID_HEADER}: ${projectId}` : "";
+}
+
+export function buildPosthogScopedPropertyHeaderRecord(
+  properties: PosthogProperties,
+  projectId: number | null | undefined,
+): Record<string, string> {
+  return {
+    ...buildPosthogPropertyHeaderRecord(properties),
+    ...buildPosthogProjectHeaderRecord(projectId),
+  };
+}
+
+export function buildPosthogScopedPropertyHeaderLines(
+  properties: PosthogProperties,
+  projectId: number | null | undefined,
+): string {
+  return [
+    buildPosthogPropertyHeaderLines(properties),
+    buildPosthogProjectHeaderLines(projectId),
+  ]
+    .filter(Boolean)
     .join("\n");
 }
 

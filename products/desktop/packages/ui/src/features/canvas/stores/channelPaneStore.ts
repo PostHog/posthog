@@ -22,12 +22,41 @@ export const useChannelPaneStore = create<ChannelPaneState>()((set) => ({
   setPane: (pane) => set({ pane }),
 }));
 
-/** Slide back to the channel list, keeping the scoped channel as it is. */
-export function showChannelList(): void {
+/**
+ * Keyed on the channel rather than consumed on first read so it survives a
+ * re-run of the same route effect (React StrictMode double-invokes mount
+ * effects) and expires on its own once the route moves to another channel.
+ */
+let keepListForChannelId: string | null = null;
+
+export function keepListForRoute(channelId: string): void {
+  keepListForChannelId = channelId;
+}
+
+export function shouldKeepListForRoute(channelId: string): boolean {
+  if (keepListForChannelId === channelId) return true;
+  keepListForChannelId = null;
+  return false;
+}
+
+export function clearKeepListForRoute(): void {
+  keepListForChannelId = null;
+}
+
+/**
+ * Slide back to the channel list, keeping the scoped channel as it is.
+ *
+ * Pass `keepForRoute` when the caller is about to navigate into that channel:
+ * arriving at a channel pulls the slider to it, and the latch holds the list
+ * across that navigation.
+ */
+export function showChannelList(keepForRoute?: string): void {
+  keepListForChannelId = keepForRoute ?? null;
   useChannelPaneStore.getState().setPane("list");
 }
 
 /** Slide to the channel pane — every channel entry point goes through here. */
 export function showChannelPane(): void {
+  keepListForChannelId = null;
   useChannelPaneStore.getState().setPane("channel");
 }

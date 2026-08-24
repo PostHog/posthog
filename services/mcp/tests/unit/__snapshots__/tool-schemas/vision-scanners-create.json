@@ -1,0 +1,115 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "A Replay Vision scanner: its type, targeting query, and AI configuration.",
+    "properties": {
+        "credit_limit": {
+            "anyOf": [
+                {
+                    "maximum": 2147483647,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+        },
+        "description": {
+            "description": "Free-form description shown in the scanner management UI.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "emits_signals": {
+            "description": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+            "type": "boolean"
+        },
+        "enabled": {
+            "description": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+            "type": "boolean"
+        },
+        "experiment_targeting": {
+            "anyOf": [
+                {
+                    "description": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+                    "properties": {
+                        "experiment_id": {
+                            "description": "The experiment the scanner watches.",
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "variant": {
+                            "anyOf": [
+                                {
+                                    "maxLength": 400,
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Narrow to sessions of people exposed to this variant. Null means every variant."
+                        }
+                    },
+                    "required": ["experiment_id"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+        },
+        "model": {
+            "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.7-flash` - Gemini 3.7 Flash",
+            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable scanner name. Unique within the team.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "provider": {
+            "description": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+            "enum": ["google"],
+            "type": "string"
+        },
+        "query": {
+            "description": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
+        },
+        "sampling_mode": {
+            "description": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "enum": ["focused", "balanced", "comprehensive"],
+            "type": "string"
+        },
+        "sampling_rate": {
+            "description": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+        },
+        "scanner_config": {
+            "description": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
+        },
+        "scanner_type": {
+            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
+            "enum": ["monitor", "classifier", "scorer", "summarizer"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+        }
+    },
+    "required": ["name", "scanner_type", "scanner_config", "model"],
+    "type": "object"
+}

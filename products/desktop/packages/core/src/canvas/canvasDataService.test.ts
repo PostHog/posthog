@@ -27,6 +27,7 @@ function insight(partial: Partial<InsightFetchResult>): InsightFetchResult {
     queryKind: "TrendsQuery",
     columns: [],
     results: [],
+    resolvedVariables: {},
     ...partial,
   };
 }
@@ -94,6 +95,63 @@ describe("CanvasDataService.loadInsight", () => {
     );
   });
 
+  it("forwards SQL variables alongside the date window", async () => {
+    fetchInsightByShortId.mockResolvedValue(
+      insight({ resolvedVariables: { product: "surveys" } }),
+    );
+
+    await makeService().loadInsight({
+      shortId: "abc123",
+      variables: { product: "surveys" },
+    });
+
+    expect(fetchInsightByShortId).toHaveBeenCalledWith(
+      expect.anything(),
+      "abc123",
+      { dateRange: undefined, variables: { product: "surveys" } },
+    );
+  });
+
+  // The API drops an override whose code_name matches nothing on the insight, and
+  // ignores overrides entirely under sharing-token auth — both silently, leaving the
+  // insight's own defaults to compute numbers that look real. Rendering another
+  // product's revenue as this product's is worse than showing an error, so a
+  // variable that didn't land has to reject.
+  it.each([
+    {
+      name: "the insight has no such variable",
+      resolvedVariables: { month: "2026-07-01" },
+      expectedError: 'has no SQL variable "product"',
+    },
+    {
+      name: "the override was ignored and the saved default came back",
+      resolvedVariables: { product: "session_replay" },
+      expectedError: "was not applied",
+    },
+  ])("rejects when $name", async ({ resolvedVariables, expectedError }) => {
+    fetchInsightByShortId.mockResolvedValue(insight({ resolvedVariables }));
+
+    await expect(
+      makeService().loadInsight({
+        shortId: "abc123",
+        variables: { product: "surveys" },
+      }),
+    ).rejects.toThrow(expectedError);
+  });
+
+  it("accepts a non-string variable value the server echoes back", async () => {
+    fetchInsightByShortId.mockResolvedValue(
+      insight({ resolvedVariables: { threshold: 500, tiers: ["a", "b"] } }),
+    );
+
+    await expect(
+      makeService().loadInsight({
+        shortId: "abc123",
+        variables: { threshold: 500, tiers: ["a", "b"] },
+      }),
+    ).resolves.toBeDefined();
+  });
+
   it("rejects when the insight can't be found", async () => {
     fetchInsightByShortId.mockRejectedValue(
       new Error('Insight "nope" not found'),
@@ -102,5 +160,15 @@ describe("CanvasDataService.loadInsight", () => {
     await expect(
       makeService().loadInsight({ shortId: "nope" }),
     ).rejects.toThrow('Insight "nope" not found');
+  });
+
+  it("rejects oversized insight results", async () => {
+    fetchInsightByShortId.mockResolvedValue(
+      insight({ results: Array.from({ length: 1_001 }, () => [1]) }),
+    );
+
+    await expect(
+      makeService().loadInsight({ shortId: "too-large" }),
+    ).rejects.toThrow("result limit");
   });
 });

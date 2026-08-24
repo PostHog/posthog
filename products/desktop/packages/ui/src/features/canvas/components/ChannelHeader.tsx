@@ -35,7 +35,7 @@ export function ChannelHeader({
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   // Every channel surface renders this header, so mark the channel read here.
-  useMarkChannelSeen(channelName);
+  useMarkChannelSeen(channelId);
 
   // Channels-layout off keeps the header it has always had: the channel pill
   // plus the section tab strip, no breadcrumb. Delete this branch when the
@@ -57,7 +57,7 @@ function LegacyChannelHeader({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   const channelName = channels.find((c) => c.id === channelId)?.name;
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const isHome = pathname === `/website/${channelId}`;
+  const isHome = pathname === `/spaces/${channelId}`;
 
   return (
     <div className="flex min-w-0 items-center gap-2">
@@ -65,7 +65,7 @@ function LegacyChannelHeader({ channelId }: { channelId: string }) {
         type="button"
         data-selected={isHome || undefined}
         onClick={() =>
-          void navigate({ to: "/website/$channelId", params: { channelId } })
+          void navigate({ to: "/spaces/$channelId", params: { channelId } })
         }
         size="sm"
         className={cn("min-w-0", isHome ? "bg-fill-selected" : "")}

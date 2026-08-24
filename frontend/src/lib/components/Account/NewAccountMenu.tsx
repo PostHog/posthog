@@ -65,7 +65,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { canAccessBilling } = useValues(billingLogic)
+    const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
@@ -168,6 +168,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 {isAuthenticatedTeam(currentTeam) && (
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
+                                            openOnHover={false}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
@@ -266,6 +267,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <DropdownMenuSeparator />
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
+                                        openOnHover={false}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
@@ -305,16 +307,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev && canAccessBilling ? (
+                                {isCloudOrDev && billingEntryUrl ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link
                                                 {...props}
-                                                to={
-                                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                        ? urls.organizationBillingSection('overview')
-                                                        : urls.organizationBilling()
-                                                }
+                                                to={billingEntryUrl}
                                                 buttonProps={{
                                                     className: 'flex items-center gap-2',
                                                     menuItem: true,
@@ -419,14 +417,15 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             render={(props) => (
                                                 <Link
                                                     {...props}
-                                                    to={urls.queryPerformance()}
+                                                    to={urls.experimentsStaffTools()}
                                                     buttonProps={{
                                                         menuItem: true,
                                                     }}
+                                                    // Stable autocapture contract: name stays query-performance even though the label and route are now experiments staff tools
                                                     data-attr="new-account-menu-query-performance"
                                                 >
                                                     <IconDatabase />
-                                                    Query performance
+                                                    Experiments staff tools
                                                 </Link>
                                             )}
                                         />

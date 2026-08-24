@@ -1,11 +1,11 @@
 import { ClockCounterClockwise, MagnifyingGlass } from "@phosphor-icons/react";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogTitle,
   DialogTrigger,
   Input,
-  InputGroupButton,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -123,14 +123,15 @@ export function PromptHistoryDialog({
             render={
               <TooltipTrigger
                 render={
-                  <InputGroupButton
+                  <Button
+                    type="button"
                     variant="default"
                     size="icon-sm"
                     aria-label="Prompt history"
                     disabled={disabled || !hasHistory}
                   >
                     <ClockCounterClockwise size={14} />
-                  </InputGroupButton>
+                  </Button>
                 }
               />
             }

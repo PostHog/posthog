@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -9,10 +9,18 @@ from rest_framework import status
 from rest_framework.response import Response
 
 from posthog.models import OAuthAccessToken
+
+if TYPE_CHECKING:
+    from posthog.models import User
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
 from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.logic.services.compute_quota import (
+    COMPUTE_QUOTA_DENIAL_CODE,
+    ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+    organization_deactivated,
+)
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -137,7 +145,38 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def code_access_required_response(user) -> Response | None:
+def _billing_limit_response(code: str, error: str) -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"type": "billing_limit", "code": code, "error": error}).data,
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
+def organization_deactivated_response() -> Response:
+    return _billing_limit_response(
+        ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+        "Your organization has been deactivated. Contact PostHog support if you think this is a mistake.",
+    )
+
+
+def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Response:
+    if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE:
+        return organization_deactivated_response()
+    return _billing_limit_response(
+        COMPUTE_QUOTA_DENIAL_CODE,
+        "Your organization reached its PostHog Desktop usage limit.",
+    )
+
+
+def code_access_required_response(user: "User") -> Response | None:
+    """Return a 403 when the user lacks PostHog Desktop access, else None.
+
+    The entitlement gate for user-triggered cloud execution: usage-based billing alone
+    doesn't control cost for credit-funded teams (startup-program credits cover the meter),
+    so cloud runs additionally require the Desktop waitlist (the `tasks` flag or a redeemed
+    invite). Endpoints serving generally-available Inbox surfaces skip this for tasks whose
+    Inbox entitlement is server-verifiable — see ``task_exempt_from_code_access``.
+    """
     if has_tasks_access(user):
         return None
     return Response(
@@ -152,19 +191,18 @@ def code_access_required_response(user) -> Response | None:
     )
 
 
-def cloud_usage_limit_response(user, team_id: int, *, require_tasks_access: bool = True) -> Response | None:
-    """Return a blocking response when Desktop access or usage limits deny a cloud run, else None.
+def usage_limit_response(user, team_id: int) -> Response | None:
+    """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Entitlement checks fail closed. Usage checks fail open when the gateway can't be reached.
-    Every usage check is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`)
-    so a degraded gateway silently removing this cost backstop is visible, not just logged.
-
-    ``require_tasks_access`` lets callers whose run is entitled through another product skip the
-    PostHog Code (`tasks`) entitlement check while still applying the usage-limit cost backstop —
-    e.g. running a self-driving report task from the Inbox (see ``is_signal_report_task``).
+    The cost backstop on cloud runs, applied on top of the entitlement gate above. Fails
+    open when the gateway can't be reached, so every check is counted by outcome
+    (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded gateway silently
+    removing the backstop is visible, not just logged. Deactivated organizations are blocked
+    locally first, so that block holds even when the gateway check fails open.
     """
-    if require_tasks_access and (response := code_access_required_response(user)):
-        return response
+    if organization_deactivated(team_id):
+        observe_code_usage_gate_check(outcome="org_deactivated")
+        return organization_deactivated_response()
 
     usage = get_posthog_code_usage(user, team_id)
     if usage is None:

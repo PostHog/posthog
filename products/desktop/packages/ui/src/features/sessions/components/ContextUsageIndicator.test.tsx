@@ -1,16 +1,42 @@
+import { TASK_COST_VISIBLE_FLAG } from "@posthog/shared";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 
-const flagState = vi.hoisted(() => ({ enabled: false }));
+const flagState = vi.hoisted(() => ({ cost: false, costVisible: false }));
+const taskUsageState = vi.hoisted(() => ({
+  data: undefined as
+    | {
+        token_cost_usd: number;
+        compute_cost_usd: number;
+        total_cost_usd: number;
+      }
+    | undefined,
+}));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => flagState.enabled,
+  useFeatureFlag: (key: string) =>
+    key === TASK_COST_VISIBLE_FLAG ? flagState.costVisible : flagState.cost,
+}));
+vi.mock("@posthog/ui/features/sessions/hooks/useTaskUsage", () => ({
+  useTaskUsage: () => taskUsageState,
 }));
 
+function enableCost(costVisible = false) {
+  flagState.cost = true;
+  flagState.costVisible = costVisible;
+  taskUsageState.data = {
+    token_cost_usd: 0.4,
+    compute_cost_usd: 0.02,
+    total_cost_usd: 0.42,
+  };
+}
+
 beforeEach(() => {
-  flagState.enabled = false;
+  flagState.cost = false;
+  flagState.costVisible = false;
+  taskUsageState.data = undefined;
 });
 
 function usage(overrides?: Partial<ContextUsage>): ContextUsage {
@@ -34,44 +60,56 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
-  it("renders the compact used/size label, percentage, and aria-label", () => {
+  // The ring carries no text, so the accessible name is the only way the
+  // numbers reach a reader — including the "/0 · 0%" an unknown window must
+  // never claim, and the cost while it has no text of its own.
+  it.each([
+    ["a known window", {}, false, false, "Context usage: 25%"],
+    [
+      "an unknown window (size 0)",
+      { used: 50_000, size: 0, percentage: 0 },
+      false,
+      false,
+      "Context usage: 50K tokens",
+    ],
+    ["cost enabled", {}, true, false, "Context usage: 25% · $0.42"],
+    ["cost shown as text", {}, true, true, "Context usage: 25%"],
+  ])(
+    "names itself for %s",
+    (_case, overrides, costEnabled, costVisible, expected) => {
+      if (costEnabled) enableCost(costVisible);
+      const { container } = render(
+        <Theme>
+          <ContextUsageIndicator
+            usage={usage(overrides as Partial<ContextUsage>)}
+            taskId="task-1"
+          />
+        </Theme>,
+      );
+      expect(
+        container.querySelector("button")?.getAttribute("aria-label"),
+      ).toBe(expected);
+    },
+  );
+
+  it("shows the cost beside the ring once the visible flag is on", () => {
+    enableCost(true);
     render(
       <Theme>
-        <ContextUsageIndicator usage={usage()} />
+        <ContextUsageIndicator usage={usage()} taskId="task-1" />
       </Theme>,
     );
-    expect(screen.getByText(/50K\/200K · 25%/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Context usage: 25%" }),
-    ).toBeInTheDocument();
+    expect(screen.getByText("$0.42")).toBeInTheDocument();
   });
 
-  it("shows only the token count when the context window is unknown (size 0)", () => {
+  it("keeps the cost in the popover while the visible flag is off", () => {
+    enableCost();
     render(
       <Theme>
-        <ContextUsageIndicator
-          usage={usage({ used: 50_000, size: 0, percentage: 0 })}
-        />
+        <ContextUsageIndicator usage={usage()} taskId="task-1" />
       </Theme>,
     );
-    // No misleading "/0 · 0%" — just the used tokens.
-    expect(screen.getByText("50K")).toBeInTheDocument();
-    expect(screen.queryByText(/\/0/)).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Context usage: 50K tokens" }),
-    ).toBeInTheDocument();
-  });
-
-  it("appends the estimated cost to the label when the flag is enabled", () => {
-    flagState.enabled = true;
-    render(
-      <Theme>
-        <ContextUsageIndicator
-          usage={usage({ cost: { amount: 0.42, currency: "USD" } })}
-        />
-      </Theme>,
-    );
-    expect(screen.getByText(/50K\/200K · 25% · \$0\.42/)).toBeInTheDocument();
+    expect(screen.queryByText("$0.42")).not.toBeInTheDocument();
   });
 
   it("renders a finite stroke offset at 0% (no NaN/Infinity)", () => {
@@ -85,6 +123,5 @@ describe("ContextUsageIndicator", () => {
     const progress = container.querySelectorAll("circle")[1];
     const offset = Number(progress?.getAttribute("stroke-dashoffset"));
     expect(Number.isFinite(offset)).toBe(true);
-    expect(screen.getByText(/0\/200K · 0%/)).toBeInTheDocument();
   });
 });

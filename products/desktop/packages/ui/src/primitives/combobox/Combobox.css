@@ -1,4 +1,7 @@
-.rt-PopoverContent:has(.combobox-content) {
+/* The popup's chrome belongs to the cmdk root below, not to the themes popover.
+   Radix Themes puts `rt-PopoverContent` on the same element our className lands
+   on, so this has to match that element — a descendant selector never fires. */
+.rt-PopoverContent.combobox-content {
   padding: 0;
   background: transparent;
   border: none;
@@ -17,15 +20,15 @@
   overflow: hidden;
 }
 
-.combobox-content.size-1 [cmdk-root] {
+.combobox-content.combobox-size-1 [cmdk-root] {
   --combobox-content-padding: var(--space-1);
   --combobox-item-height: var(--space-5);
   --combobox-item-indicator-width: calc(var(--space-5) / 1.2);
   border-radius: var(--radius-3);
 }
 
-.combobox-content.size-2 [cmdk-root],
-.combobox-content.size-3 [cmdk-root] {
+.combobox-content.combobox-size-2 [cmdk-root],
+.combobox-content.combobox-size-3 [cmdk-root] {
   --combobox-content-padding: var(--space-2);
   --combobox-item-height: var(--space-6);
   --combobox-item-indicator-width: var(--space-5);
@@ -63,17 +66,17 @@
   flex: 1;
 }
 
-.combobox-content.size-1 [cmdk-input] {
+.combobox-content.combobox-size-1 [cmdk-input] {
   font-size: 13px;
   line-height: 20px;
 }
 
-.combobox-content.size-2 [cmdk-input] {
+.combobox-content.combobox-size-2 [cmdk-input] {
   font-size: 14px;
   line-height: 20px;
 }
 
-.combobox-content.size-3 [cmdk-input] {
+.combobox-content.combobox-size-3 [cmdk-input] {
   font-size: 16px;
   line-height: 24px;
 }
@@ -139,14 +142,14 @@
   cursor: default;
 }
 
-.combobox-content.size-1 [cmdk-group-heading] {
+.combobox-content.combobox-size-1 [cmdk-group-heading] {
   font-size: 13px;
   letter-spacing: var(--letter-spacing-1);
   line-height: 20px;
 }
 
-.combobox-content.size-2 [cmdk-group-heading],
-.combobox-content.size-3 [cmdk-group-heading] {
+.combobox-content.combobox-size-2 [cmdk-group-heading],
+.combobox-content.combobox-size-3 [cmdk-group-heading] {
   font-size: 14px;
   letter-spacing: var(--letter-spacing-2);
   line-height: 20px;
@@ -221,7 +224,7 @@
   padding-bottom: var(--combobox-content-padding);
 }
 
-.combobox-content.size-1 [cmdk-item] {
+.combobox-content.combobox-size-1 [cmdk-item] {
   font-size: 13px;
   line-height: 20px;
   letter-spacing: var(--letter-spacing-1);
@@ -229,26 +232,26 @@
   margin-bottom: 2px;
 }
 
-.combobox-content.size-2 [cmdk-item] {
+.combobox-content.combobox-size-2 [cmdk-item] {
   font-size: 14px;
   line-height: 20px;
   letter-spacing: var(--letter-spacing-2);
   border-radius: var(--radius-2);
 }
 
-.combobox-content.size-3 [cmdk-item] {
+.combobox-content.combobox-size-3 [cmdk-item] {
   font-size: 16px;
   line-height: 24px;
   letter-spacing: var(--letter-spacing-3);
   border-radius: var(--radius-2);
 }
 
-.combobox-content.variant-solid [cmdk-item][data-selected="true"] {
+.combobox-content.combobox-variant-solid [cmdk-item][data-selected="true"] {
   background: var(--accent-9);
   color: var(--accent-contrast);
 }
 
-.combobox-content.variant-soft [cmdk-item][data-selected="true"] {
+.combobox-content.combobox-variant-soft [cmdk-item][data-selected="true"] {
   background: var(--accent-a4);
   color: var(--accent-12);
 }
@@ -414,11 +417,11 @@
   justify-content: center;
 }
 
-.combobox-trigger:not(.variant-ghost) .combobox-trigger-icon {
+.combobox-trigger:not(.combobox-variant-ghost) .combobox-trigger-icon {
   opacity: 0.9;
 }
 
-.combobox-trigger.size-1 {
+.combobox-trigger.combobox-size-1 {
   height: var(--space-5);
   gap: var(--space-2);
   font-size: 13px;
@@ -427,16 +430,16 @@
   border-radius: max(var(--radius-1), var(--radius-full));
 }
 
-.combobox-trigger.size-1:not(.variant-ghost) {
+.combobox-trigger.combobox-size-1:not(.variant-ghost) {
   padding-left: var(--space-2);
   padding-right: var(--space-2);
 }
 
-.combobox-trigger.size-1.variant-ghost {
+.combobox-trigger.combobox-size-1.variant-ghost {
   padding: var(--space-1) var(--space-2);
 }
 
-.combobox-trigger.size-2 {
+.combobox-trigger.combobox-size-2 {
   height: var(--space-6);
   gap: calc(var(--space-1) * 1.5);
   font-size: 14px;
@@ -445,16 +448,16 @@
   border-radius: max(var(--radius-2), var(--radius-full));
 }
 
-.combobox-trigger.size-2:not(.variant-ghost) {
+.combobox-trigger.combobox-size-2:not(.variant-ghost) {
   padding-left: var(--space-3);
   padding-right: var(--space-3);
 }
 
-.combobox-trigger.size-2.variant-ghost {
+.combobox-trigger.combobox-size-2.variant-ghost {
   padding: var(--space-1) var(--space-2);
 }
 
-.combobox-trigger.size-3 {
+.combobox-trigger.combobox-size-3 {
   height: var(--space-7);
   gap: var(--space-2);
   font-size: 16px;
@@ -463,45 +466,46 @@
   border-radius: max(var(--radius-3), var(--radius-full));
 }
 
-.combobox-trigger.size-3:not(.variant-ghost) {
+.combobox-trigger.combobox-size-3:not(.variant-ghost) {
   padding-left: var(--space-4);
   padding-right: var(--space-4);
 }
 
-.combobox-trigger.size-3.variant-ghost {
+.combobox-trigger.combobox-size-3.variant-ghost {
   padding: calc(var(--space-1) * 1.5) var(--space-3);
 }
 
-.combobox-trigger.size-3 .combobox-trigger-icon {
+.combobox-trigger.combobox-size-3 .combobox-trigger-icon {
   width: 11px;
   height: 11px;
 }
 
-.combobox-trigger.variant-surface {
+.combobox-trigger.combobox-variant-surface {
   color: var(--gray-12);
   background-color: var(--color-surface);
   box-shadow: inset 0 0 0 1px var(--gray-a7);
 }
 
-.combobox-trigger.variant-surface:hover {
+.combobox-trigger.combobox-variant-surface:hover {
   box-shadow: inset 0 0 0 1px var(--gray-a8);
 }
 
-.combobox-trigger.variant-surface[data-state="open"] {
+.combobox-trigger.combobox-variant-surface[data-state="open"] {
   box-shadow: inset 0 0 0 1px var(--gray-a8);
 }
 
-.combobox-trigger.variant-surface:disabled {
+.combobox-trigger.combobox-variant-surface:disabled {
   color: var(--gray-a11);
   background-color: var(--gray-a2);
   box-shadow: inset 0 0 0 1px var(--gray-a6);
 }
 
-.combobox-trigger.variant-surface[data-placeholder] .combobox-trigger-inner {
+.combobox-trigger.combobox-variant-surface[data-placeholder]
+  .combobox-trigger-inner {
   color: var(--gray-a10);
 }
 
-.combobox-trigger.variant-classic {
+.combobox-trigger.combobox-variant-classic {
   color: var(--gray-12);
   background-image: linear-gradient(var(--gray-2), var(--gray-1));
   box-shadow:
@@ -512,7 +516,7 @@
   z-index: 0;
 }
 
-.combobox-trigger.variant-classic::before {
+.combobox-trigger.combobox-variant-classic::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -526,7 +530,7 @@
     linear-gradient(var(--color-surface), transparent);
 }
 
-.combobox-trigger.variant-classic:hover {
+.combobox-trigger.combobox-variant-classic:hover {
   box-shadow:
     inset 0 0 0 1px var(--gray-a3),
     inset 0 0 0 1px var(--white-a4),
@@ -534,13 +538,13 @@
     inset 0 -1px 1px var(--black-a9);
 }
 
-.combobox-trigger.variant-classic:hover::before {
+.combobox-trigger.combobox-variant-classic:hover::before {
   background-image:
     linear-gradient(var(--black-a1) -15%, transparent, var(--white-a1) 120%),
     linear-gradient(var(--gray-2), var(--gray-1));
 }
 
-.combobox-trigger.variant-classic[data-state="open"] {
+.combobox-trigger.combobox-variant-classic[data-state="open"] {
   box-shadow:
     inset 0 0 0 1px var(--gray-a3),
     inset 0 0 0 1px var(--white-a4),
@@ -548,106 +552,110 @@
     inset 0 -1px 1px var(--black-a9);
 }
 
-.combobox-trigger.variant-classic[data-state="open"]::before {
+.combobox-trigger.combobox-variant-classic[data-state="open"]::before {
   background-image:
     linear-gradient(var(--black-a1) -15%, transparent, var(--white-a1) 120%),
     linear-gradient(var(--gray-2), var(--gray-1));
 }
 
-.combobox-trigger.variant-classic:disabled {
+.combobox-trigger.combobox-variant-classic:disabled {
   color: var(--gray-a11);
   background-color: var(--gray-2);
   background-image: none;
 }
 
-.combobox-trigger.variant-classic[data-placeholder] .combobox-trigger-inner {
+.combobox-trigger.combobox-variant-classic[data-placeholder]
+  .combobox-trigger-inner {
   color: var(--gray-a10);
 }
 
-.combobox-trigger.variant-soft {
+.combobox-trigger.combobox-variant-soft {
   color: var(--accent-12);
 }
 
-.combobox-trigger.variant-soft[data-placeholder] .combobox-trigger-inner {
+.combobox-trigger.combobox-variant-soft[data-placeholder]
+  .combobox-trigger-inner {
   color: var(--accent-12);
   opacity: 0.6;
 }
 
-.combobox-trigger.variant-ghost {
+.combobox-trigger.combobox-variant-ghost {
   color: var(--gray-11);
 }
 
-.combobox-trigger.variant-ghost[data-placeholder] .combobox-trigger-inner {
+.combobox-trigger.combobox-variant-ghost[data-placeholder]
+  .combobox-trigger-inner {
   color: var(--gray-11);
   opacity: 0.6;
 }
 
-.combobox-trigger.variant-ghost .combobox-trigger-icon {
+.combobox-trigger.combobox-variant-ghost .combobox-trigger-icon {
   color: var(--gray-9);
 }
 
-.combobox-trigger.variant-soft {
+.combobox-trigger.combobox-variant-soft {
   background-color: var(--accent-a3);
 }
 
-.combobox-trigger.variant-soft:hover {
+.combobox-trigger.combobox-variant-soft:hover {
   background-color: var(--accent-a4);
 }
 
-.combobox-trigger.variant-soft[data-state="open"] {
+.combobox-trigger.combobox-variant-soft[data-state="open"] {
   background-color: var(--accent-a4);
 }
 
-.combobox-trigger.variant-soft:focus-visible {
+.combobox-trigger.combobox-variant-soft:focus-visible {
   outline-color: var(--accent-8);
 }
 
-.combobox-trigger.variant-soft:disabled {
+.combobox-trigger.combobox-variant-soft:disabled {
   color: var(--gray-a11);
   background-color: var(--gray-a3);
 }
 
-.combobox-trigger.variant-ghost {
+.combobox-trigger.combobox-variant-ghost {
   background-color: transparent;
 }
 
-.combobox-trigger.variant-ghost:hover {
+.combobox-trigger.combobox-variant-ghost:hover {
   background-color: var(--gray-a3);
 }
 
-.combobox-trigger.variant-ghost[data-state="open"] {
+.combobox-trigger.combobox-variant-ghost[data-state="open"] {
   background-color: var(--gray-a3);
 }
 
-.combobox-trigger.variant-ghost:disabled {
+.combobox-trigger.combobox-variant-ghost:disabled {
   color: var(--gray-a11);
   background-color: transparent;
 }
 
-.combobox-trigger.variant-outline {
+.combobox-trigger.combobox-variant-outline {
   color: var(--gray-12);
   background-color: transparent;
   box-shadow: inset 0 0 0 1px var(--gray-a7);
 }
 
-.combobox-trigger.variant-outline:hover {
+.combobox-trigger.combobox-variant-outline:hover {
   background-color: var(--gray-a2);
 }
 
-.combobox-trigger.variant-outline[data-state="open"] {
+.combobox-trigger.combobox-variant-outline[data-state="open"] {
   background-color: var(--gray-a2);
 }
 
-.combobox-trigger.variant-outline:disabled {
+.combobox-trigger.combobox-variant-outline:disabled {
   color: var(--gray-a11);
   box-shadow: inset 0 0 0 1px var(--gray-a6);
 }
 
-.combobox-trigger.variant-outline[data-placeholder] .combobox-trigger-inner {
+.combobox-trigger.combobox-variant-outline[data-placeholder]
+  .combobox-trigger-inner {
   color: var(--gray-a10);
 }
 
-.combobox-trigger.variant-outline .combobox-trigger-icon {
+.combobox-trigger.combobox-variant-outline .combobox-trigger-icon {
   color: var(--gray-12);
 }
 

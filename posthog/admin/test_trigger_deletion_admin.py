@@ -114,13 +114,26 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    def test_trigger_deletion_display_has_no_inline_onclick_and_carries_csp_nonce(self):
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, which
+        # silently drops inline onclick attributes. Guards against reintroducing one.
+        request = self.factory.get(f"/admin/posthog/organization/{self.organization.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.trigger_deletion_display(self.organization)
+
+        self.assertNotIn("onclick=", html)
+        self.assertIn('nonce="test-nonce-value"', html)
+
 
 class TestProjectAdminTriggerDeletion(BaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
         self.factory = RequestFactory()
         self.admin = ProjectAdmin(Project, AdminSite())
 
@@ -169,24 +182,30 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
-    def test_staff_outside_deletion_group_cannot_dispatch(self):
-        self.user.groups.clear()
-
+    def test_staff_outside_deletion_group_can_dispatch(self):
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
-        mock_start.assert_not_called()
+        mock_start.assert_called_once()
         self.project.refresh_from_db()
-        self.assertFalse(self.project.is_pending_deletion)
+        self.assertTrue(self.project.is_pending_deletion)
 
-    def test_already_pending_deletion_is_rejected(self):
+    def test_already_pending_deletion_does_not_block_retrigger(self):
         self.project.is_pending_deletion = True
         self.project.save(update_fields=["is_pending_deletion"])
 
         response, mock_start = self._call("POST")
 
         self.assertEqual(response.status_code, 302)
-        mock_start.assert_not_called()
+        mock_start.assert_called_once()
+
+    def test_already_started_workflow_keeps_pending(self):
+        response, mock_start = self._call("POST", start_side_effect=WorkflowAlreadyStartedError("id", "type"))
+
+        self.assertEqual(response.status_code, 302)
+        mock_start.assert_called_once()
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
 
     def test_dispatch_failure_rolls_back_pending(self):
         response, mock_start = self._call("POST", start_side_effect=Exception("boom"))
@@ -195,3 +214,17 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         mock_start.assert_called_once()
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
+
+    def test_trigger_deletion_display_has_no_inline_onclick_and_carries_csp_nonce(self):
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, which
+        # silently drops inline onclick attributes. Guards against reintroducing one.
+        request = self.factory.get(f"/admin/posthog/project/{self.project.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.trigger_deletion_display(self.project)
+
+        self.assertNotIn("onclick=", html)
+        self.assertIn('nonce="test-nonce-value"', html)

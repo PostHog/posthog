@@ -23,6 +23,10 @@ pub struct PersonSettings {
     /// long person scan cannot stall live behavioral seeding.
     pub max_concurrent_chunks: NonZeroUsize,
     pub emit_nonmatchers: bool,
+    /// Whether completion discovery may surface person runs. Separate from the seed gate so the
+    /// reconcile half can be staged after the processor fleet decodes `reconcile_person` tiles —
+    /// seeding a person run is inert, dispatching its tiles to an old processor is not.
+    pub reconcile_dispatch: bool,
 }
 
 impl PersonSettings {
@@ -112,10 +116,20 @@ impl OrchestratorSettings {
         self.person.as_ref()
     }
 
-    /// The backfill kinds discovery binds. With the person gate off this is `['behavioral']`, so
-    /// the running binary's behavior is identical to today's.
-    pub(super) fn discovery_kinds(&self) -> &'static [RunKind] {
+    /// The backfill kinds run discovery binds: the person seed path is on or it is not.
+    pub fn seed_kinds(&self) -> &'static [RunKind] {
         if self.person.is_some() {
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        } else {
+            &[RunKind::Behavioral]
+        }
+    }
+
+    /// The backfill kinds completion discovery binds. Narrower than [`Self::seed_kinds`] on
+    /// purpose: seeding a person run is inert, dispatching its reconcile tiles to a processor that
+    /// cannot decode them is not, so the reconcile gate stages after the seed gate.
+    pub fn completion_kinds(&self) -> &'static [RunKind] {
+        if self.person.is_some_and(|person| person.reconcile_dispatch) {
             &[RunKind::Behavioral, RunKind::PersonProperty]
         } else {
             &[RunKind::Behavioral]
@@ -144,6 +158,7 @@ impl TryFrom<&Config> for OrchestratorSettings {
                     )
                     .ok_or(OrchestratorSettingsError::ZeroPersonConcurrency)?,
                     emit_nonmatchers: config.seeder_person_emit_nonmatchers,
+                    reconcile_dispatch: config.seeder_person_reconcile_dispatch_enabled,
                 };
                 person.validate_scan_budget(config.seeder_ch_max_execution_time_secs)?;
                 Ok::<_, OrchestratorSettingsError>(person)
@@ -370,21 +385,48 @@ mod tests {
         }
     }
 
-    /// Dark-by-default: with the gate off discovery binds behavioral only; enabling it validates
-    /// the person rates the way `ZeroTileRate` guards the behavioral pacer.
+    /// Dark-by-default: with the gates off discovery binds behavioral only; enabling them validates
+    /// the person rates the way `ZeroTileRate` guards the behavioral pacer. The two gates stage
+    /// separately — seeding a person run is inert, dispatching its tiles to a processor that cannot
+    /// decode the person kind is not, and that run cannot be recovered by flipping the gate back.
     #[test]
     fn person_settings_are_gated_and_validated() {
         let config = Config::init_from_hashmap(&HashMap::new()).unwrap();
         let dark = OrchestratorSettings::try_from(&config).unwrap();
         assert!(dark.person().is_none());
-        assert_eq!(dark.discovery_kinds(), &[RunKind::Behavioral]);
+        assert_eq!(dark.seed_kinds(), &[RunKind::Behavioral]);
+        assert_eq!(dark.completion_kinds(), &[RunKind::Behavioral]);
+
+        // The reconcile gate alone arms nothing: there is no person seed path to reconcile.
+        let mut reconcile_only = config.clone();
+        reconcile_only.seeder_person_reconcile_dispatch_enabled = true;
+        let reconcile_only = OrchestratorSettings::try_from(&reconcile_only).unwrap();
+        assert!(reconcile_only.person().is_none());
+        assert_eq!(reconcile_only.seed_kinds(), &[RunKind::Behavioral]);
+        assert_eq!(reconcile_only.completion_kinds(), &[RunKind::Behavioral]);
 
         let mut enabled = config.clone();
         enabled.seeder_person_seeds_enabled = true;
-        let lit = OrchestratorSettings::try_from(&enabled).unwrap();
+        // Seeding without dispatch is the staging step: person runs are discovered and seed, then
+        // park in `seeding` because completion discovery still never surfaces them.
+        let seeds_only = OrchestratorSettings::try_from(&enabled).unwrap();
+        assert!(seeds_only.person().is_some());
+        assert_eq!(
+            seeds_only.seed_kinds(),
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        );
+        assert_eq!(seeds_only.completion_kinds(), &[RunKind::Behavioral]);
+
+        let mut both = enabled.clone();
+        both.seeder_person_reconcile_dispatch_enabled = true;
+        let lit = OrchestratorSettings::try_from(&both).unwrap();
         assert!(lit.person().is_some());
         assert_eq!(
-            lit.discovery_kinds(),
+            lit.seed_kinds(),
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        );
+        assert_eq!(
+            lit.completion_kinds(),
             &[RunKind::Behavioral, RunKind::PersonProperty]
         );
 

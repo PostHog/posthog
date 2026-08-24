@@ -70,19 +70,30 @@ vi.mock("./SlotMachineSubmit", () => ({
 }));
 
 vi.mock("@posthog/quill", () => ({
+  // Mirrors quill's Button: `loading` swaps the label for a spinner and blocks
+  // activation.
+  Button: ({
+    children,
+    loading,
+    disabled,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    loading?: boolean;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
+      {children}
+    </button>
+  ),
   InputGroup: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
   ),
   InputGroupAddon: ({ children }: { children: React.ReactNode }) => (
     <div>{children}</div>
-  ),
-  InputGroupButton: ({
-    children,
-    ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
   ),
 }));
 
@@ -135,6 +146,30 @@ describe("PromptInput submit/stop affordance", () => {
 
     const send = screen.getByRole("button", { name: "Send message" });
     expect(send).toBeDisabled();
+  });
+
+  it("marks Send busy on click, before the surface reports anything", async () => {
+    const user = userEvent.setup();
+    // Surfaces flip their own busy flags only after a round trip, so a send
+    // that never resolves must still register as pressed.
+    const onSubmitClick = vi.fn();
+
+    renderInput({ onSubmitClick });
+
+    const send = screen.getByRole("button", { name: "Send message" });
+    await user.click(send);
+
+    expect(onSubmitClick).toHaveBeenCalledOnce();
+    expect(send).toHaveAttribute("aria-busy", "true");
+    expect(send).toBeDisabled();
+  });
+
+  it("keeps Send busy while the surface is both loading and untypeable", () => {
+    // The new-task composer's whole task creation looks like this.
+    renderInput({ disabled: true, isLoading: true });
+
+    const send = screen.getByRole("button", { name: "Send message" });
+    expect(send).toHaveAttribute("aria-busy", "true");
   });
 });
 

@@ -1313,6 +1313,33 @@ describe('survey filters', () => {
             })
     })
 
+    it('collapses newlines in question text so the generated HogQL select stays single-line', async () => {
+        // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
+        // whose text spans multiple lines used to leak past the `--` comment appended per response
+        // column, turning the trailing (often accented) text into invalid HogQL.
+        const surveyWithMultilineQuestion: Survey = {
+            ...MULTIPLE_CHOICE_SURVEY,
+            id: 'multiline-survey',
+            questions: [
+                {
+                    type: SurveyQuestionType.Open,
+                    question: 'Queremos compensar tu experiencia.\nDéjanos tu correo y te contactaremos para ayudarte.',
+                    description: '',
+                },
+            ],
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(surveyWithMultilineQuestion)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        const select = (logic.values.dataTableQuery as unknown as { source: { select: string[] } }).source.select
+        // The question text is still used as the column comment...
+        expect(select.some((col) => col.includes('Déjanos'))).toBe(true)
+        // ...but every generated column expression is single-line, so the `--` comment can't leak.
+        select.forEach((col) => expect(col).not.toMatch(/[\r\n]/))
+    })
+
     it('updates query filters when property filters change', async () => {
         // Set initial filters
         const initialFilters: AnyPropertyFilter[] = [

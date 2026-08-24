@@ -50,7 +50,9 @@ export function useTaskContextMenu() {
         isInCommandCenter?: boolean;
         hasEmptyCommandCenterCell?: boolean;
         showArchivePrior?: boolean;
+        canHandoff?: boolean;
         onTogglePin?: () => void;
+        onHandoff?: () => void;
         onStop?: (taskId: string, taskTitle: string, runId?: string) => void;
         onArchive?: (taskId: string) => void;
         onArchivePrior?: (taskId: string) => void;
@@ -70,7 +72,9 @@ export function useTaskContextMenu() {
         isInCommandCenter,
         hasEmptyCommandCenterCell,
         showArchivePrior,
+        canHandoff,
         onTogglePin,
+        onHandoff,
         onStop,
         onArchive,
         onArchivePrior,
@@ -88,7 +92,13 @@ export function useTaskContextMenu() {
           isInCommandCenter,
           hasEmptyCommandCenterCell,
           showArchivePrior,
-          channels: channels.map(({ id, name }) => ({ id, name })),
+          canHandoff,
+          channels: channels.map(({ id, name, channelType, starred }) => ({
+            id,
+            name,
+            channelType,
+            starred,
+          })),
         });
 
         if (!result.action) return;
@@ -134,9 +144,13 @@ export function useTaskContextMenu() {
           case "add-to-command-center":
             onAddToCommandCenter?.();
             break;
+          case "handoff":
+            // The dialog lives with the caller; the hook can't own a modal.
+            onHandoff?.();
+            break;
           case "file-to-channel":
             try {
-              await fileTask(intent.channelId, task.id, task.title);
+              await fileTask(intent.channelId, task.id);
               const channelName = channels.find(
                 (channel) => channel.id === intent.channelId,
               )?.name;

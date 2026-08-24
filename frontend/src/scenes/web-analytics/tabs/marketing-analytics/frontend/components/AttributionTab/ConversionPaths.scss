@@ -1,0 +1,78 @@
+.ConversionPaths {
+    // Chevron chips reading left to right as a journey. Each chip carries its breakdown value's color
+    // in --path-chip-color; mixed against the surface rather than used raw so the label keeps its
+    // normal text color and contrast survives dark mode — same technique as the attribution table's
+    // magnitude bars.
+    &__path {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+    }
+
+    &__chip {
+        padding: 2px 16px 2px 18px;
+
+        // The pointed right edge and notched left edge that make consecutive chips read as a sequence.
+        clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 0 100%, 9px 50%);
+        font-weight: 500;
+        white-space: nowrap;
+        background-color: color-mix(
+            in sRGB,
+            var(--path-chip-color, var(--color-border-primary)) 30%,
+            var(--color-bg-surface-primary)
+        );
+
+        // Overlap so each chevron's point tucks into the next chip's notch.
+        &:not(:first-child) {
+            margin-left: -6px;
+        }
+    }
+
+    // Journey ends are squared off (with a soft radius) instead of notched/pointed.
+    &__chip--first {
+        padding-left: 12px;
+        clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 0 100%);
+        border-radius: 4px 0 0 4px;
+    }
+
+    &__chip--last {
+        padding-right: 12px;
+        clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 9px 50%);
+        border-radius: 0 4px 4px 0;
+    }
+
+    &__chip--only {
+        padding: 2px 12px;
+        clip-path: none;
+        border-radius: 4px;
+    }
+
+    // The "journey started earlier" marker: neutral, since it stands for unknown touchpoints.
+    &__chip--overflow {
+        padding-left: 12px;
+        clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 50%, calc(100% - 9px) 100%, 0 100%);
+        color: var(--color-text-secondary);
+        border-radius: 4px 0 0 4px;
+    }
+
+    &__chip-count {
+        margin-left: 6px;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+    }
+
+    // Same magnitude-bar affordance as the attribution table, for the same reason: painted as the
+    // cell's own background so it can't cover the collapsed borders.
+    td.ConversionPaths__magnitude-cell {
+        background-image: linear-gradient(
+            to right,
+            color-mix(in sRGB, var(--color-bg-fill-info-secondary) 50%, transparent) var(--conversion-paths-fill, 0%),
+            transparent var(--conversion-paths-fill, 0%)
+        );
+        background-clip: padding-box;
+    }
+}

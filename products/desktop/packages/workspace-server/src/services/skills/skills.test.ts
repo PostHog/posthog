@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -84,6 +84,24 @@ describe("listSkills", () => {
     const bundledSkill = skills.find((s) => s.name === "bundled-skill");
     expect(repoSkill?.editable).toBe(true);
     expect(bundledSkill?.editable).toBe(false);
+  });
+
+  it("surfaces disable-model-invocation from frontmatter", async () => {
+    await createSkill(
+      repoSkillsDir,
+      "manual-skill",
+      `---\nname: manual-skill\ndescription: d\ndisable-model-invocation: true\n---\nbody`,
+    );
+    await createSkill(repoSkillsDir, "auto-skill");
+
+    const skills = await makeService().listSkills();
+
+    expect(
+      skills.find((s) => s.name === "manual-skill")?.disableModelInvocation,
+    ).toBe(true);
+    expect(
+      skills.find((s) => s.name === "auto-skill")?.disableModelInvocation,
+    ).toBeUndefined();
   });
 });
 
@@ -294,6 +312,18 @@ describe("exportSkill", () => {
     });
   });
 
+  it("carries disable-model-invocation out of the frontmatter", async () => {
+    const skillPath = await createSkill(
+      repoSkillsDir,
+      "manual-only",
+      "---\nname: manual-only\ndescription: Manual\ndisable-model-invocation: true\n---\n\n# Body",
+    );
+
+    const exported = await makeService().exportSkill(skillPath);
+
+    expect(exported.disableModelInvocation).toBe(true);
+  });
+
   it("refuses to export non-writable skills", async () => {
     await createSkill(path.join(pluginPath, "skills"), "bundled-skill");
 
@@ -331,6 +361,43 @@ describe("installTeamSkill", () => {
     expect(manifest).toContain("# Team body");
     const guide = await service.readSkillFile(target, "references/guide.md");
     expect(guide).toBe("guide");
+  });
+
+  it("drops ignored paths from the payload instead of installing them", async () => {
+    const service = makeService();
+    const { path: target } = await service.installTeamSkill({
+      ...input,
+      name: "junk-team-skill",
+      files: [
+        { path: "references/guide.md", content: "guide" },
+        { path: "node_modules/pkg/i.js", content: "junk" },
+        { path: ".venv/lib/mod.py", content: "junk" },
+        { path: "SKILL.md", content: "HIJACKED" },
+        { path: "skill.md", content: "HIJACKED" },
+      ],
+    });
+
+    expect(existsSync(path.join(target, "references/guide.md"))).toBe(true);
+    expect(existsSync(path.join(target, "node_modules"))).toBe(false);
+    expect(existsSync(path.join(target, ".venv"))).toBe(false);
+    // On a case-insensitive filesystem "skill.md" would clobber the manifest
+    // content; on a case-sensitive one it would land as a separate file.
+    expect(readdirSync(target)).not.toContain("skill.md");
+    const manifest = await service.readSkillFile(target, "SKILL.md");
+    expect(manifest).toContain("From the team");
+    expect(manifest).not.toContain("HIJACKED");
+  });
+
+  it("writes disable-model-invocation back into the frontmatter", async () => {
+    const service = makeService();
+    const { path: target } = await service.installTeamSkill({
+      ...input,
+      name: "manual-team-skill",
+      disableModelInvocation: true,
+    });
+
+    const manifest = await service.readSkillFile(target, "SKILL.md");
+    expect(manifest).toContain("disable-model-invocation: true");
   });
 
   it("rejects invalid names and unsafe file paths", async () => {
@@ -659,6 +726,30 @@ describe("write-path guard", () => {
       makeService().saveSkillFile(skillPath, "../beta.md", "x"),
     ).rejects.toThrow("path outside skill directory");
   });
+
+  it("rejects a path containing a backslash instead of writing it verbatim", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+
+    // A local write must not create a filename the cloud sandbox's "\" to
+    // "/" extraction normalization would silently reinterpret as nested.
+    await expect(
+      makeService().saveSkillFile(skillPath, "references\\guide.md", "x"),
+    ).rejects.toThrow("cannot contain a backslash");
+  });
+
+  it("rejects write destinations the file tree would not show", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+    const service = makeService();
+
+    await expect(
+      service.saveSkillFile(skillPath, ".venv/notes.md", "x"),
+    ).rejects.toThrow("excluded from skills");
+
+    await service.saveSkillFile(skillPath, "references/guide.md", "guide");
+    await expect(
+      service.renameSkillFile(skillPath, "references/guide.md", ".cache/g.md"),
+    ).rejects.toThrow("excluded from skills");
+  });
 });
 
 describe("skill mutations", () => {
@@ -680,6 +771,35 @@ describe("skill mutations", () => {
     });
     const content = await service.readSkillFile(skillPath, "SKILL.md");
     expect(content).toContain("# Alpha");
+  });
+
+  it("writes and clears disable-model-invocation through manifest saves", async () => {
+    const skillPath = await createSkill(repoSkillsDir, "alpha");
+    const service = makeService();
+
+    await service.saveSkillManifest(skillPath, {
+      name: "alpha",
+      description: "d",
+      body: "body",
+      disableModelInvocation: true,
+    });
+    let skills = await service.listSkills();
+    expect(
+      skills.find((s) => s.path === skillPath)?.disableModelInvocation,
+    ).toBe(true);
+
+    await service.saveSkillManifest(skillPath, {
+      name: "alpha",
+      description: "d",
+      body: "body",
+      disableModelInvocation: false,
+    });
+    skills = await service.listSkills();
+    expect(
+      skills.find((s) => s.path === skillPath)?.disableModelInvocation,
+    ).toBeUndefined();
+    const content = await service.readSkillFile(skillPath, "SKILL.md");
+    expect(content).not.toContain("disable-model-invocation");
   });
 
   it("rejects manifest saves without a name", async () => {

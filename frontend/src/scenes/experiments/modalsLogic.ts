@@ -11,9 +11,11 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 export interface modalsLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
+    isCopyToProjectModalOpen: boolean
     isCupedModalOpen: boolean
     isDescriptionModalOpen: boolean
     isDistributionModalOpen: boolean
+    isDuplicateExperimentModalOpen: boolean
     isEditConclusionModalOpen: boolean
     isExperimentCollectionGoalModalOpen: boolean
     isExposureCriteriaModalOpen: boolean
@@ -21,14 +23,13 @@ export interface modalsLogicValues {
     isPauseExperimentModalOpen: boolean
     isPrimaryMetricModalOpen: boolean
     isPrimaryMetricSourceModalOpen: boolean
-    isPrimaryMetricsReorderModalOpen: boolean
     isPrimarySharedMetricModalOpen: boolean
+    isQuickSurveyModalOpen: boolean
     isReleaseConditionsModalOpen: boolean
     isResumeExperimentModalOpen: boolean
     isRunningTimeConfigModalOpen: boolean
     isSecondaryMetricModalOpen: boolean
     isSecondaryMetricSourceModalOpen: boolean
-    isSecondaryMetricsReorderModalOpen: boolean
     isSecondarySharedMetricModalOpen: boolean
     isStatsEngineModalOpen: boolean
     isVariantDeltaTimeseriesModalOpen: boolean
@@ -39,6 +40,9 @@ export interface modalsLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
+    closeCopyToProjectModal: () => {
+        value: true
+    }
     closeCupedModal: () => {
         value: true
     }
@@ -46,6 +50,9 @@ export interface modalsLogicActions {
         value: true
     }
     closeDistributionModal: () => {
+        value: true
+    }
+    closeDuplicateExperimentModal: () => {
         value: true
     }
     closeEditConclusionModal: () => {
@@ -69,10 +76,10 @@ export interface modalsLogicActions {
     closePrimaryMetricSourceModal: () => {
         value: true
     }
-    closePrimaryMetricsReorderModal: () => {
+    closePrimarySharedMetricModal: () => {
         value: true
     }
-    closePrimarySharedMetricModal: () => {
+    closeQuickSurveyModal: () => {
         value: true
     }
     closeReleaseConditionsModal: () => {
@@ -90,9 +97,6 @@ export interface modalsLogicActions {
     closeSecondaryMetricSourceModal: () => {
         value: true
     }
-    closeSecondaryMetricsReorderModal: () => {
-        value: true
-    }
     closeSecondarySharedMetricModal: () => {
         value: true
     }
@@ -102,6 +106,9 @@ export interface modalsLogicActions {
     closeVariantDeltaTimeseriesModal: () => {
         value: true
     }
+    openCopyToProjectModal: () => {
+        value: true
+    }
     openCupedModal: () => {
         value: true
     }
@@ -109,6 +116,9 @@ export interface modalsLogicActions {
         value: true
     }
     openDistributionModal: () => {
+        value: true
+    }
+    openDuplicateExperimentModal: () => {
         value: true
     }
     openEditConclusionModal: () => {
@@ -132,11 +142,11 @@ export interface modalsLogicActions {
     openPrimaryMetricSourceModal: () => {
         value: true
     }
-    openPrimaryMetricsReorderModal: () => {
-        value: true
-    }
     openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => {
         sharedMetricId: number | null
+    }
+    openQuickSurveyModal: () => {
+        value: true
     }
     openReleaseConditionsModal: () => {
         value: true
@@ -151,9 +161,6 @@ export interface modalsLogicActions {
         uuid: string
     }
     openSecondaryMetricSourceModal: () => {
-        value: true
-    }
-    openSecondaryMetricsReorderModal: () => {
         value: true
     }
     openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => {
@@ -212,12 +219,14 @@ export const modalsLogic = kea<modalsLogicType>([
         closeSecondarySharedMetricModal: true,
         openVariantDeltaTimeseriesModal: true,
         closeVariantDeltaTimeseriesModal: true,
-        openPrimaryMetricsReorderModal: true,
-        closePrimaryMetricsReorderModal: true,
-        openSecondaryMetricsReorderModal: true,
-        closeSecondaryMetricsReorderModal: true,
         openRunningTimeConfigModal: true,
         closeRunningTimeConfigModal: true,
+        openDuplicateExperimentModal: true,
+        closeDuplicateExperimentModal: true,
+        openCopyToProjectModal: true,
+        closeCopyToProjectModal: true,
+        openQuickSurveyModal: true,
+        closeQuickSurveyModal: true,
     }),
     reducers({
         isExperimentCollectionGoalModalOpen: [
@@ -325,20 +334,6 @@ export const modalsLogic = kea<modalsLogicType>([
                 closeVariantDeltaTimeseriesModal: () => false,
             },
         ],
-        isPrimaryMetricsReorderModalOpen: [
-            false,
-            {
-                openPrimaryMetricsReorderModal: () => true,
-                closePrimaryMetricsReorderModal: () => false,
-            },
-        ],
-        isSecondaryMetricsReorderModalOpen: [
-            false,
-            {
-                openSecondaryMetricsReorderModal: () => true,
-                closeSecondaryMetricsReorderModal: () => false,
-            },
-        ],
         isDescriptionModalOpen: [
             false,
             {
@@ -365,6 +360,27 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openRunningTimeConfigModal: () => true,
                 closeRunningTimeConfigModal: () => false,
+            },
+        ],
+        isDuplicateExperimentModalOpen: [
+            false,
+            {
+                openDuplicateExperimentModal: () => true,
+                closeDuplicateExperimentModal: () => false,
+            },
+        ],
+        isCopyToProjectModalOpen: [
+            false,
+            {
+                openCopyToProjectModal: () => true,
+                closeCopyToProjectModal: () => false,
+            },
+        ],
+        isQuickSurveyModalOpen: [
+            false,
+            {
+                openQuickSurveyModal: () => true,
+                closeQuickSurveyModal: () => false,
             },
         ],
     }),

@@ -5,6 +5,7 @@ from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, S
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
@@ -25,11 +26,9 @@ class TestBingAdsSource:
         )
 
     def test_source_type(self):
-        """Test source type is correctly set."""
         assert self.source.source_type == ExternalDataSourceType.BINGADS
 
     def test_get_source_config(self):
-        """Test source configuration is properly structured."""
         config = self.source.get_source_config
 
         assert config.name.value == "BingAds"
@@ -71,7 +70,6 @@ class TestBingAdsSource:
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_validate_credentials_success(self, mock_get_oauth):
-        """Test successful credential validation."""
         mock_integration = mock.MagicMock()
         mock_get_oauth.return_value = mock_integration
 
@@ -107,7 +105,6 @@ class TestBingAdsSource:
         assert mock_capture.called is expect_capture_called
 
     def test_get_schemas(self):
-        """Test getting available schemas."""
         schemas = self.source.get_schemas(self.valid_config, self.team_id)
 
         assert len(schemas) > 0
@@ -133,7 +130,6 @@ class TestBingAdsSource:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.bing_ads_source")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_campaigns(self, mock_get_oauth, mock_bing_ads_source):
-        """Test creating source for pipeline with campaigns."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_access_token"
         mock_integration.refresh_token = "test_refresh_token"
@@ -170,7 +166,6 @@ class TestBingAdsSource:
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source.bing_ads_source")
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_report_incremental(self, mock_get_oauth, mock_bing_ads_source):
-        """Test creating source for pipeline with incremental report."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_access_token"
         mock_integration.refresh_token = "test_refresh_token"
@@ -206,7 +201,6 @@ class TestBingAdsSource:
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_access_token(self, mock_get_oauth):
-        """Test source_for_pipeline raises error when access token is missing."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
         mock_integration.refresh_token = "test_refresh_token"
@@ -223,7 +217,6 @@ class TestBingAdsSource:
 
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_source_for_pipeline_missing_refresh_token(self, mock_get_oauth):
-        """Test source_for_pipeline raises error when refresh token is missing."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "test_access_token"
         mock_integration.refresh_token = None
@@ -304,6 +297,13 @@ class TestBingAdsSource:
             (
                 "Bing Ads OAuth application credentials not configured",
                 "Bing Ads OAuth application credentials not configured",
+            ),
+            # A column not valid for a report type comes back as a coded WebFault; retrying re-sends the
+            # same bad field list forever, so it must be non-retryable.
+            (
+                "InvalidReportColumn",
+                "Failed to generate keyword_performance_report report: WebFault: Server raised fault: "
+                "'Invalid client data...' (InvalidReportColumn: ...)",
             ),
         ],
     )
@@ -390,6 +390,16 @@ class TestBingAdsSource:
         transient_message = "Server raised fault: 'Internal Error. TrackingId: abc-123.'"
 
         assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
+    def test_transient_bad_request_is_retryable_not_disabling(self):
+        # A bare transport-level HTTP 400 on a Bing SOAP call (no coded WebFault) is a transient edge
+        # rejection: it must be recognised as retryable (kept out of error tracking) and must NOT match
+        # any non-retryable pattern, or a transient blip would disable the schema.
+        error_message = "Failed to generate ad_performance_report report: Exception: (400, 'Bad Request')"
+
+        # Assert through the same case-insensitive matcher production classification uses.
+        assert error_message_matches(error_message, self.source.get_retryable_errors())
+        assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
 
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""

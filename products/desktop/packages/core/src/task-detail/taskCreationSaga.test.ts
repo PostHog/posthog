@@ -47,6 +47,8 @@ const piRunner = {
   stop: vi.fn(async () => {}),
 };
 
+const fileReadClient = { readAbsoluteFile: vi.fn(async () => null) };
+
 const sessionService = {
   connectToTask: vi.fn(),
   disconnectFromTask: vi.fn(),
@@ -103,6 +105,7 @@ function makeSaga(
     host,
     sessionService,
     piRunner,
+    fileReadClient,
     track: vi.fn(),
     ...extra,
   });
@@ -263,6 +266,7 @@ describe("TaskCreationSaga", () => {
       host,
       sessionService,
       piRunner,
+      fileReadClient,
       track: vi.fn(),
     });
 
@@ -314,6 +318,7 @@ describe("TaskCreationSaga", () => {
       host,
       sessionService,
       piRunner,
+      fileReadClient,
       track: vi.fn(),
     });
 
@@ -374,6 +379,7 @@ describe("TaskCreationSaga", () => {
     expect(piRunner.create).toHaveBeenCalledWith({
       taskId: "task-123",
       cwd: "/tmp/scratch/task-123",
+      projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
       thinkingLevel: "medium",
