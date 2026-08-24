@@ -334,6 +334,16 @@ describe("stripMcpServers", () => {
       toml: ["[mcp_servers.docs]", 'command = "["', "[tui]", "theme = 1"],
       expected: ["[tui]", "theme = 1"],
     },
+    {
+      name: "keeps a quoted triple quote from opening a multiline string",
+      toml: [
+        "marker = \"'''\"",
+        "[mcp_servers.docs]",
+        'command = "x"',
+        "[tui]",
+      ],
+      expected: ["marker = \"'''\"", "[tui]"],
+    },
   ])("$name", ({ toml, expected }) => {
     expect(stripMcpServers(toml.join("\n"))).toBe(expected.join("\n"));
   });
