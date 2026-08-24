@@ -16,6 +16,8 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityAssessment,
     ActionabilityChoice,
     SafetyJudgment,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
     TaskRunArtefact,
 )
 from products.signals.backend.models import (
@@ -32,6 +34,7 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     create_scout_report,
     set_report_charts,
+    set_scout_report_reviewers,
     soft_delete_scout_signal,
     update_scout_report,
 )
@@ -77,6 +80,30 @@ class TestScoutReportPersistence(BaseTest):
             skill_version=1,
         )
         return run
+
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY, True),
+            ("pending_input", SignalReport.Status.PENDING_INPUT, True),
+            ("suppressed", SignalReport.Status.SUPPRESSED, False),
+        ]
+    )
+    def test_create_stamps_first_visible_only_for_visible_born_status(self, _name, born_status, expect_stamp):
+        # Scout reports are born in their final status without passing through transition_to (which
+        # stamps pipeline reports), so creation must stamp visible births or the daily report limit
+        # would never count them.
+        run = self._make_run()
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
+            status=born_status,
+            run=run,
+        )
+        report = SignalReport.objects.get(id=result.report_id)
+        assert (report.first_visible_at is not None) is expect_stamp
 
     def test_create_writes_report_with_bound_signals_metadata(self) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings
@@ -138,6 +165,52 @@ class TestScoutReportPersistence(BaseTest):
 
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]
+
+    def test_create_with_reviewers_fires_linkability_telemetry(self) -> None:
+        # Scout-authored reports persist reviewers here, not through the custom-agent path; without
+        # this call the scout bucket silently disappears from the reviewer-linkability metric.
+        with (
+            patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            create_scout_report(
+                team_id=self.team.id,
+                title="Checkout API p99 latency regressed",
+                summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+                signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+                attribution=ArtefactAttribution.system(),
+                suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+            )
+
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["source"] == "scout"
+        assert kwargs["github_logins"] == ["octocat"]
+
+    def test_set_reviewers_fires_linkability_telemetry_with_merged_list(self) -> None:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Checkout API p99 latency regressed",
+            summary="The checkout endpoint p99 doubled after the 4.2 deploy.",
+            signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
+            attribution=ArtefactAttribution.system(),
+        )
+
+        with (
+            patch(f"{PERSISTENCE_MODULE}.capture_suggested_reviewers_resolved") as mock_capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            set_scout_report_reviewers(
+                team_id=self.team.id,
+                report_id=result.report_id,
+                suggested_reviewers=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
+                attribution=ArtefactAttribution.system(),
+            )
+
+        assert mock_capture.call_count == 1
+        kwargs = mock_capture.call_args.kwargs
+        assert kwargs["source"] == "scout_edit"
+        assert kwargs["github_logins"] == ["octocat"]
 
     @parameterized.expand(
         [

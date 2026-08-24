@@ -47,6 +47,8 @@ function item(title: string, overrides: Partial<ChannelItemModel> = {}) {
     authorName: null,
     authorUuid: "user-uuid",
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...overrides,
   } satisfies ChannelItemModel;
@@ -130,14 +132,16 @@ describe("ChannelItemHoverCard", () => {
     expect(screen.queryByText("Ready")).toBeNull();
   });
 
-  it("names what the row's badges mean", async () => {
+  it("names what the row's badges mean, with the origin as a stated fact", async () => {
     mocks.status = { prState: "merged", originProduct: "slack" };
     renderRows([item("Investigate signup drop-off")]);
 
     await openCardOn("Investigate signup drop-off");
 
     expect(screen.getByText("Merged")).not.toBeNull();
-    expect(screen.getByText("Source: Slack")).not.toBeNull();
+    // Named by the column it sits in, so the badge drops its own "Source:".
+    expect(screen.getByText("Source")).not.toBeNull();
+    expect(screen.getByText("Slack")).not.toBeNull();
   });
 
   it("shows the last thing the agent said", async () => {

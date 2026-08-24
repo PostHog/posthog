@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from django.db import transaction
-from django.utils import timezone
 
 import structlog
 from asgiref.sync import sync_to_async
@@ -40,7 +39,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.facade import api as signals
 
 if TYPE_CHECKING:
-    from products.product_analytics.backend.models.insight import Insight
+    from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -414,9 +413,8 @@ def _dispatch_gated_notification(
             else None
         )
         try:
-            targets = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
-            if targets is not None:
-                record_alert_delivery(alert, check, targets)
+            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties)
+            record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
                 "anomaly_investigation.gated_notification_failed",
@@ -425,11 +423,6 @@ def _dispatch_gated_notification(
             )
             # Don't swallow — let the safety-net task retry on the next tick.
             raise
-
-        # Keep notification_sent_at updated in lock-step with the delivery so the
-        # safety-net's idempotency check still trips on a successful workflow dispatch.
-        check.notification_sent_at = timezone.now()
-        check.save(update_fields=["notification_sent_at"])
 
 
 def _build_breach_descriptions(

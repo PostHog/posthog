@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from posthog.test.base import NonAtomicBaseTest
@@ -82,6 +83,34 @@ class TestAccountContext(NonAtomicBaseTest):
         result = await AccountContext(team=self.team, user=self.user, account_id=str(account.id)).execute_and_format()
 
         assert "**External ID:** Not set" in result
+
+    async def test_format_includes_churn_status(self):
+        active = await self._create_account(name="Active")
+        churned = await self._create_account(name="Churned", churned_at=datetime(2026, 8, 1, 12, 30, tzinfo=UTC))
+
+        active_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(active.id)
+        ).execute_and_format()
+        churned_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(churned.id)
+        ).execute_and_format()
+
+        assert "**Churned:** Not churned" in active_result
+        assert "**Churned:** 2026-08-01T12:30:00+00:00" in churned_result
+
+    async def test_format_includes_ignored_status(self):
+        tracked = await self._create_account(name="Tracked")
+        ignored = await self._create_account(name="Ignored", ignored_at=datetime(2026, 8, 2, 12, 30, tzinfo=UTC))
+
+        tracked_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(tracked.id)
+        ).execute_and_format()
+        ignored_result = await AccountContext(
+            team=self.team, user=self.user, account_id=str(ignored.id)
+        ).execute_and_format()
+
+        assert "**Tracking:** Tracked" in tracked_result
+        assert "**Tracking:** Ignored since 2026-08-02T12:30:00+00:00" in ignored_result
 
     async def test_format_includes_relationships(self):
         account = await self._create_account(name="Acme Corp")

@@ -30,7 +30,11 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
     BackfillStatus,
     ReplayScannerBackfill,
 )
-from products.replay_vision.backend.queries.scanner_candidate_query import BackfillCandidateQuery
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    BACKFILL_CANDIDATE_QUERY_TYPE,
+    BACKFILL_COUNT_QUERY_TYPE,
+    WindowedCandidateQuery,
+)
 from products.replay_vision.backend.quota import quota_state
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 
@@ -215,18 +219,22 @@ class ReplayScannerBackfillViewSet(
         exclude_observed: bool = False,
     ) -> int:
         snapshot = BackfillScannerSnapshot.from_scanner(scanner)
-        return BackfillCandidateQuery(
+        return WindowedCandidateQuery(
             team=self.team,
-            query=scanner.recordings_query(),
+            query=scanner.targeted_recordings_query(),
+            # The exposure filter runs as the requesting user, so previewing or launching a
+            # backfill of an experiment scanner requires the same experiment access as viewing it.
+            user=cast(Any, self.request.user),
             window_start=window_start,
             window_end=window_end,
+            query_type=BACKFILL_CANDIDATE_QUERY_TYPE,
             sampling_rate=snapshot.sampling_rate,
             sampling_salt=str(scanner.id),
             scanner_id=str(scanner.id),
             sampling_mode=snapshot.sampling_mode,
             exclude_observed_by_scanner=str(scanner.id) if exclude_observed else None,
             max_execution_time_seconds=ENUMERATION_MAX_EXECUTION_SECONDS,
-        ).count()
+        ).count(query_type=BACKFILL_COUNT_QUERY_TYPE)
 
     def _unobserved_count(self, scanner: ReplayScanner, window_start: datetime, window_end: datetime) -> int:
         """Upper bound on what a backfill over this window would scan, rejecting when it is zero.

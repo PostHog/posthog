@@ -270,9 +270,11 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
 
                 const serverTimings: Record<string, PerformanceEvent[]> = {}
 
-                const perfEvents = payload.requests.map((capturedRequest: CapturedNetworkRequest) => {
-                    return mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
-                })
+                const perfEvents = payload.requests
+                    .filter((capturedRequest: unknown) => !!capturedRequest && typeof capturedRequest === 'object')
+                    .map((capturedRequest: CapturedNetworkRequest) => {
+                        return mapRRWebNetworkRequest(capturedRequest, windowId, snapshot.timestamp)
+                    })
 
                 // first find all server timings and store them by timestamp
                 perfEvents.forEach((perfEvent: PerformanceEvent) => {

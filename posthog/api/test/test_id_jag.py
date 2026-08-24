@@ -23,6 +23,7 @@ from django.utils import timezone
 import jwt
 from cryptography.hazmat.primitives import serialization
 from oauth2_provider.utils import jwk_from_pem
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.id_jag import (
@@ -1018,3 +1019,18 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self.client.get(f"/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()["id"], self.team.id)
+
+    @parameterized.expand([("/api/projects/@current/",), ("/api/environments/@current/",)])
+    def test_denies_current_lookup_outside_the_tokens_organization(self, url: str) -> None:
+        # A project transfer between organizations leaves `current_team` naming the moved project
+        # while `current_organization` still names the organization the token was minted for. The
+        # `@current` lookup must answer from the token's organization, not from that stale pair.
+        _, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        token = self._mint_access_token(scope="project:read")
+        resp = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)

@@ -1,109 +1,94 @@
-// Builds the prompt for a canvas generation/edit task. The authoring contract
-// (imports, the `ph` data SDK, Quill/style rules, publish workflow) lives in
-// the bundled canvas skills, which are installed in every local and cloud task
-// — so the prompt only routes the agent into `building-canvases` and supplies
-// the target-canvas context the skill needs. The standing instructions are
-// wrapped in <canvas_generation_instructions> so the conversation UI collapses
-// them into a single clickable tag (see extractCanvasInstructions).
-
 import { escapeXmlAttr } from "@posthog/shared";
+import { FREEFORM_TEMPLATE_ID } from "./freeformSchemas";
 
-// Short layout hints for legacy template ids whose richer prompt contracts
-// were folded into the canvas skills. New canvases are all "freeform".
-const TEMPLATE_HINTS: Record<string, string> = {
-  dashboard:
-    "Template: a live, data-driven dashboard — KPI cards with deltas, trend charts, and an " +
-    "in-canvas date control, built with React + Quill.",
-  "web-analytics":
-    "Template: a PostHog-style web analytics board — visitors / page views / sessions / bounce " +
-    "rate KPIs, a visitors-over-time chart, and top paths / sources / devices / geography " +
-    "tables, backed by the web-analytics query kinds.",
-};
-
-export function buildCanvasGenerationPrompt(input: {
-  /**
-   * Target canvas, when the surface already knows it (canvas-initiated runs).
-   * Channel-composer runs omit it and create a descriptively named canvas.
-   */
-  dashboardId?: string;
-  /** The target's title; set whenever dashboardId is. */
-  name?: string;
+// A generation task scoped to one placement on a grid canvas: the agent fills
+// the drawn box by placing a store component or building a new one, following
+// the composing-grid-canvases skill rather than the freeform one.
+export function buildPlacementGenerationPrompt(input: {
+  dashboardId: string;
+  name: string;
   channelName: string;
-  /** Backend channel UUID, scoping the resolve-or-create canvas tools. */
-  channelId: string;
-  templateId?: string;
   instruction: string;
-  /** True when editing an existing canvas (it already has published source). */
-  isEdit: boolean;
-  /** First builds only: point the agent at the known-good starter scaffold. */
-  useStarter?: boolean;
+  placementId: string;
+  boxWidth: number;
+  boxHeight: number;
 }): string {
-  const { dashboardId, name, channelName, templateId, instruction, isEdit } =
-    input;
-
-  // The header points back at the user's request, which leads the message —
-  // without the pointer the agent can read the block as self-contained and
-  // under-weight the actual instruction above it.
-  const safeName = name ? escapeXmlAttr(name) : undefined;
-  const safeChannelName = escapeXmlAttr(channelName);
-  const title = safeName ? ` "${safeName}"` : "";
-  const header = dashboardId
-    ? isEdit
-      ? `Edit the canvas${title} in the channel "${safeChannelName}", per the user's request at the start of this message.`
-      : `Build the canvas${title} for the channel "${safeChannelName}", per the user's request at the start of this message.`
-    : `Build a canvas in the channel "${safeChannelName}", per the user's request at the start of this message.`;
-
-  // With a pre-resolved target the id is pinned. Target-less runs create
-  // directly without exposing team-controlled canvas metadata to the agent.
-  const targetBlock = dashboardId
-    ? `Target canvas — already created, do NOT create another:
-- canvas id: "${dashboardId}"
-- channel: "${safeChannelName}"`
-    : `Target canvas — none is pre-created. Create one in channel "${input.channelId}" with
-\`canvas-create\`, named with a short descriptive title drawn from the request — never "Untitled canvas".
-Do not list or inspect other canvases to choose a target.`;
-
-  const starterLine =
-    !isEdit && input.useStarter
-      ? dashboardId
-        ? "\nStart from the starter scaffold in the building-react-quill-canvases skill's references — it already wires the date picker, theme tokens, and loading skeletons correctly.\n"
-        : "\nFor a first build (a new or still-empty canvas), start from the starter scaffold in the building-react-quill-canvases skill's references — it already wires the date picker, theme tokens, and loading skeletons correctly.\n"
-      : "";
-
-  const templateHint = templateId ? TEMPLATE_HINTS[templateId] : undefined;
-  const templateLine = templateHint ? `\n${templateHint}\n` : "";
-
-  // Edits target a canvas people already see live, so they stage a draft the
-  // user promotes; only a first build publishes straight to the head.
-  const saveBlock = isEdit
-    ? `Read the canvas's current source and \`current_version_id\` with the
-\`canvas-source-retrieve\` tool before editing. The canvas is live, so stage the COMPLETE
-source project as a DRAFT with \`canvas-draft-create\`, wait for its build, and finish by
-reporting that the draft is ready — the user previews it and promotes it to live. Do not
-publish or promote it yourself unless the user explicitly asked to make the change live.
-The canvas lives in PostHog, not on disk — saving happens through those tools. Do not write
-local files and do not reply with the code.`
-    : `Read the canvas's current source and \`current_version_id\` with the
-\`canvas-source-retrieve\` tool before editing, and publish the COMPLETE
-source project with \`canvas-publish-create\`, passing that version id as
-\`expected_current_version_id\`. The canvas lives in PostHog, not on disk — publishing through
-that tool is what saves it. Do not write local files and do not reply with the code.`;
-
-  const instructions = `${header}
-
-Invoke the \`building-canvases\` skill now and follow its workflow (and the companion canvas
-skills it routes to) to implement, validate, and save this canvas.
-
-${targetBlock}
-${templateLine}${starterLine}
-${saveBlock}
-
-Verify event/property names via the PostHog MCP tools before using them, and operate only on
-this project.`;
-
-  return `${instruction}
+  return `${input.instruction}
 
 <canvas_generation_instructions>
-${instructions}
+Invoke the \`composing-grid-canvases\` skill and follow it completely.
+
+You are filling ONE placement on a grid canvas. Resolve it with the skill's
+ladder: search the component store first, fork when close, build a new
+component only when nothing fits. When the placement is ready, patch it to
+status "live" with the component id and config, keeping its prompt intact.
+On failure, patch it to status "failed" instead of leaving it generating.
+
+Target:
+- grid canvas id: "${escapeXmlAttr(input.dashboardId)}"
+- grid canvas name: "${escapeXmlAttr(input.name)}"
+- channel: "${escapeXmlAttr(input.channelName)}"
+- placement id: "${escapeXmlAttr(input.placementId)}"
+- drawn box: ${input.boxWidth}x${input.boxHeight} grid units (a small box wants a glanceable tile; a large one a full app surface)
+</canvas_generation_instructions>`;
+}
+
+// A task scoped to a whole grid canvas: the agent edits the layout itself and
+// the placed components, following the composing-grid-canvases skill.
+export function buildGridCanvasGenerationPrompt(input: {
+  dashboardId: string;
+  name: string;
+  channelName: string;
+  instruction: string;
+}): string {
+  return `${input.instruction}
+
+<canvas_generation_instructions>
+Invoke the \`composing-grid-canvases\` skill and follow it completely.
+
+You are working on the WHOLE grid canvas: add, fill, move, resize, or remove
+placements as the instruction requires, and edit the placed component
+canvases themselves when a widget needs fixing. One instruction often calls
+for SEVERAL widgets (e.g. "a canvas summarizing work in progress" wants a
+tile per concern): plan the full set first, resolve each with the skill's
+ladder (place from the store, fork, or build new), and lay them all out
+without overlap. Use the guarded patch loop, and never leave a placement in
+the generating state when you finish.
+
+Users leave feedback as comments on this canvas, attached to this task. List
+them with the task comment tools (e.g. \`tasks-comments-list\`) before and
+after making changes, and address the open ones.
+
+Target:
+- grid canvas id: "${escapeXmlAttr(input.dashboardId)}"
+- grid canvas name: "${escapeXmlAttr(input.name)}"
+- channel: "${escapeXmlAttr(input.channelName)}"
+</canvas_generation_instructions>`;
+}
+
+export function buildCanvasGenerationPrompt(input: {
+  dashboardId: string;
+  name: string;
+  channelName: string;
+  templateId?: string;
+  instruction: string;
+}): string {
+  // Only the legacy template ids name a layout the canvas skills define a shape
+  // for. Every canvas created today is freeform, so passing that through would
+  // put a meaningless "requested pattern" on every generation task.
+  const template =
+    input.templateId && input.templateId !== FREEFORM_TEMPLATE_ID
+      ? `\n- requested pattern: "${escapeXmlAttr(input.templateId)}"`
+      : "";
+
+  return `${input.instruction}
+
+<canvas_generation_instructions>
+Invoke the \`building-canvases\` skill and follow it completely.
+
+Target:
+- canvas id: "${escapeXmlAttr(input.dashboardId)}"
+- canvas name: "${escapeXmlAttr(input.name)}"
+- channel: "${escapeXmlAttr(input.channelName)}"${template}
 </canvas_generation_instructions>`;
 }

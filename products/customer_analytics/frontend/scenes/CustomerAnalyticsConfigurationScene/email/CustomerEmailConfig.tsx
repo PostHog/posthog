@@ -20,8 +20,18 @@ import { customerEmailConfigLogic } from './customerEmailConfigLogic'
 import type { CustomerEmailChannel } from './customerEmailConfigLogic'
 
 function ConnectedEmailContent({ channel }: { channel: CustomerEmailChannel }): JSX.Element {
-    const { channelsLoading, confirmingChannelId, disconnectingChannelId } = useValues(customerEmailConfigLogic)
-    const { confirmForwarding, disconnectEmail, loadChannels } = useActions(customerEmailConfigLogic)
+    const {
+        channelsLoading,
+        disconnectingChannelId,
+        openingConfirmationChannelId,
+        verificationAwaitingChannelIds,
+        verificationTimedOutChannelIds,
+        verifyingChannelId,
+    } = useValues(customerEmailConfigLogic)
+    const { disconnectEmail, loadChannels, openGmailConfirmation, verifyForwarding } =
+        useActions(customerEmailConfigLogic)
+    const verificationAwaiting = verificationAwaitingChannelIds.includes(channel.id)
+    const verificationTimedOut = verificationTimedOutChannelIds.includes(channel.id)
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -34,43 +44,90 @@ function ConnectedEmailContent({ channel }: { channel: CustomerEmailChannel }): 
                         email domain.
                     </p>
                 ))}
-            {channel.connection_status === 'pending_confirmation' &&
-                (channel.confirmation_available ? (
-                    <LemonBanner type="success">
+            {channel.connection_status === 'pending_confirmation' && (
+                <>
+                    {channel.confirmation_available ? (
+                        <LemonBanner type="success">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>
+                                    Gmail sent a forwarding confirmation. Open it, then enable forwarding and save your
+                                    changes in Gmail.
+                                </span>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    icon={<IconCheck />}
+                                    loading={openingConfirmationChannelId === channel.id}
+                                    disabledReason={
+                                        openingConfirmationChannelId && openingConfirmationChannelId !== channel.id
+                                            ? 'Another Gmail confirmation is opening'
+                                            : undefined
+                                    }
+                                    onClick={() => openGmailConfirmation(channel.id)}
+                                >
+                                    Open Gmail confirmation
+                                </LemonButton>
+                            </div>
+                        </LemonBanner>
+                    ) : (
+                        <LemonBanner type="info">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>
+                                    Gmail may ask you to confirm the forwarding address. If it does, check again after
+                                    the confirmation email arrives.
+                                </span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconRefresh />}
+                                    loading={channelsLoading}
+                                    onClick={() => loadChannels(true)}
+                                >
+                                    Check again
+                                </LemonButton>
+                            </div>
+                        </LemonBanner>
+                    )}
+                    <LemonBanner type={verificationTimedOut ? 'warning' : 'info'}>
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span>Gmail sent a forwarding confirmation. Open it to finish connecting this email.</span>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                icon={<IconCheck />}
-                                loading={confirmingChannelId === channel.id}
-                                disabledReason={
-                                    confirmingChannelId && confirmingChannelId !== channel.id
-                                        ? 'Another email confirmation is opening'
-                                        : undefined
-                                }
-                                onClick={() => confirmForwarding(channel.id)}
-                            >
-                                Verify forwarding
-                            </LemonButton>
+                            <span>
+                                {verificationAwaiting
+                                    ? 'Verification email sent. Waiting for Gmail to forward it to PostHog. PostHog checks every few seconds.'
+                                    : verificationTimedOut
+                                      ? "We haven't received the verification email. Check Gmail's spam folder and forwarding settings, then try again."
+                                      : 'After you enable forwarding and save your changes in Gmail, verify that messages reach PostHog.'}
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconRefresh />}
+                                    loading={channelsLoading}
+                                    onClick={() => loadChannels(true)}
+                                >
+                                    Check status
+                                </LemonButton>
+                                {!verificationAwaiting && (
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconCheck />}
+                                        loading={verifyingChannelId === channel.id}
+                                        disabledReason={
+                                            verifyingChannelId && verifyingChannelId !== channel.id
+                                                ? 'Another email is being verified'
+                                                : undefined
+                                        }
+                                        onClick={() => verifyForwarding(channel.id)}
+                                    >
+                                        Verify forwarding
+                                    </LemonButton>
+                                )}
+                            </div>
                         </div>
                     </LemonBanner>
-                ) : (
-                    <LemonBanner type="info">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span>Waiting for Gmail to send the forwarding confirmation.</span>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconRefresh />}
-                                loading={channelsLoading}
-                                onClick={loadChannels}
-                            >
-                                Check again
-                            </LemonButton>
-                        </div>
-                    </LemonBanner>
-                ))}
+                </>
+            )}
             {channel.connection_status === 'confirmation_expired' && (
                 <LemonBanner type="error">
                     This forwarding setup expired. Disconnect this email and add it again to restart setup.
@@ -181,7 +238,7 @@ export function CustomerEmailConfig(): JSX.Element {
     }
     if (channelsLoadFailed && channels.length === 0) {
         return (
-            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadChannels }}>
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadChannels(true) }}>
                 Could not load your connected emails.
             </LemonBanner>
         )

@@ -15,9 +15,13 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY, SdkVersionEntry, team_sdk_versions_v2_key
+from products.growth.backend.constants import (
+    SDK_TYPES,
+    TEAM_SDK_CACHE_EXPIRY,
+    SdkVersionEntry,
+    team_sdk_versions_v2_key,
+)
 from products.growth.backend.sdk_health import sort_sdk_version_entries
-from products.growth.dags.github_sdk_versions import SDK_TYPES
 
 default_logger: BoundLogger = structlog.get_logger(__name__)
 

@@ -39,6 +39,7 @@ describe('customerEmailConfigLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
     })
 
     it('loads only customer communication channels', async () => {
@@ -51,7 +52,7 @@ describe('customerEmailConfigLogic', () => {
         expect(logic.values.channelsLoading).toBe(false)
     })
 
-    it('opens an authenticated confirmation and activates the channel', async () => {
+    it('opens an authenticated confirmation without activating the channel', async () => {
         const replace = jest.fn()
         jest.spyOn(window, 'open').mockReturnValue({
             opener: window,
@@ -68,7 +69,7 @@ describe('customerEmailConfigLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.confirmForwarding(channel.id)
+        logic.actions.openGmailConfirmation(channel.id)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(createSpy).toHaveBeenCalledWith('api/conversations/v1/email/confirm-forwarding', {
@@ -76,13 +77,109 @@ describe('customerEmailConfigLogic', () => {
         })
         expect(window.open).toHaveBeenCalledWith('about:blank', '_blank')
         expect(replace).toHaveBeenCalledWith('https://mail-settings.google.com/mail/vf-confirmation')
-        expect(logic.values.channels[0]).toEqual({
-            ...channel,
-            connection_status: 'active',
-            setup_expires_at: null,
-            confirmation_available: false,
+        expect(logic.values.channels[0]).toEqual({ ...channel, confirmation_available: true })
+        expect(logic.values.openingConfirmationChannelId).toBeNull()
+    })
+
+    it('sends a forwarding challenge and refreshes until the channel is active', async () => {
+        jest.useFakeTimers()
+        getSpy
+            .mockResolvedValueOnce({ configs: [channel] })
+            .mockResolvedValueOnce({ configs: [channel] })
+            .mockResolvedValueOnce({
+                configs: [
+                    {
+                        ...channel,
+                        connection_status: 'active',
+                        setup_expires_at: null,
+                        confirmation_available: false,
+                    },
+                ],
+            })
+        createSpy.mockResolvedValue({ ok: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.verifyForwarding(channel.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledWith('api/conversations/v1/email/verify-forwarding', {
+            config_id: channel.id,
         })
-        expect(logic.values.confirmingChannelId).toBeNull()
+        expect(logic.values.verifyingChannelId).toBeNull()
+        expect(logic.values.verificationAwaitingChannelIds).toEqual([channel.id])
+        expect(logic.values.channels[0].connection_status).toBe('pending_confirmation')
+        expect(getSpy).toHaveBeenCalledTimes(2)
+
+        await jest.advanceTimersByTimeAsync(3_000)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(getSpy).toHaveBeenLastCalledWith('api/conversations/v1/email/status?kind=customer_communication')
+        expect(getSpy).toHaveBeenCalledTimes(3)
+        expect(logic.values.channels[0].connection_status).toBe('active')
+        expect(logic.values.verificationAwaitingChannelIds).toEqual([])
+    })
+
+    it('does not overlap status refreshes', async () => {
+        let runPoll = (): void => {}
+        jest.spyOn(window, 'setInterval').mockImplementation((handler: TimerHandler): number => {
+            if (typeof handler === 'function') {
+                runPoll = () => handler()
+            }
+            return 1
+        })
+        getSpy.mockResolvedValue({ configs: [channel] })
+        createSpy.mockResolvedValue({ ok: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.verifyForwarding(channel.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const completedRequestCount = getSpy.mock.calls.length
+        let resolveRefresh!: (value: { configs: CustomerEmailChannel[] }) => void
+        getSpy.mockReturnValueOnce(
+            new Promise<{ configs: CustomerEmailChannel[] }>((resolve) => {
+                resolveRefresh = resolve
+            })
+        )
+        logic.actions.loadChannels(false)
+
+        expect(logic.values.channelsLoading).toBe(true)
+        runPoll()
+        expect(getSpy).toHaveBeenCalledTimes(completedRequestCount + 1)
+
+        resolveRefresh({ configs: [channel] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.channelsLoading).toBe(false)
+    })
+
+    it('resets verification loading when sending the challenge fails', async () => {
+        getSpy.mockResolvedValue({ configs: [channel] })
+        createSpy.mockRejectedValue(new Error('queue unavailable'))
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.verifyForwarding(channel.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.verifyingChannelId).toBeNull()
+        expect(logic.values.verificationAwaitingChannelIds).toEqual([])
+    })
+
+    it('shows retry guidance when the forwarding challenge does not return', async () => {
+        jest.useFakeTimers()
+        getSpy.mockResolvedValue({ configs: [channel] })
+        createSpy.mockResolvedValue({ ok: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.verifyForwarding(channel.id)
+        await expectLogic(logic).toFinishAllListeners()
+        await jest.advanceTimersByTimeAsync(33_000)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.verificationAwaitingChannelIds).toEqual([])
+        expect(logic.values.verificationTimedOutChannelIds).toEqual([channel.id])
     })
 
     it('connects and disconnects the current user email', async () => {

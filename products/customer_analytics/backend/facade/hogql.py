@@ -1,7 +1,7 @@
-"""Customer analytics' federated HogQL system tables (`system.accounts`,
-`system.custom_property_definitions`) and the aggregating tables plus lazy joins that
-power `system.accounts.tags`, `system.accounts.notebooks`, and
-`system.accounts.custom_properties`.
+"""Customer analytics' federated HogQL system tables for accounts, custom
+properties, relationships, and feature requests. This module also owns the aggregating
+tables and lazy joins that power `system.accounts.tags`, `system.accounts.notebooks`,
+and `system.accounts.custom_properties`.
 
 Owned here rather than in core so the coupling between core's HogQL schema and this
 product's Postgres tables is import-visible (tach) and facade-gated (CI): core
@@ -27,6 +27,7 @@ from posthog.hogql.database.lazy_join_tags import (
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
+    DateDatabaseField,
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
@@ -671,11 +672,207 @@ accounts: PostgresTable = PostgresTable(
         "updated_at": DateTimeDatabaseField(
             name="updated_at", nullable=True, description="When the account record was last updated."
         ),
+        "churned_at": DateTimeDatabaseField(
+            name="churned_at", nullable=True, description="When the account churned; NULL if it has not churned."
+        ),
+        "ignored_at": DateTimeDatabaseField(
+            name="ignored_at", nullable=True, description="When Track Rules ignored the account; NULL if tracked."
+        ),
         "tags": account_tags_lazy_join,
         "notebooks": account_notebooks_lazy_join,
         "custom_properties": account_custom_properties_lazy_join,
         "custom_properties_history": account_custom_properties_history_lazy_join,
         "relationships": account_relationships_lazy_join,
+    },
+)
+
+
+feature_request_product_areas: PostgresTable = PostgresTable(
+    name="feature_request_product_areas",
+    postgres_table_name="customer_analytics_featurerequestproductarea",
+    access_scope="customer_analytics",
+    description="Product areas used to categorize Customer analytics feature requests, one row per team-defined area.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Product area UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Team-maintained product area name."),
+        "display_order": IntegerDatabaseField(
+            name="display_order", description="Position in product area selectors. Lower values appear first."
+        ),
+        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
+        "is_active": ExpressionField(
+            name="is_active",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])]),
+            description="1 if editors can select this area for new requests, 0 otherwise.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="PostHog user who created the product area."
+        ),
+        "updated_by_id": IntegerDatabaseField(
+            name="updated_by_id", nullable=True, description="PostHog user who last updated the product area."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the product area was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the product area was last updated."),
+    },
+)
+
+
+feature_request_account_links: PostgresTable = PostgresTable(
+    name="feature_request_account_links",
+    postgres_table_name="customer_analytics_featurerequestaccountlink",
+    access_scope="account",
+    access_control_id_field="account_id",
+    predicates=[parse_expr("unlinked_at IS NULL")],
+    description="Active links between Customer analytics feature requests and affected accounts, one row per request and account pair.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Feature request account link UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "feature_request_id": UUIDDatabaseField(
+            name="feature_request_id",
+            description="Feature request this link belongs to. Join to `system.feature_requests.id`.",
+        ),
+        "account_id": UUIDDatabaseField(
+            name="account_id", description="Affected account. Join to `system.accounts.id`."
+        ),
+        "unlinked_at": DateTimeDatabaseField(name="unlinked_at", nullable=True, hidden=True),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the account was first linked."),
+        "updated_at": DateTimeDatabaseField(
+            name="updated_at", nullable=True, description="When the account link was last changed."
+        ),
+    },
+)
+
+
+feature_requests: PostgresTable = PostgresTable(
+    name="feature_requests",
+    postgres_table_name="customer_analytics_featurerequest",
+    access_scope="customer_analytics",
+    predicates=[parse_expr("id IN (SELECT feature_request_id FROM system.feature_request_account_links)")],
+    description="Customer analytics feature requests linked to at least one account the caller can access, one row per request.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Feature request UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "title": StringDatabaseField(name="title", description="Customer-facing request title."),
+        "description": StringDatabaseField(name="description", description="Customer-facing description in Markdown."),
+        "status": StringDatabaseField(
+            name="status",
+            description="Current lifecycle status: 'requested', 'planned', 'completed', 'wont_fix', or 'duplicate'.",
+        ),
+        "priority": StringDatabaseField(
+            name="priority", nullable=True, description="Manual priority: 'high', 'medium', 'low', or NULL."
+        ),
+        "archived_at": DateTimeDatabaseField(
+            name="archived_at", nullable=True, description="When the request was archived. NULL while active."
+        ),
+        "archived_by_id": IntegerDatabaseField(
+            name="archived_by_id", nullable=True, description="PostHog user who archived the request."
+        ),
+        "version": IntegerDatabaseField(
+            name="version", description="Version required for optimistic concurrency on mutations."
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="PostHog user who created the request."
+        ),
+        "updated_by_id": IntegerDatabaseField(
+            name="updated_by_id", nullable=True, description="PostHog user who last updated the request."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the request was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the request was last updated."),
+    },
+)
+
+
+feature_request_evidence: PostgresTable = PostgresTable(
+    name="feature_request_evidence",
+    postgres_table_name="customer_analytics_featurerequestevidence",
+    access_scope="customer_analytics",
+    predicates=[parse_expr("account_link_id IN (SELECT id FROM system.feature_request_account_links)")],
+    description="Evidence recorded for active feature request account links, one row per evidence item.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Evidence UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "account_link_id": UUIDDatabaseField(
+            name="account_link_id",
+            description="Request and account pair this evidence supports. Join to `system.feature_request_account_links.id`.",
+        ),
+        "summary": StringDatabaseField(name="summary", description="Internal summary of the request evidence."),
+        "customer_quote": StringDatabaseField(
+            name="customer_quote", description="Customer quote kept with this evidence item."
+        ),
+        "source": StringDatabaseField(name="source", description="Free-form name of the evidence source."),
+        "source_url": StringDatabaseField(
+            name="source_url", description="HTTP or HTTPS link to the source, or an empty string."
+        ),
+        "requested_on": DateDatabaseField(
+            name="requested_on", nullable=True, description="Date the account made the request, or NULL when unknown."
+        ),
+        "_image_ids": StringArrayDatabaseField(name="image_ids", hidden=True),
+        "image_ids": ExpressionField(
+            name="image_ids",
+            expr=parse_expr("arrayMap(image_id -> toString(image_id), _image_ids)"),
+            description="Uploaded image UUIDs attached to this evidence item, in display order.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="PostHog user who added the evidence."
+        ),
+        "updated_by_id": IntegerDatabaseField(
+            name="updated_by_id", nullable=True, description="PostHog user who last updated the evidence."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the evidence was added."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the evidence was last updated."),
+    },
+)
+
+
+feature_request_product_area_links: PostgresTable = PostgresTable(
+    name="feature_request_product_area_links",
+    postgres_table_name="customer_analytics_featurerequestproductarealink",
+    access_scope="customer_analytics",
+    predicates=[parse_expr("feature_request_id IN (SELECT id FROM system.feature_requests)")],
+    description="Links between visible feature requests and product areas, one row per request and area pair.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Feature request product area link UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "feature_request_id": UUIDDatabaseField(
+            name="feature_request_id", description="Feature request. Join to `system.feature_requests.id`."
+        ),
+        "product_area_id": UUIDDatabaseField(
+            name="product_area_id", description="Product area. Join to `system.feature_request_product_areas.id`."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the product area was linked."),
+    },
+)
+
+
+feature_request_history: PostgresTable = PostgresTable(
+    name="feature_request_history",
+    postgres_table_name="customer_analytics_featurerequesthistory",
+    access_scope="customer_analytics",
+    predicates=[parse_expr("feature_request_id IN (SELECT id FROM system.feature_requests)")],
+    description="Change history for visible Customer analytics feature requests, one row per successful save.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Feature request history entry UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "feature_request_id": UUIDDatabaseField(
+            name="feature_request_id", description="Feature request that changed. Join to `system.feature_requests.id`."
+        ),
+        "_changes": StringJSONDatabaseField(name="changes", hidden=True),
+        "changed_fields": ExpressionField(
+            name="changed_fields",
+            expr=parse_expr("arrayMap(change -> JSONExtractString(change, 'field'), JSONExtractArrayRaw(_changes))"),
+            description="Names of the fields changed in this save. Before and after values are not exposed.",
+        ),
+        "_is_initial": BooleanDatabaseField(name="is_initial", hidden=True),
+        "is_initial": ExpressionField(
+            name="is_initial",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_initial"])]),
+            description="1 if this entry records the request's initial values, 0 otherwise.",
+        ),
+        "source": StringDatabaseField(name="source", description="System that recorded the change."),
+        "actor_id": IntegerDatabaseField(
+            name="actor_id", nullable=True, description="PostHog user who changed the request."
+        ),
+        "changed_at": DateTimeDatabaseField(name="changed_at", description="When the request changed."),
     },
 )
 
