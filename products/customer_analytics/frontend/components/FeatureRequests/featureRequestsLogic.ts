@@ -1405,10 +1405,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 return [...accountById.values()].map((account) => ({
                     key: account.id,
-                    label:
-                        'external_id' in account && account.external_id
-                            ? `${account.name} (${account.external_id})`
-                            : account.name,
+                    label: account.name,
                 }))
             },
         ],

@@ -162,8 +162,8 @@ describe('featureRequestsLogic', () => {
         logic.actions.loadAccountsSuccess([])
 
         expect(logic.values.accountOptions).toEqual([
-            { key: filterAccount.id, label: `${filterAccount.name} (${filterAccount.external_id})` },
-            { key: account.id, label: `${account.name} (${account.external_id})` },
+            { key: filterAccount.id, label: filterAccount.name },
+            { key: account.id, label: account.name },
         ])
     })
 
@@ -474,9 +474,7 @@ describe('featureRequestsLogic', () => {
         logic.actions.setAddAccountId(otherAccount.id)
         logic.actions.setEvidenceSummary('Globex needs a weekly export.')
         logic.actions.setEvidenceSource('meeting')
-        expect(logic.values.addAccountOptions).toEqual([
-            { key: otherAccount.id, label: `${otherAccount.name} (${otherAccount.external_id})` },
-        ])
+        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
 
         await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
 
