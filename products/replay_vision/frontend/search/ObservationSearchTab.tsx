@@ -12,7 +12,7 @@ import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
 import { SEARCH_RESULT_LIMIT, observationSearchLogic } from './observationSearchLogic'
 
-const EXAMPLE_QUERIES = ['users confused by pricing', 'abandoned checkout after an error']
+const EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
 
 function countLabel(count: number): string {
     if (count >= SEARCH_RESULT_LIMIT) {
@@ -70,8 +70,8 @@ export function ObservationSearchTab({ scannerId }: { scannerId: string | null }
     const crossScanner = scannerId === null
 
     return (
-        <div className="max-w-3xl mx-auto flex flex-col gap-4 pt-2">
-            <div className="flex gap-2 w-[40rem] max-w-full mx-auto">
+        <div className="w-full max-w-3xl mx-auto flex flex-col gap-4 pt-2">
+            <div className="flex gap-2">
                 <LemonInput
                     type="search"
                     fullWidth

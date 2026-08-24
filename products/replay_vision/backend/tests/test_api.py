@@ -3060,7 +3060,13 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         return observation
 
-    @parameterized.expand([("missing_q", ""), ("limit_above_cap", "?q=checkout&limit=51")])
+    @parameterized.expand(
+        [
+            ("missing_q", ""),
+            ("limit_above_cap", "?q=checkout&limit=51"),
+            ("unknown_verdict", "?q=checkout&verdict=yes,maybe"),
+        ]
+    )
     def test_search_rejects_bad_params(self, _name: str, query_string: str) -> None:
         resp = self.client.get(f"{self.search_url}{query_string}")
         self.assertEqual(resp.status_code, 400)
@@ -3152,7 +3158,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
     def test_search_returns_400_when_ai_consent_is_off(self, _mock_consent: MagicMock) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything")
         self.assertEqual(resp.status_code, 400)
-        self.assertIn("AI data processing", resp.json()["detail"])
+        self.assertIn("allow AI analysis", resp.json()["detail"])
 
     def test_search_with_unknown_scanner_returns_404(self) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything&scanner_id={uuid7()}")

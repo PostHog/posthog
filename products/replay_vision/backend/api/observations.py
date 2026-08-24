@@ -1114,6 +1114,14 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
         help_text=f"Maximum number of results (default {DEFAULT_SEARCH_LIMIT}, at most {MAX_SEARCH_LIMIT}).",
     )
 
+    def validate_verdict(self, value: str) -> str:
+        # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a
+        # silently empty result. Raised as a plain string so the error lands under `verdict`.
+        invalid = sorted({v for v in split_csv(value) if v not in _MONITOR_VERDICTS})
+        if invalid:
+            raise serializers.ValidationError(f"Invalid value(s) {invalid}; allowed: {sorted(_MONITOR_VERDICTS)}.")
+        return value
+
 
 class ObservationSearchResultSerializer(serializers.Serializer):
     observation = ReplayObservationSerializer(help_text="The matching observation.")
@@ -1205,8 +1213,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
         if not is_ai_data_processing_approved(self.team.id):
             raise ValidationError(
-                "AI data processing is turned off for this organization, so search can't run. "
-                "An organization admin can turn it on in organization settings."
+                "Your organization needs to allow AI analysis before you can search Replay Vision observations."
             )
         try:
             # Short timeout: this sync call pins a request thread, and search users don't wait long.
