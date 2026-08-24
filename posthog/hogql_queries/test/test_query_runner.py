@@ -10,6 +10,7 @@ from unittest import mock
 from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -137,6 +138,7 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
     return TestQueryRunner
 
 
+@override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
 class TestQueryRunner(BaseTest):
     maxDiff = None
 
