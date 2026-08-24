@@ -10,8 +10,8 @@ export const INBOX_OPEN_SECTIONS_STORAGE_KEY = 'inbox-open-report-sections'
  * work to do open; the two that are a record of work already judged stay out of the way.
  */
 export const DEFAULT_OPEN_SECTIONS: Record<InboxReportSectionKey, boolean> = {
-    'needs-decision': true,
     monitoring: true,
+    'needs-decision': true,
     resolved: false,
     'not-actionable': false,
 }

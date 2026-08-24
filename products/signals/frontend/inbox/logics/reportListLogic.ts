@@ -55,14 +55,14 @@ export interface ReportListLogicProps {
  * bodies, the header counts, and the scene.
  */
 export const INBOX_REPORT_SECTION_LIST_PARAMS: Record<InboxReportSectionKey, ReportListParams> = {
-    // Researched, actionable, and without a PR yet: a human decides what happens next.
+    // An implementation PR is open, waiting to be reviewed and merged.
+    monitoring: { has_implementation_pr: 'true', status: 'ready' },
+    // Researched and actionable, but no PR has been opened for it yet.
     'needs-decision': {
         has_implementation_pr: 'false',
         status: 'ready,pending_input',
         actionability: ACTIONABLE_ACTIONABILITY_VALUES.join(','),
     },
-    // An implementation PR is open and being watched.
-    monitoring: { has_implementation_pr: 'true', status: 'ready' },
     // Terminal reports: ones resolved by a merged implementation PR (not restorable) and ones
     // the user archived (suppressed, restorable).
     resolved: { status: 'suppressed,resolved' },
@@ -154,6 +154,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     setFilters: (filters: InboxFilterState) => {
         filters: InboxFilterState
+    } // inboxFiltersLogic
+    setPriorityFilter: (priorities: SignalReportPriority[]) => {
+        priorities: SignalReportPriority[]
     } // inboxFiltersLogic
     setScope: (scope: InboxScope) => {
         scope: InboxScope
@@ -273,8 +276,8 @@ export interface reportListLogicMeta {
             arg: any
         ) => any
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
-        visibleReports: (reports: SignalReport[], visibleCount: 5) => SignalReport[]
-        hiddenReportCount: (totalCount: number | null, count: number | null, visibleCount: 5) => number
+        visibleReports: (reports: SignalReport[], visibleCount: number) => SignalReport[]
+        hiddenReportCount: (totalCount: number | null, count: number | null, visibleCount: number) => number
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
@@ -294,7 +297,7 @@ export type reportListLogicType = MakeLogicType<
 >
 
 /**
- * Keyed per-section report list. Mounted once per Reports section (Needs a PR / Review and merge /
+ * Keyed per-section report list. Mounted once per Reports section (Review and merge / Needs a PR /
  * Resolved / Not actionable), each with its own fixed `listParams`, so every section is its own
  * filtered request with its own accurate `count` and its own pagination. The shared user chrome
  * (search, sort, source, priority, reviewer scope) is connected from `inboxFiltersLogic` and applied
@@ -332,6 +335,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 'toggleSourceProduct',
                 'toggleScout',
                 'togglePriority',
+                'setPriorityFilter',
                 'setScope',
                 'applyDefaultScope',
                 'setFilters',
@@ -559,6 +563,7 @@ export const reportListLogic = kea<reportListLogicType>([
         toggleSourceProduct: () => actions.refresh(),
         toggleScout: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
+        setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
         applyDefaultScope: () => actions.refresh(),
         setFilters: () => actions.refresh(),

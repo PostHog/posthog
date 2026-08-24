@@ -338,7 +338,7 @@ export function SelfDrivingSection(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border-t border-primary bg-surface-secondary">
+            <div className="border-t border-primary">
                 {autostartEnabled ? (
                     <>
                         <div className="flex flex-col gap-2 px-2.5 py-1.5">

@@ -248,6 +248,9 @@ export interface inboxFiltersLogicActions {
     setFilters: (filters: InboxFilterState) => {
         filters: InboxFilterState
     }
+    setPriorityFilter: (priorities: SignalReportPriority[]) => {
+        priorities: SignalReportPriority[]
+    }
     setScope: (scope: InboxScope) => {
         scope: InboxScope
     }
@@ -320,6 +323,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         toggleScout: (scout: string) => ({ scout }),
         clearScoutFilter: true,
         togglePriority: (priority: SignalReportPriority) => ({ priority }),
+        // Replace the whole selection. The priority control is a single select, but the state
+        // stays a list so a shared link carrying several priorities still filters by all of them.
+        setPriorityFilter: (priorities: SignalReportPriority[]) => ({ priorities }),
         // Atomically apply a full filter set. Used when hydrating from a shared URL so the whole view
         // is restored in one action — one list refresh, no fan-out race between partial states.
         setFilters: (filters: InboxFilterState) => ({ filters }),
@@ -371,6 +377,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             toggleScout: () => captureQueryChange('scout'),
             clearScoutFilter: () => captureQueryChange('scout'),
             togglePriority: () => captureQueryChange('priority'),
+            setPriorityFilter: () => captureQueryChange('priority'),
             clearFilters: () => captureQueryChange('clear'),
             setFilters: () => captureQueryChange('url'),
             // The search box fires per keystroke; settle first so a typed phrase is one event.
@@ -457,6 +464,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             {
                 togglePriority: (state, { priority }) =>
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
+                setPriorityFilter: (_, { priorities }) => priorities,
                 setFilters: (_, { filters }) => filters.priorityFilter,
                 clearFilters: () => [],
             },
@@ -494,6 +502,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             toggleScout: toUrl,
             clearScoutFilter: toUrl,
             togglePriority: toUrl,
+            setPriorityFilter: toUrl,
             setSearchQuery: toUrl,
             clearFilters: toUrl,
         }

@@ -23,8 +23,8 @@ import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxReportSection } from '../InboxReportSection'
 import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
+import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeSelect } from '../shell/InboxScopeSelect'
-import { InboxSearchFilterBar } from '../shell/InboxSearchFilterBar'
 
 /**
  * The sections that make up "the inbox" for counting purposes. Not actionable is left out: it is a
@@ -187,12 +187,8 @@ export function ReportsTab(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                {/* The filters shrink and wrap within their own group before the row breaks, so
-                    focus mode and the scope switch keep their place on the right. */}
-                <div className="min-w-0 flex-1">
-                    <InboxSearchFilterBar />
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <InboxReportFilters />
+                <div className="ml-auto flex shrink-0 items-center gap-2">
                     <LemonButton
                         type="primary"
                         size="small"

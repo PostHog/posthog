@@ -89,8 +89,13 @@ export function InboxCardSourceMeta({
 /**
  * Unified inbox list card for reports and pull requests. The presence of a parseable
  * implementation PR (`hasPr`) drives the divergences: PR cards get a solid border, a
- * `#1234` state badge, the repo slug in the meta row, and no status/actionability chips;
- * plain reports get a dashed border, a summary placeholder, and the status/actionability chips.
+ * `#1234` state badge, the repo slug in the meta row, no status/actionability chips, and a
+ * "Review changes" action; plain reports get a dashed border, a summary placeholder, the
+ * status/actionability chips, and "View report".
+ *
+ * The inbox list gives a row one action, the one that moves the report forward; archiving lives in
+ * the report detail pane and the bulk selection bar, where what is being dismissed is in full view.
+ * Other surfaces that embed this card can still opt into a row-level Archive via `onArchive`.
  */
 export function ReportCard({
     report,
@@ -104,6 +109,7 @@ export function ReportCard({
     report: SignalReport
     sectionKey?: InboxReportSectionKey
     attached?: boolean
+    /** Archive from the row. The inbox list omits it; surfaces that embed this card can opt in. */
     onArchive?: (reason: DismissalReasonValue, note: string) => void
     onRestore?: () => void
     /** Internal path the detail view's back button should return to, for cards rendered outside the inbox. */
@@ -269,18 +275,20 @@ export function ReportCard({
                         )
                     ) : (
                         <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconArchive />}
-                                tooltip="Archive this report"
-                                aria-label="Archive this report"
-                                loading={isArchiving}
-                                onClick={preview ? undefined : onArchiveClick}
-                                tabIndex={preview ? -1 : undefined}
-                            >
-                                Archive
-                            </LemonButton>
+                            {onArchive && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconArchive />}
+                                    tooltip="Archive this report"
+                                    aria-label="Archive this report"
+                                    loading={isArchiving}
+                                    onClick={preview ? undefined : onArchiveClick}
+                                    tabIndex={preview ? -1 : undefined}
+                                >
+                                    Archive
+                                </LemonButton>
+                            )}
                             <LemonButton
                                 type="primary"
                                 size="small"
@@ -296,7 +304,7 @@ export function ReportCard({
                                 }
                                 tabIndex={preview ? -1 : undefined}
                             >
-                                Review
+                                {hasPr ? 'Review changes' : 'View report'}
                             </LemonButton>
                         </>
                     )}

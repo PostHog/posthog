@@ -11,10 +11,10 @@ import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { ReportsTab } from './ReportsTab'
 
 jest.mock('posthog-js')
-// The sections, filter row, and bulk bar each pull in their own endpoints; this is about what the
-// tab reports for the list as a whole.
+// The sections, filters, and bulk bar each pull in their own endpoints; this is about what the tab
+// reports for the list as a whole.
 jest.mock('../InboxReportSection', () => ({ InboxReportSection: () => null }))
-jest.mock('../shell/InboxSearchFilterBar', () => ({ InboxSearchFilterBar: () => null }))
+jest.mock('../shell/InboxReportFilters', () => ({ InboxReportFilters: () => null }))
 jest.mock('../shell/InboxBulkSelectionBar', () => ({ InboxBulkSelectionBar: () => null }))
 
 interface SectionCountStub {

@@ -14,7 +14,7 @@ const WELCOME_TAB_KEY = 'welcome'
 type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
 
 /**
- * Page tab bar: Reports / Scouts / Settings. The report sections (Needs a PR / Review and merge /
+ * Page tab bar: Reports / Scouts / Settings. The report sections (Review and merge / Needs a PR /
  * Resolved) live inside the Reports tab, so no counts sit here.
  *
  * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and

@@ -821,7 +821,7 @@ export function AgentsRoster(): JSX.Element {
             {visibleGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-1">
                     <span className="text-xs font-medium text-muted">{group.label}</span>
-                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary">
+                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary bg-surface-primary">
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
                             // Steering needs a persisted row to write to, so optimistic `new_`
@@ -896,7 +896,7 @@ export function AgentsRosterSkeleton(): JSX.Element {
             {AGENT_ROSTER_GROUPS.map((group) => (
                 <div key={group.label} className="flex flex-col gap-1">
                     <LemonSkeleton className="h-3 w-24" />
-                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary">
+                    <div className="divide-y divide-primary overflow-hidden rounded border border-primary bg-surface-primary">
                         {group.agents.map((agent) => (
                             <AgentRowSkeleton key={agent.source} />
                         ))}

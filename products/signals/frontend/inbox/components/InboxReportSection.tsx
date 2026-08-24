@@ -84,7 +84,7 @@ function SectionHeader({ sectionKey }: { sectionKey: InboxReportSectionKey }): J
 
 function SectionBody({ sectionKey }: { sectionKey: InboxReportSectionKey }): JSX.Element | null {
     const { visibleReports, hiddenReportCount, count, isLoaded, reportsResponseLoading } = useValues(reportListLogic)
-    const { ensureLoaded, showMore, archiveReport, restoreReport } = useActions(reportListLogic)
+    const { ensureLoaded, showMore, restoreReport } = useActions(reportListLogic)
     const { openSections } = useValues(inboxReportSectionsLogic)
     const isOpen = openSections[sectionKey]
 
@@ -116,7 +116,6 @@ function SectionBody({ sectionKey }: { sectionKey: InboxReportSectionKey }): JSX
                     key={report.id}
                     report={report}
                     sectionKey={sectionKey}
-                    onArchive={(reason, note) => archiveReport(report.id, reason, note)}
                     onRestore={() => restoreReport(report.id)}
                 />
             ))}
