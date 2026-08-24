@@ -860,6 +860,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         setScoutSearch: async ({ search }, breakpoint) => {
             const searchedPathname = router.values.location.pathname
             await breakpoint(ROSTER_SEARCH_DEBOUNCE_MS)
+            // Hydrating from the URL replaces the search without aborting this breakpoint, so the
+            // typed query can be stale by now. Drop it: the hydrated search owns the URL, and
+            // reporting the abandoned query here would pair its length with the new match count.
+            if (values.scoutSearch !== search) {
+                return
+            }
             // The logic stays mounted across a master-detail navigation, so the breakpoint does not
             // abort on a same-scene route change. Only write the roster filter if the user is still on
             // the route they searched from — otherwise the delayed write lands a roster param on a
@@ -1156,8 +1162,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     }
                     return
                 }
-                // Fresh navigation onto the bare URL keeps the persisted filters, reflecting any
-                // non-default one back so the current view is immediately shareable.
+                // Only a fresh navigation reflects the persisted filters back, so the current view
+                // is immediately shareable. A replace is not a navigation: a sibling inbox logic
+                // replaces the bare URL to restore its own params while a Back is still being
+                // handled, and writing the roster filters there would leave the URL filtered after
+                // that Back resets the controls.
+                if (method !== 'PUSH') {
+                    return
+                }
                 const desired = rosterFilterSearchParams({}, values)
                 if (Object.keys(desired).length > 0) {
                     router.actions.replace(

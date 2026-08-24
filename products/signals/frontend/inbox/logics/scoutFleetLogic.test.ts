@@ -417,6 +417,49 @@ describe('scoutFleetLogic', () => {
         expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
     })
 
+    it('drops a typed search that a URL hydration has already replaced', async () => {
+        jest.useFakeTimers()
+        try {
+            const capture = posthog.capture as jest.Mock
+            router.actions.push(urls.inbox('scouts'))
+            logic.actions.setScoutSearch('reve')
+            capture.mockClear()
+
+            // A shared link or Back reaches the same route with a different search before the
+            // debounce settles. Hydration does not abort the breakpoint, so the stale query must
+            // not report itself or write itself back over the hydrated URL.
+            router.actions.push(urls.inbox('scouts'), { scoutSearch: 'rev' })
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(capture.mock.calls.filter(([event]) => event === 'Scout action')).toEqual([])
+            expect(router.values.searchParams.scoutSearch).toEqual('rev')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('keeps the roster filters out of a bare URL that a sibling logic replaces', async () => {
+        router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+        await expectLogic(logic).toDispatchActions(['hydrateRosterFilters'])
+
+        // A sibling inbox logic restores its own params by replacing the bare URL, which happens
+        // while a Back onto that bare entry is still being handled.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'REPLACE',
+                pathname: urls.inbox('scouts'),
+                search: '?scope=all',
+                searchParams: { scope: 'all' },
+                hash: '',
+                hashParams: {},
+                url: `${urls.inbox('scouts')}?scope=all`,
+            })
+        }).toFinishAllListeners()
+
+        // Riding along here would leave the URL filtered once the Back resets the controls.
+        expect(router.values.searchParams.scoutEnabled).toBeUndefined()
+    })
+
     it('resets the in-flight chat type when the kickoff fails', async () => {
         mockSignalsScoutChatTasksCreate.mockRejectedValue(new Error('over the usage limit'))
 
