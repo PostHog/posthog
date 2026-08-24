@@ -44,7 +44,9 @@ describe('errorTrackingIssueSceneLogic', () => {
         'marks a non-UUID id as invalid and skips the loaders (%s)',
         async (id) => {
             const scopedLogic = errorTrackingIssueSceneLogic({ id })
-            await expectLogic(scopedLogic, () => scopedLogic.mount()).toNotHaveDispatchedActions(['loadIssue'])
+            await expectLogic(scopedLogic, () => {
+                scopedLogic.mount()
+            }).toNotHaveDispatchedActions(['loadIssue'])
             expect(scopedLogic.values.issueIdValid).toBe(false)
             scopedLogic.unmount()
         }
@@ -52,7 +54,9 @@ describe('errorTrackingIssueSceneLogic', () => {
 
     it('loads the issue when the id is a valid UUID', async () => {
         const scopedLogic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
-        await expectLogic(scopedLogic, () => scopedLogic.mount()).toDispatchActions(['loadIssue'])
+        await expectLogic(scopedLogic, () => {
+            scopedLogic.mount()
+        }).toDispatchActions(['loadIssue'])
         expect(scopedLogic.values.issueIdValid).toBe(true)
         scopedLogic.unmount()
     })

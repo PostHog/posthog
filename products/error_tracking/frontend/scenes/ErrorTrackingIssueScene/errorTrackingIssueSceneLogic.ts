@@ -513,6 +513,7 @@ export interface errorTrackingIssueSceneLogicMeta {
         ) => Breadcrumb[]
         sidePanelContext: (id: string) => SidePanelSceneContext
         issueId: (id: string) => string
+        issueIdValid: (id: string) => boolean
         firstSeen: (issue: ErrorTrackingRelationalIssue | null) => Dayjs | null
         aggregations: (summary: ErrorTrackingIssueSummary | null) => ErrorTrackingIssueAggregations | undefined
         eventsQuery: (

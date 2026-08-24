@@ -24,14 +24,11 @@ describe('error tracking routes', () => {
         ['/error_tracking/settings/:tab', { tab: 'symbol-sets' }, {}, 'error-tracking-symbol-sets'],
         // Legacy links also carried the tab in the query string, so it must survive the redirect.
         ['/error_tracking/settings', {}, { tab: 'symbol_sets' }, 'error-tracking-symbol-sets'],
-    ])(
-        'redirects %s to the configuration tab with the right setting',
-        (path, params, searchParams, settingId) => {
-            const redirect = manifest.redirects![path] as RedirectFn
-            const url = redirect(params as Record<string, string>, searchParams as Record<string, string>, {})
+    ])('redirects %s to the configuration tab with the right setting', (path, params, searchParams, settingId) => {
+        const redirect = manifest.redirects![path] as RedirectFn
+        const url = redirect(params as Record<string, string>, searchParams as Record<string, string>, {})
 
-            expect(url).toContain('activeTab=configuration')
-            expect(url).toContain(`selectedSetting=${settingId}`)
-        }
-    )
+        expect(url).toContain('activeTab=configuration')
+        expect(url).toContain(`selectedSetting=${settingId}`)
+    })
 })
