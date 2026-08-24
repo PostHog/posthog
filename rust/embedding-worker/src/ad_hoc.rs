@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Result;
 use common_types::embedding::EmbeddingModel;
 use serde::{Deserialize, Serialize};
 
@@ -26,19 +25,54 @@ pub struct AdHocEmbeddingResponse {
     pub did_truncate: bool,
 }
 
+/// Why an ad-hoc embedding request was rejected.
+///
+/// Callers need to tell these apart. A missing AI opt-in is a permanent, user-fixable
+/// condition, and the Python client turns it into an actionable message — which it can't do
+/// when every failure arrives as an opaque 500 indistinguishable from a transient outage.
+#[derive(Debug)]
+pub enum AdHocError {
+    NotOptedIn,
+    ContentTooLong,
+    Internal(anyhow::Error),
+}
+
+impl AdHocError {
+    /// Response body. Internal failures stay generic: the detail goes to the log, not the caller.
+    pub fn message(&self) -> &'static str {
+        match self {
+            Self::NotOptedIn => "Organization has not opted in to AI data processing",
+            Self::ContentTooLong => "Content too long",
+            Self::Internal(_) => "Embedding request failed",
+        }
+    }
+}
+
+impl From<anyhow::Error> for AdHocError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Internal(error)
+    }
+}
+
+impl From<sqlx::Error> for AdHocError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Internal(error.into())
+    }
+}
+
 pub async fn handle_ad_hoc_request(
     context: Arc<AppContext>,
     request: AdHocEmbeddingRequest,
-) -> Result<AdHocEmbeddingResponse> {
+) -> Result<AdHocEmbeddingResponse, AdHocError> {
     let team_id = request.team_id;
     let Some(request) = apply_ai_opt_in(&context, request, team_id).await? else {
-        return Err(anyhow::anyhow!("Organization not opted in to ai features"));
+        return Err(AdHocError::NotOptedIn);
     };
 
     let would_truncate = check_would_truncate(&request.content, &request.model);
 
     if would_truncate && !request.no_truncate {
-        return Err(anyhow::anyhow!("Content too long"));
+        return Err(AdHocError::ContentTooLong);
     }
 
     let (embedding, token_count) = generate_embedding(

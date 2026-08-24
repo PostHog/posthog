@@ -655,6 +655,19 @@ def _persist_embedding(team: Team, content_hash: str, model: str, vector: list[f
     )
 
 
+@dataclass(frozen=True, kw_only=True)
+class _EmbedOutcome:
+    """One text's embedding attempt: the vector, or the error that stopped it.
+
+    Carrying the error back (rather than collapsing a failure to ``None``) is what lets the
+    batch report *why* it degraded. A whole-batch failure otherwise surfaces only as "all
+    embedding requests failed", with the cause discarded at the point it was known.
+    """
+
+    vector: np.ndarray | None
+    error: str | None = None
+
+
 async def _embed_one_with_cache(
     team: Team,
     text: str,
@@ -662,7 +675,7 @@ async def _embed_one_with_cache(
     semaphore: asyncio.Semaphore,
     cached: dict[str, np.ndarray],
     prefix: str,
-) -> np.ndarray | None:
+) -> _EmbedOutcome:
     """Return the embedding for ``text``, hitting the cache when possible.
 
     Concurrency is bounded by ``semaphore``; cache reads come pre-loaded in
@@ -671,12 +684,12 @@ async def _embed_one_with_cache(
     """
     hit = cached.get(content_hash)
     if hit is not None:
-        return hit
+        return _EmbedOutcome(vector=hit)
     async with semaphore:
         try:
             response: EmbeddingResponse = await async_generate_embedding(team, prefix + text, model=EMBEDDING_MODEL)
-        except Exception:
-            return None
+        except Exception as error:
+            return _EmbedOutcome(vector=None, error=f"{type(error).__name__}: {error}")
     try:
         await _persist_embedding(team, content_hash, EMBEDDING_MODEL, response.embedding)
     except Exception:
@@ -684,7 +697,7 @@ async def _embed_one_with_cache(
         # the unique constraint guarantees the row exists. Don't fail the
         # whole batch over a race.
         pass
-    return np.asarray(response.embedding, dtype=np.float32)
+    return _EmbedOutcome(vector=np.asarray(response.embedding, dtype=np.float32))
 
 
 async def embed_texts_async(
@@ -721,22 +734,26 @@ async def embed_texts_async(
 
     vectors: list[np.ndarray] = []
     valid_indices: list[int] = []
-    for i, vector in enumerate(results):
-        if vector is None:
+    errors: list[str] = []
+    for i, outcome in enumerate(results):
+        if outcome.vector is None:
+            if outcome.error is not None:
+                errors.append(outcome.error)
             continue
-        vectors.append(vector)
+        vectors.append(outcome.vector)
         valid_indices.append(i)
 
-    failed_count = len(texts) - len(valid_indices)
-    if failed_count:
+    if errors:
         # Failures are swallowed per text so one bad request can't sink the
-        # batch — surface the aggregate so a degraded embedding worker is
-        # visible instead of silently shrinking the corpus.
+        # batch — surface the aggregate, with one representative error, so a
+        # degraded embedding worker is diagnosable instead of silently
+        # shrinking the corpus.
         logger.warning(
             "mcpa.intent_clustering.embedding_failures",
             team_id=team.id,
-            failed=failed_count,
+            failed=len(errors),
             total=len(texts),
+            error=errors[0],
         )
 
     if not vectors:

@@ -82,6 +82,48 @@ class TestDailyIntentClusteringWorkflow:
         assert result == expected
 
 
+@pytest.mark.django_db(transaction=True)
+class TestComputeActivityAIConsentGate:
+    """A run without the org's AI consent must fail fast with something the user can act on.
+
+    Guards two things at once: the gate itself (without it the embedding worker drops every
+    request and the run dies as "all embedding requests failed"), and the eager ``organization``
+    load it depends on — a lazy fetch here would raise ``SynchronousOnlyOperation`` inside the
+    async activity rather than the intended error.
+    """
+
+    @pytest.mark.asyncio
+    async def test_run_without_ai_consent_fails_with_actionable_message(self) -> None:
+        from temporalio.exceptions import ApplicationError
+        from temporalio.testing import ActivityEnvironment
+
+        from posthog.models.organization import Organization
+        from posthog.models.team import Team
+        from posthog.sync import database_sync_to_async
+        from posthog.temporal.mcp_analytics.intent_clustering.activities import compute_intent_clusters_activity
+
+        from products.mcp_analytics.backend.constants import AI_CONSENT_REQUIRED_MESSAGE
+        from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
+
+        organization = await database_sync_to_async(Organization.objects.create)(
+            name="Consentless", is_ai_data_processing_approved=False
+        )
+        team = await database_sync_to_async(Team.objects.create)(organization=organization, name="Consentless")
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await ActivityEnvironment().run(
+                compute_intent_clusters_activity, IntentClusteringWorkflowInputs(team_id=team.id)
+            )
+
+        # Non-retryable: consent can't appear between retries, so retrying only burns the queue.
+        assert exc_info.value.non_retryable
+        assert AI_CONSENT_REQUIRED_MESSAGE in str(exc_info.value)
+
+        snapshot = await database_sync_to_async(MCPIntentClusterSnapshot.objects.for_team(team.id).get)()
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert snapshot.error_message == AI_CONSENT_REQUIRED_MESSAGE
+
+
 class TestParseInputs:
     @pytest.mark.parametrize(
         "raw_payload, expected_team_id, expected_lookback_days, expected_top_n, expected_user_id",

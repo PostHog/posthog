@@ -7,6 +7,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.mcp_analytics.backend import logic
+from products.mcp_analytics.backend.constants import AI_CONSENT_REQUIRED_MESSAGE
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from . import contracts
@@ -118,6 +119,11 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     Returns immediately. Use ``get_intent_cluster_snapshot`` to poll status —
     the workflow's compute activity writes the snapshot status (COMPUTING →
     IDLE/ERROR) as it runs.
+
+    Raises ``AIDataProcessingNotApproved`` when the organization hasn't consented to AI data
+    processing, so the caller can prompt for consent instead of dispatching a run that can
+    only fail: clustering embeds every intent, and the embedding worker drops requests from
+    organizations without consent.
     """
     import asyncio
 
@@ -134,6 +140,9 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
     from posthog.temporal.mcp_analytics.intent_clustering.models import IntentClusteringWorkflowInputs
 
     from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
+
+    if not team.organization.is_ai_data_processing_approved:
+        raise contracts.AIDataProcessingNotApproved(AI_CONSENT_REQUIRED_MESSAGE)
 
     # One run at a time per team: while a fresh run holds the snapshot in
     # COMPUTING, another dispatch would only stack a duplicate workflow on the

@@ -8,6 +8,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -345,11 +346,23 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "background; poll the GET endpoint for progress (status transitions to 'idle' or 'error')."
         ),
         request=None,
-        responses={202: MCPIntentClusterSnapshotSerializer},
+        responses={
+            202: MCPIntentClusterSnapshotSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "The organization has not approved AI data processing, which clustering needs to embed "
+                    "intents. Carries the code 'ai_consent_required'."
+                )
+            ),
+        },
     )
     @action(detail=False, methods=["post"], url_path="recompute")
     def recompute(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
+        try:
+            api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
+        except contracts.AIDataProcessingNotApproved as error:
+            # `code` is a cross-boundary contract with mcpClusteringLogic's AI_CONSENT_ERROR_CODE.
+            raise ValidationError(str(error), code="ai_consent_required")
         snapshot = api.get_intent_cluster_snapshot(self.team)
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data, status=status.HTTP_202_ACCEPTED)

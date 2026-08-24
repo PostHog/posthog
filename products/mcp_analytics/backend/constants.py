@@ -12,3 +12,11 @@ MCP_TOOLS_LIST_EVENT = "$mcp_tools_list"
 # to render in one go. Lives here (not intent_clustering.py) so the API read
 # path can import it without pulling sklearn/numpy into the request path.
 MAX_SNAPSHOT_CLUSTERS = 100
+
+# Shown in the UI and stored on a failed snapshot, so both the interactive trigger and a
+# scheduled run explain the same next step. Clustering embeds every intent, and the embedding
+# worker drops requests from organizations that haven't consented to AI data processing.
+AI_CONSENT_REQUIRED_MESSAGE = (
+    "Clustering needs AI data processing approved for this organization. "
+    "Enable it in organization settings, then run clustering again."
+)

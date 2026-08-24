@@ -13,6 +13,14 @@ class IntentGenerationUnavailable(RuntimeError):
     """
 
 
+class AIDataProcessingNotApproved(RuntimeError):
+    """Raised when a flow needs the organization's AI data processing consent and doesn't have it.
+
+    Part of the facade contract: the presentation layer catches this to answer with the
+    ``ai_consent_required`` code the frontend keys its consent prompt off.
+    """
+
+
 @dataclass(frozen=True)
 class Submission:
     id: UUID

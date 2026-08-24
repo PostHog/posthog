@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { Button, Skeleton, Spinner } from '@posthog/quill-primitives'
 
 import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { ClusterDetailPanel } from './ClusterDetailPanel'
 import { ClusteringCoverageBanner } from './ClusteringCoverageBanner'
@@ -129,6 +131,41 @@ function EmptyState(): JSX.Element {
     )
 }
 
+function AIConsentRequired(): JSX.Element {
+    const { snapshotLoading, dataProcessingAccepted } = useValues(mcpClusteringLogic)
+    const { recompute } = useActions(mcpClusteringLogic)
+    return (
+        <LemonBanner type="warning">
+            <div className="flex flex-col items-start gap-2">
+                <div>
+                    <h4 className="font-semibold m-0">Intent clustering needs AI data processing</h4>
+                    <p className="m-0 mt-1">
+                        Clustering groups your agents&apos; stated intents into themes, which means sending them to an
+                        embedding model. Your organization hasn&apos;t approved AI data processing, so clustering
+                        can&apos;t run yet.
+                    </p>
+                </div>
+                {/* ignoreDismissal: this is the only way to unblock the tab, so a dismissal
+                    elsewhere must not leave the button disabled with no path forward. */}
+                <AIConsentPopoverWrapper showArrow ignoreDismissal onApprove={recompute} hidden={snapshotLoading}>
+                    <LemonButton
+                        type="primary"
+                        onClick={dataProcessingAccepted ? recompute : undefined}
+                        loading={snapshotLoading}
+                        sideIcon={null}
+                        disabledReason={
+                            dataProcessingAccepted ? undefined : 'AI data processing must be approved first'
+                        }
+                        data-attr="mcp-analytics-intent-clusters-enable-ai"
+                    >
+                        Enable and compute clusters
+                    </LemonButton>
+                </AIConsentPopoverWrapper>
+            </div>
+        </LemonBanner>
+    )
+}
+
 function ComputingSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
@@ -194,8 +231,18 @@ function IntentsView(): JSX.Element {
 }
 
 export function MCPAnalyticsClustering(): JSX.Element {
-    const { snapshot, hasSnapshot, isComputing, snapshotLoading, viewMode } = useValues(mcpClusteringLogic)
+    const { snapshot, hasSnapshot, isComputing, snapshotLoading, viewMode, aiConsentRequired } =
+        useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
+
+    // Consent is a hard prerequisite, so it replaces any state that has nothing to show anyway.
+    if (aiConsentRequired && (!hasSnapshot || snapshot.status === 'error')) {
+        return (
+            <div className="flex flex-col gap-3">
+                <AIConsentRequired />
+            </div>
+        )
+    }
 
     if (snapshot.status === 'error') {
         return (
@@ -221,13 +268,19 @@ export function MCPAnalyticsClustering(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-4" data-quill>
-            <StatusRow />
-            <div className="flex flex-wrap items-center gap-3">
-                <ViewToggle />
-                <CategoryScope />
+        <div className="flex flex-col gap-4">
+            {/* Consent revoked after a snapshot was computed: keep the existing results readable,
+                but say why recomputing won't work. Outside the quill scope below, since the banner
+                is a Lemon component. */}
+            {aiConsentRequired ? <AIConsentRequired /> : null}
+            <div className="flex flex-col gap-4" data-quill>
+                <StatusRow />
+                <div className="flex flex-wrap items-center gap-3">
+                    <ViewToggle />
+                    <CategoryScope />
+                </div>
+                {viewMode === 'tools' ? <ToolsView /> : <IntentsView />}
             </div>
-            {viewMode === 'tools' ? <ToolsView /> : <IntentsView />}
         </div>
     )
 }

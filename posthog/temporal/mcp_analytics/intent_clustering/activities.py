@@ -28,6 +28,7 @@ from django.utils import timezone
 
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -40,6 +41,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.models import (
 )
 
 from products.mcp_analytics.backend import intent_clustering
+from products.mcp_analytics.backend.constants import AI_CONSENT_REQUIRED_MESSAGE
 from products.mcp_analytics.backend.models import MCPIntentClusterSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -50,7 +52,7 @@ def _resolve_team_and_user(team_id: int, user_id: int | None):
     """Look up the team (must exist) and the optional originating user."""
     from posthog.models.user import User
 
-    team = Team.objects.get(pk=team_id)
+    team = Team.objects.select_related("organization").get(pk=team_id)
     user = User.objects.filter(pk=user_id).first() if user_id is not None else None
     return team, user
 
@@ -109,6 +111,13 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
             snapshot = await _mark_computing(team, user)
 
             try:
+                if not team.organization.is_ai_data_processing_approved:
+                    # The embedding worker drops requests from organizations without consent, so
+                    # every embedding would fail and the run would die as "all embedding requests
+                    # failed" with nothing the user can act on. Non-retryable: consent can't
+                    # appear between retries.
+                    raise ApplicationError(AI_CONSENT_REQUIRED_MESSAGE, non_retryable=True)
+
                 session_ids = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
                     team, lookback_days=inputs.lookback_days
                 )

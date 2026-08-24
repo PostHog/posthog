@@ -75,6 +75,12 @@ def _tool_blob(tool: str, cluster_ids: list[int]) -> dict:
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     # The mcp-analytics feature flag is enabled for the whole test by the mixin's setUp.
+    def setUp(self) -> None:
+        super().setUp()
+        # Clustering embeds intents, so every recompute below needs the org's AI consent.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -493,6 +499,30 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["status"] == "computing"
         assert mock_client.start_workflow.await_count == expected_dispatches
+
+    def test_intent_clusters_recompute_without_ai_consent_does_not_dispatch(self) -> None:
+        # Without consent the embedding worker drops every request, so the run could only die as
+        # "all embedding requests failed". Refuse it up front instead, with a code the frontend
+        # turns into an approve-and-retry prompt.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
+        with (
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # The frontend matches this code to show the consent prompt — it is part of the API contract.
+        assert response.json()["code"] == "ai_consent_required"
+        mock_client.start_workflow.assert_not_awaited()
+        # And no half-claimed snapshot: the tab must not sit in COMPUTING for a run that never started.
+        assert not MCPIntentClusterSnapshot.objects.filter(team=self.team).exists()
 
     def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
         # If the workflow never starts, no activity will flip the status —
