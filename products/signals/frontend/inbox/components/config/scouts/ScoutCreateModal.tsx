@@ -16,6 +16,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import { SKILL_NAME_MAX_LENGTH } from 'products/skills/frontend/skillConstants'
 
 import {
     ScoutCreateInitialValues,
@@ -45,8 +46,14 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated }
     const logic = scoutCreateModalLogic(logicProps)
-    const { isScoutCreateFormSubmitting, scoutCreateForm, scoutCreateFormChanged, scoutCreateFormValidationErrors } =
-        useValues(logic)
+    const {
+        isScoutCreateFormSubmitting,
+        scoutCreateForm,
+        scoutCreateFormChanged,
+        scoutCreateFormValidationErrors,
+        scoutCreateFormTouches,
+        showScoutCreateFormErrors,
+    } = useValues(logic)
     const { resetScoutCreateForm, setScoutCreateDailyTime, setScoutCreateScheduleMode } = useActions(logic)
     const { timezone: projectTimezone } = useValues(teamLogic)
     const scheduleMode = getScoutScheduleMode(scoutCreateForm.config)
@@ -62,6 +69,11 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
     const tagsValidationError = scoutCreateFormValidationErrors.config?.tags?.find(
         (error): error is string => typeof error === 'string'
     )
+    // Field errors only render after a submit attempt, and the submit button is disabled while the
+    // form has errors, so a name typo would otherwise surface only as the button's tooltip. Show the
+    // name error in the help slot as soon as the field has been left, until the form shows it itself.
+    const touchedNameError =
+        scoutCreateFormTouches.name && !showScoutCreateFormErrors ? scoutCreateFormValidationErrors.name : undefined
     const firstError = [
         scoutCreateFormValidationErrors.name,
         scoutCreateFormValidationErrors.description,
@@ -112,16 +124,19 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         name="name"
                         label="Name"
                         help={
-                            <>
-                                Scout names start with{' '}
-                                <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
-                            </>
+                            touchedNameError ? (
+                                <span className="text-danger">{touchedNameError}</span>
+                            ) : (
+                                'Lowercase letters, numbers, and hyphens.'
+                            )
                         }
                     >
                         <LemonInput
                             autoFocus
-                            maxLength={64}
-                            placeholder="signals-scout-checkout-failures"
+                            // The prefix is fixed and shown in the field, so the limit is what is left for the typed part.
+                            maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
+                            prefix={<span className="font-mono text-xs text-muted">{SIGNALS_SCOUT_SKILL_PREFIX}</span>}
+                            placeholder="checkout-failures"
                             data-attr="scout-create-name"
                         />
                     </LemonField>

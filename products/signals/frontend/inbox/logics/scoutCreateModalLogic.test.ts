@@ -96,7 +96,7 @@ describe('scoutCreateModalLogic', () => {
         logic.mount()
 
         expect(logic.values.scoutCreateForm).toEqual({
-            name: 'signals-scout-checkout-failures',
+            name: 'checkout-failures',
             description: 'Investigates recurring checkout failures.',
             body: 'Inspect checkout failure signals and report meaningful regressions.',
             dailyTime: '09:00',
@@ -241,8 +241,47 @@ describe('scoutCreateModalLogic', () => {
         expect(logic.values.scoutCreateFormManualErrors).toEqual({
             name: 'A scout with this name already exists with different instructions.',
         })
-        expect(logic.values.scoutCreateForm).toMatchObject(initialValues)
+        expect(logic.values.scoutCreateForm).toMatchObject({ ...initialValues, name: 'checkout-failures' })
         expect(onCreated).not.toHaveBeenCalled()
         expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['', 'Name is required'],
+        ['checkout failures', 'Name cannot contain spaces. Use hyphens between words.'],
+        ['Checkout', 'Lowercase letters, numbers, and hyphens only'],
+        ['checkout-failures', undefined],
+        ['signals-scout-checkout-failures', undefined],
+    ])('validates the typed name %p', async (name, expectedError) => {
+        logic = scoutCreateModalLogic({ logicKey: `name-${name}`, onClose, onCreated })
+        logic.mount()
+
+        logic.actions.setScoutCreateFormValue('name', name)
+
+        await expectLogic(logic).toMatchValues({
+            scoutCreateFormValidationErrors: expect.objectContaining({ name: expectedError }),
+        })
+    })
+
+    it('adds the prefix once, whether or not it was typed', async () => {
+        mockSignalsScoutCreate.mockResolvedValue(CREATED_SCOUT)
+        logic = scoutCreateModalLogic({
+            logicKey: 'pasted-prefix',
+            initialValues: {
+                description: 'Investigates recurring checkout failures.',
+                body: 'Inspect checkout failure signals and report meaningful regressions.',
+            },
+            onClose,
+            onCreated,
+        })
+        logic.mount()
+
+        logic.actions.setScoutCreateFormValue('name', ' signals-scout-checkout-failures ')
+        await expectLogic(logic, () => logic.actions.submitScoutCreateForm()).toFinishAllListeners()
+
+        expect(mockSignalsScoutCreate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            expect.objectContaining({ name: 'signals-scout-checkout-failures' })
+        )
     })
 })

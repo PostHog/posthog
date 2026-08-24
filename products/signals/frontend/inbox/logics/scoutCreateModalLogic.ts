@@ -21,6 +21,7 @@ import {
     SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
     SCOUT_DAILY_AT_SCHEDULE_MODE,
     SIGNALS_SCOUT_SKILL_PREFIX,
+    stripScoutPrefix,
     timeToDailyCron,
 } from '../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
@@ -50,7 +51,7 @@ export interface ScoutCreateModalLogicProps {
 }
 
 export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
-    name: SIGNALS_SCOUT_SKILL_PREFIX,
+    name: '',
     description: '',
     body: '',
     dailyTime: DEFAULT_SCOUT_DAILY_TIME,
@@ -72,9 +73,19 @@ export function getScoutCreateFormValues(initialValues?: ScoutCreateInitialValue
     return {
         ...DEFAULT_SCOUT_CREATE_FORM_VALUES,
         ...initialValues,
+        // The form holds the part after `signals-scout-`; callers (deep links, templates) may pass a full skill name.
+        name: stripScoutPrefix((initialValues?.name ?? '').trim()),
         config,
         dailyTime: dailyCronToTime(config.run_cron_schedule) ?? DEFAULT_SCOUT_DAILY_TIME,
     }
+}
+
+/**
+ * The skill name a form entry produces: the fixed prefix plus what was typed. A pasted full name
+ * (`signals-scout-foo`) is not doubled up.
+ */
+export function scoutSkillNameFromInput(name: string): string {
+    return `${SIGNALS_SCOUT_SKILL_PREFIX}${stripScoutPrefix(name.trim())}`
 }
 
 function isValidScoutDailyTime(dailyTime: string): boolean {
@@ -82,15 +93,16 @@ function isValidScoutDailyTime(dailyTime: string): boolean {
 }
 
 function scoutNameError(name: string): string | undefined {
-    const normalizedName = name.trim()
-    const validationError = validateSkillName(normalizedName)
-    if (validationError) {
-        return validationError
+    const bareName = stripScoutPrefix(name.trim())
+    if (!bareName) {
+        return 'Name is required'
     }
-    if (!normalizedName.startsWith(SIGNALS_SCOUT_SKILL_PREFIX)) {
-        return `Name must start with ${SIGNALS_SCOUT_SKILL_PREFIX}`
+    // The shared skill-name rule rejects spaces too, but as "lowercase letters, numbers, and hyphens
+    // only", which does not tell someone who typed "checkout failures" what to change.
+    if (/\s/.test(bareName)) {
+        return 'Name cannot contain spaces. Use hyphens between words.'
     }
-    return undefined
+    return validateSkillName(`${SIGNALS_SCOUT_SKILL_PREFIX}${bareName}`)
 }
 
 function scoutTagsError(tags: string[]): string | undefined {
@@ -226,7 +238,7 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
 
                 try {
                     const scout = await signalsScoutCreate(String(values.currentTeamId), {
-                        name: formValues.name.trim(),
+                        name: scoutSkillNameFromInput(formValues.name),
                         description: formValues.description.trim(),
                         body: formValues.body.trim(),
                         config: formValues.config,
