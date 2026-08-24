@@ -61,7 +61,10 @@ const meta: Meta<typeof ClusterScatterPlot> = {
     component: ClusterScatterPlot,
     parameters: {
         layout: 'padded',
-        testOptions: { waitForLoadersToDisappear: false },
+        // Quill charts paint the canvas asynchronously, so a full-scene snapshot races the draw and
+        // flakes; skipCanvasDraw suppresses it in the snapshot runtime only — interactive Storybook
+        // still renders the real chart.
+        testOptions: { waitForLoadersToDisappear: false, skipCanvasDraw: true },
     },
     render: () => {
         // The runs list loader fires on mount; keep it empty so the seeded run below is what renders.
