@@ -16,7 +16,8 @@ export interface SlashCommand {
     requiresIdle?: boolean
     /**
      * If true, this command is hidden for sandbox-runtime conversations.
-     * Core-memory commands (`/init`, `/remember`) are not yet supported under sandbox AI.
+     * Slash commands are handled by the LangGraph runtime; the sandbox runtime has no equivalent,
+     * so a command left visible there reaches the agent as plain text instead of running.
      * LangGraph conversations are unaffected.
      */
     hiddenInSandbox?: boolean
@@ -40,17 +41,20 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
         name: SlashCommandName.SlashUsage,
         description: 'View AI credit usage for this conversation and billing period',
         icon: <IconActivity />,
+        hiddenInSandbox: true,
     },
     {
         name: SlashCommandName.SlashFeedback,
         arg: '[your feedback]',
         description: 'Share feedback about your PostHog AI experience',
         icon: <IconThumbsUp />,
+        hiddenInSandbox: true,
     },
     {
         name: SlashCommandName.SlashTicket,
         description: 'Create a support ticket with a summary of this conversation',
         icon: <IconSupport />,
         requiresIdle: true,
+        hiddenInSandbox: true,
     },
 ]

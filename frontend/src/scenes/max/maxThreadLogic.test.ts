@@ -1883,13 +1883,18 @@ describe('maxThreadLogic', () => {
             maxLogicInstance.actions.setQuestion('')
         }
 
-        it('hides /init and /remember for sandbox conversations, keeps /usage and /feedback', async () => {
+        it('hides every command that has no sandbox implementation', () => {
             setRuntime('sandbox')
+            // Eligible for support, so /ticket's absence is down to the runtime rather than entitlement
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                created_at: dayjs().toISOString(),
+            } as OrganizationType)
             const names = logic.values.filteredCommands.map((c) => c.name)
             expect(names).not.toContain(SlashCommandName.SlashInit)
             expect(names).not.toContain(SlashCommandName.SlashRemember)
-            expect(names).toContain(SlashCommandName.SlashUsage)
-            expect(names).toContain(SlashCommandName.SlashFeedback)
+            expect(names).not.toContain(SlashCommandName.SlashUsage)
+            expect(names).not.toContain(SlashCommandName.SlashFeedback)
+            expect(names).not.toContain(SlashCommandName.SlashTicket)
         })
 
         it('keeps the core-memory commands for langgraph conversations', async () => {
