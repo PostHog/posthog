@@ -182,8 +182,8 @@ describe('scannerScoutLogic', () => {
     })
 
     it('renames and retries when another tab already took the name', async () => {
-        // Skill names are unique per team, so a scout created in one tab makes this tab's roster
-        // stale. Before, the create failed with a conflict and stayed broken until a page refresh.
+        // Skill names are unique per team, so a scout created in one tab leaves this tab's roster
+        // stale and its derived name already taken.
         await mountWithReports([])
         mockScoutsCreate
             .mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))

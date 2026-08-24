@@ -4,6 +4,7 @@ import { IconChevronRight, IconEye, IconGear, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,8 +29,15 @@ export function ScannerScoutRow({
     config: SignalScoutConfigApi
 }): JSX.Element {
     const logic = scannerScoutLogic({ scannerId, scannerName })
-    const { updatingScoutIds, deletingScoutIds, manualRunScoutIds, expandedSkillNames, reportsBySkill, rollups } =
-        useValues(logic)
+    const {
+        updatingScoutIds,
+        deletingScoutIds,
+        manualRunScoutIds,
+        expandedSkillNames,
+        reportsBySkill,
+        scoutReportsLoading,
+        rollups,
+    } = useValues(logic)
     const { openScoutSettings, updateScoutConfig, deleteScout, toggleScoutExpanded, openReport, runScoutNow } =
         useActions(logic)
     const { currentTeam } = useValues(teamLogic)
@@ -123,7 +131,14 @@ export function ScannerScoutRow({
                     </Tooltip>
                 </div>
             </div>
-            {expanded && reports.length === 0 && (
+            {expanded && scoutReportsLoading && reports.length === 0 && (
+                <div className="border-t border-primary px-4 py-2 pl-12">
+                    <LemonSkeleton className="h-8 w-full" />
+                </div>
+            )}
+            {/* "No reports filed yet" is a verdict about reports that arrived, and Run now spends
+                credits, so neither belongs on a roster whose reports have not loaded. */}
+            {expanded && !scoutReportsLoading && reports.length === 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 pl-12">
                     <span className="text-sm text-muted">
                         No reports filed yet. The first arrives after the next scheduled run.
@@ -140,7 +155,7 @@ export function ScannerScoutRow({
                     </LemonButton>
                 </div>
             )}
-            {expanded && reports.length > 0 && (
+            {expanded && !scoutReportsLoading && reports.length > 0 && (
                 <div className="border-t border-primary px-4 py-2 pl-12">
                     {/* Same shape as the scanner's observation history, so the two lists read alike. */}
                     <LemonTable
