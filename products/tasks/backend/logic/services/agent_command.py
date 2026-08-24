@@ -41,14 +41,15 @@ BLOCKED_IP_RANGES = [
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
 CONTENT_BLOCK_STREAM_ERROR = "API Error: Content block not found"
 CONTENT_BLOCK_STREAM_USER_ERROR = "The model response could not be completed. Please retry the task."
+TURN_ENDED_WITHOUT_RESPONSE_ERROR = "[ede_diagnostic] result_type=user"
 
 
 def is_retryable_agent_rpc_error(error: str) -> bool:
-    return CONTENT_BLOCK_STREAM_ERROR in error
+    return CONTENT_BLOCK_STREAM_ERROR in error or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
 
 
 def user_facing_agent_error(error: str | None) -> str:
-    if error and is_retryable_agent_rpc_error(error):
+    if error and CONTENT_BLOCK_STREAM_ERROR in error:
         return CONTENT_BLOCK_STREAM_USER_ERROR
     return error or "Failed to send message to sandbox"
 
