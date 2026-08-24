@@ -11,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 // updateInsightFilter reaches the insight through the same path the card's other display options
 // use, so the pick persists and the tile redraws without any extra wiring here.
 export function TrendsVisualizationPicker(): JSX.Element {
-    const { insightProps, editingDisabledReason } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const options = useChartFilterOptions()
@@ -21,7 +21,6 @@ export function TrendsVisualizationPicker(): JSX.Element {
             className="pb-2 px-2"
             fullWidth
             size="small"
-            disabledReason={editingDisabledReason}
             value={display || ChartDisplayType.ActionsLineGraph}
             onChange={(value) => updateInsightFilter({ display: value })}
             options={options}

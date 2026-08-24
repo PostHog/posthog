@@ -58,6 +58,12 @@ export function useDashboardVisualizationOptions({
     const sqlQuery = picker?.kind === 'sql' ? picker.query : null
     const sqlPersist = picker?.kind === 'sql' ? picker.persistDisplayOptions : undefined
 
+    // Keyed on the response arrays rather than insightData itself: that object is rebuilt on every
+    // refresh tick, and a new label identity would remount the picker and close its open dropdown.
+    const columns = insightData?.columns
+    const types = insightData?.types
+    const result = insightData?.result
+
     const sqlSection = useMemo<LemonMenuItems>(() => {
         if (!sqlQuery || !sqlPersist) {
             return []
@@ -70,7 +76,9 @@ export function useDashboardVisualizationOptions({
                         label: () => (
                             <SqlVisualizationPicker
                                 query={sqlQuery}
-                                insightData={insightData}
+                                columns={columns}
+                                types={types}
+                                result={result}
                                 persistDisplayOptions={sqlPersist}
                             />
                         ),
@@ -78,7 +86,7 @@ export function useDashboardVisualizationOptions({
                 ],
             },
         ]
-    }, [sqlQuery, insightData, sqlPersist])
+    }, [sqlQuery, columns, types, result, sqlPersist])
 
     if (picker?.kind === 'sql') {
         return sqlSection

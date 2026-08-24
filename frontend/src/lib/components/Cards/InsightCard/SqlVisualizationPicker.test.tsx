@@ -21,7 +21,7 @@ describe('SqlVisualizationPicker', () => {
             ['day', 'DateTime'],
             ['total', 'UInt64'],
         ],
-        results: [
+        result: [
             ['2026-01-01', 1],
             ['2026-01-02', 2],
         ],
@@ -43,11 +43,7 @@ describe('SqlVisualizationPicker', () => {
     it('saves the picked chart type with axes, so a table saved without them still draws', async () => {
         const persistDisplayOptions = jest.fn()
         const { container } = render(
-            <SqlVisualizationPicker
-                query={query}
-                insightData={twoColumnData}
-                persistDisplayOptions={persistDisplayOptions}
-            />
+            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={persistDisplayOptions} />
         )
 
         await openPicker(container)
@@ -69,7 +65,7 @@ describe('SqlVisualizationPicker', () => {
         const { container } = render(
             <SqlVisualizationPicker
                 query={alreadyAxed}
-                insightData={twoColumnData}
+                {...twoColumnData}
                 persistDisplayOptions={persistDisplayOptions}
             />
         )
@@ -85,7 +81,7 @@ describe('SqlVisualizationPicker', () => {
 
     it('shows the pick immediately rather than waiting for the save to land', async () => {
         const { container } = render(
-            <SqlVisualizationPicker query={query} insightData={twoColumnData} persistDisplayOptions={jest.fn()} />
+            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={jest.fn()} />
         )
 
         await openPicker(container)
