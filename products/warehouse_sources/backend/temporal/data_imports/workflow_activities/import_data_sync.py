@@ -15,6 +15,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -85,7 +86,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class ImportDataActivityInputs:
     team_id: int
     schema_id: uuid.UUID
