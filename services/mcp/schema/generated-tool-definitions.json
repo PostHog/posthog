@@ -10325,7 +10325,7 @@
         }
     },
     "survey-get": {
-        "description": "Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling details.",
+        "description": "Get a specific survey by ID. Returns its questions, targeting flag — including current property targeting rules under targeting_flag.filters — and scheduling details. To change targeting, use targeting_flag_filters with survey-update.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "Get a specific survey by ID.",
