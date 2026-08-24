@@ -11,7 +11,6 @@ interface PendingRecord {
     teamId: number
     usageKey: string
     recordId: string
-    dimensions?: Record<string, string>
 }
 
 /**
@@ -37,13 +36,13 @@ export class UsageRecordBatch {
         return this.records.size
     }
 
-    add(teamId: number, usageKey: string, recordId: string, dimensions?: Record<string, string>): void {
+    add(teamId: number, usageKey: string, recordId: string): void {
         if (!this.client || !this.config.isTeamEnabled(teamId)) {
             return
         }
         const key = `${teamId}:${usageKey}:${recordId}`
         if (!this.records.has(key)) {
-            this.records.set(key, { teamId, usageKey, recordId, dimensions })
+            this.records.set(key, { teamId, usageKey, recordId })
         }
     }
 
@@ -56,14 +55,13 @@ export class UsageRecordBatch {
         acknowledgements: Promise<unknown | null>[],
         teamId: number,
         usageKey: string,
-        recordId: string,
-        dimensions?: Record<string, string>
+        recordId: string
     ): void {
         this.pendingAcknowledgements.push(
             Promise.all(acknowledgements)
                 .then((results) => {
                     if (results.every((result) => result !== null)) {
-                        this.add(teamId, usageKey, recordId, dimensions)
+                        this.add(teamId, usageKey, recordId)
                     }
                 })
                 // Kafka errors are handled by the producer side effect. They must
@@ -89,7 +87,6 @@ export class UsageRecordBatch {
             unit: this.config.unit,
             quantity: 1,
             timestampMs,
-            dimensions: record.dimensions,
         }))
         this.records.clear()
         await this.client.ingest(records)

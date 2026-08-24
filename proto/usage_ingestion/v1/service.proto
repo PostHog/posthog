@@ -3,8 +3,8 @@ syntax = "proto3";
 package usage_ingestion.v1;
 
 // UsageIngestion accepts usage records for durable analytics. Producers must reuse
-// record_id when retrying a record. The service preserves producer-supplied event
-// time and assigns insertion time when it publishes.
+// record_id when retrying a record. The service preserves the producer's timestamp and
+// assigns insertion time when it publishes.
 //
 // IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
 // indefinitely. Cost and resource metering is a separate RPC and table.
@@ -12,27 +12,26 @@ service UsageIngestion {
   rpc IngestBillingUsage(IngestBillingUsageRequest) returns (IngestBillingUsageResponse);
 }
 
+// Fields 1-5 are the record's identity, in the order the storage sorting key uses them:
+// (team_id, toDate(timestamp), producer_id, usage_key, record_id). A retry reuses all five
+// and collapses to one row. Correcting a quantity means re-sending the same identity, and
+// the last send wins.
 message BillingUsageRecord {
-  // (team_id, toDate(timestamp), producer_id, usage_key, record_id) is the record's
-  // identity, so a retry reuses all five and collapses to one row. Correcting a quantity
-  // means re-sending the same identity: the last send wins.
-  string record_id = 1;
-  string producer_id = 2;
+  // The service owns organization attribution: it resolves the organization from team_id,
+  // so producers cannot supply one.
+  int64 team_id = 1;
 
-  // The service owns organization attribution: it resolves the organization from
-  // team_id, so producers cannot supply one.
-  int64 team_id = 3;
+  // Stamp this from the producer's own clock when it emits, never from a customer payload.
+  // It is part of the identity, so a value a customer controls would let them decide
+  // whether their own records deduplicate.
+  int64 timestamp_ms = 2;
 
+  string producer_id = 3;
   string usage_key = 4;
-  string unit = 6;
-  int64 quantity = 7;
-  // Stamp this from the producer's own clock when it emits, never from a customer
-  // payload. It is part of the storage identity, so a value a customer controls would
-  // let them decide whether their records deduplicate.
-  int64 timestamp_ms = 9;
-  map<string, string> dimensions = 13;
+  string record_id = 5;
 
-  reserved 5, 8, 10, 11, 12; // mode, version, source_ref, user_id, variant
+  int64 quantity = 6;
+  string unit = 7;
 }
 
 message IngestBillingUsageRequest {

@@ -187,7 +187,6 @@ mod tests {
             unit: "request".to_string(),
             quantity: 10,
             timestamp_ms: 1_718_409_600_000,
-            dimensions: Default::default(),
         }
     }
 

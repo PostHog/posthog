@@ -20,7 +20,6 @@ fn record(record_id: &str, timestamp_ms: i64) -> BillingUsageRecord {
         unit: "record".to_string(),
         quantity: 1,
         timestamp_ms,
-        dimensions: Default::default(),
     }
 }
 
@@ -79,7 +78,9 @@ async fn retried_record_with_original_timestamp_deduplicates() {
     let canonical = clickhouse(
         &http,
         &clickhouse_url,
-        &format!("SELECT toString(timestamp) FROM {table} WHERE record_id = '{record_id}' FORMAT TSV"),
+        &format!(
+            "SELECT toString(timestamp) FROM {table} WHERE record_id = '{record_id}' FORMAT TSV"
+        ),
     )
     .await;
     let canonical: Vec<&str> = canonical.lines().collect();

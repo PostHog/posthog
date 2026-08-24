@@ -10,34 +10,39 @@ import { fileDesc, messageDesc, serviceDesc } from '@bufbuild/protobuf/codegenv2
 export const file_usage_ingestion_v1_service: GenFile =
     /*@__PURE__*/
     fileDesc(
-        'CiB1c2FnZV9pbmdlc3Rpb24vdjEvc2VydmljZS5wcm90bxISdXNhZ2VfaW5nZXN0aW9uLnYxIrMCChJCaWxsaW5nVXNhZ2VSZWNvcmQSEQoJcmVjb3JkX2lkGAEgASgJEhMKC3Byb2R1Y2VyX2lkGAIgASgJEg8KB3RlYW1faWQYAyABKAMSEQoJdXNhZ2Vfa2V5GAQgASgJEgwKBHVuaXQYBiABKAkSEAoIcXVhbnRpdHkYByABKAMSFAoMdGltZXN0YW1wX21zGAkgASgDEkoKCmRpbWVuc2lvbnMYDSADKAsyNi51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlUmVjb3JkLkRpbWVuc2lvbnNFbnRyeRoxCg9EaW1lbnNpb25zRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUoECAUQBkoECAgQCUoECAoQC0oECAsQDEoECAwQDSJUChlJbmdlc3RCaWxsaW5nVXNhZ2VSZXF1ZXN0EjcKB3JlY29yZHMYASADKAsyJi51c2FnZV9pbmdlc3Rpb24udjEuQmlsbGluZ1VzYWdlUmVjb3JkIjkKGkluZ2VzdEJpbGxpbmdVc2FnZVJlc3BvbnNlEhsKE2FjY2VwdGVkX3JlY29yZF9pZHMYASADKAkyhQEKDlVzYWdlSW5nZXN0aW9uEnMKEkluZ2VzdEJpbGxpbmdVc2FnZRItLnVzYWdlX2luZ2VzdGlvbi52MS5Jbmdlc3RCaWxsaW5nVXNhZ2VSZXF1ZXN0Gi4udXNhZ2VfaW5nZXN0aW9uLnYxLkluZ2VzdEJpbGxpbmdVc2FnZVJlc3BvbnNlYgZwcm90bzM'
+        'CiB1c2FnZV9pbmdlc3Rpb24vdjEvc2VydmljZS5wcm90bxISdXNhZ2VfaW5nZXN0aW9uLnYxIpYBChJCaWxsaW5nVXNhZ2VSZWNvcmQSDwoHdGVhbV9pZBgBIAEoAxIUCgx0aW1lc3RhbXBfbXMYAiABKAMSEwoLcHJvZHVjZXJfaWQYAyABKAkSEQoJdXNhZ2Vfa2V5GAQgASgJEhEKCXJlY29yZF9pZBgFIAEoCRIQCghxdWFudGl0eRgGIAEoAxIMCgR1bml0GAcgASgJIlQKGUluZ2VzdEJpbGxpbmdVc2FnZVJlcXVlc3QSNwoHcmVjb3JkcxgBIAMoCzImLnVzYWdlX2luZ2VzdGlvbi52MS5CaWxsaW5nVXNhZ2VSZWNvcmQiOQoaSW5nZXN0QmlsbGluZ1VzYWdlUmVzcG9uc2USGwoTYWNjZXB0ZWRfcmVjb3JkX2lkcxgBIAMoCTKFAQoOVXNhZ2VJbmdlc3Rpb24ScwoSSW5nZXN0QmlsbGluZ1VzYWdlEi0udXNhZ2VfaW5nZXN0aW9uLnYxLkluZ2VzdEJpbGxpbmdVc2FnZVJlcXVlc3QaLi51c2FnZV9pbmdlc3Rpb24udjEuSW5nZXN0QmlsbGluZ1VzYWdlUmVzcG9uc2ViBnByb3RvMw'
     )
 
 /**
+ * Fields 1-5 are the record's identity, in the order the storage sorting key uses them:
+ * (team_id, toDate(timestamp), producer_id, usage_key, record_id). A retry reuses all five
+ * and collapses to one row. Correcting a quantity means re-sending the same identity, and
+ * the last send wins.
+ *
  * @generated from message usage_ingestion.v1.BillingUsageRecord
  */
 export type BillingUsageRecord = Message<'usage_ingestion.v1.BillingUsageRecord'> & {
     /**
-     * (team_id, toDate(timestamp), producer_id, usage_key, record_id) is the record's
-     * identity, so a retry reuses all five and collapses to one row. Correcting a quantity
-     * means re-sending the same identity: the last send wins.
+     * The service owns organization attribution: it resolves the organization from team_id,
+     * so producers cannot supply one.
      *
-     * @generated from field: string record_id = 1;
-     */
-    recordId: string
-
-    /**
-     * @generated from field: string producer_id = 2;
-     */
-    producerId: string
-
-    /**
-     * The service owns organization attribution: it resolves the organization from
-     * team_id, so producers cannot supply one.
-     *
-     * @generated from field: int64 team_id = 3;
+     * @generated from field: int64 team_id = 1;
      */
     teamId: bigint
+
+    /**
+     * Stamp this from the producer's own clock when it emits, never from a customer payload.
+     * It is part of the identity, so a value a customer controls would let them decide
+     * whether their own records deduplicate.
+     *
+     * @generated from field: int64 timestamp_ms = 2;
+     */
+    timestampMs: bigint
+
+    /**
+     * @generated from field: string producer_id = 3;
+     */
+    producerId: string
 
     /**
      * @generated from field: string usage_key = 4;
@@ -45,28 +50,19 @@ export type BillingUsageRecord = Message<'usage_ingestion.v1.BillingUsageRecord'
     usageKey: string
 
     /**
-     * @generated from field: string unit = 6;
+     * @generated from field: string record_id = 5;
      */
-    unit: string
+    recordId: string
 
     /**
-     * @generated from field: int64 quantity = 7;
+     * @generated from field: int64 quantity = 6;
      */
     quantity: bigint
 
     /**
-     * Stamp this from the producer's own clock when it emits, never from a customer
-     * payload. It is part of the storage identity, so a value a customer controls would
-     * let them decide whether their records deduplicate.
-     *
-     * @generated from field: int64 timestamp_ms = 9;
+     * @generated from field: string unit = 7;
      */
-    timestampMs: bigint
-
-    /**
-     * @generated from field: map<string, string> dimensions = 13;
-     */
-    dimensions: { [key: string]: string }
+    unit: string
 }
 
 /**
@@ -120,8 +116,8 @@ export const IngestBillingUsageResponseSchema: GenMessage<IngestBillingUsageResp
 
 /**
  * UsageIngestion accepts usage records for durable analytics. Producers must reuse
- * record_id when retrying a record. The service preserves producer-supplied event
- * time and assigns insertion time when it publishes.
+ * record_id when retrying a record. The service preserves the producer's timestamp and
+ * assigns insertion time when it publishes.
  *
  * IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
  * indefinitely. Cost and resource metering is a separate RPC and table.
