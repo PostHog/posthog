@@ -1,5 +1,6 @@
 import math
 import hashlib
+from collections import Counter
 from datetime import timedelta
 from typing import Any, cast
 
@@ -262,8 +263,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
         # A Python cell reads variables and cell dataframes out of one namespace, so a duplicate
         # would make which value binds depend on ordering. Dataframe names live in `content` and
         # are checked in the editor; this guards the notebook's own list.
-        names = [variable["name"] for variable in value]
-        duplicates = sorted({name for name in names if names.count(name) > 1})
+        # Counted in one pass: `list.count` per entry is quadratic, and the 20 MB body cap
+        # admits enough names for that to tie up a worker.
+        counts = Counter(variable["name"] for variable in value)
+        duplicates = sorted(name for name, count in counts.items() if count > 1)
         if duplicates:
             raise serializers.ValidationError(f"Variable names must be unique. Repeated: {', '.join(duplicates)}.")
         return value
