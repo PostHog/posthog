@@ -44,6 +44,8 @@ const AUTH_METHOD_FIELD: SourceFieldConfig = {
                     name: 'personal_access_token',
                     label: 'Personal access token',
                     required: false,
+                    placeholder: '',
+                    secret: true,
                 },
             ],
         },
