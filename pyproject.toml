@@ -746,7 +746,10 @@ ignore_imports = [
 
 # The facade is the layer below presentation. A facade that imports its product's presentation
 # inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
-# DRF is presentation in disguise. See products/architecture.md § Wiring couplings.
+# DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is
+# forced — without it import-linter rejects the wildcard modules as having shared descendants),
+# so DRF reached through an internal module stays green: this enforces the layering norm, not a
+# transitive guarantee. See products/architecture.md § Wiring couplings.
 [[tool.importlinter.contracts]]
 name = "facade must not import presentation or DRF"
 type = "forbidden"

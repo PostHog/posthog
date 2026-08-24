@@ -367,11 +367,15 @@ def has_narrowed_turbo_inputs(
 
 def _input_covers(input_glob: str, accepted: str) -> bool:
     """A directory location (trailing slash) is covered by any input inside it; a single-file
-    location only by an exact input — backend/tasks.py.bak must not count as watching
-    backend/tasks.py."""
+    location by an exact input, or by a wildcard-free `dir/**` input whose directory contains it —
+    backend/models/** watches backend/models/tcac.py, but backend/tasks.py.bak must not count as
+    watching backend/tasks.py (and backend/tasks/** does not watch backend/tasks.py)."""
     if accepted.endswith("/"):
         return input_glob.startswith(accepted)
-    return input_glob == accepted
+    if input_glob == accepted:
+        return True
+    directory = input_glob.removesuffix("/**")
+    return directory != input_glob and "*" not in directory and accepted.startswith(directory + "/")
 
 
 def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple[str, ...]]) -> set[str]:

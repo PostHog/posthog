@@ -1907,6 +1907,8 @@ class TestNarrowedTurboWiringSurface:
         "inputs, expected",
         [
             (["backend/facade/**", "backend/models/tcac.py"], set()),  # covered
+            (["backend/facade/**", "backend/models/**"], set()),  # a dir glob covers the file inside it
+            (["backend/facade/**", "backend/models_extra/**"], {"backend/models/tcac.py"}),  # sibling dir doesn't
             (["backend/facade/**"], {"backend/models/tcac.py"}),  # missing -> uncovered
         ],
     )

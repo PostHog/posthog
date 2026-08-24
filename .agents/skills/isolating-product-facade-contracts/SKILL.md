@@ -319,13 +319,15 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
       inputs to `backend/facade/**` and `backend/presentation/**` so the
       Django suite is only re-run on facade/presentation changes (see
-      `products/visual_review/turbo.json`). Widen the inputs when core
-      depends on the product **outside the import graph**: add
-      `backend/models.py` if hogql system tables expose the product's
-      tables or core config references its dotted paths (the scan's
-      string-reference section surfaces the latter). tach/import-linter
-      only police the import channel; a mechanical check for these
-      non-import channels is a known gap, noted and deferred.
+      `products/visual_review/turbo.json`). The inputs must also watch the
+      whole model surface — `backend/models.py` or `backend/models/**`,
+      plus `backend/migrations/**` (required even before the first
+      migration lands): a model is reachable without an import
+      (`apps.get_model` strings, migrations, admin, hogql system tables,
+      dotted-string config), so tach/import-linter cannot prove nothing
+      outside observes it. `hogli product:lint` blocks a narrowing that
+      omits any of it, and `product:bootstrap` scaffolds the inputs
+      already covering it.
    - **Permanent-interface exception (irreducible import coupling).** Some
      import coupling genuinely cannot be drained: ClickHouse DDL modules
      (`backend.sql`, `backend.embedding`, …) are imported by core's
