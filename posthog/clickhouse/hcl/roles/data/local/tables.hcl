@@ -7866,8 +7866,8 @@ SQL
     }
   }
   table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "producer_id", "usage_key", "record_id"]
-    partition_by = "toYYYYMM(event_timestamp)"
+    order_by     = ["team_id", "toDate(timestamp)", "producer_id", "usage_key", "record_id"]
+    partition_by = "toYYYYMM(timestamp)"
     settings = {
       index_granularity = "8192"
     }
@@ -7880,17 +7880,12 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }
     column "_partition" { type = "UInt64" }
-    index "event_timestamp_minmax" {
-      expr        = "event_timestamp"
-      type        = "minmax"
-      granularity = 3
-    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
       replica_name   = "{replica}"
@@ -7908,7 +7903,7 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
+    column "timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
