@@ -23,7 +23,11 @@ import {
     subscriptionsDeliveriesList,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
-import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import {
+    TargetTypeEnumApi,
+    type AIWindowConfigApi,
+    type SubscriptionDeliveryApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
@@ -92,16 +96,33 @@ function validateAiWindow(subscription: Partial<SubscriptionType>): {
     return {}
 }
 
+const SUPPORTED_TARGET_TYPES: string[] = Object.values(TargetTypeEnumApi)
+
+const MISSING_TARGET_VALUE_ERROR: Record<string, string> = {
+    [TargetTypeEnumApi.Email]: 'At least one email is required',
+    [TargetTypeEnumApi.Slack]: 'A channel is required',
+    [TargetTypeEnumApi.Teams]: 'A webhook URL is required',
+}
+
+function isHttpsUrl(value: string): boolean {
+    try {
+        return new URL(value).protocol === 'https:'
+    } catch {
+        return false
+    }
+}
+
 function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
     if (!target_value) {
-        return target_type === 'email'
-            ? 'At least one email is required'
-            : target_type === 'slack'
-              ? 'A channel is required'
-              : 'This field is required.'
+        return MISSING_TARGET_VALUE_ERROR[target_type] ?? 'This field is required.'
     }
-    if (target_type === 'email' && !target_value.split(',').every((email) => isEmail(email))) {
+    if (target_type === TargetTypeEnumApi.Email && !target_value.split(',').every((email) => isEmail(email))) {
         return 'All emails must be valid'
+    }
+    // The serializer owns the host allowlist and reports its own error on save. This check stays
+    // loose on purpose, so it cannot reject a URL the backend would have accepted.
+    if (target_type === TargetTypeEnumApi.Teams && !isHttpsUrl(target_value)) {
+        return 'Enter the webhook URL, starting with https://'
     }
     return undefined
 }
@@ -539,9 +560,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 title: !subscription.title ? 'You need to give your subscription a name' : undefined,
                 interval: !subscription.interval ? 'You need to set an interval' : undefined,
                 start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
-                target_type: !['slack', 'email'].includes(subscription.target_type)
-                    ? 'Unsupported target type'
-                    : undefined,
+                // The destination select cannot produce an unknown value, but a `target_type`
+                // search param can.
+                target_type: SUPPORTED_TARGET_TYPES.includes(subscription.target_type)
+                    ? undefined
+                    : 'Unsupported target type',
                 prompt: validatePrompt(subscription.resource_type, subscription.prompt),
                 ...validateAiWindow(subscription),
                 target_value: validateTargetValue(subscription.target_type, subscription.target_value),

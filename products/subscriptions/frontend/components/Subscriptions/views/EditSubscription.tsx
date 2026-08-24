@@ -741,6 +741,27 @@ function EditSubscriptionForm({
                             </>
                         ) : null}
 
+                        {subscription.target_type === 'teams' ? (
+                            <LemonField
+                                name="target_value"
+                                label="Microsoft Teams webhook URL"
+                                help={
+                                    <>
+                                        In Teams, add the Workflows app to the channel you want reports in, then pick
+                                        the template for posting to a channel when a webhook request is received. Paste
+                                        the URL it gives you here. Anyone with that URL can post to the channel, so keep
+                                        it private.
+                                    </>
+                                }
+                            >
+                                <LemonInput
+                                    placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                                    autoComplete="off"
+                                    data-attr="subscription-teams-webhook-url"
+                                />
+                            </LemonField>
+                        ) : null}
+
                         <div>
                             <LemonLabel className="mb-2">Recurrence</LemonLabel>
                             <div className="rounded border p-2">

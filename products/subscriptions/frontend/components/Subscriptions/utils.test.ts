@@ -1,13 +1,23 @@
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 
+import { TargetTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 import {
     canNudgeToSubscribe,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
+    targetTypeOptions,
     toggleSelectedDay,
 } from './utils'
+
+describe('targetTypeOptions', () => {
+    it('offers every destination the API accepts', () => {
+        // A destination the backend accepts but the select never offers is unreachable in the UI.
+        expect(targetTypeOptions.map(({ value }) => value)).toEqual(Object.values(TargetTypeEnumApi))
+    })
+})
 
 describe('day picker values', () => {
     it.each([

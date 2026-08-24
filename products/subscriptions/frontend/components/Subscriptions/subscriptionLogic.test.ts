@@ -27,6 +27,9 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 
 const Insight1 = '1' as InsightShortId
 
+const TEAMS_WEBHOOK_URL =
+    'https://prod-12.westeurope.logic.azure.com/workflows/00000000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=not-a-real-signature'
+
 export const fixtureSubscriptionResponse = (id: number, args: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
         id,
@@ -651,6 +654,52 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.dashboard_export_insights).toEqual([])
         expect(capturedBody?.dashboard).toBeUndefined()
         expect(capturedBody?.insight).toBeUndefined()
+    })
+
+    it.each<[string, string, string | undefined]>([
+        ['accepts a webhook URL', TEAMS_WEBHOOK_URL, undefined],
+        ['rejects a channel name', 'reports', 'Enter the webhook URL, starting with https://'],
+        [
+            'rejects a plain-HTTP URL',
+            'http://prod-12.westeurope.logic.azure.com/workflows/1',
+            'Enter the webhook URL, starting with https://',
+        ],
+        ['rejects an empty value', '', 'A webhook URL is required'],
+    ])('%s for a Microsoft Teams subscription', async (_label, targetValue, expectedError) => {
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({ target_type: 'teams', target_value: targetValue })
+        await expectLogic(newLogic).toFinishListeners()
+
+        // subscriptionErrors is gated on submit or touch; the validation output is what we assert.
+        expect(newLogic.values.subscriptionValidationErrors.target_value).toBe(expectedError)
+        expect(newLogic.values.subscriptionValidationErrors.target_type).toBeUndefined()
+    })
+
+    it('saves a Microsoft Teams subscription', async () => {
+        // The form used to reject every target type outside email and slack, so a teams
+        // subscription could be filled in but never submitted.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'insight',
+            title: 'Teams test',
+            target_type: 'teams',
+            target_value: TEAMS_WEBHOOK_URL,
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.target_type).toBe('teams')
+        expect(capturedBody?.target_value).toBe(TEAMS_WEBHOOK_URL)
     })
 
     it('drops a stale prompt when saving a non-AI subscription', async () => {

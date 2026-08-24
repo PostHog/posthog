@@ -10,6 +10,10 @@ import { urls } from 'scenes/urls'
 import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
 
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+
+import { TargetTypeEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
 export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
@@ -56,9 +60,14 @@ export const urlForSubscription = (
     return id === 'new' ? urls.subscriptionNew() : urls.subscription(id)
 }
 
-export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
-    { value: 'email', label: 'Email', icon: <IconLetter /> },
-    { value: 'slack', label: 'Slack', icon: <IconSlack /> },
+export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_type']>[] = [
+    { value: TargetTypeEnumApi.Email, label: 'Email', icon: <IconLetter /> },
+    { value: TargetTypeEnumApi.Slack, label: 'Slack', icon: <IconSlack /> },
+    {
+        value: TargetTypeEnumApi.Teams,
+        label: 'Microsoft Teams',
+        icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4 object-contain" />,
+    },
 ]
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
