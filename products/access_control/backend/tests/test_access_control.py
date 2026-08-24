@@ -414,7 +414,9 @@ class TestAccessControlObjectCap(BaseAccessControlTest):
         super().setUp()
         self._org_membership(OrganizationMembership.Level.ADMIN)
         # Patch the cap to a small value so tests don't have to create 1000 rows.
-        self.cap_patcher = patch("ee.api.rbac.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3)
+        self.cap_patcher = patch(
+            "products.access_control.backend.facade.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3
+        )
         self.cap_patcher.start()
         self.addCleanup(self.cap_patcher.stop)
 
