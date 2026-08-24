@@ -308,6 +308,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             for r in ACCESS_CONTROL_RESOURCES
         }
 
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "available_project_levels": list(ordered_access_levels("project")),
@@ -361,6 +362,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "available_project_levels": list(ordered_access_levels("project")),
@@ -425,6 +427,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "available_project_levels": list(ordered_access_levels("project")),

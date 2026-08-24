@@ -210,7 +210,7 @@ class ApprovalPolicy(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             invalid_names = [r.name for r in invalid_roles]
             raise ValueError(f"Roles must belong to the same organization: {', '.join(invalid_names)}")
 
-            self.bypass_roles.set(roles)
+        self.bypass_roles.set(roles)
 
     def get_approver_user_ids(self) -> list[int]:
         """Get list of user IDs who can approve based on this policy's approver_config."""

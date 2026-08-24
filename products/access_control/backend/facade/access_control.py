@@ -474,6 +474,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
         users_with_access.sort(key=lambda x: (access_levels.index(x["access_level"]), x["user_id"]), reverse=True)
 
         serializer = UserAccessInfoSerializer(users_with_access, many=True)
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "users": serializer.data,
