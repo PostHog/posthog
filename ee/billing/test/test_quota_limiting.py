@@ -1307,6 +1307,31 @@ class TestQuotaLimiting(BaseTest):
                 )
             ) == sorted(["5678"])
 
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_org_billing_quotas_moves_org_out_of_limiter_when_granting_grace(self):
+        # An org already in the limiter zset then gets a plan-transition suspension (its limit
+        # dropped under otherwise-fine usage). The suspension must move it out of the limiter set,
+        # not just add a suspended entry - capture reads only the limiter set, so a leftover entry
+        # keeps its events dropping through the grace window.
+        self.organization.customer_trust_scores = zero_trust_scores()
+        team_tokens = get_team_attribute_by_quota_resource(self.organization)
+        add_limited_team_tokens(
+            QuotaResource.EVENTS,
+            dict.fromkeys(team_tokens, 1612137599),
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        self.organization.usage = {
+            "events": {"usage": 90, "todays_usage": 0, "limit": 5, "limit_decreased_from": 1000},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        update_org_billing_quotas(self.organization)
+
+        assert list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == []
+        assert sorted(
+            list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
+        ) == sorted(team_tokens)
+
     @patch("ee.billing.quota_limiting.capture_exception")
     def test_get_team_attribute_by_quota_resource(self, mock_capture):
         Team.objects.all().delete()

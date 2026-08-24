@@ -838,6 +838,10 @@ def update_org_billing_quotas(organization: Organization):
                     QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
                 )
             elif limiting_suspended_until and limiting_suspended_until >= today_end.timestamp():
+                # A suspended org keeps ingesting, so it must not also carry a limiter entry -
+                # capture reads only the limiter set and would keep dropping its events. Clear any
+                # stale limiter entry first so the two sets stay mutually exclusive.
+                remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
                 add_limited_team_tokens(
                     resource,
                     dict.fromkeys(team_attributes, limiting_suspended_until),
