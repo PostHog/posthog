@@ -3,11 +3,11 @@ import posthog from 'posthog-js'
 
 import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
@@ -48,7 +48,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             title: 'Actions',
             key: 'actions',
             render: (_, member) => {
-                const adminUrl = `https://${CLOUD_HOSTNAMES[member.region]}/admin/posthog/user/?q=${encodeURIComponent(member.user.email)}`
+                const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.email)
 
                 return (
                     <LemonButton
@@ -56,7 +56,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
                         size="xsmall"
                         to={adminUrl}
                         targetBlank
-                        tooltip={`Open this user in ${member.region} admin, where you can log in as them.`}
+                        tooltip="Open this user in admin, where you can log in as them."
                         data-attr="customer-analytics-account-user-admin-link"
                         onClick={() =>
                             posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })

@@ -23,7 +23,7 @@ describe('AccountRelatedUsersExpansion', () => {
         cleanup()
     })
 
-    it('opens an EU member in EU admin', async () => {
+    it('opens a dev EU member in the current admin', async () => {
         jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue({
             count: 0,
             next: null,
@@ -43,7 +43,7 @@ describe('AccountRelatedUsersExpansion', () => {
         const loginButton = await screen.findByText('Log in as')
         expect(loginButton.closest('a')).toHaveAttribute(
             'href',
-            'https://eu.posthog.com/admin/posthog/user/?q=alex%2Beu%40example.com'
+            'http://localhost/admin/posthog/user/?q=alex%2Beu%40example.com'
         )
     })
 })
