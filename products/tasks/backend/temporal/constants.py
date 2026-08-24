@@ -110,6 +110,8 @@ def resolve_max_run_duration() -> timedelta | None:
 
 WARM_IDLE_TIMEOUT = timedelta(minutes=10)
 
+SANDBOX_TTL_SNAPSHOT_LEAD = timedelta(minutes=10)
+
 # CI follow-up cadence after the agent has been idle.
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 

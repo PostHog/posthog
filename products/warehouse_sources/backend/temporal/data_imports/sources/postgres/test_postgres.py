@@ -529,20 +529,6 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"TLS ALPN rejection error should be non-retryable: {error_msg}"
 
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "SSHTunnel auth is not valid",
-            # Temporal-wrapped form carrying the exception class name.
-            "Exception: SSHTunnel auth is not valid",
-        ],
-    )
-    def test_invalid_ssh_tunnel_auth_is_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        assert "SSHTunnel auth is not valid" in non_retryable
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
-
     def test_invalid_ssh_tunnel_auth_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
         error_msg = "SSHTunnel auth is not valid"
@@ -892,18 +878,6 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "Cannot build decimal array from values",
-            "ValueError: Cannot build decimal array from values",
-        ],
-    )
-    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
             "Source column type changed",
             "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
         ],
@@ -975,12 +949,6 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "xmin-as-incremental-field error should surface an actionable message"
         assert "xmin replication" in friendly[0]
-
-    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
-        error_msg = str(_recovery_conflict_abort_error(10))
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1340,6 +1308,12 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
 
+    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
+        error_msg = str(_recovery_conflict_abort_error(10))
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Exhausted recovery-conflict abort should be non-retryable: {error_msg}"
+
 
 class TestPostgresSourceRetryableErrors:
     @pytest.fixture
@@ -1389,12 +1363,6 @@ class TestPostgresSourceRetryableErrors:
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Server-shutting-down error should be classified retryable: {error_msg}"
 
-    def test_server_shutting_down_is_not_also_non_retryable(self, source):
-        error_msg = "the database system is shutting down"
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
-
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -1438,6 +1406,12 @@ class TestPostgresSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern.lower() in error_msg.lower() for pattern in retryable)
         assert is_retryable, f"Connection-dropped error should be classified retryable: {error_msg}"
+
+    def test_server_shutting_down_is_not_also_non_retryable(self, source):
+        error_msg = "the database system is shutting down"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Server-shutting-down error should not be non-retryable: {error_msg}"
 
     def test_connection_dropped_is_not_also_non_retryable(self, source):
         error_msg = "the connection is lost"

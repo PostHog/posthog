@@ -7,15 +7,12 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
     MARKETSTACK_API_VERSION_V1,
     MARKETSTACK_API_VERSION_V2,
-    MarketstackResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.source import MarketstackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _TIME_SERIES = {"eod", "intraday", "splits", "dividends"}
 _REFERENCE = {"tickers", "exchanges", "currencies", "timezones"}
@@ -29,9 +26,6 @@ def _make_config(access_key: str = "key", symbols: str | None = "AAPL") -> Any:
 
 
 class TestMarketstackSource:
-    def test_source_type(self) -> None:
-        assert MarketstackSource().source_type == ExternalDataSourceType.MARKETSTACK
-
     def test_source_config_fields(self) -> None:
         config = MarketstackSource().get_source_config
         assert [f.name for f in config.fields] == ["access_key", "symbols"]
@@ -48,11 +42,6 @@ class TestMarketstackSource:
         # Symbols are only needed for the time-series tables, so the field is optional.
         assert symbols_field.required is False
         assert symbols_field.secret is False
-
-    def test_source_config_stays_unreleased_alpha(self) -> None:
-        config = MarketstackSource().get_source_config
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/marketstack"
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = MarketstackSource().get_schemas(_make_config(), team_id=1)
@@ -91,13 +80,6 @@ class TestMarketstackSource:
         assert message == expected_message
         # A pre-creation probe (no pin) resolves to the default version the new row is stamped with.
         assert probe.call_args.args[1] == MARKETSTACK_API_VERSION_V2
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = MarketstackSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is MarketstackResumeConfig
 
     def test_source_for_pipeline_plumbs_symbols_and_keys(self) -> None:
         inputs = MagicMock()

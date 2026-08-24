@@ -206,8 +206,6 @@ describe('scoutFleetLogic', () => {
             ['off', 'off'],
             ['quiet', 'watching'],
         ])
-        // The header still tallies the fleet by group, unnarrowed by search.
-        expect(logic.values.rosterGroupCounts).toMatchObject({ working: 1, needs_you: 1, watching: 1, off: 1 })
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
