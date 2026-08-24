@@ -655,7 +655,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             is_calculating=False
         )
 
-    def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
+    def calculate_people_ch(
+        self,
+        pending_version: int,
+        *,
+        initiating_user_id: Optional[int] = None,
+        will_retry: Optional[Callable[[Exception], bool]] = None,
+    ):
+        """
+        Args:
+            will_retry: Told the exception that just failed the recalculation, answers whether the
+                caller will run it again. `errors_calculating` gates both the re-enqueue backoff and
+                the `MAX_ERRORS_CALCULATING` cutoff, so it must be charged once per failed episode,
+                not once per attempt. Callers that auto-retry pass this; a caller that omits it is
+                treated as one attempt per failure.
+        """
         from products.cohorts.backend.models.util import recalculate_cohortpeople, save_recovery_bookkeeping
 
         logger.info(
@@ -693,9 +707,10 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
             self.last_error_at = None
-        except Exception:
-            self.errors_calculating = starting_errors_calculating + 1
-            self.last_error_at = timezone.now()
+        except Exception as err:
+            if not (will_retry and will_retry(err)):
+                self.errors_calculating = starting_errors_calculating + 1
+                self.last_error_at = timezone.now()
 
             logger.warning(
                 "cohort_calculation_failed",

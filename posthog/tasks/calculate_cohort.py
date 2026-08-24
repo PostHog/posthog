@@ -504,7 +504,7 @@ def calculate_cohort_ch(
                 )
                 return
 
-            posthoganalytics.tag("team_id", cohort.team.id)
+            posthoganalytics.tag("team_id", cohort.team_id)
 
             staleness_hours = 0.0
             if cohort.last_calculation is not None:
@@ -524,25 +524,41 @@ def calculate_cohort_ch(
             # stranded "in flight" until the hourly reset_stuck_cohorts job, which would then charge
             # it an errors_calculating increment for a recalculation that never actually ran.
             if _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS):
-                # pending_version guard matches _safe_reset_calculating_state: never clear the flag
-                # out from under a newer calculation that superseded this one. A null
+                # pending_version guard extends _safe_reset_calculating_state with a null leg: never
+                # clear the flag out from under a newer calculation that superseded this one. A null
                 # pending_version means nothing newer is queued, so it clears too.
+                #
+                # errors_calculating and last_error_at are stamped alongside because they are the
+                # only brakes on re-enqueueing: last_error_at drives the exponential backoff and
+                # errors_calculating drives the MAX_ERRORS_CALCULATING cutoff. Clearing
+                # is_calculating without them would make a cohort failing here eligible again every
+                # cycle, forever. A later successful run resets both in calculate_people_ch.
                 save_recovery_bookkeeping(
                     lambda: Cohort.objects.filter(
                         Q(pending_version__lte=pending_version) | Q(pending_version__isnull=True),
                         pk=cohort_id,
                         is_calculating=True,
-                    ).update(is_calculating=False),
+                    ).update(
+                        is_calculating=False,
+                        errors_calculating=F("errors_calculating") + 1,
+                        last_error_at=timezone.now(),
+                    ),
                     cohort_id=cohort_id,
                 )
             raise
 
-        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        cohort.calculate_people_ch(
+            pending_version,
+            initiating_user_id=initiating_user_id,
+            # calculate_people_ch charges errors_calculating in its own except block and cannot see
+            # the retry machinery above it. Without this it would charge one increment per attempt,
+            # so a single fully-failed run would push a cohort most of the way to the
+            # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
+            will_retry=lambda err: not _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS),
+        )
 
 
-def _is_final_attempt(
-    task: Task, err: Exception, retryable_errors: tuple[type[BaseException], ...] = CH_TRANSIENT_ERRORS
-) -> bool:
+def _is_final_attempt(task: Task, err: Exception, retryable_errors: tuple[type[BaseException], ...]) -> bool:
     """Whether a failure is permanent, so the task must finalize terminal state now.
 
     Nothing retries an error outside the task's retryable set, a direct (synchronous) call, which
@@ -625,7 +641,7 @@ def calculate_cohort_from_list(
         # raise_on_error also hands terminal-state finalization to us, so record the failure, but
         # only when nothing will retry. Recording it while attempts remain would leave a cohort
         # that is still being retried looking errored and no longer calculating.
-        if _is_final_attempt(self, err):
+        if _is_final_attempt(self, err, CH_TRANSIENT_ERRORS):
             cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
         raise
     logger.warn(
