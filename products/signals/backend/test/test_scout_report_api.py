@@ -145,10 +145,18 @@ class TestScoutReportAPI(APIBaseTest):
                 data={"report_id": report_id, "summary": "Rewritten summary", "append_note": "And a note"},
                 format="json",
             )
+            prompted = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "suggested_prompts": ["Which teams are affected?"]},
+                format="json",
+            )
 
         assert emitted.status_code == status.HTTP_200_OK, emitted.json()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         assert rewritten.status_code == status.HTTP_200_OK, rewritten.json()
+        assert prompted.status_code == status.HTTP_200_OK, prompted.json()
+        # The prompt-only edit delivers nothing: the questions render in the inbox and nowhere in the
+        # Slack message, so posting it would repeat the report the channel already has, byte for byte.
         assert enqueue.call_count == 3
         for call in enqueue.call_args_list:
             assert call.kwargs["team_id"] == self.team.id
@@ -793,6 +801,23 @@ class TestScoutReportAPI(APIBaseTest):
         assert teams == forward(["Which teams are affected?"])
         # The rows render in the order they were sent, so a reorder changes what the reader sees.
         assert forward(["a?", "b?"]) != forward(["b?", "a?"])
+        # A chart clear and a prompt clear both encode to `[]`, so on an untagged key one run's two
+        # clears hash the same and ingestion drops whichever landed second — the report keeps
+        # whichever set that call was meant to take down.
+        with patch(CAPTURE_PATH):
+            chart_clear = _capture_report_edited(
+                team=self.team,
+                run=run,
+                result=EditReportResult(
+                    report_id=result.report_id, updated_fields=[], note_appended=False, charts_set=0
+                ),
+                title=None,
+                summary=None,
+                note=None,
+                charts=[],
+            )
+        assert chart_clear is not None
+        assert chart_clear.event_uuid != forward([])
 
     @parameterized.expand(
         [

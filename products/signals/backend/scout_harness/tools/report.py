@@ -938,8 +938,13 @@ def _capture_report_edited(
     # edits to one report in a run share every other part. Appended only when they were set, so an
     # edit that doesn't mention them keeps the key its shape already hashes to — and kept in the
     # scout's order, like the charts above, because the inbox renders the rows in that order.
+    #
+    # Field-tagged, unlike the charts part: both encode to `[]` when the edit clears them, so an
+    # untagged prompt clear would hash identically to a chart clear on the same report and ingestion
+    # would drop whichever landed second. The tag goes on the newer field so the charts part keeps
+    # the key it already hashes to (see `_report_event_uuid` on why re-encoding it is unsafe).
     if suggested_prompts is not None:
-        parts.append(json.dumps(suggested_prompts, separators=(",", ":")))
+        parts.append(f"suggested_prompts:{json.dumps(suggested_prompts, separators=(',', ':'))}")
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
@@ -1345,7 +1350,13 @@ def _do_edit_report(
         # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
         # and skips queueing work that would no-op.
         report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
-        if report_status is not None and _surfaced(report_status):
+        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
+        # touched only them has nothing to say in the channel — delivering it would post the report
+        # a second time byte for byte.
+        prompts_only = prompts_set is not None and not (
+            updated_fields or note_appended or reviewers_set or charts_set is not None
+        )
+        if report_status is not None and _surfaced(report_status) and not prompts_only:
             # A note-only edit leaves the title and summary the Slack report message shows
             # unchanged, so re-posting it would duplicate the message already in the channel.
             # Deliver the note itself instead; any edit that rewrote the content re-posts the

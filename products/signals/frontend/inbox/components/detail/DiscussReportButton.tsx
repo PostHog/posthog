@@ -117,7 +117,10 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                         }
                         maxLength={4000}
                         rows={4}
-                        autoFocus
+                        // Focusing the textarea scrolls it into view, which on a short viewport pushes
+                        // the suggestions above the popover's visible area — so a report that offers
+                        // questions opens on the questions, and one that doesn't opens ready to type.
+                        autoFocus={suggestions.length === 0}
                         rightFooter={<span className="text-xs text-tertiary">Cmd/Ctrl + Enter to ask AI</span>}
                     />
                     <div className="flex justify-end">
