@@ -84,6 +84,14 @@ describe('SessionRecordingIngester', () => {
             // reach unless a test opts in via overrides.
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 60 * 60 * 1000,
             SESSION_RECORDING_MAX_BATCH_SIZE_KB: 1024 * 1024,
+            USAGE_INGESTION_ADDR: '',
+            USAGE_INGESTION_TLS: false,
+            USAGE_INGESTION_TIMEOUT_MS: 5000,
+            USAGE_INGESTION_MAX_BATCH_SIZE: 500,
+            USAGE_INGESTION_REPORT_INGESTION_TEAMS: '',
+            USAGE_INGESTION_REPORT_CDP_TEAMS: '',
+            USAGE_INGESTION_REPORT_LOGS_TEAMS: '',
+            USAGE_INGESTION_REPORT_APM_TEAMS: '',
             ...configOverrides,
         }
 

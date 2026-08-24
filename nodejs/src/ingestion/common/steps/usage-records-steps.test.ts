@@ -31,7 +31,13 @@ describe('usage-records-steps', () => {
     async function queueEventUsage(ingested: Promise<IngestedEventInfo | null>[]): Promise<void> {
         const prepare = createRecordEventUsageStep((event) => (event === '$pageview' ? 'events' : null))
         const prepared = await prepare({
-            preparedEvent: { teamId: 42, event: '$pageview', eventUuid: 'event-uuid' },
+            preparedEvent: {
+                teamId: 42,
+                event: '$pageview',
+                eventUuid: 'event-uuid',
+                distinctId: 'user-7',
+                timestamp: '2026-06-15T23:55:00.000Z',
+            },
             eventUsageBatch,
         })
         expect(isOkResult(prepared)).toBe(true)
@@ -73,7 +79,7 @@ describe('usage-records-steps', () => {
 
         expect(ingestedUsage).toEqual([
             {
-                recordId: 'events:event-uuid',
+                recordId: '2026-06-15:$pageview:user-7:event-uuid',
                 teamId: 42,
                 usageKey: 'events',
                 unit: 'events',

@@ -12,11 +12,7 @@ fn record() -> BillingUsageRecord {
         mode: BillingUsageMode::Delta as i32,
         unit: "request".to_string(),
         quantity: 2,
-        version: 1,
         event_timestamp_ms: 1_700_000_000_000,
-        source_ref: None,
-        user_id: None,
-        variant: None,
         dimensions: Default::default(),
     }
 }

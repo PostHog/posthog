@@ -165,7 +165,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         report_usage(
             [
                 UsageRecord(
-                    record_id=f"replay-vision:{inputs.observation_id}",
+                    record_id=str(inputs.observation_id),
                     producer_id="replay-vision",
                     team_id=obs["team_id"],
                     usage_key="replay_vision_credits",

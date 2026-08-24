@@ -7866,7 +7866,7 @@ SQL
     }
   }
   table "sharded_billing_usage_records" {
-    order_by     = ["team_id", "event_timestamp", "producer_id", "record_id", "version"]
+    order_by     = ["team_id", "producer_id", "usage_key", "record_id"]
     partition_by = "toYYYYMM(event_timestamp)"
     settings = {
       index_granularity = "8192"
@@ -7880,20 +7880,21 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "version" { type = "UInt64" }
     column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "source_ref" { type = "String" }
-    column "user_id" { type = "String" }
-    column "variant" { type = "String" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }
     column "_partition" { type = "UInt64" }
+    index "event_timestamp_minmax" {
+      expr        = "event_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records"
       replica_name   = "{replica}"
-      version_column = "event_timestamp"
+      version_column = "inserted_at"
     }
   }
 
@@ -7907,12 +7908,8 @@ SQL
     column "mode" { type = "Enum8('delta' = 1, 'snapshot' = 2)" }
     column "unit" { type = "LowCardinality(String)" }
     column "quantity" { type = "Int64" }
-    column "version" { type = "UInt64" }
     column "event_timestamp" { type = "DateTime64(6, 'UTC')" }
     column "inserted_at" { type = "DateTime64(6, 'UTC')" }
-    column "source_ref" { type = "String" }
-    column "user_id" { type = "String" }
-    column "variant" { type = "String" }
     column "dimensions" { type = "Map(LowCardinality(String), String)" }
     column "_timestamp" { type = "DateTime" }
     column "_offset" { type = "UInt64" }

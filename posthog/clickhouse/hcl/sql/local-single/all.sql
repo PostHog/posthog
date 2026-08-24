@@ -287,12 +287,8 @@ CREATE TABLE posthog.kafka_billing_usage_records (
   mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
-  version UInt64,
   event_timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  source_ref String,
-  user_id String,
-  variant String,
   dimensions Map(LowCardinality(String), String)
 ) ENGINE = Kafka() SETTINGS date_time_input_format = 'best_effort', kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_billing_usage_records\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_billing_usage_records\'';
 CREATE TABLE posthog.kafka_cohort_membership (
@@ -1524,17 +1520,14 @@ CREATE TABLE posthog.sharded_billing_usage_records (
   mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
-  version UInt64,
   event_timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  source_ref String,
-  user_id String,
-  variant String,
   dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
-  _partition UInt64
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', event_timestamp) ORDER BY (team_id, event_timestamp, producer_id, record_id, version) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
+  _partition UInt64,
+  INDEX event_timestamp_minmax event_timestamp TYPE minmax GRANULARITY 3
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, producer_id, usage_key, record_id) PARTITION BY toYYYYMM(event_timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
@@ -3227,12 +3220,8 @@ CREATE TABLE posthog.writable_billing_usage_records (
   mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
-  version UInt64,
   event_timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  source_ref String,
-  user_id String,
-  variant String,
   dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,
@@ -3988,7 +3977,7 @@ CREATE MATERIALIZED VIEW posthog.app_metrics_mv TO posthog.writable_app_metrics 
   _offset,
   _partition
 FROM posthog.kafka_app_metrics;
-CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_billing_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), mode Enum8('delta'=1, 'snapshot'=2), unit LowCardinality(String), quantity Int64, version UInt64, event_timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), source_ref String, user_id String, variant String, dimensions Map(LowCardinality(String), String), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_billing_usage_records (schema_version UInt8, record_id String, producer_id LowCardinality(String), team_id Int64, organization_id UUID, usage_key LowCardinality(String), mode Enum8('delta'=1, 'snapshot'=2), unit LowCardinality(String), quantity Int64, event_timestamp DateTime64(6, 'UTC'), inserted_at DateTime64(6, 'UTC'), dimensions Map(LowCardinality(String), String), _timestamp DateTime, _offset UInt64, _partition UInt64) AS SELECT
   schema_version,
   record_id,
   producer_id,
@@ -3998,12 +3987,8 @@ CREATE MATERIALIZED VIEW posthog.billing_usage_records_mv TO posthog.writable_bi
   mode,
   unit,
   quantity,
-  version,
   event_timestamp,
   inserted_at,
-  source_ref,
-  user_id,
-  variant,
   dimensions,
   _timestamp,
   _offset,
@@ -5514,12 +5499,8 @@ CREATE TABLE posthog.billing_usage_records (
   mode Enum8('delta'=1, 'snapshot'=2),
   unit LowCardinality(String),
   quantity Int64,
-  version UInt64,
   event_timestamp DateTime64(6, 'UTC'),
   inserted_at DateTime64(6, 'UTC'),
-  source_ref String,
-  user_id String,
-  variant String,
   dimensions Map(LowCardinality(String), String),
   _timestamp DateTime,
   _offset UInt64,

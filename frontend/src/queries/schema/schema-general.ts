@@ -9108,6 +9108,9 @@ export const externalDataSources = [
     'Airwallex',
     'Polymarket',
     'Kalshi',
+    'Capterra',
+    'GooglePostmasterTools',
+    'Growi',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

@@ -5,30 +5,39 @@ The rule that shapes all of them: **count after the last step that can drop the 
 
 ## Reading the tables
 
-`ReplacingMergeTree(event_timestamp)` sorts by `(team_id, producer_id, record_id, version)`.
-Two records with the same `(team_id, producer_id, record_id)` collapse to one — they do not add.
+`ReplacingMergeTree(inserted_at)` sorts by `(team_id, producer_id, usage_key, record_id)`.
+Two records sharing those four collapse to one — they do not add, and the later send wins.
 So a producer's `record_id` has to be a stable identity for the billed thing: the same work replayed must produce the same ID, and different work must never share one.
-`usage_key` is not in the sort key, which is why every producer's `record_id` includes it whenever the producer emits more than one key.
 
-Read with `FINAL`, or with `argMax(quantity, event_timestamp)` grouped by the sort key.
+What it protects against is our own duplication, not a sender's.
+If someone sends the same thing twice we ingest it twice and bill it twice, which is correct.
+The identity exists so our retries and reprocessing of one ingested thing collapse to one row.
+`usage_key` is in the key, so a `record_id` does not repeat it.
+CDP is the one producer that still prefixes, because its three call sites share one `usage_key` and the prefix is what separates them.
+
+`event_timestamp` is deliberately not in the sort key.
+Producers stamp it when they flush, so a retry or a replay carries a later one; in the key, every resend would have billed again.
+It is still the partition key, so a replay that crosses a month boundary leaves both rows.
+
+Read with `FINAL`, or with `argMax(quantity, inserted_at)` grouped by the sort key.
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 
 | producer_id         | usage_key                                               | unit           | record_id                                                                                       | env var                                       |
 | ------------------- | ------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `ingestion`         | `events`, `ai_events`                                   | events         | the event UUID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `ai-ingestion`      | `ai_events`                                             | events         | the event UUID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `error-tracking`    | `exceptions`                                            | events         | the event UUID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| `ingestion`         | `events`, `ai_events`                                   | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| `ai-ingestion`      | `ai_events`                                             | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| `error-tracking`    | `exceptions`                                            | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
 | `cdp`               | `cdp_billable_invocations`                              | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | `USAGE_INGESTION_REPORT_CDP_TEAMS`            |
 | `feature-flags`     | `feature_flag_requests`                                 | requests       | fresh UUIDv7 per flush                                                                          | `FLAGS_USAGE_INGESTION_TEAMS`                 |
-| `ingestion`         | `survey_responses`                                      | events         | `survey_responses:{event UUID}`                                                                 | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | `warehouse-sync:{ExternalDataJob ID}`                                                           | `USAGE_INGESTION_REPORT_WAREHOUSE_ROWS_TEAMS` |
-| `batch-exports`     | `batch_export_rows`                                     | rows           | `batch-export:{BatchExportRun ID}`                                                              | `USAGE_INGESTION_REPORT_BATCH_EXPORTS_TEAMS`  |
-| `replay-vision`     | `replay_vision_credits`                                 | credits        | `replay-vision:{observation ID}`                                                                | `USAGE_INGESTION_REPORT_REPLAY_VISION_TEAMS`  |
-| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | per-flush team and metric identity                                                              | `USAGE_INGESTION_REPORT_LOGS_TEAMS`           |
-| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | per-flush team and metric identity                                                              | `USAGE_INGESTION_REPORT_APM_TEAMS`            |
-| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | `replay:{session_id}`, `mobile-replay:{session_id}`                                             | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `ingestion`         | `enhanced_person_events`                                | events         | `enhanced_person_events:{event UUID}`                                                           | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| `ingestion`         | `survey_responses`                                      | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | the ExternalDataJob ID                                                                          | `USAGE_INGESTION_REPORT_WAREHOUSE_ROWS_TEAMS` |
+| `batch-exports`     | `batch_export_rows`                                     | rows           | the BatchExportRun ID                                                                           | `USAGE_INGESTION_REPORT_BATCH_EXPORTS_TEAMS`  |
+| `replay-vision`     | `replay_vision_credits`                                 | credits        | the observation ID                                                                              | `USAGE_INGESTION_REPORT_REPLAY_VISION_TEAMS`  |
+| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | fresh UUIDv7 per flush                                                                          | `USAGE_INGESTION_REPORT_LOGS_TEAMS`           |
+| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | fresh UUIDv7 per flush                                                                          | `USAGE_INGESTION_REPORT_APM_TEAMS`            |
+| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | the session ID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| `ingestion`         | `enhanced_person_events`                                | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
 
 Each env var is a team list, so a producer rolls out independently: `''` reports nothing, `*` every team, `1,2` those teams.
 Empty is the default everywhere, so nothing reports until it is set.
@@ -36,6 +45,12 @@ There is deliberately no percentage option: sampling a share of a team's events 
 
 Every record carries quantity 1 and names one billed thing, so the aggregate lives in ClickHouse rather than in the producer.
 A producer that sees the same identity twice sends one record, because two records sharing an identity collapse rather than add.
+
+Three producers break that shape: feature flags, logs and APM send per-flush aggregates rather than one record per billed thing.
+They have no identity to reproduce, so each flush mints a fresh UUIDv7.
+That makes them retry-safe but not replay-safe, and it is deliberate: the quantity is a delta over a window, so a replayed flush is new usage rather than the same usage seen twice.
+Deriving those IDs from a clock instead would let two pods flushing one team in the same millisecond collapse into one row and drop a real quantity.
+Note the existing nightly report reaches the same totals additively — `app_metrics2` is an `AggregatingMergeTree` summing `count` per hour — so it has no identity to collide in the first place.
 
 ## Analytics ingestion
 
@@ -79,7 +94,7 @@ The AI check matches the exact names in `AI_EVENT_TYPES` rather than the `$ai_` 
 
 Overflow is not a drop. A redirected event is consumed again on the overflow lane, whose consumer reports under its own topic and partition, so it is counted exactly once.
 
-### Why the identity is the event UUID
+### Why the identity is `{day}:{event}:{distinct_id}:{uuid}`
 
 The first version of this keyed a record on the batch's consumed offset range and carried the batch's count.
 That is not replay-safe: Kafka does not promise the same batch boundaries twice, so a replay produces different IDs and the totals add.
@@ -144,6 +159,10 @@ Three call sites report, each next to the app metric it is independent of:
 
 The event-triggered site bills once per triggering event, not per destination, matching the existing app metric.
 The workflow site keys on `actionStepCount` so a cyclotron retry of the same step reuses the ID and deduplicates, while a loop that revisits the same action gets a new one and bills again.
+
+The webhook site mints its `invocationId` when it receives the request, which is what we want: ten webhooks carrying one sender-side ID are ten things we ingested and ten things we bill.
+The ID only has to survive our own retry of that one receipt, which it does.
+The three CDP sites share one `usage_key`, which is why they are the only producer that still prefixes its `record_id`.
 
 The reporter flushes on a timer rather than at a consumer batch boundary, and `CdpBaseConsumer.stop()` flushes it, so a graceful deploy loses nothing.
 An ungraceful exit can still lose up to one interval of records per pod.

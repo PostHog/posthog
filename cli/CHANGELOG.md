@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.14.1 — 2026-08-23
+
+### Patch changes
+
+- [5e488e12013](https://github.com/PostHog/posthog/commit/5e488e120131361723c3b86cc98dcd3d7e814322) Accept sourcemaps that use the camel-case `chunkId` field when cloning or uploading Hermes sourcemaps. — Thanks @marandaneto!
+
 ## 0.14.0 — 2026-08-21
 
 ### Minor changes

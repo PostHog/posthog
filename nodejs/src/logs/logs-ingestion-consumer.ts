@@ -9,12 +9,13 @@ import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
+import { UUID7 } from '~/common/utils/utils'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -1034,11 +1035,14 @@ export class LogsIngestionConsumer {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
             const source = this.appSource === 'traces' ? 'apm' : 'logs'
-            const now = Date.now()
+            // These records are per-flush aggregates, not one per billed thing, so there is no
+            // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
+            // the same team from colliding and collapsing one flush's quantity away.
+            const flushId = new UUID7().toString()
             this.deps.usageBatch?.add(
                 teamId,
                 `${source}_bytes`,
-                `${source}:${teamId}:${now}:bytes`,
+                flushId,
                 this.appSource === 'logs' ? { retention_days: String(stats.retentionDays) } : undefined,
                 stats.bytesAllowed,
                 'bytes'
@@ -1046,7 +1050,7 @@ export class LogsIngestionConsumer {
             this.deps.usageBatch?.add(
                 teamId,
                 source === 'apm' ? 'apm_spans' : 'logs_records',
-                `${source}:${teamId}:${now}:records`,
+                flushId,
                 undefined,
                 stats.recordsAllowed,
                 'records'

@@ -23,9 +23,23 @@ export function createEventUsageBeforeBatchStep<TInput, CInput, CBatch>(
 }
 
 export interface RecordEventUsageInput {
-    preparedEvent: { teamId: number; event: string; eventUuid: string }
+    preparedEvent: { teamId: number; event: string; eventUuid: string; distinctId: string; timestamp: string }
     eventUsageBatch: UsageRecordBatch
     processPerson?: boolean
+}
+
+/**
+ * Mirrors the events table's dedup identity, `(team_id, toDate(timestamp), event,
+ * distinct_id, uuid)`, minus the team the billing sorting key already carries. The UUID alone
+ * is not that identity: two events sharing one but differing in day, name or distinct_id are
+ * separate rows there, and the nightly report counts them separately, so billing must too.
+ *
+ * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
+ * `toDate` resolves.
+ */
+function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
+    const day = preparedEvent.timestamp.slice(0, 10)
+    return `${day}:${preparedEvent.event}:${preparedEvent.distinctId}:${preparedEvent.eventUuid}`
 }
 
 export interface EventUsageRecord {
@@ -39,29 +53,26 @@ export interface EventUsageRecordContext {
 }
 
 /**
- * One record per event, identified by the event UUID. The UUID travels with the
- * event, so a replay reproduces the identity whatever the consumer's batching,
- * which an offset-derived identity cannot.
+ * One record per event. Its identity travels inside the event, so a replay reproduces it
+ * whatever the consumer's batching, which an offset-derived identity cannot.
+ *
+ * Person processing bills a second record under its own usage key. It shares the identity,
+ * which the usage key separates, and it waits on the same acknowledgement: an event that
+ * never lands should not bill for the person work either.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
 ): ProcessingStep<T, T & EventUsageRecordContext> {
     return function recordEventUsageStep(input: T): Promise<PipelineResult<T & EventUsageRecordContext>> {
         const usageKey = resolveUsageKey(input.preparedEvent.event)
-        const eventUsageRecords: EventUsageRecord[] = []
-        if (usageKey) {
-            eventUsageRecords.push({
-                teamId: input.preparedEvent.teamId,
-                usageKey,
-                recordId: `${usageKey}:${input.preparedEvent.eventUuid}`,
-            })
-            if (input.processPerson) {
-                eventUsageRecords.push({
-                    teamId: input.preparedEvent.teamId,
-                    usageKey: 'enhanced_person_events',
-                    recordId: `enhanced_person_events:${input.preparedEvent.eventUuid}`,
-                })
-            }
+        if (!usageKey) {
+            return Promise.resolve(ok({ ...input, eventUsageRecords: undefined }))
+        }
+        const { teamId } = input.preparedEvent
+        const recordId = analyticsRecordId(input.preparedEvent)
+        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId }]
+        if (input.processPerson) {
+            eventUsageRecords.push({ teamId, usageKey: 'enhanced_person_events', recordId })
         }
         return Promise.resolve(ok({ ...input, eventUsageRecords }))
     }

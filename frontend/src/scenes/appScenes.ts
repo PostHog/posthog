@@ -31,7 +31,6 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Destinations]: () => import('./data-pipelines/DestinationsScene'),
     [Scene.DebugHog]: () => import('./debug/hog/HogRepl'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
-
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
@@ -39,9 +38,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.EventDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
-    [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
     [Scene.ExperimentsStaffTools]: () => import('./experiments/staff/ExperimentsStaffTools'),
-    [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.ExploreEvents]: () => import('./activity/explore/EventsScene'),
     [Scene.ExploreSessions]: () => import('./activity/explore/SessionsScene'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),

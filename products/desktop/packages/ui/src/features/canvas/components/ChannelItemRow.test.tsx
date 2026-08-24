@@ -1,5 +1,6 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   TASK_DRAG_TYPE,
@@ -320,7 +321,7 @@ describe("ChannelItemRow", () => {
     expect(dataTransfer.effectAllowed).toBe("copyMove");
   });
 
-  it("does not make canvases draggable into the Command Center", () => {
+  it("makes canvases draggable into the Command Center", () => {
     renderRow(
       item({
         key: "canvas:canvas-1",
@@ -328,8 +329,13 @@ describe("ChannelItemRow", () => {
         id: "canvas-1",
       }),
     );
+    const setData = vi.fn();
+    const dataTransfer = { setData, effectAllowed: "none" };
 
-    expect(screen.getByRole("button")).not.toHaveAttribute("draggable", "true");
+    fireEvent.dragStart(screen.getByRole("button"), { dataTransfer });
+
+    expect(setData).toHaveBeenCalledWith(CANVAS_DRAG_TYPE, "canvas-1");
+    expect(dataTransfer.effectAllowed).toBe("copy");
   });
 
   // The hover card and right-click render the same item list from one
@@ -337,7 +343,7 @@ describe("ChannelItemRow", () => {
   const MENU_ITEMS = [
     "Pin",
     "Rename",
-    "Add to Command Center",
+    "Add to Command Center…",
     "File to…",
     "Archive",
   ];
@@ -427,7 +433,7 @@ describe("ChannelItemRow", () => {
     // Quill keeps a disabled button focusable, so the state is aria-disabled
     // rather than the native attribute.
     expect(
-      screen.getByRole("button", { name: "Add to Command Center" }),
+      screen.getByRole("button", { name: "Add to Command Center…" }),
     ).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -464,7 +470,12 @@ describe("ChannelItemRow", () => {
       title: "Web analytics overview",
     });
     renderInList(
-      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        onAddToCommandCenter={() => {}}
+      />,
     );
 
     await userEvent.hover(screen.getByText("Web analytics overview"));
@@ -473,9 +484,11 @@ describe("ChannelItemRow", () => {
       await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
     ).not.toBeNull();
     expect(screen.getByRole("button", { name: "Delete…" })).not.toBeNull();
-    // A canvas can't be archived, filed to a space, or given a command-centre
-    // cell, so those items aren't drawn at all rather than drawn dead.
-    for (const absent of ["Archive", "File to…", "Add to Command Center"]) {
+    expect(
+      screen.getByRole("button", { name: "Add to Command Center…" }),
+    ).not.toBeNull();
+    // A canvas can't be archived or filed to another space.
+    for (const absent of ["Archive", "File to…"]) {
       expect(screen.queryByRole("button", { name: absent })).toBeNull();
     }
   });

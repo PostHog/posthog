@@ -3,7 +3,10 @@ import {
   GitBranchIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
-import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
+import {
+  ContextWikiUnavailableError,
+  FolderInstructionsConflictError,
+} from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
   Empty,
@@ -33,16 +36,21 @@ import {
   useTaskChannels,
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/components/ContextWikiPagePane";
+import { useChannelContextWikiPage } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
   PageHeader,
+  PageHeaderActions,
   PageHeaderChip,
   PageHeaderDescription,
   PageHeaderHeading,
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
@@ -71,6 +79,104 @@ interface WebsiteContextProps {
 }
 
 export function WebsiteContext({ channelId }: WebsiteContextProps) {
+  const contextLayerEnabled = useContextLayerFlag();
+  const wikiPage = useChannelContextWikiPage(channelId, contextLayerEnabled);
+
+  if (contextLayerEnabled && wikiPage.isLoading) {
+    return (
+      <Flex align="center" justify="center" className="h-full">
+        <Spinner size="2" />
+      </Flex>
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.data) {
+    return (
+      <WikiWebsiteContext channelId={channelId} path={wikiPage.data.path} />
+    );
+  }
+
+  if (contextLayerEnabled && wikiPage.error) {
+    const unavailable = wikiPage.error instanceof ContextWikiUnavailableError;
+    return (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <FileTextIcon size={28} />
+          </EmptyMedia>
+          <EmptyTitle>
+            {unavailable
+              ? "Context wiki unavailable"
+              : "Could not load context"}
+          </EmptyTitle>
+          <EmptyDescription>{wikiPage.error.message}</EmptyDescription>
+        </EmptyHeader>
+        {!unavailable ? (
+          <EmptyContent>
+            <QuillButton variant="outline" onClick={() => wikiPage.refetch()}>
+              Try again
+            </QuillButton>
+          </EmptyContent>
+        ) : null}
+      </Empty>
+    );
+  }
+
+  return <LegacyWebsiteContext channelId={channelId} />;
+}
+
+function WikiWebsiteContext({
+  channelId,
+  path,
+}: {
+  channelId: string;
+  path: string;
+}) {
+  const spacesLayout = useChannelsLayout();
+  const { channels: taskChannels } = useTaskChannels();
+  const taskChannel = taskChannels.find((channel) => channel.id === channelId);
+  const headerContent = useMemo(
+    () => <ChannelHeader channelId={channelId} page="context" />,
+    [channelId],
+  );
+  useSetHeaderContent(headerContent);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {spacesLayout ? (
+        <PageHeader>
+          <PageHeaderHeading>
+            <PageHeaderTitleRow>
+              <PageHeaderTitle>Context</PageHeaderTitle>
+              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                {path}
+              </PageHeaderChip>
+            </PageHeaderTitleRow>
+            <PageHeaderDescription>
+              Agents working in this space can find this page in the shared
+              context wiki.
+            </PageHeaderDescription>
+          </PageHeaderHeading>
+          <PageHeaderActions>
+            <QuillButton
+              variant="outline"
+              size="sm"
+              onClick={() => navigateToSpacesContext(path)}
+            >
+              Open in context wiki
+            </QuillButton>
+          </PageHeaderActions>
+        </PageHeader>
+      ) : null}
+      {spacesLayout && taskChannel ? (
+        <SpaceRepositories channel={taskChannel} />
+      ) : null}
+      <ContextWikiPagePane key={path} path={path} />
+    </div>
+  );
+}
+
+function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   const spacesLayout = useChannelsLayout();
   const emptyTemplate = spacesLayout
     ? SPACE_EMPTY_TEMPLATE
