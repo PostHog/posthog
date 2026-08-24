@@ -17,6 +17,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models import OrganizationDomain, User
+from posthog.models.identity_provider_config import ConfigScope
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 
@@ -124,7 +125,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def get_scim_base_url(self, obj: OrganizationDomain) -> str | None:
-        configs = list(obj.identity_provider_configs_for_scope("scim").filter(scim_enabled=True)[:2])
+        configs = list(obj.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True)[:2])
         if len(configs) != 1 or not configs[0].has_scim or not configs[0].scim_slug:
             return None
         return get_scim_base_url(configs[0])

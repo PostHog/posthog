@@ -38,6 +38,17 @@ class ConfigScope(models.TextChoices):
     )  # TODO: before letting people put data here, let's widen the column to 6 chars and rename this to `id_jag`
 
 
+def saml_configured_q() -> models.Q:
+    return ~models.Q(
+        models.Q(saml_entity_id="")
+        | models.Q(saml_entity_id__isnull=True)
+        | models.Q(saml_acs_url="")
+        | models.Q(saml_acs_url__isnull=True)
+        | models.Q(saml_x509_cert="")
+        | models.Q(saml_x509_cert__isnull=True)
+    )
+
+
 class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
     Identity provider (IdP) configuration for an organization.

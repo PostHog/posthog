@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -130,7 +131,7 @@ describe('verifiedDomainsLogic', () => {
                 },
                 {
                     id: 'selected-config',
-                    config_scope: null,
+                    config_scope: ConfigScopeEnumApi.Saml,
                     organization_domain_ids: ['domain-id'],
                     created_at: '2024-01-01',
                     updated_at: '2024-01-01',
@@ -140,10 +141,29 @@ describe('verifiedDomainsLogic', () => {
                     scim_bearer_token: null,
                     has_id_jag: false,
                 },
+                {
+                    id: 'selected-scim-config',
+                    config_scope: ConfigScopeEnumApi.Scim,
+                    organization_domain_ids: ['domain-id'],
+                    created_at: '2024-01-01',
+                    updated_at: '2024-01-01',
+                    saml_relay_state: 'relay-state',
+                    has_saml: false,
+                    has_scim: true,
+                    scim_bearer_token: null,
+                    has_id_jag: false,
+                },
             ]
 
-            expect(getIdentityProviderConfigForDomain(configs, 'domain-id')?.id).toBe('selected-config')
-            expect(getIdentityProviderConfigForDomain(configs, 'other-domain')?.id).toBe('other-domain-config')
+            expect(getIdentityProviderConfigForDomain(configs, 'domain-id', ConfigScopeEnumApi.Saml)?.id).toBe(
+                'selected-config'
+            )
+            expect(getIdentityProviderConfigForDomain(configs, 'domain-id', ConfigScopeEnumApi.Scim)?.id).toBe(
+                'selected-scim-config'
+            )
+            expect(getIdentityProviderConfigForDomain(configs, 'other-domain', ConfigScopeEnumApi.Xaa)?.id).toBe(
+                'other-domain-config'
+            )
         })
     })
 

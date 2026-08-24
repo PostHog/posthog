@@ -9,11 +9,11 @@ import structlog
 import dns.resolver
 
 from posthog.constants import AvailableFeature
-from posthog.dns_utils import dnssec_resolver
 from posthog.dataclasses import frozen
+from posthog.dns_utils import dnssec_resolver
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
@@ -126,14 +126,7 @@ class OrganizationDomainManager(models.Manager):
         domain = email[email.index("@") + 1 :]
         saml_configs = IdentityProviderConfig.objects.filter(
             models.Q(config_scope=ConfigScope.SAML) | models.Q(config_scope__isnull=True)
-        ).exclude(
-            models.Q(saml_entity_id="")
-            | models.Q(saml_entity_id__isnull=True)
-            | models.Q(saml_acs_url="")
-            | models.Q(saml_acs_url__isnull=True)
-            | models.Q(saml_x509_cert="")
-            | models.Q(saml_x509_cert__isnull=True)
-        )
+        ).filter(saml_configured_q())
         query = (
             self.verified_domains()
             .filter(domain__iexact=domain)
@@ -344,14 +337,7 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
 
     @property
     def saml_identity_provider_configs(self) -> models.QuerySet[IdentityProviderConfig]:
-        return self.identity_provider_configs_for_scope(ConfigScope.SAML).exclude(
-            models.Q(saml_entity_id="")
-            | models.Q(saml_entity_id__isnull=True)
-            | models.Q(saml_acs_url="")
-            | models.Q(saml_acs_url__isnull=True)
-            | models.Q(saml_x509_cert="")
-            | models.Q(saml_x509_cert__isnull=True)
-        )
+        return self.identity_provider_configs_for_scope(ConfigScope.SAML).filter(saml_configured_q())
 
     def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

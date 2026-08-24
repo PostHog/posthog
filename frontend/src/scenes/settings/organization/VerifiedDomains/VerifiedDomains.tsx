@@ -19,6 +19,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
@@ -196,7 +197,9 @@ function VerifiedDomainsTable(): JSX.Element {
                 </div>
             ),
             render: function SSOEnforcement(_, { sso_enforcement, id }) {
-                const hasSaml = Boolean(getIdentityProviderConfigForDomain(identityProviderConfigs, id)?.has_saml)
+                const hasSaml = Boolean(
+                    getIdentityProviderConfigForDomain(identityProviderConfigs, id, ConfigScopeEnumApi.Saml)?.has_saml
+                )
                 if (!isSSOEnforcementAvailable) {
                     return (
                         <Link
@@ -222,7 +225,21 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'integrations',
             title: 'Integrations',
             render: function Integrations(_, { id }) {
-                const identityProviderConfig = getIdentityProviderConfigForDomain(identityProviderConfigs, id)
+                const samlConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Saml
+                )
+                const scimConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Scim
+                )
+                const idJagConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Xaa
+                )
                 const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
                 const badges: JSX.Element[] = []
 
@@ -237,7 +254,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (identityProviderConfig?.has_saml) {
+                } else if (samlConfig?.has_saml) {
                     badges.push(
                         <IntegrationBadge
                             key="saml"
@@ -270,7 +287,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (identityProviderConfig?.has_scim) {
+                } else if (scimConfig?.has_scim) {
                     badges.push(
                         <IntegrationBadge
                             key="scim"
@@ -292,7 +309,7 @@ function VerifiedDomainsTable(): JSX.Element {
                     )
                 }
 
-                if (showXAAControls && identityProviderConfig?.has_id_jag) {
+                if (showXAAControls && idJagConfig?.has_id_jag) {
                     badges.push(
                         <IntegrationBadge
                             key="xaa"

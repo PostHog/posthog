@@ -16,10 +16,9 @@ import {
     identityProviderConfigsDestroy,
     identityProviderConfigsList,
     identityProviderConfigsPartialUpdate,
-    identityProviderConfigsRetrieve,
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
-import { IdentityProviderConfigApi } from '~/generated/core/api.schemas'
+import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
 import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs, UserType } from '~/types'
 
 /**
@@ -28,22 +27,29 @@ import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs, Use
  */
 export function getIdentityProviderConfigForDomain(
     configs: IdentityProviderConfigApi[],
-    domainId: string
+    domainId: string,
+    configScope: ConfigScopeEnumApi
 ): IdentityProviderConfigApi | undefined {
-    return configs.find((config) => config.organization_domain_ids?.includes(domainId))
+    const linkedConfigs = configs.filter((config) => config.organization_domain_ids?.includes(domainId))
+    return (
+        linkedConfigs.find((config) => config.config_scope === configScope) ??
+        linkedConfigs.find((config) => config.config_scope == null)
+    )
 }
 
 async function ensureIdpConfig(
     organizationId: string,
-    domain: OrganizationDomainType
+    domain: OrganizationDomainType,
+    configScope: ConfigScopeEnumApi
 ): Promise<IdentityProviderConfigApi> {
     const configs = (await identityProviderConfigsList(organizationId)).results
-    const existingConfig = getIdentityProviderConfigForDomain(configs, domain.id)
+    const existingConfig = getIdentityProviderConfigForDomain(configs, domain.id, configScope)
     if (existingConfig) {
-        return identityProviderConfigsRetrieve(organizationId, existingConfig.id)
+        return existingConfig
     }
     return identityProviderConfigsCreate(organizationId, {
         name: domain.domain,
+        config_scope: configScope,
         organization_domain_ids: [domain.id],
     })
 }
@@ -861,7 +867,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return { id: domainId, scim_enabled: false, scim_base_url: undefined }
                     }
-                    const config = await ensureIdpConfig(values.currentOrganizationId as string, domain)
+                    const config = await ensureIdpConfig(
+                        values.currentOrganizationId as string,
+                        domain,
+                        ConfigScopeEnumApi.Scim
+                    )
                     return {
                         id: domainId,
                         scim_enabled: config.scim_enabled ?? false,
@@ -874,7 +884,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return values.scimConfig
                     }
-                    const ensuredConfig = await ensureIdpConfig(orgId, domain)
+                    const ensuredConfig = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Scim)
                     const config = await identityProviderConfigsPartialUpdate(orgId, ensuredConfig.id, {
                         scim_enabled: true,
                     })
@@ -894,7 +904,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return values.scimConfig
                     }
-                    const ensuredConfig = await ensureIdpConfig(orgId, domain)
+                    const ensuredConfig = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Scim)
                     const config = await identityProviderConfigsPartialUpdate(orgId, ensuredConfig.id, {
                         scim_enabled: false,
                     })
@@ -911,7 +921,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     const orgId = values.currentOrganizationId as string
                     const domain = values.verifiedDomains.find(({ id }) => id === domainId)
                     const config = domain
-                        ? getIdentityProviderConfigForDomain(values.identityProviderConfigs, domain.id)
+                        ? getIdentityProviderConfigForDomain(
+                              values.identityProviderConfigs,
+                              domain.id,
+                              ConfigScopeEnumApi.Scim
+                          )
                         : undefined
                     if (!domain || !config) {
                         return values.scimConfig
@@ -965,7 +979,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 return
             }
             try {
-                const config = await ensureIdpConfig(values.currentOrganizationId as string, domain)
+                const config = await ensureIdpConfig(
+                    values.currentOrganizationId as string,
+                    domain,
+                    ConfigScopeEnumApi.Saml
+                )
                 actions.setSamlConfigValues({
                     id,
                     saml_relay_state: config.saml_relay_state,
@@ -985,7 +1003,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 return
             }
             try {
-                const config = await ensureIdpConfig(values.currentOrganizationId as string, domain)
+                const config = await ensureIdpConfig(
+                    values.currentOrganizationId as string,
+                    domain,
+                    ConfigScopeEnumApi.Xaa
+                )
                 actions.setIdJagConfigValues({
                     id,
                     id_jag_issuer_url: config.id_jag_issuer_url ?? '',
@@ -1097,7 +1119,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!domain) {
                     return
                 }
-                const config = await ensureIdpConfig(orgId, domain)
+                const config = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Saml)
                 await identityProviderConfigsPartialUpdate(orgId, config.id, {
                     saml_acs_url,
                     saml_entity_id,
@@ -1133,7 +1155,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!domain) {
                     return
                 }
-                const config = await ensureIdpConfig(orgId, domain)
+                const config = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Xaa)
                 await identityProviderConfigsPartialUpdate(orgId, config.id, {
                     id_jag_issuer_url: id_jag_issuer_url?.trim() || null,
                     id_jag_jwks_url: id_jag_jwks_url?.trim() || null,
