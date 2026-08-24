@@ -10,6 +10,7 @@ import {
     IconPeople,
     IconPiggyBank,
     IconReceipt,
+    IconShieldLock,
 } from '@posthog/icons'
 import {
     LemonButton,
@@ -69,6 +70,7 @@ function getPreview(notebook: AccountNotebookApi): string {
 
 const LINK_ICONS: Record<string, JSX.Element> = {
     organization: <IconPeople />,
+    'admin-panel': <IconShieldLock />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,
     metabase: <IconDatabase />,

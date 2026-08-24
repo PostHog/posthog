@@ -20,6 +20,8 @@ const ORGANIZATION_GROUP_TYPE_INDEX = 0
 const REVENUE_DASHBOARD_ID = 259114
 const BILLING_ADMIN_ORIGIN = 'https://billing.posthog.com'
 const SLACK_ARCHIVES_ORIGIN = 'https://posthog.slack.com/archives'
+// The account's external ID is the customer organization's UUID, which is also its Django admin primary key.
+const DJANGO_ADMIN_ORGANIZATION_PATH = '/admin/posthog/organization'
 
 export interface AccountLinksLogicProps {
     accountId: string
@@ -252,6 +254,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                               }).url
                             : null,
                         targetBlank: false,
+                        disabledReason: externalId ? null : 'No external ID set',
+                    },
+                    {
+                        key: 'admin-panel',
+                        label: 'Admin panel',
+                        to: externalId ? `${DJANGO_ADMIN_ORGANIZATION_PATH}/${externalId}/change/` : null,
+                        targetBlank: true,
                         disabledReason: externalId ? null : 'No external ID set',
                     },
                     {

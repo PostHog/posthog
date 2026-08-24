@@ -212,4 +212,12 @@ describe('accountLinksLogic', () => {
         expect(organization?.to).toBeNull()
         expect(organization?.disabledReason).toBe('No external ID set')
     })
+
+    it('admin panel link points at the organization Django admin page keyed by external_id', async () => {
+        await mountWith(buildAccount({ external_id: 'ext-1', properties: { billing_id: 'cus_123' } }))
+
+        const adminPanel = logic.values.links.find((link) => link.key === 'admin-panel')
+        expect(adminPanel?.to).toBe('/admin/posthog/organization/ext-1/change/')
+        expect(adminPanel?.targetBlank).toBe(true)
+    })
 })
