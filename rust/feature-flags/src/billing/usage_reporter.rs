@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tonic::transport::{Channel, Endpoint};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    usage_ingestion_client::UsageIngestionClient, BillingUsageMode, BillingUsageRecord,
+    usage_ingestion_client::UsageIngestionClient, BillingUsageRecord,
     IngestBillingUsageRequest,
 };
 use uuid::Uuid;
@@ -156,7 +156,6 @@ fn build_records(
             producer_id: PRODUCER_ID.to_string(),
             team_id: i64::from(key.team_id),
             usage_key: USAGE_KEY.to_string(),
-            mode: BillingUsageMode::Delta as i32,
             unit: UNIT.to_string(),
             quantity: i64::try_from(*count).unwrap_or(i64::MAX),
             timestamp_ms,
@@ -219,7 +218,6 @@ mod tests {
 
         assert_eq!(records[0].dimensions.get("request_type").unwrap(), "decide");
         assert_eq!(records[0].dimensions.get("library").unwrap(), "posthog-js");
-        assert_eq!(records[0].mode, BillingUsageMode::Delta as i32);
         assert_eq!(records[0].producer_id, PRODUCER_ID);
         assert_eq!(records[0].usage_key, USAGE_KEY);
     }
