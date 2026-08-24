@@ -53,12 +53,10 @@ function EvalsTabContentInner({
     const { runEvaluation } = useActions(llmEvaluationExecutionLogic)
     const { evaluationRunLoading } = useValues(llmEvaluationExecutionLogic)
     const { refreshGenerationEvaluationRuns, setSelectedEvaluationId } = useActions(generationRunsLogic)
-    const { generationEvaluationRunsLoading, selectedEvaluationId } = useValues(generationRunsLogic)
+    const { generationEvaluationRunsLoading, runnableEvaluations, selectedRunnableEvaluationId } =
+        useValues(generationRunsLogic)
 
     const availableEvaluations = evaluations?.filter((e) => !e.deleted) || []
-    // Manual runs go through the generation workflow, so only generation-target evals
-    // can be triggered from here, and only when there is a generation to point them at.
-    const runnableEvaluations = generationEvent ? availableEvaluations.filter((e) => e.target === 'generation') : []
     const hasNoEvaluations = !evaluationsLoading && availableEvaluations.length === 0
 
     return (
@@ -83,7 +81,7 @@ function EvalsTabContentInner({
                     ) : generationEvent ? (
                         <>
                             <LemonSelect
-                                value={selectedEvaluationId}
+                                value={selectedRunnableEvaluationId}
                                 onChange={setSelectedEvaluationId}
                                 options={runnableEvaluations.map((evaluation) => ({
                                     value: evaluation.id,
@@ -98,9 +96,9 @@ function EvalsTabContentInner({
                                 size="small"
                                 icon={<IconCheckCircle />}
                                 onClick={() => {
-                                    if (selectedEvaluationId) {
+                                    if (selectedRunnableEvaluationId) {
                                         runEvaluation(
-                                            selectedEvaluationId,
+                                            selectedRunnableEvaluationId,
                                             generationEvent.id,
                                             generationEvent.createdAt,
                                             generationEvent.event,
@@ -109,7 +107,9 @@ function EvalsTabContentInner({
                                     }
                                 }}
                                 loading={evaluationRunLoading}
-                                disabledReason={!selectedEvaluationId ? 'Select an evaluation first' : undefined}
+                                disabledReason={
+                                    !selectedRunnableEvaluationId ? 'Select an evaluation first' : undefined
+                                }
                                 data-attr="run-evaluation-manual"
                             >
                                 Run Evaluation
