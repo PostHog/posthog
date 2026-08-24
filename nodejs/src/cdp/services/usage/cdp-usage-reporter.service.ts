@@ -11,7 +11,6 @@ export interface CdpBillableInvocation {
     teamId: number
     /** Identity of the billed thing. A replay must produce the same value, or it bills twice. */
     recordId: string
-    kind: string
 }
 
 /**
@@ -32,7 +31,7 @@ export class CdpUsageReporterService {
     }
 
     reportBillableInvocation(invocation: CdpBillableInvocation): void {
-        this.batch.add(invocation.teamId, USAGE_KEY, invocation.recordId, { kind: invocation.kind })
+        this.batch.add(invocation.teamId, USAGE_KEY, invocation.recordId)
         if (this.batch.size >= MAX_PENDING_RECORDS) {
             void this.flush()
             return

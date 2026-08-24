@@ -32,7 +32,6 @@ export interface UsageRecordInput {
     unit: string
     quantity: number
     timestampMs: number
-    dimensions?: Record<string, string>
 }
 
 export interface UsageIngestionClientConfig {
@@ -83,7 +82,6 @@ export class UsageIngestionClient {
                     unit: record.unit,
                     quantity: BigInt(record.quantity),
                     timestampMs: BigInt(record.timestampMs),
-                    dimensions: record.dimensions ?? {},
                 })
             ),
         })

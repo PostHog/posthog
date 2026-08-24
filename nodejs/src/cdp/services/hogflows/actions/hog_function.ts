@@ -103,7 +103,6 @@ export class HogFunctionHandler implements ActionHandler {
             this.usageReporter?.reportBillableInvocation({
                 teamId: invocation.teamId,
                 recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                kind: this.hogFlowActionBillingType,
             })
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
