@@ -4,12 +4,12 @@ from products.feature_flags.backend.api import (
     feature_flag,
     flag_value,
     organization_feature_flag,
-    request_usage,
     scheduled_change,
     staff_cache,
     staff_team_config,
     staff_teams,
 )
+from products.feature_flags.backend.presentation import request_usage
 
 
 def register_routes(routers: RouterRegistry) -> None:

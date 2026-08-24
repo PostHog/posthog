@@ -55,7 +55,6 @@ import {
 } from '~/types'
 
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
-
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'

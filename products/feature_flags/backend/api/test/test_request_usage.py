@@ -6,7 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from products.feature_flags.backend.api.request_usage import (
+from products.feature_flags.backend.presentation.request_usage import (
     REQUEST_USAGE_QUERY_SETTINGS,
     FeatureFlagRequestUsageQuerySerializer,
     aggregate_feature_flag_request_usage,
@@ -18,7 +18,7 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         feature_flag_patcher = patch(
-            "products.feature_flags.backend.api.request_usage.feature_enabled_or_false", return_value=True
+            "products.feature_flags.backend.presentation.request_usage.feature_enabled_or_false", return_value=True
         )
         feature_flag_patcher.start()
         self.addCleanup(feature_flag_patcher.stop)
@@ -48,7 +48,7 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
 
         assert serializer.is_valid(), serializer.errors
 
-    @patch("products.feature_flags.backend.api.request_usage.get_feature_flag_request_usage")
+    @patch("products.feature_flags.backend.presentation.request_usage.get_feature_flag_request_usage")
     def test_returns_usage_for_the_project_in_the_url(self, mock_get_usage) -> None:
         mock_get_usage.return_value = [
             {
@@ -80,7 +80,9 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
         assert mock_get_usage.call_args.kwargs["team_id"] == self.team.id
 
     def test_returns_not_found_when_request_usage_flag_is_disabled(self) -> None:
-        with patch("products.feature_flags.backend.api.request_usage.feature_enabled_or_false", return_value=False):
+        with patch(
+            "products.feature_flags.backend.presentation.request_usage.feature_enabled_or_false", return_value=False
+        ):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/feature_flag_request_usage/",
                 {
@@ -107,7 +109,7 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
 
         assert [(result["sdk"], result["request_count"]) for result in results] == expected
 
-    @patch("products.feature_flags.backend.api.request_usage.sync_execute")
+    @patch("products.feature_flags.backend.presentation.request_usage.sync_execute")
     def test_clickhouse_query_is_scoped_and_weights_local_requests(self, mock_sync_execute) -> None:
         bucket = datetime(2026, 8, 20, tzinfo=UTC)
         mock_sync_execute.return_value = [(bucket, "local_evaluation", 4, '{"posthog-node": 4}')]
