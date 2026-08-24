@@ -14,6 +14,7 @@ import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaul
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -80,7 +81,7 @@ export function GlobalEventHandlers({
   );
   const isWorktreeTask = currentWorkspace?.mode === "worktree";
 
-  // mod+N belongs to the browser tab strip with channels on, and to the
+  // mod+1-9 belongs to the browser tab strip with tabs mounted, and to the
   // starred channels in the new layout (ChannelHotkeys, mounted from __root so
   // the keys always have an owner), so task-switching only owns those keys in
   // the Code nav.
@@ -91,6 +92,8 @@ export function GlobalEventHandlers({
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
   const channelsLayout = useChannelsLayout();
+  const spacesTabs = useSpacesTabs();
+  const browserTabStripMounted = channelsLayout ? spacesTabs : true;
 
   const taskById = useMemo(() => {
     const map = new Map<string, Task>();
@@ -238,8 +241,8 @@ export function GlobalEventHandlers({
     [handleToggleFocus],
   );
 
-  // Task switching with mod+1-9 — off when channels are on (the browser tab
-  // strip / starred-channel shortcuts claim those keys).
+  // Task switching with mod+1-9 — off when the browser tab strip or starred
+  // channel shortcuts claim those keys.
   useHotkeys(
     SHORTCUTS.SWITCH_TASK,
     (event, handler) => {
@@ -250,7 +253,10 @@ export function GlobalEventHandlers({
       const index = parseInt(keyPressed, 10);
       handleSwitchTask(index);
     },
-    { ...globalOptions, enabled: !channelsEnabled && !channelsLayout },
+    {
+      ...globalOptions,
+      enabled: !channelsEnabled && !browserTabStripMounted,
+    },
     [handleSwitchTask],
   );
 
