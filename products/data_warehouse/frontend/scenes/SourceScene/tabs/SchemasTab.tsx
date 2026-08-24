@@ -249,7 +249,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             type="secondary"
                             loading={refreshingSchemas}
                             onClick={() => refreshSchemas()}
-                            tooltip="Finds new tables or worksheets in the source. New columns in a table you already sync are picked up on the next sync — use Sync now for that."
+                            tooltip="Finds new tables or worksheets in the source. New columns in a table you already sync are added automatically on the next sync. If you've pinned a column selection, enable the new columns in the table's Columns section to sync them."
                             disabledReason={
                                 sourceLoading ? 'Source is loading' : syncingNow ? 'Sync in progress' : undefined
                             }
