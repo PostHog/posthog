@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -37,15 +38,7 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import {
-    compareScoutsByName,
-    groupScouts,
-    listNeedsYouScouts,
-    NeedsYouScout,
-    scoutGroup,
-    ScoutGroupKey,
-    ScoutRosterRow,
-} from '../utils/scoutGroups'
+import { compareScoutsByName, scoutGroup, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 import {
@@ -54,7 +47,6 @@ import {
     FleetSummary,
     isSettledRun,
     prettifyScoutSkillName,
-    reconcileById,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -124,9 +116,8 @@ export interface scoutFleetLogicValues {
     fleetSummary: FleetSummary | null
     lastRunAt: string | null
     manualRunScoutIds: string[]
-    needsYouScouts: NeedsYouScout[]
     rollups: Map<string, ScoutRollup>
-    rosterGroupCounts: Record<ScoutGroupKey, number>
+    rosterEvaluatedAt: number
     rosterScouts: ScoutRosterRow[]
     runningChatType: ScoutChatType | null
     runsWindow: {
@@ -259,6 +250,9 @@ export interface scoutFleetLogicActions {
     runScoutNowFinished: (configId: string) => {
         configId: string
     }
+    setRosterEvaluatedAt: (evaluatedAt: number) => {
+        evaluatedAt: number
+    }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
@@ -319,18 +313,11 @@ export interface scoutFleetLogicMeta {
         rosterScouts: (
             scoutConfigs: SignalScoutConfigApi[] | null,
             rollups: Map<string, ScoutRollup>,
+            rosterEvaluatedAt: number,
             activeScoutTags: string[],
             scoutSearch: string,
             scoutEnabledFilter: ScoutEnabledFilter
         ) => ScoutRosterRow[]
-        rosterGroupCounts: (
-            scoutConfigs: SignalScoutConfigApi[] | null,
-            rollups: Map<string, ScoutRollup>
-        ) => Record<ScoutGroupKey, number>
-        needsYouScouts: (
-            scoutConfigs: SignalScoutConfigApi[] | null,
-            rollups: Map<string, ScoutRollup>
-        ) => NeedsYouScout[]
         emittedFindingsSummary: (fleetFindingsSummary: FleetFindingsSummaryApi | null) => {
             authoredReportCount: number
             count: number
@@ -378,6 +365,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         removeScoutConfigLocally: (configId: string) => ({ configId }),
         setScoutTagFilter: (tags: string[]) => ({ tags }),
         setScoutSearch: (search: string) => ({ search }),
+        setRosterEvaluatedAt: (evaluatedAt: number) => ({ evaluatedAt }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
         runScoutNow: (configId: string) => ({ configId }),
         runScoutNowFinished: (configId: string) => ({ configId }),
@@ -399,7 +387,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     const teamId = teamLogic.values.currentTeamId
-                    return teamId ? await signalsScoutConfigList(String(teamId)) : null
+                    if (!teamId) {
+                        return null
+                    }
+                    const configs = await signalsScoutConfigList(String(teamId))
+                    // The 60s poll refetches all configs every cycle. Reconcile against the previous
+                    // list so an unchanged fleet keeps the same references — otherwise the whole
+                    // roster re-renders on every poll even when nothing changed.
+                    return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
                 },
             },
         ],
@@ -553,6 +548,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 setScoutEnabledFilter: (_, { filter }) => filter,
             },
         ],
+        rosterEvaluatedAt: [
+            0,
+            {
+                setRosterEvaluatedAt: (_, { evaluatedAt }) => evaluatedAt,
+            },
+        ],
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -665,21 +666,28 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         /**
          * The roster as one alphabetical list, each row tagged with its lifecycle group and narrowed
-         * by the roster's own chrome (search and the tag filter). The group is time-dependent (the
-         * cold-start window), so this recomputes on every runs poll — which is also when a scout can
-         * cross between Working and Watching, so the Status column stays in step.
+         * by the roster's own chrome (search and the tag filter). `rosterEvaluatedAt` advances only
+         * when time changes a lifecycle group, so settled polls keep this selector's output stable.
          */
         rosterScouts: [
-            (s) => [s.scoutConfigs, s.rollups, s.activeScoutTags, s.scoutSearch, s.scoutEnabledFilter],
+            (s) => [
+                s.scoutConfigs,
+                s.rollups,
+                s.rosterEvaluatedAt,
+                s.activeScoutTags,
+                s.scoutSearch,
+                s.scoutEnabledFilter,
+            ],
             (
                 scoutConfigs: SignalScoutConfig[] | null,
                 rollups: Map<string, ScoutRollup>,
+                rosterEvaluatedAt: number,
                 activeScoutTags: string[],
                 scoutSearch: string,
                 scoutEnabledFilter: ScoutEnabledFilter
             ): ScoutRosterRow[] => {
                 const query = scoutSearch.trim().toLowerCase()
-                const now = new Date()
+                const now = new Date(rosterEvaluatedAt)
                 return [...(scoutConfigs ?? [])]
                     .filter((config) => configMatchesScoutTags(config, activeScoutTags))
                     .filter(
@@ -696,39 +704,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
             },
-        ],
-        /**
-         * Group sizes over the whole fleet, unnarrowed by search — the roster header states how many
-         * scouts need a decision, and that number must not move as you type into the search box.
-         */
-        rosterGroupCounts: [
-            (s) => [s.scoutConfigs, s.rollups],
-            (
-                scoutConfigs: SignalScoutConfig[] | null,
-                rollups: Map<string, ScoutRollup>
-            ): Record<ScoutGroupKey, number> => {
-                const counts: Record<ScoutGroupKey, number> = {
-                    needs_you: 0,
-                    working: 0,
-                    watching: 0,
-                    dry_run: 0,
-                    settling_in: 0,
-                    off: 0,
-                }
-                for (const bucket of groupScouts(scoutConfigs ?? [], rollups, new Date())) {
-                    counts[bucket.key] = bucket.configs.length
-                }
-                return counts
-            },
-        ],
-        /**
-         * The scouts behind that count, so the header stat can name them. Same inputs as
-         * `rosterGroupCounts`, so the tooltip can never disagree with the number it hangs off.
-         */
-        needsYouScouts: [
-            (s) => [s.scoutConfigs, s.rollups],
-            (scoutConfigs: SignalScoutConfig[] | null, rollups: Map<string, ScoutRollup>): NeedsYouScout[] =>
-                listNeedsYouScouts(scoutConfigs ?? [], rollups, new Date()),
         ],
         // Fleet-wide output tally for the "Scout findings" callout, read from the cheap backend
         // summary rather than the paginated runs window. Covers both emit channels — legacy findings
@@ -763,6 +738,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
+        loadScoutRunsSuccess: () => {
+            const evaluatedAt = new Date(values.rosterEvaluatedAt)
+            const now = new Date()
+            const groupChanged = (values.scoutConfigs ?? []).some((config) => {
+                const rollup = values.rollups.get(config.skill_name)
+                return scoutGroup(config, rollup, evaluatedAt) !== scoutGroup(config, rollup, now)
+            })
+            if (groupChanged) {
+                actions.setRosterEvaluatedAt(now.valueOf())
+            }
+        },
         setScoutTagFilter: ({ tags }) => {
             captureScoutAction({
                 actionType: 'filter_tags',
@@ -1038,6 +1024,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         afterMount: () => {
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
+            actions.setRosterEvaluatedAt(Date.now())
             actions.loadScoutConfigs()
         },
     })),

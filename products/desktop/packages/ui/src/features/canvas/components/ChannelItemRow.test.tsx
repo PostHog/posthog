@@ -1,5 +1,6 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
@@ -19,6 +20,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   status: null as TaskStatusInput | null,
   currentUserId: 999 as number | undefined,
+  analysis: {
+    canAnalyze: false,
+    isPending: false,
+    run: vi.fn(),
+  },
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { id: mocks.currentUserId } }),
@@ -37,6 +43,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+vi.mock(
+  "@posthog/ui/features/task-detail/components/TaskAnalysisButton",
+  () => ({
+    useTaskAnalysis: () => mocks.analysis,
+  }),
+);
 // The handoff dialog is tested on its own; here it only opens.
 vi.mock(
   "@posthog/ui/features/task-detail/components/HandoffTaskDialog",
@@ -56,6 +68,7 @@ const actions = {
   setPinned: () => {},
   archive: () => {},
   remove: () => {},
+  fileCanvas: () => {},
 };
 
 function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
@@ -103,6 +116,7 @@ function renderRow(model: ChannelItemModel) {
 
 beforeEach(() => {
   mocks.status = null;
+  mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
   useTaskSelectionStore.setState({
@@ -389,6 +403,38 @@ describe("ChannelItemRow", () => {
     }
   });
 
+  it("offers Run analysis for a task with a terminal run", () => {
+    const run = vi.fn();
+    mocks.analysis = { canAnalyze: true, isPending: false, run };
+    const task = {
+      id: "task-1",
+      task_number: 1,
+      slug: "task-1",
+      title: "Investigate signup drop-off",
+      description: "",
+      created_at: "2026-07-16T12:00:00.000Z",
+      updated_at: "2026-07-16T12:00:00.000Z",
+      origin_product: "user_created",
+      latest_run: { id: "run-1", status: "completed" },
+    } as Task;
+
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={item({ task })}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+
+    const analysisItem = screen.getByRole("menuitem", {
+      name: "Run analysis",
+    });
+    expect(analysisItem).not.toBeNull();
+    fireEvent.click(analysisItem);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("offers Hand off… only to the task's owner", async () => {
     // The API 404s a non-owner's handoff, so the menu must not offer it to one.
     const ownerItem = item({
@@ -462,12 +508,13 @@ describe("ChannelItemRow", () => {
     expect(screen.queryByRole("img", { name: "All caught up" })).toBeNull();
   });
 
-  it("gives a canvas the actions it has: pin and delete, not archive or filing", async () => {
+  it("lets a canvas be filed to another space", async () => {
     const canvas = item({
       key: "canvas:c1",
       kind: "canvas",
       id: "c1",
       title: "Web analytics overview",
+      authorUser: { id: 999, uuid: "u-1", email: "owner@example.com" },
     });
     renderInList(
       <ChannelItemRow
@@ -487,10 +534,28 @@ describe("ChannelItemRow", () => {
     expect(
       screen.getByRole("button", { name: "Add to Command Center…" }),
     ).not.toBeNull();
-    // A canvas can't be archived or filed to another space.
-    for (const absent of ["Archive", "File to…"]) {
-      expect(screen.queryByRole("button", { name: absent })).toBeNull();
-    }
+    expect(screen.getByRole("button", { name: "File to…" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+  });
+
+  it("does not offer filing for another user's canvas", async () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUser: { id: 7, uuid: "u-2", email: "creator@example.com" },
+    });
+    renderInList(
+      <ChannelItemRow actions={actions} isActive={false} item={canvas} />,
+    );
+
+    await userEvent.hover(screen.getByText("Web analytics overview"));
+
+    expect(
+      await screen.findByRole("button", { name: "Pin" }, { timeout: 2000 }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "File to…" })).toBeNull();
   });
 
   it("confirms before deleting a canvas — it goes for the whole space", async () => {

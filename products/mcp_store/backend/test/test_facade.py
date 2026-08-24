@@ -11,7 +11,11 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     resolve_gateway_agent_token,
 )
-from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
+from products.mcp_store.backend.facade.api import (
+    get_active_installations,
+    get_installations_for_sandbox,
+    get_sandbox_mcp_server_names,
+)
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
@@ -529,6 +533,33 @@ class TestGetInstallationsForSandbox(BaseTest):
         # with no servers selected runs without MCP servers.
         assert resolve([]) == set()
         assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    def test_sandbox_server_names_match_what_the_sandbox_mounts(self) -> None:
+        # The names projection backs prompt steering (a scout's run prompt names its mounted
+        # servers before launch). If it drifts from the mount resolution — a reimplementation
+        # with its own query that skips the allowlist or grant filtering — the prompt names
+        # servers the sandbox doesn't hold.
+        account = self._support_agent()
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        picked_server = self._create_gateway_server(name="Picked", url="https://picked.example.com/mcp")
+        dropped_server = self._create_gateway_server(name="Dropped", url="https://dropped.example.com/mcp")
+        picked = self._create_installation(
+            user=teammate, gateway_server=picked_server, url=picked_server.url, display_name="Linear"
+        )
+        dropped = self._create_installation(
+            user=teammate, gateway_server=dropped_server, url=dropped_server.url, display_name="Notion"
+        )
+        self._grant(account, picked_server, user=teammate, installation=picked, scope="team")
+        self._grant(account, dropped_server, user=teammate, installation=dropped, scope="team")
+
+        names = get_sandbox_mcp_server_names(
+            self.team.id,
+            task_origin="support_reply",
+            task_agent_key="support",
+            allowed_gateway_server_ids=[str(picked_server.id)],
+        )
+
+        assert names == ["Linear"]
 
     def test_per_scout_allowlist_gates_a_credential_owners_personal_grant_too(self) -> None:
         account = self._support_agent()

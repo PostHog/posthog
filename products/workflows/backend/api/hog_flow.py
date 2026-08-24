@@ -89,12 +89,7 @@ from posthog.utils import relative_date_parse_with_delta_mapping
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.feature_flags.backend.user_blast_radius import (
-    PERSON_BATCH_SIZE,
-    BlastRadiusResult,
-    get_user_blast_radius,
-    get_user_blast_radius_persons,
-)
+from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.api.message_templates import DesignOperationSerializer
@@ -142,7 +137,6 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     get_batch_audience_count,
     get_batch_audience_person_ids,
-    use_workflows_batch_audience_query,
 )
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
@@ -774,6 +768,38 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
             prop["value"] = [item.split("|")[0] if isinstance(item, str) else item for item in value]
 
 
+# Exact is the only operator that names channels. Channel ids are opaque (C0...), so
+# substring and regex matching can't narrow meaningfully and patterns like ".*" or "C"
+# match every channel; presence operators match every message and carry the operator
+# string as their value, so a value check alone can't catch them; negations exclude
+# channels rather than pick any. The property compiler treats a missing operator as exact.
+_CHANNEL_RESTRICTING_OPERATORS = frozenset({"exact"})
+
+
+def _has_slack_channel_filter(filters: dict) -> bool:
+    """Whether the filters restrict the trigger to at least one Slack channel.
+
+    The builder always writes this filter ("Please pick a Slack channel"), but the table's
+    enable action, the raw API, and MCP authoring all reach activation without the builder,
+    and a live slack-message trigger with no channel filter fires on every message in every
+    channel the bot was ever invited to.
+    """
+    properties = filters.get("properties")
+    if not isinstance(properties, list):
+        return False
+    for prop in properties:
+        if not isinstance(prop, dict) or prop.get("key") != "channel":
+            continue
+        if (prop.get("operator") or "exact") not in _CHANNEL_RESTRICTING_OPERATORS:
+            continue
+        value = prop.get("value")
+        if isinstance(value, str) and value.strip():
+            return True
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() for item in value):
+            return True
+    return False
+
+
 def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
     """Stored email sender overrides keyed by action id, live and draft variants both kept.
 
@@ -832,6 +858,21 @@ class BlastRadiusSerializer(serializers.Serializer):
             "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
         ),
     )
+
+
+class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
+    """Response contract for the internal blast-radius persons endpoint. Mirrors
+    BlastRadiusPersonsResponse in nodejs hogflow-batch-person-query.service.ts."""
+
+    users_affected = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Person identifiers in this page, in stable pagination order.",
+    )
+    cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Cursor for the next call, or null when this page is the last.",
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -1296,6 +1337,12 @@ class HogFlowActionSerializer(serializers.Serializer):
                 filters.pop("events", None)
                 filters.pop("actions", None)
                 _normalize_slack_channel_filters(filters)
+                if not is_draft and not _has_slack_channel_filter(filters):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": "Pick a Slack channel for this trigger. Without one it runs on every message in every channel the Slack bot is in."
+                        }
+                    )
                 # Left on the default "events" source: the internal event is event-shaped, so
                 # property filters compile against event.properties.* with no special casing.
                 serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
@@ -4021,9 +4068,9 @@ class HogFlowViewSet(
         # the legacy person-count query is skipped entirely, "total" comes straight from
         # the cached team-wide count it would have returned anyway. The applied key is
         # echoed back so the frontend labels the count from the response instead of
-        # guessing whether the flag-gated dedup actually ran.
+        # guessing whether the dedup actually ran.
         applied_dedupe_key = None
-        if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
+        if dedupe_key is not None and group_type_index is None:
             total = self.team.persons_seen_so_far
             affected = min(get_batch_audience_count(self.team, filters, dedupe_key), total)
             blast_radius = BlastRadiusResult(affected=affected, total=total)
@@ -4754,20 +4801,17 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            if use_workflows_batch_audience_query(team):
-                users_affected = get_batch_audience_person_ids(
-                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
-                )
-                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
-            else:
-                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
-                batch_size = PERSON_BATCH_SIZE
+            users_affected = get_batch_audience_person_ids(
+                team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+            )
             return Response(
-                {
-                    "users_affected": users_affected,
-                    "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == batch_size,
-                }
+                InternalBlastRadiusPersonsSerializer(
+                    {
+                        "users_affected": users_affected,
+                        "cursor": users_affected[-1] if users_affected else None,
+                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)

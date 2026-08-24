@@ -1,3 +1,4 @@
+import type { TabViewState } from "@posthog/shared";
 import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
@@ -231,8 +232,9 @@ export const browserWindows = sqliteTable("browser_windows", {
 });
 
 /**
- * Open tabs in the Channels canvas surface. A tab references a canvas
- * (dashboard) and the channel it belongs to; display is resolved at render.
+ * Open tabs. A tab stores the `href` it is on plus the nav state that href
+ * cannot express (`viewState`); the reference columns below are a label/icon
+ * cache resolved at render, not the source of truth for where a tab is.
  * `scrollState` is reserved/unwired for later per-tab state (scroll restore).
  */
 export const browserTabs = sqliteTable(
@@ -242,6 +244,10 @@ export const browserTabs = sqliteTable(
     windowId: text()
       .notNull()
       .references(() => browserWindows.id, { onDelete: "cascade" }),
+    /** Where this tab is. The source of truth for restoring it. */
+    href: text(),
+    /** Nav state the href cannot express (sidebar pane, scoped space, rail memory). */
+    viewState: text({ mode: "json" }).$type<TabViewState>(),
     /** Canvas this tab shows. Null for a task tab or a blank tab. */
     dashboardId: text(),
     /** Task this tab shows. Null for a canvas tab or a blank tab. */
