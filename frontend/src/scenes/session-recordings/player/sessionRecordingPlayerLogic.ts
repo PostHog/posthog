@@ -2245,6 +2245,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                             setupErrorHandlers()
                         })
 
+                        // Cancel any retry queued by an earlier throw. A rebuild that succeeds
+                        // through another trigger must not let a stale frame tear it down again.
+                        cache.disposables.dispose('replayerInitRetry')
                         actions.setPlayer({ replayer, windowId })
                         cache.replayerInitRetries = 0
 
