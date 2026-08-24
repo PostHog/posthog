@@ -78,7 +78,7 @@ export function TaskDetail({
 
   const { enableScope, disableScope } = useHotkeysContext();
   const { archiveTask } = useArchiveTask({
-    navigateSpace: channelId ? "website" : "code",
+    navigateUnscoped: !channelId,
   });
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 

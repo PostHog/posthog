@@ -22,12 +22,11 @@ import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
-import { ImportConfigStep } from "@posthog/ui/features/onboarding/components/ImportConfigStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
 import { StepIndicator } from "@posthog/ui/features/onboarding/components/StepIndicator";
-import { WelcomeScreen } from "@posthog/ui/features/onboarding/components/WelcomeScreen";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -35,15 +34,14 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
+import { firstRun } from "@posthog/ui/shell/firstRun";
 import { logger } from "@posthog/ui/shell/logger";
-import { primeStartupProvision } from "@posthog/ui/shell/startupLocation";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Button, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { InviteCodeStep } from "./InviteCodeStep";
 import { ProjectSelectStep } from "./ProjectSelectStep";
 import { SelectRepoStep } from "./SelectRepoStep";
 
@@ -57,7 +55,12 @@ const stepVariants = {
   exit: (dir: number) => ({ opacity: 0, x: dir * -20 }),
 };
 
-export function OnboardingFlow() {
+interface OnboardingFlowProps {
+  onOpenSupport?: () => void;
+}
+
+export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
+  const [consentSubmitting, setConsentSubmitting] = useState(false);
   const queryClient = useQueryClient();
   const {
     currentStep,
@@ -73,6 +76,8 @@ export function OnboardingFlow() {
     selectedCloudRepo,
     handleCloudRepoChange,
     hasGithubIntegration,
+    consentSatisfied,
+    consentRequirement,
   } = useOnboardingFlow();
   const completeOnboarding = useOnboardingStore(
     (state) => state.completeOnboarding,
@@ -93,15 +98,9 @@ export function OnboardingFlow() {
   // Best-effort. The response also seeds the channel cache that the first-run
   // landing reads moments later.
   const assignRepoToSpaces = async (): Promise<void> => {
-    if (!apiClient) return;
-    // Prime the in-flight promise before the first await so startup consumes
-    // this result instead of provisioning again and reading false created
-    // flags. This runs synchronously before completeOnboarding mounts the main
-    // app, which is what wins the race against startup's own provisioning.
-    const provisionPromise = apiClient.provisionDefaultTaskChannels();
-    if (startupIdentity)
-      primeStartupProvision(startupIdentity, provisionPromise);
-    const provisioned = await provisionPromise;
+    if (!apiClient || !startupIdentity) return;
+    const provisioned = await firstRun(startupIdentity, apiClient).provisioned;
+    if (!provisioned) return;
     // Set before the entry exists: setQueryData builds the query from the defaults in
     // place at that moment, and an unmarked entry survives clearAuthScopedQueries and
     // hands the next account these channels. Every mounted read of this key is already
@@ -209,6 +208,12 @@ export function OnboardingFlow() {
   };
 
   const handleNext = (context?: StepCompletedContext) => {
+    if (
+      currentStep === "consent" &&
+      (consentSatisfied !== true || consentSubmitting)
+    ) {
+      return;
+    }
     // `onClick={onNext}` would pass the click event here; a DOM event spread
     // into capture properties poisons the whole analytics batch.
     const safeContext =
@@ -219,9 +224,14 @@ export function OnboardingFlow() {
   };
 
   const handleBack = () => {
+    if (currentStep === "consent" && consentSubmitting) return;
     trackStepViewed(currentIndex - 1);
     back();
   };
+
+  // The first active step has nowhere to go back to, and which step that is
+  // shifts as the conditional steps resolve.
+  const onBack = currentIndex <= 0 ? undefined : handleBack;
 
   useHotkeys("right", () => handleNext(), { enableOnFormTags: false }, [
     handleNext,
@@ -318,24 +328,9 @@ export function OnboardingFlow() {
   );
 
   return (
-    <FullScreenLayout footerRight={footerRight}>
+    <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
       <LayoutGroup>
         <AnimatePresence mode="wait" custom={direction}>
-          {currentStep === "welcome" && (
-            <motion.div
-              key="welcome"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <WelcomeScreen onNext={handleNext} />
-            </motion.div>
-          )}
-
           {currentStep === "project-select" && (
             <motion.div
               key="project-select"
@@ -347,13 +342,13 @@ export function OnboardingFlow() {
               transition={{ duration: 0.3 }}
               className="min-h-0 w-full flex-1"
             >
-              <ProjectSelectStep onNext={handleNext} onBack={handleBack} />
+              <ProjectSelectStep onNext={handleNext} onBack={onBack} />
             </motion.div>
           )}
 
-          {currentStep === "invite-code" && (
+          {currentStep === "consent" && (
             <motion.div
-              key="invite-code"
+              key="consent"
               custom={direction}
               initial="enter"
               animate="center"
@@ -362,7 +357,12 @@ export function OnboardingFlow() {
               transition={{ duration: 0.3 }}
               className="min-h-0 w-full flex-1"
             >
-              <InviteCodeStep onNext={handleNext} onBack={handleBack} />
+              <ConsentStep
+                onNext={handleNext}
+                onBack={onBack}
+                requirements={consentRequirement}
+                onSubmittingChange={setConsentSubmitting}
+              />
             </motion.div>
           )}
 
@@ -377,7 +377,7 @@ export function OnboardingFlow() {
               transition={{ duration: 0.3 }}
               className="min-h-0 w-full flex-1"
             >
-              <ConnectGitHubStep onNext={handleNext} onBack={handleBack} />
+              <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
             </motion.div>
           )}
 
@@ -393,21 +393,6 @@ export function OnboardingFlow() {
               className="min-h-0 w-full flex-1"
             >
               <InstallCliStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
-
-          {currentStep === "import-config" && (
-            <motion.div
-              key="import-config"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ImportConfigStep onNext={handleNext} onBack={handleBack} />
             </motion.div>
           )}
 

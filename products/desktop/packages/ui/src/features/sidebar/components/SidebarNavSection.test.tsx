@@ -1,6 +1,6 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +22,8 @@ const {
   navigateToCommandCenter,
   navigateToActivity,
   openCommandMenu,
+  openSettings,
+  openBrowserTab,
 } = vi.hoisted(() => ({
   track: vi.fn(),
   useAppView: vi.fn(),
@@ -32,12 +34,18 @@ const {
   navigateToCommandCenter: vi.fn(),
   navigateToActivity: vi.fn(),
   openCommandMenu: vi.fn(),
+  openSettings: vi.fn(),
+  openBrowserTab: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
+// Channel reports defaults off here so the Inbox item renders; the flag-on
+// test flips it via `channelReportsFlag`.
+let channelReportsFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -48,15 +56,23 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
   navigateToAgents,
   navigateToCommandCenter,
+  navigateToContext: vi.fn(),
   navigateToInbox,
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
   navigateToWebsiteCommandCenter: vi.fn(),
+  navigateToWebsiteContext: vi.fn(),
   navigateToWebsiteMcpServers: vi.fn(),
   navigateToWebsiteSkills: vi.fn(),
 }));
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput: vi.fn() }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => openBrowserTab,
+}));
+vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
+  openSettings,
+}));
 vi.mock("@posthog/ui/shell/commandMenuStore", () => ({
   useCommandMenuStore: (selector: (s: { open: () => void }) => unknown) =>
     selector({ open: openCommandMenu }),
@@ -149,6 +165,40 @@ describe("SidebarNavSection", () => {
       ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED,
       { item: "inbox", in_more: false, layout: "code" },
     );
+  });
+
+  it("opens a destination in a new tab on Cmd-click", () => {
+    renderNav();
+
+    fireEvent.click(screen.getByRole("button", { name: /Inbox/ }), {
+      metaKey: true,
+    });
+
+    expect(openBrowserTab).toHaveBeenCalledWith("/inbox");
+    expect(navigateToInbox).not.toHaveBeenCalled();
+  });
+
+  it("keeps Settings in the current window on Cmd-click", () => {
+    renderNav();
+
+    fireEvent.click(screen.getByRole("button", { name: /Settings/ }), {
+      metaKey: true,
+    });
+
+    expect(openSettings).toHaveBeenCalledOnce();
+    expect(openBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it("removes the Inbox item when channel reports replace the inbox", () => {
+    channelReportsFlag = true;
+    try {
+      renderNav();
+      expect(
+        screen.queryByRole("button", { name: /Inbox/ }),
+      ).not.toBeInTheDocument();
+    } finally {
+      channelReportsFlag = false;
+    }
   });
 
   it("does not render the Channels mode toggle in navigation", () => {

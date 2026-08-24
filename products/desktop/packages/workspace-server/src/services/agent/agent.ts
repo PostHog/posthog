@@ -89,6 +89,7 @@ import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
   AGENT_AUTH_ADAPTER,
@@ -638,6 +639,44 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
+  /**
+   * Local mirror of the cloud sandbox wiki mount: clone the org's context wiki
+   * and return it as an explicit per-session value the harness adapters set on
+   * their own subprocess env — never via shared process.env, where concurrent
+   * session starts would race and could leak one session's publish token into
+   * another. Best-effort — sessions start without a wiki on any failure. The
+   * token doubles as POSTHOG_PERSONAL_API_KEY so the wiki's pinned
+   * scripts/publish can land edits locally.
+   */
+  private async mountContextWiki(
+    credentials: Credentials,
+  ): Promise<AgentTypes.ContextWikiEnv | null> {
+    const authToken = await this.agentAuthAdapter.gatewayAuthToken();
+    if (!authToken) {
+      return null;
+    }
+    const mount = await prepareContextWiki({
+      apiHost: credentials.apiHost,
+      projectId: credentials.projectId,
+      authenticatedFetch: (input, init) =>
+        this.agentAuthAdapter.authenticatedFetch(input, init),
+      cacheDir: join(this.storagePaths.appDataPath, "context-wiki"),
+      log: this.log,
+    });
+    if (!mount) {
+      return null;
+    }
+    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
+    // just re-synced it, so it is absent for impersonated sessions (an
+    // impersonation credential must never reach agent subprocesses) and fresh
+    // after any token rotation or account switch.
+    return {
+      path: mount.path,
+      commitsPath: mount.commitsPath,
+      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+    };
+  }
+
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
@@ -849,12 +888,17 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
     );
-    await this.agentAuthAdapter.configureProcessEnv({
-      credentials,
-      proxyUrl,
-      claudeCliPath: this.getClaudeCliPath(),
-      rtkEnabled: config.rtkEnabled,
-    });
+    // The wiki mount only needs the auth adapter, so it runs alongside the
+    // env configuration instead of serializing another round-trip before it.
+    const [, contextWiki] = await Promise.all([
+      this.agentAuthAdapter.configureProcessEnv({
+        credentials,
+        proxyUrl,
+        claudeCliPath: this.getClaudeCliPath(),
+        rtkEnabled: config.rtkEnabled,
+      }),
+      this.mountContextWiki(credentials),
+    ]);
 
     const isPreview = taskId === "__preview__";
 
@@ -907,6 +951,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         gatewayUrl: proxyUrl,
+        contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
         codexHome,

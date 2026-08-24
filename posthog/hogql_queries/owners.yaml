@@ -1,7 +1,7 @@
 version: 1
 owners: []
 rules:
-    - match: '/actors_query_runner.py'
+    - match: ['/actor_strategies.py', '/actors_query_runner.py']
       owners: team-product-analytics
     - match: '/ai/'
       owners: team-ai-observability

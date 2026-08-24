@@ -35,7 +35,8 @@ export function InboxMetaSeparator() {
 }
 
 interface InboxMetaTextProps {
-  children: ReactNode;
+  /** Optional so the element can be a Base UI `render` target, which injects them. */
+  children?: ReactNode;
   className?: string;
   mono?: boolean;
 }

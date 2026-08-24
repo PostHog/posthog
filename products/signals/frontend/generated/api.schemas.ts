@@ -105,44 +105,6 @@ export interface ReportChartApi {
 }
 
 /**
- * * `pending` - Pending
- * * `generating` - Generating
- * * `ready` - Ready
- * * `failed` - Failed
- */
-export type SignalReportCanvasGenerationStatusEnumApi =
-    (typeof SignalReportCanvasGenerationStatusEnumApi)[keyof typeof SignalReportCanvasGenerationStatusEnumApi]
-
-export const SignalReportCanvasGenerationStatusEnumApi = {
-    Pending: 'pending',
-    Generating: 'generating',
-    Ready: 'ready',
-    Failed: 'failed',
-} as const
-
-/**
- * * `managed` - Managed
- * * `collaborative` - Collaborative
- */
-export type CollaborationModeEnumApi = (typeof CollaborationModeEnumApi)[keyof typeof CollaborationModeEnumApi]
-
-export const CollaborationModeEnumApi = {
-    Managed: 'managed',
-    Collaborative: 'collaborative',
-} as const
-
-export interface SignalReportCanvasApi {
-    readonly canvas_id: string
-    readonly discussion_task_id: string
-    /** @nullable */
-    readonly generation_task_id: string | null
-    readonly generation_status: SignalReportCanvasGenerationStatusEnumApi
-    readonly collaboration_mode: CollaborationModeEnumApi
-    readonly failure_reason: string
-    readonly updated_at: string
-}
-
-/**
  * * `pr_incorrect` - PR incorrect
  * * `pr_not_useful` - PR not useful
  * * `duplicate` - Duplicate
@@ -241,8 +203,6 @@ export interface SignalReportApi {
     readonly artefact_count: number
     /** Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it. */
     readonly charts: readonly ReportChartApi[]
-    /** The persistent canvas and shared discussion created for this report, when available. */
-    readonly canvas_session: SignalReportCanvasApi | null
     /**
      * P0–P4 from the latest priority judgment artefact (when present).
      * @nullable

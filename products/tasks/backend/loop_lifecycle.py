@@ -28,11 +28,13 @@ _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QU
 DISABLED_REASON_OWNER_DEACTIVATED = "owner_deactivated"
 DISABLED_REASON_OWNER_REMOVED = "owner_removed_from_org"
 DISABLED_REASON_GITHUB_DISCONNECTED = "github_integration_disconnected"
+DISABLED_REASON_ADMIN_PAUSED = "admin_paused"
 
 DEFAULT_PAUSE_MESSAGE = "This loop has been paused."
 _PAUSE_MESSAGES = {
     DISABLED_REASON_OWNER_DEACTIVATED: "This loop's owner was deactivated, so it has been paused.",
     DISABLED_REASON_OWNER_REMOVED: "This loop's owner was removed from the organization, so it has been paused.",
+    DISABLED_REASON_ADMIN_PAUSED: "PostHog paused this loop. Contact support if you need it running again.",
 }
 
 

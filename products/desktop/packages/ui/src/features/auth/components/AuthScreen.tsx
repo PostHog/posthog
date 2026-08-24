@@ -1,8 +1,8 @@
 import { happyHog } from "@posthog/ui/assets/hedgehogs";
+import { SignInCard } from "@posthog/ui/features/auth/SignInCard";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { Callout, Flex } from "@radix-ui/themes";
 import { useAuthStateValue } from "../store";
-import { SignInCard } from "./SignInCard";
 
 export function AuthScreen() {
   const sessionEndReason = useAuthStateValue((state) => state.sessionEndReason);

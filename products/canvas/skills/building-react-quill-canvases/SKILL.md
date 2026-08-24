@@ -131,6 +131,15 @@ sessionization, attribution, or unique visitors in HogQL. Format large values fo
 Use controlled Quill inputs for each dimension, event, or date choice. Keep result sets small and
 refresh every dependent query when a control changes.
 
+### Checklist or runbook
+
+For a checklist, QA runbook, launch plan, onboarding sequence, or any list of steps people work
+through and tick off, start from the complete, validated project in
+[references/checklist-example.md](references/checklist-example.md). Its load-bearing parts — the
+typed content module separate from the component, one shared `ph.state` key per step, the
+debounced ref-alongside-state update path, an expected outcome on every step, and visible
+load/save failure states — are what break when improvised. Keep them; replace the content.
+
 ## Date window
 
 A data board owns its own date control — render Quill's `DateTimePicker` (never a custom Select or

@@ -39,12 +39,25 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       location: { pathname: string };
-      matches: { routeId: string }[];
+      matches: {
+        routeId: string;
+        fullPath: string;
+        search: Record<string, unknown>;
+      }[];
     }) => unknown;
   }) =>
     select({
-      location: { pathname: "/website/chan-1/tasks/task-1" },
-      matches: [{ routeId: "/website/$channelId/tasks/$taskId" }],
+      location: { pathname: "/spaces/chan-1/tasks/task-1" },
+      matches: [
+        {
+          routeId: "/spaces/$channelId/tasks/$taskId",
+          // Activity's pane reads its selection off `/activity`'s search, which
+          // this route is not — the pane renders its empty state, which is all
+          // this test needs from it.
+          fullPath: "/spaces/$channelId/tasks/$taskId",
+          search: {},
+        },
+      ],
     }),
 }));
 vi.mock(
@@ -116,22 +129,18 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskDetail", () => ({
   },
 }));
 
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ActivityDetailPane } from "./ActivityDetailPane";
-import { WebsiteLayout } from "./WebsiteLayout";
+import { ShellLayout } from "./ShellLayout";
 
 describe("SpaceHeaderRow", () => {
   it("keeps the header store off the layout that renders its writer", () => {
-    useActivityDetailStore.setState({
-      selected: { id: "a1", taskId: "task-1", channelId: "chan-1" },
-    });
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     render(
       <QueryClientProvider client={client}>
-        <WebsiteLayout />
+        <ShellLayout />
       </QueryClientProvider>,
     );
     // A layout that subscribes to the header store blows the update depth here.

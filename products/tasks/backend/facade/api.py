@@ -54,7 +54,6 @@ from django.utils.http import content_disposition_header
 
 import posthoganalytics
 
-from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
@@ -65,6 +64,9 @@ from products.posthog_ai.backend.task_ownership import detach_conversations_for_
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+    ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
+    ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
@@ -104,6 +106,7 @@ from products.tasks.backend.models import (
     ChannelStar,
     CodeInvite,
     CodeInviteRedemption,
+    DesktopBetaTermsAcceptance,
     MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
@@ -194,7 +197,6 @@ __all__ = [
     "create_channel_task",
     "create_task",
     "create_task_without_run",
-    "create_shared_channel_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
@@ -258,10 +260,7 @@ __all__ = [
     "read_task_run_artifact",
     "read_task_run_logs",
     "record_comment_activity",
-    "record_task_activity_for_users",
-    "set_task_activity_target",
     "signal_task_run_client_activity",
-    "update_shared_task_context",
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -1463,66 +1462,6 @@ def create_channel_task(team_id: int, user_id: int, channel_id: str | UUID, *, t
     )
 
 
-def create_shared_channel_task_without_run(
-    *,
-    team_id: int,
-    channel_id: str | UUID,
-    title: str,
-    description: str,
-    origin_product: "Task.OriginProduct",
-    state: dict[str, Any] | None = None,
-    signal_report_id: str | UUID | None = None,
-) -> UUID:
-    """Create a shared channel task without starting an agent run."""
-    channel = Channel.objects.filter(
-        id=channel_id,
-        team_id=team_id,
-        channel_type=Channel.ChannelType.PUBLIC,
-        deleted=False,
-    ).first()
-    if channel is None:
-        raise ValueError("Shared channel not found")
-    task = Task.objects.create(
-        team_id=team_id,
-        channel=channel,
-        title=title,
-        description=description,
-        origin_product=origin_product,
-        state=state or {},
-        signal_report_id=signal_report_id,
-    )
-    return task.id
-
-
-def record_task_activity_for_users(*, team_id: int, task_id: str | UUID, user_ids: Collection[int], kind: str) -> None:
-    """Project one task into each recipient's personal Activity feed."""
-    activity_at = django_timezone.now()
-    for user_id in set(user_ids):
-        TaskActivity.record(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            kind=kind,
-            activity_at=activity_at,
-        )
-
-
-def set_task_activity_target(*, team_id: int, task_id: str | UUID, scope: str, target_id: str | UUID) -> None:
-    if scope != "desktop_canvas":
-        raise ValueError("Unsupported Activity target scope")
-    task = Task.objects.get(id=task_id, team_id=team_id)
-    task.state = {**(task.state or {}), "activity_target": {"scope": scope, "id": str(target_id)}}
-    task.save(update_fields=["state", "updated_at"])
-
-
-def update_shared_task_context(*, team_id: int, task_id: str | UUID, title: str, description: str) -> None:
-    Task.objects.filter(id=task_id, team_id=team_id).update(
-        title=title[:255],
-        description=description,
-        updated_at=django_timezone.now(),
-    )
-
-
 def create_run(
     task_id: str | UUID,
     *,
@@ -1725,6 +1664,22 @@ def create_completed_sandbox_snapshot(external_id: str) -> UUID:
 
 
 # --- Desktop invites ---
+
+
+def get_desktop_beta_terms_acceptance(organization_id: UUID) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    return contracts.DesktopBetaTermsAcceptanceDTO(
+        is_desktop_beta_terms_accepted=DesktopBetaTermsAcceptance.objects.filter(
+            organization_id=organization_id
+        ).exists()
+    )
+
+
+def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    DesktopBetaTermsAcceptance.objects.get_or_create(
+        organization_id=organization_id,
+        defaults={"accepted_by_user_id": user_id},
+    )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
 def redeem_code_invite(code: str, user_id: int) -> contracts.CodeInviteRedeemResult:
@@ -2190,6 +2145,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_ANALYSIS_INSIGHTS_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
+        # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
+        # at insight-report time to attribute the captured event to a repository and sandbox
+        # image. A PATCHable value would let the sandbox agent forge that attribution.
+        ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
@@ -7058,13 +7019,20 @@ def _ensure_system_channel(
     return channel, created
 
 
+PERSONAL_LEGACY_SHAPE: dict[str, Any] = {"channel_type": Channel.ChannelType.PERSONAL}
+GENERAL_LEGACY_SHAPE: dict[str, Any] = {
+    "channel_type": Channel.ChannelType.PUBLIC,
+    "name": Channel.GENERAL_CHANNEL_NAME,
+}
+
+
 def _ensure_personal_channel(team_id: int, user_id: int) -> tuple[Channel, bool]:
     return _ensure_system_channel(
         team_id,
         user_id,
         role=Channel.SystemRole.PERSONAL,
         owner_lookup={"created_by_id": user_id},
-        legacy_lookup={"created_by_id": user_id, "channel_type": Channel.ChannelType.PERSONAL, "deleted": False},
+        legacy_lookup={"created_by_id": user_id, **PERSONAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
     )
 
@@ -7083,12 +7051,42 @@ def _ensure_general_channel(team_id: int, user_id: int | None) -> tuple[Channel,
         user_id,
         role=Channel.SystemRole.GENERAL,
         owner_lookup={},
-        legacy_lookup={
-            "name": Channel.GENERAL_CHANNEL_NAME,
-            "channel_type": Channel.ChannelType.PUBLIC,
-            "deleted": False,
-        },
+        legacy_lookup={**GENERAL_LEGACY_SHAPE, "deleted": False},
         create_defaults={"created_by_id": user_id},
+    )
+
+
+def _matches_legacy_shape(channel: Channel, legacy: dict[str, Any]) -> bool:
+    return all(getattr(channel, key) == value for key, value in legacy.items())
+
+
+def general_channel_q(prefix: str = "") -> Q:
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.GENERAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PUBLIC,
+            channel__name=Channel.GENERAL_CHANNEL_NAME,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.GENERAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PUBLIC,
+        name=Channel.GENERAL_CHANNEL_NAME,
+    )
+
+
+def personal_channel_q(prefix: str = "") -> Q:
+    if prefix == "channel":
+        return Q(channel__system_role=Channel.SystemRole.PERSONAL) | Q(
+            channel__system_role__isnull=True,
+            channel__channel_type=Channel.ChannelType.PERSONAL,
+        )
+    if prefix:
+        raise ValueError(f"Unsupported channel relation: {prefix}")
+    return Q(system_role=Channel.SystemRole.PERSONAL) | Q(
+        system_role__isnull=True,
+        channel_type=Channel.ChannelType.PERSONAL,
     )
 
 
@@ -7096,14 +7094,13 @@ def find_general_channel_id(team_id: int) -> UUID | None:
     """The team's general space, or ``None`` when nobody has provisioned one. Read-only, so
     a product filing work into that space can gate on its existence instead of bringing the
     team's default spaces into being as a side effect."""
-    channels = _team_channels(team_id).filter(deleted=False)
-    channel = channels.filter(system_role=Channel.SystemRole.GENERAL).first()
-    if channel is None:
-        channel = channels.filter(
-            system_role__isnull=True,
-            channel_type=Channel.ChannelType.PUBLIC,
-            name=Channel.GENERAL_CHANNEL_NAME,
-        ).first()
+    channel = (
+        _team_channels(team_id)
+        .filter(general_channel_q(), deleted=False)
+        # A stamped row wins over an unstamped one, in the vanishingly rare case a team has both.
+        .order_by(F("system_role").asc(nulls_last=True))
+        .first()
+    )
     return channel.id if channel is not None else None
 
 
@@ -7112,7 +7109,7 @@ def _is_general_channel(channel: Channel) -> bool:
     general name is still the team's general space."""
     if channel.system_role is not None:
         return channel.system_role == Channel.SystemRole.GENERAL
-    return channel.channel_type == Channel.ChannelType.PUBLIC and channel.name == Channel.GENERAL_CHANNEL_NAME
+    return _matches_legacy_shape(channel, GENERAL_LEGACY_SHAPE)
 
 
 def provision_default_channels(team_id: int, user_id: int) -> contracts.ProvisionedChannelsDTO:
@@ -7243,7 +7240,7 @@ def update_channel(
 
 
 def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Soft-delete an empty public channel."""
+    """Soft-delete an empty public channel. Archived tasks do not count as content."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
@@ -7251,10 +7248,24 @@ def delete_channel(channel_id: str | UUID, team_id: int, user_id: int | None) ->
         return "personal" if channel.created_by_id == user_id else "not_found"
     if _is_general_channel(channel):
         return "general"
-    if channel.tasks.filter(deleted=False).exists() or channel.canvases.filter(deleted=False).exists():
-        return "not_empty"
-    channel.deleted = True
-    channel.save(update_fields=["deleted", "updated_at"])
+    with transaction.atomic():
+        # Emptiness is checked under a row lock because filing a task takes FOR KEY SHARE on
+        # its channel: unlocked, a task can land after the check and be orphaned in a channel
+        # this call goes on to delete.
+        channel = Channel.objects.select_for_update().filter(id=channel_id, team_id=team_id, deleted=False).first()
+        if channel is None:
+            return "not_found"
+        if (
+            channel.tasks.filter(deleted=False, archived=False).exists()
+            or channel.canvases.filter(deleted=False).exists()
+        ):
+            return "not_empty"
+        # Not filtered on `archived`: flipping that flag leaves the FK untouched, so it takes
+        # no lock on the channel and can happen after the check above. Task visibility joins
+        # through the channel, so a task left pointing at a deleted one leaves every list.
+        channel.tasks.filter(deleted=False).update(channel=None)
+        channel.deleted = True
+        channel.save(update_fields=["deleted", "updated_at"])
     return "ok"
 
 
@@ -7421,6 +7432,42 @@ def get_channel_instructions(
     return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
 
 
+def desktop_users_in_team(team: Team, exclude_user_id: int) -> list[str]:
+    channels = (
+        Channel.objects.for_team(team.id)
+        .filter(
+            personal_channel_q(),
+            deleted=False,
+            created_by__in=team.all_users_with_access(),
+        )
+        .exclude(created_by_id=exclude_user_id)
+        .select_related("created_by")
+        .order_by("created_at")[:4]
+    )
+    return [
+        channel.created_by.first_name or channel.created_by.email.split("@")[0]
+        for channel in channels
+        if channel.created_by
+    ]
+
+
+def organization_has_context(organization_id: UUID | str) -> bool:
+    contents = (
+        ChannelInstructions.objects.unscoped()
+        .filter(
+            general_channel_q("channel"),
+            team__organization_id=organization_id,
+            channel__deleted=False,
+            deleted=False,
+            is_latest=True,
+            version__gt=0,
+        )
+        .exclude(content="")
+        .values_list("content", flat=True)[:20]
+    )
+    return any(content.strip() for content in contents)
+
+
 def list_channel_instruction_versions(
     channel_id: str | UUID, team_id: int, user_id: int | None
 ) -> list[contracts.ChannelInstructionsDTO] | None:
@@ -7451,6 +7498,25 @@ def task_can_publish_channel_instructions(task_id: str | UUID, team_id: int, cha
     context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
     outputs = context_target.get("outputs") or {}
     return bool(outputs.get("update_context")) and str(context_target.get("channel_id")) == str(channel_id)
+
+
+def loop_context_channel_id_for_task(task_id: str | UUID) -> str | None:
+    """The channel a loop run was configured to keep current, or None.
+
+    Scoped by task rather than by team, because the caller's authority here is a
+    run token minted for exactly this task. Returns None for anything that is
+    not a loop run configured to update its context, so callers fail closed.
+    """
+    task = Task.objects.filter(id=task_id).only("id", "origin_product").first()
+    if task is None or task.origin_product != Task.OriginProduct.LOOP:
+        return None
+
+    run_state = TaskRun.objects.filter(task_id=task.id).order_by("-created_at").values_list("state", flat=True).first()
+    context_target = ((run_state or {}).get("config_snapshot") or {}).get("context_target") or {}
+    if not (context_target.get("outputs") or {}).get("update_context"):
+        return None
+    channel_id = context_target.get("channel_id")
+    return str(channel_id) if channel_id else None
 
 
 def publish_channel_instructions(
@@ -7886,22 +7952,6 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     )
 
 
-@frozen
-class _ActivityTarget:
-    scope: str | None
-    id: str | None
-
-
-def _activity_target(task: Task) -> _ActivityTarget:
-    target = (task.state or {}).get("activity_target")
-    if not isinstance(target, dict) or target.get("scope") != "desktop_canvas":
-        return _ActivityTarget(scope=None, id=None)
-    target_id = target.get("id")
-    if not isinstance(target_id, str) or not target_id:
-        return _ActivityTarget(scope=None, id=None)
-    return _ActivityTarget(scope="desktop_canvas", id=target_id)
-
-
 def list_task_activity(
     team_id: int,
     user_id: int | None,
@@ -7961,8 +8011,6 @@ def list_task_activity(
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
-                target_scope=_activity_target(row.task).scope,
-                target_id=_activity_target(row.task).id,
                 is_unread=row.read_at is None,
             )
             for row in rows

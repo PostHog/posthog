@@ -60,6 +60,7 @@ import {
   classifyAgentError,
   isPromptTooLongError,
 } from "../adapters/error-classification";
+import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
 import {
@@ -134,6 +135,7 @@ const agentErrorClassificationSchema = z.enum([
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -2380,6 +2382,7 @@ export class AgentServer {
     }
 
     if (this.nativeResume) {
+      if (await this.settleIdleResume(payload, taskRun)) return;
       await this.sendResumeContinuation(payload, taskRun);
       return;
     }
@@ -2571,6 +2574,35 @@ export class AgentServer {
         messageId: resumePromptMessageId,
       };
     });
+  }
+
+  private async settleIdleResume(
+    payload: JwtPayload,
+    taskRun: TaskRun | null,
+  ): Promise<boolean> {
+    if (!this.session || process.env.POSTHOG_RESUME_IDLE !== "1") return false;
+
+    const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+    if (pendingUserPrompt?.prompt.length) return false;
+
+    const checkpointApplied = this.nativeResume?.warm
+      ? false
+      : await this.applyResumeGitCheckpoint(payload);
+
+    this.logger.debug("Idle resume settled without a turn", {
+      taskId: payload.task_id,
+      runId: payload.run_id,
+      sessionId: this.nativeResume?.sessionId,
+      warm: this.nativeResume?.warm,
+      checkpointApplied,
+    });
+
+    this.resumeState = null;
+    this.nativeResume = null;
+
+    this.broadcastTurnComplete("end_turn");
+    await this.session.logWriter.flushAll();
+    return true;
   }
 
   private async sendResumeContinuation(
@@ -4087,6 +4119,30 @@ we want:
   Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
+    // A stack is several PRs, so this would contradict the review-first modes.
+    const stackInstructions = shouldAutoCreatePr
+      ? `
+## Stacked pull requests
+Stack only when the layers are independently reviewable (schema, then backend, then UI) or the
+user asked for a stack. Keep stacks shallow — 2 to 4 layers. One PR remains the default.
+Do NOT use the \`gh stack\` CLI: its publishing commands (\`submit\`, \`sync\`, \`push\`, \`link\`)
+all run \`git push\`, which is blocked here. Build the stack this way instead:
+1. Commit the bottom layer with \`git_signed_commit\`, passing \`branch\`, then open its pull
+   request based on the base branch.
+2. For each layer above, commit with \`git_signed_commit\` and a new \`branch\` — your checkout
+   already sits on the layer below, so the branch starts there — then open its pull request
+   based on the branch of the layer below (\`--base <that branch>\`).
+3. Link them with the \`gh_stack\` tool (full name \`${GH_STACK_QUALIFIED_TOOL_NAME}\`),
+   operation "create", passing \`pull_requests\` bottom to top. Every layer must target the
+   branch of the one below it, or the link is refused.
+When a lower layer changes, restack the layers above it bottom-first. For each layer: check
+that layer out, \`git rebase <its parent branch>\`, then republish it with
+\`git_signed_rewrite\` passing \`onto\` = the parent branch. Check the layer out every time —
+\`git_signed_rewrite\` replays whatever your local HEAD points at and uses \`branch\` only to
+pick which remote ref moves, so rewriting from the wrong checkout publishes the wrong history
+to that layer.`
+      : "";
+
     const prLinkInstructions = `
 ## Referencing pull requests
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL
@@ -4106,7 +4162,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
