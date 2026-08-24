@@ -2,12 +2,11 @@ import json
 import time
 import uuid
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import TestCase, override_settings
@@ -25,7 +24,7 @@ from posthog.schema_enums import AlertState
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import (
     _extract_alert_snooze_hints,
     _handle_insight_alert_snooze,
@@ -187,7 +186,7 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert response.json()["options"] == []
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -221,7 +220,7 @@ class TestRepoPickerOptions(TestCase):
         mock_asyncio_run.assert_called_once()
         mock_webclient_class.return_value.chat_update.assert_called_once()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -257,7 +256,7 @@ class TestRepoPickerOptions(TestCase):
         update_call = mock_webclient_class.return_value.chat_update.call_args.kwargs
         assert "without a repository" in update_call["text"].lower()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
@@ -285,7 +284,7 @@ class TestRepoPickerOptions(TestCase):
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
         assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
-    @patch("posthog.models.integration.WebClient")
+    @patch("posthog.models.integration.slack.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -322,232 +321,6 @@ class TestRepoPickerOptions(TestCase):
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
         assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
-
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_terminate_action_starts_temporal_workflow(self, mock_config, mock_sync_connect, mock_asyncio_run):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-
-        payload = {
-            "type": "block_actions",
-            "user": {"id": "U123"},
-            "actions": [
-                {
-                    "action_id": "posthog_code_terminate_task",
-                    "value": json.dumps(
-                        {
-                            "run_id": "run-1",
-                            "integration_id": self.posthog_code_integration.id,
-                            "mentioning_slack_user_id": "U123",
-                        }
-                    ),
-                }
-            ],
-            "channel": {"id": "C001"},
-            "message": {"ts": "1234.9999"},
-        }
-        response = self._post_interactivity(payload)
-        assert response.status_code == 200
-        mock_sync_connect.assert_called_once()
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
-        mock_asyncio_run.assert_called_once()
-
-    @patch("products.tasks.backend.facade.api.send_cancel")
-    @patch("products.tasks.backend.facade.api.get_task_run")
-    @patch("posthog.models.integration.Integration")
-    @patch("posthog.models.integration.SlackIntegration")
-    @patch("posthog.temporal.common.client.sync_connect")
-    def test_terminate_action_signals_workflow(
-        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_get_task_run, mock_send_cancel
-    ):
-        from products.slack_app.backend.tasks import process_posthog_code_task_termination
-
-        mock_send_cancel.return_value = SimpleNamespace(
-            success=False, status_code=502, error="Connection refused", retryable=True
-        )
-
-        mock_get_task_run.return_value = SimpleNamespace(
-            id="run-1",
-            task_id="task-1",
-            team_id=self.team.id,
-            status="in_progress",
-            is_terminal=False,
-            workflow_id="task-processing-task-1-run-1",
-            created_by_id=None,
-            created_by_distinct_id=None,
-            state={"sandbox_url": "https://sandbox.example.com/rpc"},
-        )
-
-        mock_integration = MagicMock()
-        mock_integration.team_id = self.team.id
-        mock_integration_model.objects.get.return_value = mock_integration
-
-        mock_handle = MagicMock()
-        mock_handle.signal = AsyncMock()
-        mock_client = MagicMock()
-        mock_client.get_workflow_handle.return_value = mock_handle
-        mock_sync_connect.return_value = mock_client
-
-        mock_slack_client = MagicMock()
-        mock_slack_integration.return_value.client = mock_slack_client
-
-        payload = {
-            "type": "block_actions",
-            "team": {"id": "T12345"},
-            "user": {"id": "U123"},
-            "actions": [
-                {
-                    "action_id": "posthog_code_terminate_task",
-                    "value": json.dumps(
-                        {
-                            "run_id": "run-1",
-                            "integration_id": self.posthog_code_integration.id,
-                            "mentioning_slack_user_id": "U123",
-                        }
-                    ),
-                }
-            ],
-            "channel": {"id": "C001"},
-            "message": {"ts": "1234.9999"},
-        }
-
-        process_posthog_code_task_termination(payload)
-
-        mock_send_cancel.assert_called_once()
-        mock_client.get_workflow_handle.assert_called_once_with("task-processing-task-1-run-1")
-        mock_handle.signal.assert_called_once()
-        mock_slack_client.chat_update.assert_called_once()
-
-    @patch("products.tasks.backend.facade.api.get_task_run")
-    @patch("posthog.models.integration.Integration")
-    @patch("posthog.models.integration.SlackIntegration")
-    @patch("posthog.temporal.common.client.sync_connect")
-    def test_terminate_action_without_expected_user_is_denied(
-        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_get_task_run
-    ):
-        from products.slack_app.backend.tasks import process_posthog_code_task_termination
-
-        payload = {
-            "type": "block_actions",
-            "team": {"id": "T12345"},
-            "user": {"id": "U123"},
-            "actions": [
-                {
-                    "action_id": "posthog_code_terminate_task",
-                    "value": json.dumps(
-                        {
-                            "run_id": "run-1",
-                            "integration_id": self.posthog_code_integration.id,
-                        }
-                    ),
-                }
-            ],
-            "channel": {"id": "C001"},
-            "message": {"ts": "1234.9999"},
-        }
-
-        process_posthog_code_task_termination(payload)
-
-        mock_integration_model.objects.get.assert_not_called()
-        mock_get_task_run.assert_not_called()
-        mock_sync_connect.assert_not_called()
-        mock_slack_integration.assert_not_called()
-
-    @patch("products.tasks.backend.facade.api.get_task_run")
-    @patch("posthog.models.integration.Integration")
-    @patch("posthog.models.integration.SlackIntegration")
-    @patch("posthog.temporal.common.client.sync_connect")
-    def test_terminate_action_on_terminal_run_posts_feedback(
-        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_get_task_run
-    ):
-        from products.slack_app.backend.tasks import process_posthog_code_task_termination
-
-        mock_get_task_run.return_value = SimpleNamespace(
-            id="run-1",
-            task_id="task-1",
-            team_id=self.team.id,
-            status="completed",
-            is_terminal=True,
-            created_by_id=None,
-            created_by_distinct_id=None,
-        )
-
-        mock_integration = MagicMock()
-        mock_integration.team_id = self.team.id
-        mock_integration_model.objects.get.return_value = mock_integration
-        mock_slack_client = MagicMock()
-        mock_slack_integration.return_value.client = mock_slack_client
-
-        payload = {
-            "type": "block_actions",
-            "team": {"id": "T12345"},
-            "user": {"id": "U123"},
-            "actions": [
-                {
-                    "action_id": "posthog_code_terminate_task",
-                    "value": json.dumps(
-                        {
-                            "run_id": "run-1",
-                            "integration_id": self.posthog_code_integration.id,
-                            "mentioning_slack_user_id": "U123",
-                            "thread_ts": "1234.5678",
-                        }
-                    ),
-                }
-            ],
-            "channel": {"id": "C001"},
-            "message": {"ts": "1234.9999"},
-        }
-
-        process_posthog_code_task_termination(payload)
-
-        mock_sync_connect.assert_not_called()
-        mock_slack_client.chat_postMessage.assert_called_once()
-
-    @patch("products.tasks.backend.facade.api.get_task_run")
-    @patch("posthog.models.integration.Integration")
-    @patch("posthog.models.integration.SlackIntegration")
-    @patch("posthog.temporal.common.client.sync_connect")
-    def test_terminate_action_with_mismatched_team_run_is_noop(
-        self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_get_task_run
-    ):
-        from products.slack_app.backend.tasks import process_posthog_code_task_termination
-
-        # Team-scoped lookup returns nothing when the run belongs to another team.
-        mock_get_task_run.return_value = None
-
-        mock_integration = MagicMock()
-        mock_integration.team_id = self.team.id
-        mock_integration_model.objects.get.return_value = mock_integration
-        mock_slack_client = MagicMock()
-        mock_slack_integration.return_value.client = mock_slack_client
-
-        payload = {
-            "type": "block_actions",
-            "team": {"id": "T12345"},
-            "user": {"id": "U123"},
-            "actions": [
-                {
-                    "action_id": "posthog_code_terminate_task",
-                    "value": json.dumps(
-                        {
-                            "run_id": "run-1",
-                            "integration_id": self.posthog_code_integration.id,
-                            "mentioning_slack_user_id": "U123",
-                            "thread_ts": "1234.5678",
-                        }
-                    ),
-                }
-            ],
-            "channel": {"id": "C001"},
-            "message": {"ts": "1234.9999"},
-        }
-
-        process_posthog_code_task_termination(payload)
-
-        mock_sync_connect.assert_not_called()
-        mock_slack_client.chat_postMessage.assert_not_called()
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -747,42 +520,6 @@ class TestInteractivityRegionRouting(TestCase):
         assert response.status_code == 201
         assert response["Content-Type"] == "application/xml"
         assert response.content == b"<xml/>"
-
-    @patch("products.slack_app.backend.api._proxy_event_to_region")
-    @patch("products.slack_app.backend.api.asyncio.run")
-    @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_terminate_hints_local_handles(self, mock_config, mock_sync_connect, _mock_asyncio_run, mock_proxy):
-        # Terminate buttons embed integration_id in the action value (not context_token). When
-        # the value points at a row in this DB, we must handle locally without consulting the
-        # other region — even when the loop header is absent.
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-
-        payload = {
-            "type": "block_actions",
-            "user": {"id": "U123"},
-            "actions": [
-                {
-                    "action_id": "posthog_code_terminate_task",
-                    "value": json.dumps(
-                        {
-                            "run_id": "run-1",
-                            "integration_id": self.posthog_code_integration.id,
-                            "mentioning_slack_user_id": "U123",
-                        }
-                    ),
-                }
-            ],
-            "channel": {"id": "C001"},
-            "message": {"ts": "1234.9999"},
-        }
-
-        response = self._post(payload, host="us.posthog.com")
-
-        assert response.status_code == 200
-        mock_proxy.assert_not_called()
-        mock_sync_connect.assert_called_once()
-        mock_sync_connect.return_value.start_workflow.assert_called_once()
 
 
 class TestSignalsDismissReport(TestCase):

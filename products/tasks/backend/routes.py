@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
+import products.tasks.backend.presentation.views.desktop as desktop
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
@@ -9,6 +10,12 @@ import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.organizations.register(
+        r"desktop_beta_terms",
+        desktop.DesktopBetaTermsViewSet,
+        "organization_desktop_beta_terms",
+        ["organization_id"],
+    )
     project_tasks_router = routers.projects.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
     project_task_runs_router = project_tasks_router.register(
         r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"]

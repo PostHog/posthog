@@ -76,7 +76,11 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    FeatureRequestAddAccountSerializer,
     FeatureRequestCreateSerializer,
+    FeatureRequestEvidenceCreateSerializer,
+    FeatureRequestEvidenceDeleteSerializer,
+    FeatureRequestEvidenceUpdateSerializer,
     FeatureRequestHistorySerializer,
     FeatureRequestListQuerySerializer,
     FeatureRequestProductAreaListQuerySerializer,
@@ -86,6 +90,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     FeatureRequestUpdateSerializer,
     FeatureRequestVersionSerializer,
     MeetingSerializer,
+    SupportTicketMessageSerializer,
     SupportTicketSerializer,
 )
 
@@ -293,6 +298,19 @@ class FeatureRequestProductAreaViewSet(
         return self.update(request, *args, **kwargs)
 
 
+def _feature_request_evidence_input(data: dict[str, Any] | None) -> contracts.FeatureRequestEvidenceInput | None:
+    if data is None:
+        return None
+    return contracts.FeatureRequestEvidenceInput(
+        summary=data["summary"],
+        customer_quote=data["customer_quote"],
+        evidence_source=data["evidence_source"],
+        source_url=data["source_url"],
+        requested_on=data["requested_on"],
+        image_ids=tuple(data.get("image_ids", ())),
+    )
+
+
 class FeatureRequestViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -326,6 +344,7 @@ class FeatureRequestViewSet(
                     priorities=tuple(data.get("priorities", ())),
                     product_area_ids=tuple(data.get("product_area_ids", ())),
                     account_ids=tuple(data.get("account_ids", ())),
+                    created_by_ids=tuple(data.get("created_by_ids", ())),
                     archive_state=data["archive_state"],
                     ordering=data["request_ordering"],
                 ),
@@ -362,6 +381,7 @@ class FeatureRequestViewSet(
                     account_id=data["account_id"],
                     product_area_ids=tuple(data["product_area_ids"]),
                     idempotency_key=data["idempotency_key"],
+                    evidence=_feature_request_evidence_input(data.get("evidence")),
                 ),
                 actor_id=cast(User, request.user).id,
                 user_access_control=self.user_access_control,
@@ -384,7 +404,11 @@ class FeatureRequestViewSet(
                     expected_version=data["expected_version"],
                     title=data.get("title"),
                     description=data.get("description"),
-                    account_id=data.get("account_id"),
+                    account_ids=(
+                        tuple(data["account_ids"])
+                        if "account_ids" in request.data
+                        else ((data["account_id"],) if "account_id" in request.data else None)
+                    ),
                     product_area_ids=(tuple(data["product_area_ids"]) if "product_area_ids" in request.data else None),
                     request_status=data.get("request_status"),
                     request_priority=data.get("request_priority"),
@@ -404,6 +428,120 @@ class FeatureRequestViewSet(
     @extend_schema(request=FeatureRequestUpdateSerializer, responses={200: FeatureRequestSerializer})
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return self.update(request, *args, **kwargs)
+
+    @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def add_account(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestAddAccountSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        evidence = _feature_request_evidence_input(data.get("evidence"))
+        try:
+            feature_request = api.add_feature_request_account(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.AddFeatureRequestAccountInput(
+                    expected_version=data["expected_version"],
+                    account_id=data["account_id"],
+                    evidence=evidence,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def add_evidence(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.create_feature_request_evidence(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.CreateFeatureRequestEvidenceInput(
+                    expected_version=data["expected_version"],
+                    account_link_id=data["account_link_id"],
+                    summary=data["summary"],
+                    customer_quote=data["customer_quote"],
+                    evidence_source=data["evidence_source"],
+                    source_url=data["source_url"],
+                    requested_on=data["requested_on"],
+                    image_ids=tuple(data.get("image_ids", ())),
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def update_evidence(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.update_feature_request_evidence(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.UpdateFeatureRequestEvidenceInput(
+                    expected_version=data["expected_version"],
+                    evidence_id=data["evidence_id"],
+                    summary=data["summary"],
+                    customer_quote=data["customer_quote"],
+                    evidence_source=data["evidence_source"],
+                    source_url=data["source_url"],
+                    requested_on=data["requested_on"],
+                    image_ids=tuple(data["image_ids"]) if "image_ids" in request.data else None,
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
+
+    @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
+    @action(methods=["POST"], detail=True)
+    def remove_evidence(self, request: Request, *args, **kwargs) -> Response:
+        serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            feature_request = api.delete_feature_request_evidence(
+                team_id=self.team_id,
+                feature_request_id=self.kwargs["pk"],
+                input=contracts.DeleteFeatureRequestEvidenceInput(
+                    expected_version=data["expected_version"],
+                    evidence_id=data["evidence_id"],
+                ),
+                actor_id=cast(User, request.user).id,
+                user_access_control=self.user_access_control,
+            )
+        except api.FeatureRequestValidationError as error:
+            raise ValidationError({error.field: error.message})
+        except api.FeatureRequestConflictError as error:
+            raise Conflict(str(error))
+        if feature_request is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     def _set_archived(self, request: Request, *, archived: bool) -> Response:
         serializer = FeatureRequestVersionSerializer(data=request.data)
@@ -1303,6 +1441,50 @@ class AccountViewSet(
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
+    @extend_schema(
+        operation_id="accounts_support_ticket_messages_list",
+        parameters=[_ACCOUNT_ID_PARAM],
+        responses={200: SupportTicketMessageSerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"support_tickets/(?P<ticket_id>[^/.]+)",
+        url_name="support-ticket-detail",
+        pagination_class=AccountEmailThreadMessagePagination,
+    )
+    def support_ticket(self, request: Request, ticket_id: str, *args, **kwargs) -> Response:
+        try:
+            parsed_ticket_id = str(UUID(ticket_id))
+        except ValueError:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
+        assert limit is not None
+        offset = paginator.get_offset(request)
+        try:
+            result = api.get_account_support_ticket_messages(
+                self.team_id,
+                self.kwargs["pk"],
+                parsed_ticket_id,
+                self.user_access_control,
+                offset=offset,
+                limit=limit,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if result is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        messages, count = result
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = SupportTicketMessageSerializer(instance=messages, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountEmailThreadSerializer(many=True)})
     @action(methods=["GET"], detail=True, url_path="email_threads")
     def email_threads(self, request: Request, *args, **kwargs) -> Response:
@@ -1408,7 +1590,7 @@ class AccountViewSet(
                 return mixin_result
         # Ticket content behind an account-scoped viewset — a token holding only
         # account:read must not read it.
-        if view.action in {"support_tickets", "email_threads", "email_thread"}:
+        if view.action in {"support_tickets", "support_ticket", "email_threads", "email_thread"}:
             return ["account:read", "ticket:read"]
         return None
 

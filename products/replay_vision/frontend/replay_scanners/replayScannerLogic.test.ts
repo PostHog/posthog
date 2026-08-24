@@ -87,7 +87,8 @@ describe('replayScannerLogic', () => {
                 enabled: true,
                 scanner_type: 'monitor',
                 scanner_config: { prompt: '' },
-                sampling_rate: 1,
+                sampling_rate: 0.2,
+                sampling_mode: 'balanced',
             })
         })
 
@@ -603,6 +604,26 @@ describe('replayScannerLogic', () => {
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Resume' }) })
             )
             info.mockRestore()
+        })
+
+        // Leaving mid-wizard is routine (the recordings step links out to settings), so resuming has to
+        // land where the work was. Always returning to the first step reads as having lost the later ones.
+        it('resumes on the step the last edit was made on', async () => {
+            const info = jest.spyOn(lemonToast, 'info')
+            const editorLogic = scannerEditorSceneLogic()
+            editorLogic.mount()
+            try {
+                editorLogic.actions.setStep('budget')
+                logic.actions.setScannerValues({ name: 'Drafted' })
+                logic.unmount()
+
+                info.mock.calls[0][1]?.button?.action?.()
+                expect(router.values.location.pathname).toContain(urls.replayVisionScannerBudget('new'))
+            } finally {
+                info.mockRestore()
+                editorLogic.unmount()
+                router.actions.push(urls.replayVision())
+            }
         })
 
         it('stays quiet on the way out when the draft was only restored', async () => {
@@ -1397,6 +1418,42 @@ describe('replayScannerLogic', () => {
                 template_key: null,
                 goal_length: 'find users who get stuck'.length,
             })
+        })
+    })
+
+    describe('rebuildExperimentContext', () => {
+        it('installs the targeting card from the form targeting', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            logic.actions.setScannerValues({ experiment_targeting: { experiment_id: 7, variant: 'control' } })
+
+            await expectLogic(logic, () => logic.actions.rebuildExperimentContext()).toFinishAllListeners()
+
+            expect(logic.values.experimentContext).toEqual({
+                experiment: { id: 7, name: 'Checkout redesign' },
+                variantKey: 'control',
+            })
+        })
+
+        it('does not restore targeting a template pick discarded while the request was in flight', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            logic.actions.setScannerValues({ experiment_targeting: { experiment_id: 7, variant: 'control' } })
+
+            await expectLogic(logic, () => {
+                logic.actions.rebuildExperimentContext()
+                // Fires during the in-flight experiment request; resetScanner drops the form targeting.
+                logic.actions.startFromTemplate(null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
+            expect(logic.values.experimentContext).toBeNull()
         })
     })
 })

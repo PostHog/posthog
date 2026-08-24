@@ -198,10 +198,16 @@ export interface metricsViewerLogicValues {
 export interface metricsViewerLogicActions {
     loadItemsSuccess: (
         items: _MetricNameApi[],
-        payload?: any
+        payload?:
+            | {
+                  debounce: boolean
+              }
+            | undefined
     ) => {
         items: _MetricNameApi[]
-        payload?: any
+        payload?: {
+            debounce: boolean
+        }
     } // metricNamePickerLogic
     addToDashboard: () => {
         value: true

@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,53 @@ MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
 MAX_SKILL_FILE_COUNT = 200
+# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
+# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
+# Here rather than in skill_serializers so the publish path can hold a slug to the same rule without
+# importing the serializers that import it.
+RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+# Bundled-file paths that would collide with generated artifacts in the exported skill
+# tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
+RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def normalize_skill_file_path(value: str) -> str:
+    """Return the canonical relative path for a bundled file, raising ValueError if it has none.
+
+    Here rather than in skill_serializers so the publish path can canonicalize a path the same way
+    without importing the serializers that import it. skill_serializers wraps it as the DRF
+    validator, so the request layer keeps reporting these as field errors.
+    """
+    # Paths become git tree entries (and zip/marketplace paths), so anything that would
+    # produce an empty or ambiguous entry name must be rejected — otherwise a single bad
+    # path synthesizes a corrupt git tree and breaks the whole team's marketplace clone.
+    normalized = value.replace("\\", "/")
+    if not normalized or normalized != normalized.strip():
+        raise ValueError("File path must be a non-empty, trimmed relative path.")
+    if normalized.startswith("/"):
+        raise ValueError("File paths must be relative, not absolute.")
+    if normalized.endswith("/"):
+        raise ValueError("File paths must not end with a slash.")
+    if any(part in ("", ".", "..") for part in normalized.split("/")):
+        raise ValueError("File paths must not contain empty, '.', or '..' segments.")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
+        raise ValueError("File paths must not contain control characters.")
+    if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
+        raise ValueError(f"'{value}' is a reserved file path and cannot be used.")
+    # Persist the normalized (forward-slash) form, not the original: backslashes mean "separator"
+    # here, so storing them verbatim would make `references\guide.md` a single flat tree entry
+    # rather than a file under `references/`, and would let the two spellings dodge dedup.
+    return normalized
+
+
+def check_allowed_tool_name(value: str) -> None:
+    """Raise ValueError when a tool name can't survive the Agent Skills allowed-tools encoding."""
+    # The Agent Skills spec serializes allowed-tools as a single space-separated string, so a tool
+    # name containing whitespace would silently fracture into multiple tools on export/round-trip.
+    if any(ch.isspace() for ch in value):
+        raise ValueError("Tool names cannot contain whitespace.")
 
 
 class LLMSkillNotFoundError(Exception):
