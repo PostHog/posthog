@@ -78,6 +78,12 @@ class ErrorCodeMeta:
 
 def clickhouse_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
+    if isinstance(e, (CHQueryErrorConnectionDropped, *CH_SOCKET_LEVEL_ERRORS)):
+        # A dropped connection reaches this function as a raw socket error before wrapping and as
+        # the wrapped class after. Label both the same so the failure metric groups every dropped
+        # connection under one name, instead of splitting them across EOFError, the broken-pipe
+        # family, and the code-less CHQueryErrorUnknownException bucket.
+        return CHQueryErrorConnectionDropped.__name__
     if not isinstance(e, ServerException):
         return type(e).__name__
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"

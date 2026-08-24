@@ -217,14 +217,14 @@ from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQ
             "CHQueryErrorConnectionDropped",
             "Code: None.\nUnexpected EOF while reading bytes",
             None,
-            "EOFError",
+            "CHQueryErrorConnectionDropped",
         ),
         (
             BrokenPipeError("Broken pipe"),
             "CHQueryErrorConnectionDropped",
             "Code: None.\nBroken pipe",
             None,
-            "BrokenPipeError",
+            "CHQueryErrorConnectionDropped",
         ),
     ],
 )
@@ -245,6 +245,14 @@ def test_dropped_connection_wraps_to_a_transient_error(error):
     # A dropped socket must land on a class the retry paths key off, so callers retry it.
     wrapped = wrap_clickhouse_query_error(error)
     assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+
+
+def test_dropped_connection_labels_consistently_after_wrapping():
+    # sync_execute labels the failure metric from the raw socket error; query_runner labels it from
+    # the already-wrapped class. Both must resolve to the same name, or a dropped connection lands in
+    # the code-less CHQueryErrorUnknownException bucket at the second site.
+    wrapped = wrap_clickhouse_query_error(EOFError("Unexpected EOF while reading bytes"))
+    assert clickhouse_error_type(wrapped) == "CHQueryErrorConnectionDropped"
 
 
 def test_per_query_memory_limit_phrasing_matches_real_clickhouse():
