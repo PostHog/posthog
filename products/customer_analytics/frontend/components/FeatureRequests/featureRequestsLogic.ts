@@ -41,7 +41,7 @@ import type {
     PaginatedFeatureRequestListApi,
     RequestPriorityEnumApi,
 } from '../../generated/api.schemas'
-import { getFeatureRequestBackUrl } from './featureRequestNavigation'
+import { getFeatureRequestBackLabel, getFeatureRequestBackUrl } from './featureRequestNavigation'
 import {
     FEATURE_REQUEST_ORDERING_OPTIONS,
     FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS,
@@ -262,6 +262,7 @@ export interface featureRequestsLogicValues {
     evidenceSource: string
     evidenceSummary: string
     evidenceUrl: string
+    featureRequestBackLabel: string | undefined
     featureRequestBackUrl: string
     featureRequestsError: string | null
     featureRequestsPage: number
@@ -717,6 +718,7 @@ export interface featureRequestsLogicMeta {
             requestOrdering: FeatureRequestOrdering,
             featureRequestsPage: number
         ) => Record<string, string>
+        featureRequestBackLabel: (searchParams: Record<string, any>) => string | undefined
         featureRequestBackUrl: (listSearchParams: Record<string, string>, searchParams: Record<string, any>) => string
     }
 }
@@ -1659,6 +1661,10 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     requestOrdering,
                     featureRequestsPage,
                 }),
+        ],
+        featureRequestBackLabel: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, any>): string | undefined => getFeatureRequestBackLabel(searchParams.origin),
         ],
         featureRequestBackUrl: [
             (selectors) => [selectors.listSearchParams, router.selectors.searchParams],
