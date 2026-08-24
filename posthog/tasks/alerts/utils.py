@@ -488,7 +488,7 @@ def add_alert_check(
     return alert_check, should_notify(outcome)
 
 
-def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
+def disable_invalid_alert(alert: AlertConfiguration, reason: str, *, notify_subscribers: bool = True) -> AlertCheck:
     """Auto-disable a misconfigured alert and email its subscribers.
 
     Used for configuration problems that make the alert unevaluable as set up — a deliberate,
@@ -509,7 +509,7 @@ def disable_invalid_alert(alert: AlertConfiguration, reason: str) -> AlertCheck:
         state=AlertState.ERRORED,
         error={"message": reason},
     )
-    if targets_to_notify:
+    if targets_to_notify and notify_subscribers:
         deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
         record_alert_delivery(alert, alert_check, deliveries)
     return alert_check

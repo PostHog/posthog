@@ -14,6 +14,7 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
@@ -133,6 +134,14 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        # Email-backed alerts cannot deliver anything on instances without an email transport.
+        # Disable them before evaluation so the scheduler does not repeatedly retry delivery.
+        # Do not send the usual disabled-alert email: that would fail for the same reason.
+        if alert.get_subscribed_users_emails() and not is_email_available():
+            reason = "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
+            disable_invalid_alert(alert, reason, notify_subscribers=False)
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=reason)
 
         # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
         # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
