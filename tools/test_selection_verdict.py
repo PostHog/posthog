@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from defusedxml import ElementTree
@@ -73,18 +74,32 @@ def junit_side(xml_file: Path, junit_dir: Path) -> str:
     return DJANGO
 
 
-def parse_junit_failures(junit_dir: Path, side: str | None = None) -> tuple[list[str], int, int]:
-    """Parse JUnit XML files and return (failed_test_files, total_tests_run, xml_files_seen).
+@dataclass(frozen=True, kw_only=True, slots=True)
+class JunitResults:
+    failed_test_files: list[str]
+    total_tests_run: int
+    xml_files_seen: int
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Score:
+    caught: list[str]
+    missed: list[str]
+    recall: float | None
+
+
+def parse_junit_failures(junit_dir: Path, side: str | None = None) -> JunitResults:
+    """Parse JUnit XML files under junit_dir.
 
     With `side`, only files from that matrix count; the others are invisible to
-    all three results.
+    every field of the result.
     """
     failed_files: set[str] = set()
     total_tests = 0
     xml_files_seen = 0
 
     if not junit_dir.exists():
-        return [], 0, 0
+        return JunitResults(failed_test_files=[], total_tests_run=0, xml_files_seen=0)
 
     for xml_file in sorted(junit_dir.rglob("*.xml")):
         if side is not None and junit_side(xml_file, junit_dir) != side:
@@ -117,7 +132,9 @@ def parse_junit_failures(junit_dir: Path, side: str | None = None) -> tuple[list
                     if classname:
                         failed_files.add(classname_to_filepath(classname))
 
-    return sorted(failed_files), total_tests, xml_files_seen
+    return JunitResults(
+        failed_test_files=sorted(failed_files), total_tests_run=total_tests, xml_files_seen=xml_files_seen
+    )
 
 
 def product_of(path: str) -> str | None:
@@ -127,49 +144,43 @@ def product_of(path: str) -> str | None:
     return None
 
 
-def score(failed: list[str], selected: set[str], full_run_triggered: bool) -> tuple[list[str], list[str], float | None]:
-    """Split failures into caught and missed. Returns (caught, missed, recall).
+def score(failed: list[str], selected: set[str], full_run_triggered: bool) -> Score:
+    """Split failures into caught and missed.
 
     A selector that asked for a full run would have executed every failure, so
     counting those as missed against the narrowed list would skew recall.
     """
     if not failed:
-        return [], [], None
+        return Score(caught=[], missed=[], recall=None)
     if full_run_triggered:
-        return list(failed), [], 1.0
+        return Score(caught=list(failed), missed=[], recall=1.0)
     caught = sorted(f for f in failed if f in selected)
     missed = sorted(f for f in failed if f not in selected)
-    return caught, missed, len(caught) / len(failed)
+    return Score(caught=caught, missed=missed, recall=len(caught) / len(failed))
 
 
-def side_verdict(
-    failed_test_files: list[str],
-    total_tests_run: int,
-    xml_files_seen: int,
-    selected: set[str],
-    full_run_triggered: bool,
-) -> dict[str, object]:
+def side_verdict(results: JunitResults, selected: set[str], full_run_triggered: bool) -> dict[str, object]:
     # No JUnit XMLs means we don't actually know what happened: the upstream
     # artifact upload may have failed, the job may have run before tests
     # finished, or this matrix was skipped. Emit "unknown" rather than the
     # misleading "success" we'd otherwise infer from "0 failures observed".
-    if xml_files_seen == 0:
+    if results.xml_files_seen == 0:
         conclusion = "unknown"
-    elif not failed_test_files:
+    elif not results.failed_test_files:
         conclusion = "success"
     else:
         conclusion = "failure"
 
-    caught, missed, recall = score(failed_test_files, selected, full_run_triggered)
+    scored = score(results.failed_test_files, selected, full_run_triggered)
     return {
         "conclusion": conclusion,
-        "junit_xml_files_seen": xml_files_seen,
-        "total_tests_run": total_tests_run,
-        "failure_count": len(failed_test_files),
-        "failed_test_files": failed_test_files,
-        "caught": caught,
-        "missed": missed,
-        "recall": recall,
+        "junit_xml_files_seen": results.xml_files_seen,
+        "total_tests_run": results.total_tests_run,
+        "failure_count": len(results.failed_test_files),
+        "failed_test_files": results.failed_test_files,
+        "caught": scored.caught,
+        "missed": scored.missed,
+        "recall": scored.recall,
     }
 
 
@@ -181,13 +192,13 @@ def product_level(failed_files: list[str], selected: set[str], full_run_triggere
     """
     selected_products = sorted({p for p in (product_of(t) for t in selected) if p})
     failed_products = sorted({p for p in (product_of(f) for f in failed_files) if p})
-    caught, missed, recall = score(failed_products, set(selected_products), full_run_triggered)
+    scored = score(failed_products, set(selected_products), full_run_triggered)
     return {
         "selected_products": selected_products,
         "failed_products": failed_products,
-        "caught_products": caught,
-        "missed_products": missed,
-        "product_recall": recall,
+        "caught_products": scored.caught,
+        "missed_products": scored.missed,
+        "product_recall": scored.recall,
     }
 
 
@@ -204,10 +215,10 @@ def compute_verdict(selection_path: Path, junit_dir: Path) -> dict[str, object]:
     full_run_reasons: list[str] = ast_data.get("full_run_reasons", [])
     full_run_triggered = len(full_run_reasons) > 0
 
-    django = side_verdict(*parse_junit_failures(junit_dir, DJANGO), selected, full_run_triggered)
-    product_failures = parse_junit_failures(junit_dir, PRODUCTS)
-    products = side_verdict(*product_failures, selected, full_run_triggered)
-    products.update(product_level(product_failures[0], selected, full_run_triggered))
+    django = side_verdict(parse_junit_failures(junit_dir, DJANGO), selected, full_run_triggered)
+    product_results = parse_junit_failures(junit_dir, PRODUCTS)
+    products = side_verdict(product_results, selected, full_run_triggered)
+    products.update(product_level(product_results.failed_test_files, selected, full_run_triggered))
 
     return {
         "pr": os.environ.get("PR_NUMBER", ""),

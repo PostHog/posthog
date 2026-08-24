@@ -119,29 +119,29 @@ class TestParseJunitFailures(unittest.TestCase):
     def test_returns_zero_when_dir_missing(self) -> None:
         verdict = _load_verdict_module()
         with tempfile.TemporaryDirectory() as root:
-            failures, total, seen = verdict.parse_junit_failures(Path(root) / "missing")
-            self.assertEqual(failures, [])
-            self.assertEqual(total, 0)
-            self.assertEqual(seen, 0)
+            results = verdict.parse_junit_failures(Path(root) / "missing")
+            self.assertEqual(results.failed_test_files, [])
+            self.assertEqual(results.total_tests_run, 0)
+            self.assertEqual(results.xml_files_seen, 0)
 
     def test_extracts_failures_with_classname_mapping(self) -> None:
         verdict = _load_verdict_module()
         with tempfile.TemporaryDirectory() as root:
             junit_dir = Path(root)
             _write_junit(junit_dir, "junit-core.xml", JUNIT_FAILURE)
-            failures, total, seen = verdict.parse_junit_failures(junit_dir)
-            self.assertEqual(failures, ["posthog/api/test/test_foo.py"])
-            self.assertEqual(total, 2)
-            self.assertEqual(seen, 1)
+            results = verdict.parse_junit_failures(junit_dir)
+            self.assertEqual(results.failed_test_files, ["posthog/api/test/test_foo.py"])
+            self.assertEqual(results.total_tests_run, 2)
+            self.assertEqual(results.xml_files_seen, 1)
 
     def test_finds_testcases_in_nested_testsuites(self) -> None:
         verdict = _load_verdict_module()
         with tempfile.TemporaryDirectory() as root:
             junit_dir = Path(root)
             _write_junit(junit_dir, "junit.xml", JUNIT_NESTED_FAILURE)
-            failures, total, _seen = verdict.parse_junit_failures(junit_dir)
-            self.assertEqual(failures, ["posthog/api/test/test_nested.py"])
-            self.assertEqual(total, 1)
+            results = verdict.parse_junit_failures(junit_dir)
+            self.assertEqual(results.failed_test_files, ["posthog/api/test/test_nested.py"])
+            self.assertEqual(results.total_tests_run, 1)
 
     def test_skips_malformed_xml(self) -> None:
         verdict = _load_verdict_module()
@@ -149,10 +149,10 @@ class TestParseJunitFailures(unittest.TestCase):
             junit_dir = Path(root)
             _write_junit(junit_dir, "good.xml", JUNIT_ALL_PASS)
             _write_junit(junit_dir, "bad.xml", "<not valid xml")
-            failures, total, seen = verdict.parse_junit_failures(junit_dir)
-            self.assertEqual(failures, [])
-            self.assertEqual(total, 1)
-            self.assertEqual(seen, 2)
+            results = verdict.parse_junit_failures(junit_dir)
+            self.assertEqual(results.failed_test_files, [])
+            self.assertEqual(results.total_tests_run, 1)
+            self.assertEqual(results.xml_files_seen, 2)
 
 
 class TestJunitSide(unittest.TestCase):
@@ -175,10 +175,10 @@ class TestJunitSide(unittest.TestCase):
             junit_dir = Path(root)
             _write_junit(junit_dir, DJANGO_XML, JUNIT_FAILURE)
             _write_junit(junit_dir, PRODUCT_XML, JUNIT_PRODUCT_FAILURE)
-            failures, total, seen = verdict.parse_junit_failures(junit_dir, side="products")
-            self.assertEqual(failures, ["products/error_tracking/backend/tests/test_issues.py"])
-            self.assertEqual(total, 1)
-            self.assertEqual(seen, 1)
+            results = verdict.parse_junit_failures(junit_dir, side="products")
+            self.assertEqual(results.failed_test_files, ["products/error_tracking/backend/tests/test_issues.py"])
+            self.assertEqual(results.total_tests_run, 1)
+            self.assertEqual(results.xml_files_seen, 1)
 
 
 class TestComputeVerdict(unittest.TestCase):
