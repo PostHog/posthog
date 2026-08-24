@@ -1288,13 +1288,7 @@ export type InlineBehavioralType = BehavioralEventType.PerformEvent | Behavioral
 /** Whether a behavioral filter's `key` refers to an event name or an action id */
 export type BehavioralEventSource = 'events' | 'actions'
 
-/**
- * Filters persons on whether they performed an event (optionally a number of times) within a time window,
- * without needing a saved cohort. Shares the cohort criteria vocabulary (`BehavioralEventType`), but only
- * the "performed event" family is supported inline — sequences and lifecycle criteria still require a cohort.
- * Event scope only: person scope needs `id IN (SELECT person_id FROM events ...)`, which HogQL cannot yet
- * resolve under a `persons` FROM. Filter the underlying insight instead, or use a cohort.
- */
+/** Filters persons on whether they performed an event in a time window, without a saved cohort. Event scope only. */
 export interface BehavioralPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Behavioral
     value: InlineBehavioralType
