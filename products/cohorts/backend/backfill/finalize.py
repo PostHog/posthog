@@ -80,7 +80,8 @@ HELD_RUNS_GAUGE = Gauge(
 )
 
 
-@dataclass
+# Mutable by design: one pass accumulates counters into it as it walks the runs.
+@dataclass(frozen=False)
 class FinalizerPass:
     runs_scanned: int = 0
     completed: int = 0
