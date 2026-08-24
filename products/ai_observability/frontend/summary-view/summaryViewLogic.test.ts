@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, NETWORK_ERROR_MESSAGES, NetworkError } from 'lib/api-error'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import type { LLMTrace } from '~/queries/schema/schema-general'
@@ -41,6 +42,11 @@ describe('summaryViewLogic', () => {
         return call?.[1]
     }
 
+    /** Every `api.create` option object the summarization endpoint was called with, in order. */
+    function summarizationOptions(): any[] {
+        return createSpy.mock.calls.filter(([url]) => url.includes(SUMMARIZATION_PATH)).map((call) => call[2])
+    }
+
     async function generateSummary(): Promise<void> {
         logic = summaryViewLogic({ trace, tree: [] })
         logic.mount()
@@ -62,7 +68,9 @@ describe('summaryViewLogic', () => {
     })
 
     afterEach(() => {
-        logic?.unmount()
+        if (logic?.isMounted()) {
+            logic.unmount()
+        }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
     })
@@ -79,35 +87,75 @@ describe('summaryViewLogic', () => {
         })
     })
 
-    it('shows a readable message when the response carries no error body', async () => {
-        mockSummarization(Promise.reject(new ApiError(undefined, 504, undefined, null)))
+    test.each([
+        [
+            'a bodyless gateway timeout',
+            () => new ApiError(undefined, 504, undefined, null),
+            'Generating this summary took too long. Try again in a moment.',
+        ],
+        [
+            'a bodyless payload-size rejection',
+            () => new ApiError('API request failed with status: 413', 413),
+            'This trace is too large to summarize. Open a single generation and summarize that instead.',
+        ],
+        [
+            'a body the backend sent',
+            () => new ApiError('Failed to generate summary', 413, undefined, { detail: 'Failed to generate summary' }),
+            'Failed to generate summary',
+        ],
+        [
+            'a request the browser never completed',
+            () => new NetworkError('offline'),
+            'Lost the connection while generating this summary. Check your connection and try again.',
+        ],
+    ])('shows a readable message for %s', async (_label, buildError, expected) => {
+        mockSummarization(Promise.reject(buildError()))
 
         await generateSummary()
 
-        expect(logic.values.summaryError).toBe('Generating this summary took too long. Try again in a moment.')
+        expect(logic.values.summaryError).toBe(expected)
     })
 
-    it('maps a bodyless payload-size rejection to a readable message, not a bare status', async () => {
-        mockSummarization(Promise.reject(new ApiError('API request failed with status: 413', 413)))
+    it('reports a dropped connection to error tracking as a NetworkError', async () => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        mockSummarization(Promise.reject(new NetworkError('offline')))
 
         await generateSummary()
 
-        expect(logic.values.summaryError).not.toContain('413')
-        expect(logic.values.summaryError).toBe(
-            'This trace is too large to summarize. Open a single generation and summarize that instead.'
-        )
+        // `dropUnactionableNetworkExceptions` matches the name and the message, so rewriting either
+        // one files an issue for a failure the platform already treats as unactionable.
+        const reported = captureSpy.mock.calls[0]?.[0] as Error
+        expect(reported.name).toBe('NetworkError')
+        expect(reported.message).toBe(NETWORK_ERROR_MESSAGES.offline)
     })
 
-    it('keeps a response body the backend sent instead of guessing from the status', async () => {
-        mockSummarization(
-            Promise.reject(
-                new ApiError('Failed to generate summary', 413, undefined, { detail: 'Failed to generate summary' })
-            )
-        )
+    it('cancels the request a newer summary replaces, without showing an error', async () => {
+        mockSummarization(new Promise(() => {}))
+        logic = summaryViewLogic({ trace, tree: [] })
+        logic.mount()
 
-        await generateSummary()
+        logic.actions.generateSummary({ mode: 'minimal' })
+        await Promise.resolve()
+        logic.actions.generateSummary({ mode: 'detailed' })
+        await Promise.resolve()
 
-        expect(logic.values.summaryError).toBe('Failed to generate summary')
+        // Mounting already asks for a cached summary, so compare the last two requests.
+        const [previous, latest] = summarizationOptions().slice(-2)
+        expect(previous.signal.aborted).toBe(true)
+        expect(latest.signal.aborted).toBe(false)
+        expect(logic.values.summaryError).toBeNull()
+    })
+
+    it('cancels an in-flight request when the trace view closes', async () => {
+        mockSummarization(new Promise(() => {}))
+        logic = summaryViewLogic({ trace, tree: [] })
+        logic.mount()
+        logic.actions.generateSummary({ mode: 'minimal' })
+        await Promise.resolve()
+
+        logic.unmount()
+
+        expect(summarizationOptions().at(-1).signal.aborted).toBe(true)
     })
 
     it('clears a stale summary when regeneration fails', async () => {
