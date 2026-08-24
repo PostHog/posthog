@@ -128,7 +128,7 @@ export function ActivityFeedList({
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="flex flex-col gap-px">
+          <div className="flex flex-col gap-[3px]">
             {shownItems.map((item) => (
               <ActivityRow
                 key={item.id}
