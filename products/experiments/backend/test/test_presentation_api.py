@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -7197,6 +7198,37 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 for entry in results
             )
         )
+
+    def test_activity_endpoint_omits_flag_entries_without_flag_access(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Restricted flag", "feature_flag_key": "activity-restricted-flag"},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+        flag_id = create_response.json()["feature_flag"]["id"]
+        flag_patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", {"active": False}
+        )
+        self.assertEqual(flag_patch_response.status_code, status.HTTP_200_OK)
+
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag_id), access_level="none"
+        )
+        # The flag's creator keeps access regardless of access controls, so query as a plain member
+        other_user = User.objects.create_and_join(self.organization, "no-flag-access@posthog.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertTrue(results)
+        self.assertEqual({entry["scope"] for entry in results}, {"Experiment"})
 
     def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
         feature_flag = FeatureFlag.objects.create(

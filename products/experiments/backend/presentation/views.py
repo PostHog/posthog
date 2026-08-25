@@ -751,7 +751,11 @@ class EnterpriseExperimentsViewSet(
         saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
         if saved_metric_ids:
             activity_filter |= Q(scope="Experiment", item_id__in=saved_metric_ids, detail__type="shared_metric")
-        if experiment.feature_flag_id is not None:
+        # The flag's history stays behind the flag's own access controls: a viewer of the
+        # experiment may have "none" access to the linked flag.
+        if experiment.feature_flag_id is not None and self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        ):
             activity_filter |= Q(scope="FeatureFlag", item_id=str(experiment.feature_flag_id))
 
         activity_query = (
