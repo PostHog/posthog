@@ -433,11 +433,13 @@ vi.mock("@posthog/core/sessions/sessionEvents", async () => {
     isAbsoluteFolderPath: actual.isAbsoluteFolderPath,
     isFatalSessionError: actual.isFatalSessionError,
     isRateLimitError: actual.isRateLimitError,
+    isSteerPromptParams: actual.isSteerPromptParams,
     isTurnCompleteEvent: actual.isTurnCompleteEvent,
     normalizePromptToBlocks: vi.fn((p) =>
       typeof p === "string" ? [{ type: "text", text: p }] : p,
     ),
     promptReferencesAbsoluteFolder: actual.promptReferencesAbsoluteFolder,
+    selectEchoedOptimisticItemIds: actual.selectEchoedOptimisticItemIds,
     shellExecutesToContextBlocks: vi.fn(() => []),
   };
 });
