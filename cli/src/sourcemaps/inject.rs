@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 use walkdir::DirEntry;
 
@@ -11,7 +12,10 @@ use crate::{
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
     },
-    utils::{files::FileSelection, git::get_git_info},
+    utils::{
+        files::{content_hash, FileSelection},
+        git::get_git_info,
+    },
 };
 
 #[derive(clap::Args)]
@@ -73,6 +77,9 @@ pub fn inject_impl(
         bail!("no source files found");
     }
 
+    // Hash each chunk before injection so we can report exactly which files injection rewrites.
+    let source_hashes_before = source_content_hashes(&pairs);
+
     match release_mode {
         ReleaseMode::Event => {
             // The release id travels inside each chunk for the SDK to emit, rather than being
@@ -106,7 +113,65 @@ pub fn inject_impl(
         pair.save()?;
     }
     info!("injecting done");
+
+    warn_about_rewritten_files(&pairs, &source_hashes_before);
     Ok(())
+}
+
+/// Map each chunk's source path to a hash of its content, for comparing before and after injection.
+fn source_content_hashes(pairs: &[SourcePair]) -> HashMap<PathBuf, String> {
+    pairs
+        .iter()
+        .map(|pair| {
+            (
+                pair.source.inner.path.clone(),
+                content_hash([pair.source.inner.content.as_bytes()]),
+            )
+        })
+        .collect()
+}
+
+/// Warn when injection changed built files, so pipelines that pin a content hash regenerate it.
+///
+/// Injection appends a chunk id (and, in event mode, the release id) to each chunk, then writes the
+/// files back in place. Any hash computed before injection — a service worker manifest, a
+/// Subresource Integrity attribute, a deploy manifest — no longer matches the bytes on disk, which
+/// breaks the deploy with no other signal. Report only the chunks whose content actually changed, so
+/// re-runs over an already injected build stay quiet.
+fn warn_about_rewritten_files(pairs: &[SourcePair], hashes_before: &HashMap<PathBuf, String>) {
+    let rewritten = rewritten_source_paths(pairs, hashes_before);
+    if rewritten.is_empty() {
+        return;
+    }
+
+    warn!(
+        "injection rewrote {} built file(s) in place. Any asset hash computed before this step \
+         (service worker manifest, Subresource Integrity attribute, deploy manifest) no longer \
+         matches and must be regenerated after injecting:",
+        rewritten.len()
+    );
+    for path in rewritten {
+        warn!("  rewrote {}", path.display());
+    }
+}
+
+/// Return the source paths whose content differs from `hashes_before`, so a re-run over an already
+/// injected build reports nothing.
+fn rewritten_source_paths<'a>(
+    pairs: &'a [SourcePair],
+    hashes_before: &HashMap<PathBuf, String>,
+) -> Vec<&'a PathBuf> {
+    pairs
+        .iter()
+        .filter(|pair| {
+            let hash_now = content_hash([pair.source.inner.content.as_bytes()]);
+            hashes_before
+                .get(&pair.source.inner.path)
+                .map(String::as_str)
+                != Some(&hash_now)
+        })
+        .map(|pair| &pair.source.inner.path)
+        .collect()
 }
 
 /// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
@@ -396,6 +461,39 @@ mod tests {
             .first()
             .and_then(SourcePair::get_chunk_id)
             .expect("injected pair carries a chunk id")
+    }
+
+    #[test]
+    fn rewritten_paths_flag_injection_and_stay_quiet_on_reruns() {
+        let dir = tempfile::tempdir().expect("failed to create temporary directory");
+        fs::write(
+            dir.path().join("app.js"),
+            "console.log(1);\n//# sourceMappingURL=app.js.map\n",
+        )
+        .expect("failed to write source");
+        fs::write(
+            dir.path().join("app.js.map"),
+            r#"{"version":3,"sources":["app.ts"],"sourcesContent":["console.log(1)\n"],"mappings":"AAAA","names":[]}"#,
+        )
+        .expect("failed to write sourcemap");
+
+        let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+            .include(vec![])
+            .expect("failed to build selection")
+            .exclude(vec![])
+            .expect("failed to build selection");
+        let pairs = read_pairs(selection.into_iter().filter(is_javascript_file), &None);
+
+        let before = source_content_hashes(&pairs);
+        let injected = inject_pairs(pairs, None).expect("failed to inject pairs");
+
+        // First injection appends a chunk id, so the chunk is reported as rewritten.
+        assert_eq!(rewritten_source_paths(&injected, &before).len(), 1);
+
+        // A second pass over the already injected build changes nothing, so it stays quiet.
+        let before_rerun = source_content_hashes(&injected);
+        let reinjected = inject_pairs(injected, None).expect("failed to re-inject pairs");
+        assert!(rewritten_source_paths(&reinjected, &before_rerun).is_empty());
     }
 
     #[test]

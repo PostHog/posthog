@@ -74,6 +74,32 @@ Pass `--include-source` to bundle the referenced source files for richer context
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
+## Injection rewrites your built files
+
+`posthog-cli sourcemap process` and `posthog-cli sourcemap inject` add a chunk id (and, in event release mode, a release id) to each JavaScript chunk, then write the file back in place.
+The bytes on disk change.
+Cleanup with `--delete-after` rewrites them again when it strips the `sourceMappingURL` comment.
+
+So any content hash you compute before injection no longer matches the file after it.
+This breaks a build step that pins such a hash, and it fails silently:
+
+- **Service worker manifests** — e.g. Angular's `ngsw.json`, which stores a SHA-1 for each prefetched asset. The service worker rejects the changed file and the update never installs.
+- **Subresource Integrity (SRI)** — an `integrity` attribute computed before injection stops matching, so the browser blocks the script.
+- **Deploy manifests** — any pipeline that pins an asset hash before deploying.
+
+Follow one ordering rule: **inject before you compute hashes, or regenerate the manifest after injecting.**
+
+The CLI logs which files injection rewrote, so watch for that warning.
+
+For Angular, run the source map step before the service worker manifest step:
+
+```bash
+ng build
+posthog-cli sourcemap process --directory ./dist
+# regenerate ngsw.json against the injected files
+npx ngsw-config ./dist ./ngsw-config.json
+```
+
 ## Configuring sourcemap upload concurrency
 
 Sourcemap uploads run up to 10 file uploads at a time by default. Set a different positive value with `--concurrency` on `sourcemap upload` or `sourcemap process`:
