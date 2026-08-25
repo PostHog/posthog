@@ -7131,6 +7131,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         experiment_id = create_response.json()["id"]
+        flag_id = create_response.json()["feature_flag"]["id"]
         self.client.patch(f"/api/projects/{self.team.id}/experiments/{experiment_id}/", {"description": "Updated"})
         self.client.patch(
             f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}/", {"name": "Renamed holdout"}
@@ -7138,15 +7139,21 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.client.patch(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/", {"name": "Renamed metric"}
         )
+        flag_patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", {"active": False}
+        )
+        self.assertEqual(flag_patch_response.status_code, status.HTTP_200_OK)
 
         other_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {"name": "Unrelated experiment", "feature_flag_key": "activity-endpoint-two"},
         )
         other_experiment_id = other_response.json()["id"]
+        other_flag_id = other_response.json()["feature_flag"]["id"]
         self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{other_experiment_id}/", {"description": "Unrelated update"}
         )
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{other_flag_id}/", {"active": False})
         # An unrelated shared metric whose pk collides with the experiment's id
         ActivityLog.objects.create(
             team_id=self.team.pk,
@@ -7156,6 +7163,16 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             activity="updated",
             detail={"type": "shared_metric", "name": "Colliding metric"},
         )
+        # Same ids under an unrelated scope: leaks if any clause drops its scope match
+        for colliding_item_id in (str(experiment_id), str(flag_id)):
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                organization_id=self.organization.id,
+                scope="Insight",
+                item_id=colliding_item_id,
+                activity="updated",
+                detail={"name": "Colliding insight"},
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -7163,7 +7180,11 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         item_ids = {entry["item_id"] for entry in results}
         self.assertNotIn(str(other_experiment_id), item_ids)
-        self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id)})
+        self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id), str(flag_id)})
+        flag_entries = [entry for entry in results if entry["scope"] == "FeatureFlag"]
+        self.assertEqual({entry["item_id"] for entry in flag_entries}, {str(flag_id)})
+        self.assertIn("updated", [entry["activity"] for entry in flag_entries])
+        self.assertNotIn("Colliding insight", {(entry["detail"] or {}).get("name") for entry in results})
         own_activities = [entry["activity"] for entry in results if entry["item_id"] == str(experiment_id)]
         self.assertIn("created", own_activities)
         self.assertIn("updated", own_activities)
