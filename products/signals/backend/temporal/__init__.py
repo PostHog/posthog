@@ -77,6 +77,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    InboxRankingScoringWorkflow,
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
     TeamSignalGroupingV2Workflow,
@@ -91,7 +92,6 @@ WORKFLOWS = [
     RunSignalsScoutWorkflow,
     SignalsScoutCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
-    InboxRankingScoringWorkflow,
 ]
 
 ACTIVITIES = [
