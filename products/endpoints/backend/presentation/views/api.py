@@ -46,7 +46,7 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Product
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import User
+from posthog.models import TaggedItem, User
 from posthog.permissions import (
     APIScopePermission,
     TeamMemberAccessPermission,
@@ -341,6 +341,8 @@ class EndpointViewSet(
         if isinstance(obj, EndpointVersion):
             endpoint = obj.endpoint
             version = obj
+            if hasattr(obj, "endpoint_versions_count"):
+                endpoint.versions_count = obj.endpoint_versions_count
         else:
             endpoint = obj
             version = self._current_version(endpoint)
@@ -626,7 +628,18 @@ class EndpointViewSet(
         Returns versions in descending order (latest first).
         """
         endpoint = self._get_endpoint_with_object_access(name)
-        versions_qs = self._with_materialization_job_prefetches(endpoint.versions.all())
+        versions_qs = (
+            self._with_materialization_job_prefetches(endpoint.versions.all())
+            .select_related("endpoint", "endpoint__created_by", "created_by")
+            .prefetch_related(
+                Prefetch(
+                    "endpoint__tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
+            )
+            .annotate(endpoint_versions_count=Count("endpoint__versions", distinct=True))
+        )
         page = self.paginate_queryset(versions_qs)
         if page is not None:
             results = [self._serialize(v) for v in page]
