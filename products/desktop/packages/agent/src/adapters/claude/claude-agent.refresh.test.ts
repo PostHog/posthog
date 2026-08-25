@@ -416,6 +416,69 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     await expect(refreshPromise).resolves.toEqual({ refreshed: true });
   });
 
+  it("drops a prompt whose pre-prompt await runs long enough for a refresh to start under it", async () => {
+    // The prompt path awaits ensureLocalToolsConnected (a real RPC) before it
+    // enqueues a turn, and the swap entry points refuse only once turnQueue
+    // has an entry. So a refresh started mid-await sees "no in-flight turns"
+    // and proceeds; the prompt, on the other side of the await, finds the
+    // input stream now retiring and must not push the turn into the queue,
+    // or it would strand there unsettled.
+    const { agent } = makeAgent();
+    const { session, input: oldInput } = installFakeSession(
+      agent,
+      "s-prompt-start-then-refresh",
+    );
+    let resolveStatus!: (value: unknown) => void;
+    const statusBlocked = new Promise<unknown>((resolve) => {
+      resolveStatus = resolve;
+    });
+    // Block the pre-prompt local-tools status check so the refresh can start
+    // (and reach its own init await) while the prompt is parked on the await.
+    (
+      session as unknown as { query: { mcpServerStatus: unknown } }
+    ).query.mcpServerStatus = vi.fn().mockImplementation(() => statusBlocked);
+    const pushSpy = vi.spyOn(Pushable.prototype, "push");
+    const init = deferInit();
+
+    // Fire the prompt first; it parks on the status await before enqueue.
+    const promptPromise = agent.prompt({
+      sessionId: "s-prompt-start-then-refresh",
+      prompt: [{ type: "text", text: "hello" }],
+    });
+    // Wait out a macrotask so the prompt reaches the blocked status await.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // With the prompt not yet enqueued (turnQueue is still empty), start the
+    // refresh and let it reach the init await of its own replacement query.
+    const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+
+    // Unblock the prompt's status await. On the other side, querySwap is
+    // still set, so the prompt must fail before turnQueue.push rather than
+    // strand the turn in the queue behind a retiring input stream.
+    resolveStatus([{ name: "posthog-code-tools", status: "connected" }]);
+    await expect(promptPromise).rejects.toThrow(/session has ended/i);
+
+    // The turn never reached the queue, so nothing was pushed to either
+    // stream and the refresh is free to settle on the fresh query.
+    expect((session as unknown as { turnQueue: unknown[] }).turnQueue).toEqual(
+      [],
+    );
+    expect(pushSpy).not.toHaveBeenCalled();
+
+    init.resolve({ result: "success", commands: [], models: [] });
+    await expect(refreshPromise).resolves.toEqual({ refreshed: true });
+    // Sanity: the swap really did replace the input stream the prompt was
+    // about to write into. Without the guard the prompt's push would have
+    // landed on the retired stream instead of failing.
+    expect((session as unknown as { input: Pushable<unknown> }).input).not.toBe(
+      oldInput,
+    );
+    pushSpy.mockRestore();
+  });
+
   it("closes the session when the fresh session fails to initialize", async () => {
     // A non-timeout failure (SDK subprocess crash) must get the same
     // treatment as a timeout: terminate the unproven replacement and close

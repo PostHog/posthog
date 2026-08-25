@@ -579,10 +579,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       // A /clear or refreshSession is swapping the SDK query underneath. Wait
       // for it to settle so this prompt lands on the fresh input stream, not
       // the retired one (a failed swap sets queryClosed, which the check
-      // below rejects). Single-shot: in the sliver between this await
-      // resolving and the push below, a new swap could theoretically start;
-      // both swap entry points refuse while a swap is pending, so the window
-      // is unobservable in practice.
+      // below rejects). Not the last gate: the awaits before enqueue (slash
+      // commands, pre-prompt local-tools) leave this prompt off turnQueue, so
+      // a swap can still start there and must be re-checked before enqueue.
       await this.session.querySwap;
     }
 
@@ -656,6 +655,22 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       turn.resolve = resolve;
       turn.reject = reject;
     });
+
+    if (this.session.querySwap) {
+      // A swap that started during this method's awaits (the prompt is not
+      // yet on turnQueue, so the entry-point refusals don't see it) retires
+      // the input stream; pushing the turn in now would strand it in the
+      // queue unpushed. Fail before enqueue instead. If it hadn't started
+      // retiring yet, queryClosed is still false and this throws a wrong
+      // SESSION_ENDED momentarily; the swap entry points refuse mid-prompt
+      // (activeTurn set) only after enqueue, so the collision cannot occur.
+      turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
+      return response;
+    }
+    if (this.session.queryClosed) {
+      turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
+      return response;
+    }
 
     this.session.turnQueue.push(turn);
     this.dispatchQueuedInput(this.session);
