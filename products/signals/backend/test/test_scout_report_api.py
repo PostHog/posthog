@@ -46,6 +46,8 @@ AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_repor
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
 CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
+CONNECTED_REPOS_PATH = "products.signals.backend.scout_harness.tools.report._connected_repositories"
+_CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
@@ -347,6 +349,36 @@ class TestScoutReportAPI(APIBaseTest):
         return (
             SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type).order_by("-created_at").first()
         )
+
+    @parameterized.expand(
+        [
+            ("inferred_target_follows_the_rewrite", None, "acme/gadgets"),
+            # A repo the scout named is a decision, not a reading of the prose, so a rewrite never moves it.
+            ("scout_named_target_is_not_overturned", "acme/widgets", "acme/widgets"),
+        ]
+    )
+    def test_content_rewrite_refreshes_only_an_inferred_repository(
+        self, _name: str, repository: str | None, expected: str
+    ) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
+        if repository is not None:
+            payload["repository"] = repository
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+        ):
+            created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "summary": "Actually https://github.com/acme/gadgets/pull/2"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert artefact is not None
+        assert json.loads(artefact.content)["repository"] == expected
 
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
@@ -1125,9 +1157,6 @@ def _evidence(*descriptions: str) -> list[ReportEvidence]:
     return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
 
 
-_CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
-
-
 class TestExtractLinkedRepository(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1137,6 +1166,8 @@ class TestExtractLinkedRepository(SimpleTestCase):
             ("trailing_period", "", "Fixed in https://github.com/acme/widgets.", (), "acme/widgets"),
             ("clone_url_ending_a_sentence", "", "Clone https://github.com/acme/widgets.git.", (), "acme/widgets"),
             ("from_evidence", "", "no link here", ("https://github.com/acme/widgets/blob/main/x.py",), "acme/widgets"),
+            # A report summary is markdown, so its links usually arrive labelled rather than bare.
+            ("markdown_link", "", "Broke in [PR 12](https://github.com/acme/widgets/pull/12)", (), "acme/widgets"),
             (
                 "same_repo_twice",
                 "https://github.com/acme/widgets",

@@ -706,10 +706,9 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("autostart_eligible", [True, False])
-async def test_inferred_repository_does_not_autostart(autostart_eligible):
-    # A repo inferred from the report's own text (no scout PR intent) is a target for someone who
-    # clicks Create PR, not a mandate to open one. Without this gate the reviewer-less fallback opens
-    # a draft PR against a repo nobody chose, on a report that never asked for one.
+async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
+    # The re-eval reads the flag off the persisted artefact and hands it to autostart rather than
+    # deciding for itself, so a reviewer edit arriving later still gets the whole gate applied.
     def _setup() -> tuple[Team, SignalReport]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
@@ -748,4 +747,73 @@ async def test_inferred_repository_does_not_autostart(autostart_eligible):
     with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
         await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
 
-    assert (mock_autostart.call_count == 1) is autostart_eligible
+    assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    [
+        (True, False, True),
+        (False, False, False),
+        (False, True, True),
+    ],
+)
+async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
+    repository_autostart_eligible, user_triggered, expect_task
+):
+    # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
+    # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
+    # It must still yield to a person: a later reviewer edit re-runs autostart as the editing user, and
+    # the documented contract is that the report can open a draft PR then.
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
+
+    def _setup() -> tuple[Team, SignalReport, User]:
+        organization = Organization.objects.create(name="inferred-org")
+        team = Team.objects.create(organization=organization, name="inferred-team")
+        enabler = User.objects.create(email="inferred-enabler@example.com")
+        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
+        )
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        return team, report, enabler
+
+    team, report, enabler = await sync_to_async(_setup)()
+
+    def _fake_create_and_run_task(**kwargs):
+        task = Task.objects.create(
+            team_id=team.id,
+            title=kwargs["title"],
+            description=kwargs["description"],
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(task=task, team_id=team.id)
+        return SimpleNamespace(task_id=task.id, team_id=team.id, latest_run=SimpleNamespace(id=run.id))
+
+    with (
+        patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
+        patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
+    ):
+        await maybe_autostart_implementation_task(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="owner/repo",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="Clear fix in the affected module.",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            reviewers_content=[],
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+            triggering_user_id=enabler.id if user_triggered else None,
+            repository_autostart_eligible=repository_autostart_eligible,
+        )
+
+    assert (mock_create.call_count == 1) is expect_task

@@ -172,7 +172,8 @@ It's opt-in per report via three more `emit_report` fields; supply them only whe
 Full repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
 A report that supplies none of these just surfaces in the inbox: no repo sandbox, and no PR.
 It still gets a repo target when its own text links exactly one repository the team has connected on GitHub, so someone reading it can click Create PR.
-That inferred target is for a person to act on — it never opens a PR by itself.
+That inferred target is for a person to act on — it never opens a PR by itself, and rewriting the report's title or summary to link a different connected repository moves it.
+Adding a qualifying reviewer later is a person asking for the PR, so the report can open a draft one from then on.
 Autostart itself still no-ops unless the report is `immediately_actionable`, has a repo + priority, and a reviewer qualifies — so these fields are safe to omit for an informational report.
 
 ## Choosing `suggested_reviewers` — how a report gets assigned to a human

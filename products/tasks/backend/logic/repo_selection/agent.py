@@ -202,11 +202,15 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     the team's identity with no requester to act for, and the personal-connection fallbacks would
     let one member's private repos answer for the team. Reads the cache as-is: an unattended caller
     should not make a repo check storm GitHub with refreshes.
+
+    Archived repos are dropped for the same reason `select_repository` drops them: a caller resolves
+    a repository to change code in, and an archived one accepts no change.
     """
     github = resolve_team_github_integration(team_id, team_only=True)
     if github is None:
         return []
-    return _list_candidate_repos(github, team_id, allow_refresh=False)
+    eligible = _list_eligible_full_names(github, team_id)
+    return [repo for repo in _list_candidate_repos(github, team_id, allow_refresh=False) if repo in eligible]
 
 
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
@@ -226,6 +230,9 @@ def _build_repo_selection_prompt(context_block: str, candidate_repos: list[str])
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
     schema.get("properties", {}).pop("task_id", None)
+    # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
+    # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
+    schema.get("properties", {}).pop("autostart_eligible", None)
     schema_json = json.dumps(schema, indent=2)
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 
@@ -496,6 +503,9 @@ async def select_repository(
     # Stamp the producing task onto the result (overwriting anything the LLM may have emitted)
     # so downstream persistence can attribute the selection to it.
     result.task_id = str(session.task.id)
+    # A selection this agent made is a candidate-list pick for a caller that asked for one, so it
+    # carries full autostart authority no matter what the model emitted.
+    result.autostart_eligible = True
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

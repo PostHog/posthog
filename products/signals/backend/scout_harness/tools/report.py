@@ -64,6 +64,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     remediation_for_skip,
 )
 from products.signals.backend.scout_report import (
+    INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
@@ -75,6 +76,7 @@ from products.signals.backend.scout_report import (
     record_scout_run_task_artefact,
     set_report_charts,
     set_report_suggested_prompts,
+    set_scout_report_inferred_repository,
     set_scout_report_reviewers,
     update_scout_report,
 )
@@ -527,6 +529,41 @@ def _extract_linked_repository(
     return extract_linked_repo("\n".join([title, summary, *(e.description for e in evidence)]), connected_repos)
 
 
+def _refresh_inferred_repository(*, team_id: int, report_id: str, attribution: ArtefactAttribution) -> None:
+    """Re-derive an inferred `repo_selection` from a report's rewritten title and summary.
+
+    An inferred target is a reading of the report's text, so a rewrite that moves the report onto a
+    different repository leaves it pointing somewhere the report no longer describes. Only a selection
+    this same inference wrote is re-derived; one the scout named or the selection agent chose is a
+    decision, not a reading, and a content edit does not overturn it.
+
+    New content that links nothing keeps the existing target. A repository the reader can override at
+    Create PR time costs less than clearing it, since a cleared selection reads as the scout's
+    deliberate no-repo and suppresses the cascade that would otherwise still find a target.
+    """
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection,  # noqa: PLC0415 — keeps the sandbox stack off this module's import path
+    )
+
+    selection = persisted_repo_selection(report_id)
+    if selection is None or selection.autostart_eligible or selection.repository is None:
+        return
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).values("title", "summary").first()
+    if report is None:
+        return
+    linked = extract_linked_repo(
+        "\n".join([report["title"] or "", report["summary"] or ""]), _connected_repositories(team_id)
+    )
+    if linked is None or linked == selection.repository:
+        return
+    set_scout_report_inferred_repository(
+        team_id=team_id,
+        report_id=report_id,
+        repository=linked,
+        attribution=attribution,
+    )
+
+
 async def _resolve_report_repository(
     *,
     team_id: int,
@@ -564,7 +601,7 @@ async def _resolve_report_repository(
             return None
         return RepoSelectionResult(
             repository=linked,
-            reason="Linked GitHub repository found in the report content.",
+            reason=INFERRED_REPOSITORY_REASON,
             autostart_eligible=False,
         )
 
@@ -1359,6 +1396,11 @@ def _do_edit_report(
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
     if reviewers_set:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
+    # A rewrite can move the report onto a different repository, and an inferred target is only ever a
+    # reading of that text. Outside the transaction above for the same reason autostart is: it reads
+    # the team's GitHub repo cache, which has no business holding the content write open.
+    if updated_fields:
+        _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
     charts_set = len(charts) if charts is not None and charts_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     logger.info(
