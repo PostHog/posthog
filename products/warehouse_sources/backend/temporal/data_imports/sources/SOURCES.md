@@ -619,6 +619,7 @@ the row lists both.
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
+| shipmail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shippo                           | HTTP                        | requests                                                        | ✅                          |
 | shipstation                      | HTTP                        | requests                                                        | ✅                          |
 | shopify                          | HTTP                        | requests                                                        | ✅                          |
