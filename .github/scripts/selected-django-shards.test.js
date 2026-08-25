@@ -6,10 +6,11 @@ const path = require('path')
 const { selectedShards } = require('./selected-django-shards.js')
 
 test('applies the full-matrix budget to the selected seconds of each segment', () => {
-    // Core: ceil(5000 * 1.3 / (1200 - 240)) = 7. Temporal has the larger overhead:
-    // ceil(900 * 1.3 / (1200 - 360)) = 2. POE floors at 1 despite nothing selected.
+    // Work budget per shard is (target wall - segment overhead), same as the full
+    // matrix: Core ceil(5000 / (900 - 295)) = 9, Temporal ceil(900 / (900 - 182)) = 2.
+    // POE floors at 1 despite nothing selected.
     const selection = { durations: { selected_seconds_by_segment: { core: 5000, poe: 0, temporal: 900 } } }
-    assert.deepStrictEqual(selectedShards(selection), { core: 7, poe: 1, temporal: 2 })
+    assert.deepStrictEqual(selectedShards(selection), { core: 9, poe: 1, temporal: 2 })
 })
 
 test('floors at one shard, below the full-run minimum of three', () => {

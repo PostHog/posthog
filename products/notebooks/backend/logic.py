@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from .models import Notebook, ResourceNotebook
 
