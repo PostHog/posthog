@@ -31,6 +31,10 @@ describe('feedbackViewLogic: extractValidSurveyIds', () => {
         expect(extractValidSurveyIds([surveyEvent(surveyId), surveyEvent(validId)])).toEqual([validId])
     })
 
+    it('normalizes case so the survey lookup matches', () => {
+        expect(extractValidSurveyIds([surveyEvent(validId.toUpperCase())])).toEqual([validId])
+    })
+
     it('returns nothing before the survey events load', () => {
         expect(extractValidSurveyIds(null)).toEqual([])
     })

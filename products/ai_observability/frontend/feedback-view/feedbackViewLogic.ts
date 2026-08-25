@@ -8,9 +8,10 @@ import { isUUIDLike } from 'lib/utils/guards'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { Survey, SurveyEventProperties } from '~/types'
+import { Survey } from '~/types'
 
 import { aiObservabilityTraceDataLogic } from '../aiObservabilityTraceDataLogic'
+import { getSurveyIdFromEvent } from './survey-responses/utils'
 
 export interface FeedbackViewLogicProps {
     traceId: string
@@ -30,7 +31,7 @@ export function extractValidSurveyIds(surveyEvents: LLMTraceEvent[] | null): str
     }
     const ids = new Set<string>()
     for (const event of surveyEvents) {
-        const surveyId = event.properties?.[SurveyEventProperties.SURVEY_ID]
+        const surveyId = getSurveyIdFromEvent(event)
         if (surveyId && isUUIDLike(surveyId)) {
             ids.add(surveyId)
         }
@@ -172,7 +173,12 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
         ],
     }),
     selectors({
-        surveyIds: [(s) => [s.surveyEvents], extractValidSurveyIds],
+        // Inline so kea-typegen can infer the selector; a bare function reference drops
+        // `surveyIds` from the generated values.
+        surveyIds: [
+            (s) => [s.surveyEvents],
+            (surveyEvents: LLMTraceEvent[] | null): string[] => extractValidSurveyIds(surveyEvents),
+        ],
     }),
     listeners(({ actions }) => ({
         loadSurveyEventsSuccess: () => {
