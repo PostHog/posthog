@@ -212,6 +212,7 @@ export interface accessDetailLogicActions {
             | 'account'
             | 'action'
             | 'activity_log'
+            | 'ai_gateway'
             | 'ai_observability_clusters'
             | 'alert'
             | 'annotation'
