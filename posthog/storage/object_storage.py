@@ -1,7 +1,7 @@
+import re
 import abc
 import threading
 from typing import IO, Any, Optional, Union
-from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -9,11 +9,16 @@ import structlog
 from boto3 import client
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from botocore.handlers import VALID_BUCKET
+from botocore.utils import is_valid_endpoint_url
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
+
+# Common unsubstituted deployment placeholders (e.g. `${POSTHOG_DOMAIN}`, `@@RECORDINGS_BUCKET@@`).
+_UNRENDERED_PLACEHOLDER = re.compile(r"\$\{[^}]*\}|@@[^@]*@@")
 
 
 class ObjectStorageError(Exception):
@@ -263,7 +268,9 @@ class ObjectStorage(ObjectStorageClient):
                 file_name=key,
                 error=e,
             )
-            capture_exception(e)
+            # No capture here: the caller receives ObjectStorageError, which keeps this cause via
+            # `from e` and carries more context. Capturing both sides splits one failure into two
+            # unrelated-looking issues (e.g. a placeholder bucket name reported twice).
             raise ObjectStorageError("read failed") from e
         except Exception as e:
             logger.exception(
@@ -273,7 +280,6 @@ class ObjectStorage(ObjectStorageClient):
                 error=e,
                 s3_response=s3_response,
             )
-            capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
     def tag(self, bucket: str, key: str, tags: dict[str, str]) -> None:
@@ -418,11 +424,24 @@ _client: ObjectStorageClient = UnavailableStorage()
 
 
 def is_usable_endpoint(endpoint: str | None) -> bool:
-    """A usable endpoint is a syntactically valid URL with no unsubstituted ${...} deployment placeholders."""
-    if not endpoint or "${" in endpoint:
+    """A usable endpoint has no unsubstituted deployment placeholders and is one botocore accepts.
+
+    `is_valid_endpoint_url` runs the same host check botocore applies when it builds a client, so it
+    rejects hostnames the client would refuse (e.g. a service name with an underscore). The extra
+    placeholder check catches placeholders in a URL path, which botocore does not validate.
+    """
+    if not endpoint or _UNRENDERED_PLACEHOLDER.search(endpoint):
         return False
-    parsed = urlparse(endpoint)
-    return bool(parsed.scheme and parsed.netloc)
+    return bool(is_valid_endpoint_url(endpoint))
+
+
+def is_usable_bucket(bucket: str | None) -> bool:
+    """A usable bucket name matches botocore's bucket name rules.
+
+    This also rejects unsubstituted placeholders (`${...}`, `@@...@@`), since their markers are
+    characters botocore's bucket name regex disallows.
+    """
+    return bool(bucket and VALID_BUCKET.match(bucket))
 
 
 def object_storage_client() -> ObjectStorageClient:
@@ -431,6 +450,13 @@ def object_storage_client() -> ObjectStorageClient:
     if not settings.OBJECT_STORAGE_ENABLED:
         _client = UnavailableStorage()
     elif isinstance(_client, UnavailableStorage):
+        if not is_usable_endpoint(settings.OBJECT_STORAGE_ENDPOINT):
+            # The startup system check catches this on manage.py boot, but gunicorn/ASGI workers
+            # skip it. Raise a clear domain error instead of a raw botocore ValueError; the caller
+            # captures it once (see hypercache), which avoids a duplicate report from every reader.
+            raise ObjectStorageError(
+                f"OBJECT_STORAGE_ENDPOINT is not a usable URL: {settings.OBJECT_STORAGE_ENDPOINT!r}"
+            )
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,

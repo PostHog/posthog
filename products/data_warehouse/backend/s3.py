@@ -75,7 +75,20 @@ async def aget_s3_client(*, fresh_instance: bool = False, endpoint_url: Optional
             **extra,
         )
 
-    await s3.set_session()
+    try:
+        await s3.set_session()
+    except ValueError as e:
+        # aiobotocore builds its client here, and botocore rejects endpoint hostnames it deems
+        # malformed (e.g. a container service name with an underscore) even though delta-rs — which
+        # moves the pipeline's actual data — talks to the same endpoint fine. Turn the raw botocore
+        # ValueError into one clear, self-describing error so it lands as a single, actionable issue
+        # instead of a cryptic failure deep in the import activity.
+        if "Invalid endpoint" in str(e):
+            raise ValueError(
+                "Object storage endpoint is not usable by botocore (check OBJECT_STORAGE_ENDPOINT / "
+                "AWS_ENDPOINT_URL for an unsubstituted placeholder or an invalid hostname)"
+            ) from e
+        raise
 
     if not uncached:
         yield s3

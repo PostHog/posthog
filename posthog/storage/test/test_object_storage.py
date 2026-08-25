@@ -26,6 +26,7 @@ from posthog.storage.object_storage import (
     get_presigned_post,
     get_presigned_url,
     health_check,
+    is_usable_bucket,
     is_usable_endpoint,
     list_objects,
     object_storage_client,
@@ -237,6 +238,27 @@ class TestStorage(APIBaseTest):
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
 
 
+class TestObjectStorageRead(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
+            ("other_error", ValueError("Invalid endpoint")),
+        ]
+    )
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_read_object_does_not_capture_so_the_caller_reports_once(self, _name, error, patched_capture) -> None:
+        mock_client = MagicMock()
+        mock_client.get_object.side_effect = error
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.read_object("test-bucket", "test-key")
+
+        # The caller (e.g. hypercache) captures the ObjectStorageError; a second capture here would
+        # split one failure into two unrelated-looking error-tracking issues.
+        patched_capture.assert_not_called()
+
+
 class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
         object_storage_module._client = UnavailableStorage()
@@ -248,6 +270,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
             ("valid_https", "https://s3.amazonaws.com", True),
             ("unsubstituted_placeholder", "https://${POSTHOG_DOMAIN}", False),
             ("placeholder_in_path", "https://example.com/${BUCKET}", False),
+            ("at_placeholder", "http://@@RECORDINGS_ENDPOINT@@:19000", False),
+            ("underscore_hostname", "http://posthog_objectstorage:19000", False),
             ("missing_scheme", "objectstorage:19000", False),
             ("empty", "", False),
             ("none", None, False),
@@ -255,6 +279,30 @@ class TestObjectStorageClientFactory(SimpleTestCase):
     )
     def test_is_usable_endpoint(self, _name: str, endpoint: str | None, expected: bool) -> None:
         assert is_usable_endpoint(endpoint) is expected
+
+    @parameterized.expand(
+        [
+            ("valid", "posthog", True),
+            ("valid_with_underscore", "posthog_bucket", True),
+            ("unsubstituted_placeholder", "${RECORDINGS_BUCKET}", False),
+            ("at_placeholder", "@@RECORDINGS_BUCKET@@", False),
+            ("empty", "", False),
+            ("none", None, False),
+        ]
+    )
+    def test_is_usable_bucket(self, _name: str, bucket: str | None, expected: bool) -> None:
+        assert is_usable_bucket(bucket) is expected
+
+    @patch("posthog.storage.object_storage.client")
+    def test_unusable_primary_endpoint_raises_before_building_client(self, patched_client) -> None:
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://posthog_objectstorage:19000",
+        ):
+            with self.assertRaises(ObjectStorageError):
+                object_storage_client()
+
+        patched_client.assert_not_called()
 
     @patch("posthog.storage.object_storage.capture_exception")
     @patch("posthog.storage.object_storage.client")
