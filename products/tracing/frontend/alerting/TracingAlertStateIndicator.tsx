@@ -5,13 +5,15 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { LogsAlertConfigurationStateEnumApi as TracingAlertConfigurationStateEnumApi } from 'products/tracing/frontend/generated/api.schemas'
 
-const STATE_CONFIG: Record<TracingAlertConfigurationStateEnumApi, { label: string; type: LemonTagType }> = {
-    [TracingAlertConfigurationStateEnumApi.NotFiring]: { label: 'OK', type: 'success' },
-    [TracingAlertConfigurationStateEnumApi.Firing]: { label: 'Firing', type: 'danger' },
-    [TracingAlertConfigurationStateEnumApi.PendingResolve]: { label: 'Resolving', type: 'warning' },
-    [TracingAlertConfigurationStateEnumApi.Errored]: { label: 'Errored', type: 'danger' },
-    [TracingAlertConfigurationStateEnumApi.Snoozed]: { label: 'Snoozed', type: 'muted' },
-    [TracingAlertConfigurationStateEnumApi.Broken]: { label: 'Broken', type: 'danger' },
+import { TRACING_ALERT_STATE_LABELS } from './tracingAlertUtils'
+
+const STATE_TAG_TYPE: Record<TracingAlertConfigurationStateEnumApi, LemonTagType> = {
+    [TracingAlertConfigurationStateEnumApi.NotFiring]: 'success',
+    [TracingAlertConfigurationStateEnumApi.Firing]: 'danger',
+    [TracingAlertConfigurationStateEnumApi.PendingResolve]: 'warning',
+    [TracingAlertConfigurationStateEnumApi.Errored]: 'danger',
+    [TracingAlertConfigurationStateEnumApi.Snoozed]: 'muted',
+    [TracingAlertConfigurationStateEnumApi.Broken]: 'danger',
 }
 
 const STATES_WITH_ERROR_TOOLTIP = new Set<TracingAlertConfigurationStateEnumApi>([
@@ -46,10 +48,11 @@ export function TracingAlertStateIndicator({
             </LemonTag>
         )
     }
-    const config = STATE_CONFIG[state] ?? { label: state, type: 'default' as LemonTagType }
+    const label = TRACING_ALERT_STATE_LABELS[state] ?? state
+    const type = STATE_TAG_TYPE[state] ?? ('default' as LemonTagType)
     const tag = (
-        <LemonTag type={config.type} data-attr={`tracing-alert-state-${state}`}>
-            {config.label}
+        <LemonTag type={type} data-attr={`tracing-alert-state-${state}`}>
+            {label}
         </LemonTag>
     )
     if (lastErrorMessage && STATES_WITH_ERROR_TOOLTIP.has(state)) {

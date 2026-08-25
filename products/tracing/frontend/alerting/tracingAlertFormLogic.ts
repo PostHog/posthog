@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 
@@ -126,8 +126,6 @@ export const tracingAlertFormLogic = kea<tracingAlertFormLogicType>([
         values: [teamLogic, ['currentTeamId']],
         actions: [tracingAlertingLogic, ['loadAlerts']],
     })),
-
-    reducers({}),
 
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: TracingAlertConfigurationApi | null) => alert !== null],

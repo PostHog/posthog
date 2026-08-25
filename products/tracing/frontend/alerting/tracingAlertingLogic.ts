@@ -136,91 +136,82 @@ export const tracingAlertingLogic = kea<tracingAlertingLogicType>([
         ],
     })),
 
-    listeners(({ actions, values }) => ({
-        setCreatedByFilter: () => actions.loadAlerts(),
-        deleteAlert: async ({ id, onSuccess }) => {
+    listeners(({ actions, values }) => {
+        const updateSnooze = async (
+            alertId: string,
+            snoozeUntil: string | null,
+            { successMessage, errorMessage }: { successMessage?: string; errorMessage: string }
+        ): Promise<void> => {
             const projectId = String(values.currentTeamId)
-            try {
-                await tracingAlertsDestroy(projectId, id)
-                lemonToast.success('Alert deleted')
-                actions.loadAlerts()
-                onSuccess?.()
-            } catch {
-                lemonToast.error('Failed to delete alert')
-            }
-        },
-        toggleAlertEnabled: async ({ alert }) => {
-            const projectId = String(values.currentTeamId)
-            const update: PatchedTracingAlertConfigurationApi = { enabled: !(alert.enabled ?? true) }
-            if (!update.enabled) {
-                update.snooze_until = null
-            }
-            try {
-                const updatedAlert = await tracingAlertsPartialUpdate(projectId, alert.id, update)
-                actions.updateEditingAlert(updatedAlert)
-                actions.loadAlerts()
-            } catch {
-                lemonToast.error('Failed to update alert')
-            }
-        },
-        resetAlert: async ({ id }) => {
-            const projectId = String(values.currentTeamId)
-            actions.setResettingAlertId(id, true)
-            try {
-                await tracingAlertsResetCreate(projectId, id)
-                lemonToast.success('Alert reset — next check will run shortly.')
-                actions.loadAlerts()
-            } catch {
-                lemonToast.error('Failed to reset alert')
-            } finally {
-                actions.setResettingAlertId(id, false)
-            }
-        },
-        snoozeAlert: async ({ alertId, durationMinutes }) => {
-            const projectId = String(values.currentTeamId)
-            const snoozeUntil = dayjs().add(durationMinutes, 'minute').toISOString()
             actions.setSnoozingAlertId(alertId, true)
             try {
                 const updatedAlert = await tracingAlertsPartialUpdate(projectId, alertId, { snooze_until: snoozeUntil })
                 actions.updateEditingAlert(updatedAlert)
-                lemonToast.success('Alert snoozed')
+                if (successMessage) {
+                    lemonToast.success(successMessage)
+                }
                 actions.loadAlerts()
             } catch {
-                lemonToast.error('Failed to snooze alert')
+                lemonToast.error(errorMessage)
             } finally {
                 actions.setSnoozingAlertId(alertId, false)
             }
-        },
-        snoozeAlertUntil: async ({ alertId, snoozeUntil }) => {
-            const projectId = String(values.currentTeamId)
-            actions.setSnoozingAlertId(alertId, true)
-            try {
-                const updatedAlert = await tracingAlertsPartialUpdate(projectId, alertId, {
-                    snooze_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                actions.updateEditingAlert(updatedAlert)
-                actions.loadAlerts()
-            } catch {
-                lemonToast.error('Failed to snooze alert')
-            } finally {
-                actions.setSnoozingAlertId(alertId, false)
-            }
-        },
-        unsnoozeAlert: async ({ alertId }) => {
-            const projectId = String(values.currentTeamId)
-            actions.setSnoozingAlertId(alertId, true)
-            try {
-                const updatedAlert = await tracingAlertsPartialUpdate(projectId, alertId, { snooze_until: null })
-                actions.updateEditingAlert(updatedAlert)
-                lemonToast.success('Alert unsnoozed')
-                actions.loadAlerts()
-            } catch {
-                lemonToast.error('Failed to unsnooze alert')
-            } finally {
-                actions.setSnoozingAlertId(alertId, false)
-            }
-        },
-    })),
+        }
+
+        return {
+            setCreatedByFilter: () => actions.loadAlerts(),
+            deleteAlert: async ({ id, onSuccess }) => {
+                const projectId = String(values.currentTeamId)
+                try {
+                    await tracingAlertsDestroy(projectId, id)
+                    lemonToast.success('Alert deleted')
+                    actions.loadAlerts()
+                    onSuccess?.()
+                } catch {
+                    lemonToast.error('Failed to delete alert')
+                }
+            },
+            toggleAlertEnabled: async ({ alert }) => {
+                const projectId = String(values.currentTeamId)
+                const update: PatchedTracingAlertConfigurationApi = { enabled: !(alert.enabled ?? true) }
+                if (!update.enabled) {
+                    update.snooze_until = null
+                }
+                try {
+                    const updatedAlert = await tracingAlertsPartialUpdate(projectId, alert.id, update)
+                    actions.updateEditingAlert(updatedAlert)
+                    actions.loadAlerts()
+                } catch {
+                    lemonToast.error('Failed to update alert')
+                }
+            },
+            resetAlert: async ({ id }) => {
+                const projectId = String(values.currentTeamId)
+                actions.setResettingAlertId(id, true)
+                try {
+                    await tracingAlertsResetCreate(projectId, id)
+                    lemonToast.success('Alert reset — next check will run shortly.')
+                    actions.loadAlerts()
+                } catch {
+                    lemonToast.error('Failed to reset alert')
+                } finally {
+                    actions.setResettingAlertId(id, false)
+                }
+            },
+            snoozeAlert: ({ alertId, durationMinutes }) =>
+                updateSnooze(alertId, dayjs().add(durationMinutes, 'minute').toISOString(), {
+                    successMessage: 'Alert snoozed',
+                    errorMessage: 'Failed to snooze alert',
+                }),
+            snoozeAlertUntil: ({ alertId, snoozeUntil }) =>
+                updateSnooze(alertId, resolveSnoozeUntil(snoozeUntil), { errorMessage: 'Failed to snooze alert' }),
+            unsnoozeAlert: ({ alertId }) =>
+                updateSnooze(alertId, null, {
+                    successMessage: 'Alert unsnoozed',
+                    errorMessage: 'Failed to unsnooze alert',
+                }),
+        }
+    }),
 
     subscriptions(({ actions }) => ({
         currentTeamId: (currentTeamId, previousTeamId) => {

@@ -11,6 +11,8 @@ import {
     TracingAlertStateIntervalApi,
 } from 'products/tracing/frontend/generated/api.schemas'
 
+import { TRACING_ALERT_STATE_LABELS } from './tracingAlertUtils'
+
 // Snap the hairline to the nearest state-transition boundary when the cursor is within
 // this many pixels — users care about "when did it change" far more than arbitrary mid-
 // interval timestamps.
@@ -24,15 +26,6 @@ const MIN_INTERVAL_PX = 2
 
 const PX_PER_AXIS_LABEL = 64
 const AXIS_HOUR_STEPS = [1, 2, 3, 4, 6, 8, 12] as const
-
-const STATE_LABELS: Record<TracingAlertConfigurationStateEnumApi, string> = {
-    [TracingAlertConfigurationStateEnumApi.NotFiring]: 'OK',
-    [TracingAlertConfigurationStateEnumApi.Firing]: 'Firing',
-    [TracingAlertConfigurationStateEnumApi.PendingResolve]: 'Resolving',
-    [TracingAlertConfigurationStateEnumApi.Errored]: 'Errored',
-    [TracingAlertConfigurationStateEnumApi.Snoozed]: 'Snoozed',
-    [TracingAlertConfigurationStateEnumApi.Broken]: 'Broken',
-}
 
 const STATE_BG: Record<TracingAlertConfigurationStateEnumApi, string> = {
     [TracingAlertConfigurationStateEnumApi.NotFiring]: 'bg-success',
@@ -54,7 +47,7 @@ function labelForInterval(state: TracingAlertConfigurationStateEnumApi, enabled:
     if (!enabled) {
         return 'Disabled'
     }
-    return STATE_LABELS[state] ?? state
+    return TRACING_ALERT_STATE_LABELS[state] ?? state
 }
 
 interface HoverState {

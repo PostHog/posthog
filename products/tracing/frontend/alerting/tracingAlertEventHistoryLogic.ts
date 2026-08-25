@@ -72,11 +72,7 @@ export const tracingAlertEventHistoryLogic = kea<tracingAlertEventHistoryLogicTy
                     if (!res.ok) {
                         throw new Error(`Failed to load more events: ${res.status} ${res.statusText}`)
                     }
-                    const data = (await res.json()) as {
-                        results?: TracingAlertEventApi[]
-                        next?: string | null
-                        count?: number
-                    }
+                    const data = (await res.json()) as Partial<EventsPage>
                     return {
                         results: [...values.eventsPage.results, ...(data.results ?? [])],
                         next: data.next ?? null,

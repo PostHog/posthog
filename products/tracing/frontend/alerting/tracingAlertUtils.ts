@@ -1,5 +1,18 @@
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { LogsAlertConfigurationStateEnumApi as TracingAlertConfigurationStateEnumApi } from 'products/tracing/frontend/generated/api.schemas'
+
+// Shared by TracingAlertStateIndicator (tag label) and TracingAlertStateTimeline
+// (timeline segment label) so the two surfaces never drift apart on wording.
+export const TRACING_ALERT_STATE_LABELS: Record<TracingAlertConfigurationStateEnumApi, string> = {
+    [TracingAlertConfigurationStateEnumApi.NotFiring]: 'OK',
+    [TracingAlertConfigurationStateEnumApi.Firing]: 'Firing',
+    [TracingAlertConfigurationStateEnumApi.PendingResolve]: 'Resolving',
+    [TracingAlertConfigurationStateEnumApi.Errored]: 'Errored',
+    [TracingAlertConfigurationStateEnumApi.Snoozed]: 'Snoozed',
+    [TracingAlertConfigurationStateEnumApi.Broken]: 'Broken',
+}
+
 export const SNOOZE_DURATIONS = [
     { label: '30 minutes', minutes: 30 },
     { label: '1 hour', minutes: 60 },
