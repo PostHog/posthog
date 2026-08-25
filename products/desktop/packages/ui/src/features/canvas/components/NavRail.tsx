@@ -248,7 +248,11 @@ export function NavRail() {
           if (usesNotificationDot) {
             badge =
               destinationCount > 0 ? (
-                <span className={NOTIFICATION_DOT_CLASS} aria-hidden />
+                <span
+                  data-slot="dot"
+                  className={NOTIFICATION_DOT_CLASS}
+                  aria-hidden
+                />
               ) : null;
           } else {
             badge = (
