@@ -488,7 +488,8 @@ function evaluateRobotsPolicy(
                 if (!/^\d+(?:\.\d+)?$/.test(value)) {
                     return []
                 }
-                const milliseconds = Number(value) * 1000
+                // Round before the safe-integer guard, because 16.1 * 1000 is 16100.000000000002 and the guard would then discard a delay that README 7.9 accepts.
+                const milliseconds = Math.round(Number(value) * 1000)
                 return Number.isSafeInteger(milliseconds) ? [milliseconds] : []
             })
     )
@@ -615,10 +616,13 @@ export function responseOptOutReason(
 function xRobotsTagRefuses(value: string): boolean {
     const lower = value.toLowerCase()
     const colon = lower.indexOf(':')
-    const directives = colon >= 0 ? lower.slice(colon + 1) : lower
-    if (colon >= 0 && lower.slice(0, colon).trim() !== BOT_NAME.toLowerCase()) {
+    // `unavailable_after` also carries a colon, so the text before the first colon is a bot scope only when it is one comma-free token. If it were not, `noai, unavailable_after: <date>` would read as another bot's scope and README 2.6 would lose the opt-out.
+    const prefix = colon >= 0 ? lower.slice(0, colon).trim() : undefined
+    const scoped = prefix !== undefined && !prefix.includes(',')
+    if (scoped && prefix !== BOT_NAME.toLowerCase()) {
         return false
     }
+    const directives = scoped ? lower.slice(colon + 1) : lower
     return directives.split(',').some((directive) => ['noai', 'noimageai'].includes(directive.trim()))
 }
 
