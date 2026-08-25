@@ -21,6 +21,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
@@ -113,6 +114,7 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
+        cohortMembershipRepository: CohortMembershipRepository,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService
     ) {
@@ -142,8 +144,8 @@ export class HogFlowExecutorService {
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
-            conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
+            wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
