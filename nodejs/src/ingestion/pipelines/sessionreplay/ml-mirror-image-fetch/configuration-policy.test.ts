@@ -338,6 +338,14 @@ describe('HttpConfigurationFetcher', () => {
         })
     })
 
+    it('treats invalid UTF-8 configuration text as unreachable', async () => {
+        fetchStreamedMock.mockResolvedValue(
+            response(200, [], { bytes: Buffer.from([0x75, 0x73, 0x65, 0x72, 0xff]), overLimit: false })
+        )
+
+        await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome: 'unreachable' })
+    })
+
     it('treats an oversized or invalid TDMRep document as unreachable', async () => {
         fetchStreamedMock
             .mockResolvedValueOnce(response(200, [], { bytes: Buffer.from('[]'), overLimit: true }))
