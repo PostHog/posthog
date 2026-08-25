@@ -40565,6 +40565,32 @@ export namespace Schemas {
     }
 
     /**
+     * * `minute` - minute
+     * * `hour` - hour
+     */
+    export type PeriodEnum = typeof PeriodEnum[keyof typeof PeriodEnum];
+
+
+    export const PeriodEnum = {
+      Minute: 'minute',
+      Hour: 'hour',
+    } as const;
+
+    export interface HogFlowEmailSendingRateLimit {
+      /**
+         * Maximum number of emails this workflow sends per period.
+         * @minimum 1
+         * @maximum 1000000
+         */
+      count: number;
+      /** Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.
+       *
+       * * `minute` - minute
+       * * `hour` - hour */
+      period: PeriodEnum;
+    }
+
+    /**
      * * `continue` - continue
      * * `branch` - branch
      */
@@ -40775,6 +40801,8 @@ export namespace Schemas {
        * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
        * * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
       /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
       edges?: HogFlowEdge[];
       /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
@@ -40947,6 +40975,7 @@ export namespace Schemas {
       readonly trigger_masking: unknown;
       readonly conversion: unknown;
       readonly exit_condition: ExitConditionEnum;
+      readonly email_sending_rate_limit: unknown;
       readonly edges: unknown;
       readonly actions: unknown;
       /** @nullable */
@@ -44862,6 +44891,16 @@ export namespace Schemas {
       line_refs: string;
     }
 
+    /**
+     * * `60` - 60
+     */
+    export type IntervalMinutesEnum = typeof IntervalMinutesEnum[keyof typeof IntervalMinutesEnum];
+
+
+    export const IntervalMinutesEnum = {
+      Number60: 60,
+    } as const;
+
     export interface InterviewInviteResult {
       /** The original identifier (email or distinct ID) from the topic targeting. */
       interviewee_identifier: string;
@@ -46872,6 +46911,67 @@ export namespace Schemas {
       estimated_reduction_pct: number;
       /** Human-readable caveats for the estimate. */
       notes: string;
+    }
+
+    export interface LogsSeriesBandBucket {
+      /** Start of the display bucket (UTC). */
+      time: string;
+      /** Log count observed in this bucket. */
+      observed: number;
+      /**
+         * Lower edge of the expected band. Null while the series has too little history to band.
+         * @nullable
+         */
+      lower: number | null;
+      /**
+         * Upper edge of the expected band. Null while the series has too little history to band.
+         * @nullable
+         */
+      upper: number | null;
+    }
+
+    export interface LogsSeriesBandSeries {
+      /** Namespace of the emitting resource; empty when the logs carry none. */
+      namespace: string;
+      /** Deployment environment of the emitting resource; empty when the logs carry none. */
+      environment: string;
+      /** Lowercased log severity of this series (for example info, error). */
+      severity: string;
+      /** Total observed log count over the window. Series are ordered by this, descending. */
+      total_count: number;
+      /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+      baseline_weeks: number;
+      /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+      buckets: LogsSeriesBandBucket[];
+    }
+
+    export interface LogsSeriesBandsError {
+      /** Human readable description of why the series could not be charted. */
+      error: string;
+    }
+
+    export interface LogsSeriesBandsRequest {
+      /** Service whose per-series volume to chart (the log record's service_name). */
+      serviceName: string;
+      /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+       *
+       * * `60` - 60 */
+      intervalMinutes?: IntervalMinutesEnum;
+    }
+
+    export interface LogsSeriesBandsResponse {
+      /** Service the series belong to. */
+      service_name: string;
+      /** Start of the observed window (UTC, inclusive). */
+      window_start: string;
+      /** End of the observed window (UTC, exclusive). */
+      window_end: string;
+      /** Display grain of the buckets, in minutes. */
+      interval_minutes: number;
+      /** True when the service has more series than the response carries; the quietest were dropped. */
+      series_truncated: boolean;
+      /** One entry per (namespace, environment, severity) series, ordered by observed volume descending. */
+      series: LogsSeriesBandSeries[];
     }
 
     /**
@@ -60404,6 +60504,8 @@ export namespace Schemas {
        * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
        * * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
+      /** Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead of failing. Null disables pacing. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
       /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
       edges?: HogFlowEdge[];
       /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
