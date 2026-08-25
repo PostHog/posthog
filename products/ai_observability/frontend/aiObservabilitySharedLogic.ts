@@ -526,13 +526,15 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                     // starting before it. An unresolvable start ('all', or nothing at all) has no
                     // lower bound, which reaches earlier than any window.
                     //
-                    // Both sides are anchored to the start of a day, because `dateStringToDayJs`
-                    // already anchors day-and-larger units there. Comparing that against an
-                    // instantaneous `now - windowDays` would put a range of exactly the window's
-                    // length, '-30d' against 30 days, up to a day outside its own window.
+                    // Both sides are anchored to UTC's start of day, where `dateStringToDayJs`
+                    // anchors day-and-larger units, so a range of exactly the window's length,
+                    // '-30d' against 30 days, stays inside its own window whatever the browser's
+                    // timezone. Instants are compared directly because dayjs's timezone plugin
+                    // re-reads a `.tz()`-derived value through the browser's wall clock inside
+                    // `isBefore`, moving it by the local offset.
                     const rangeStart = dateStringToDayJs(dateFilter.dateFrom)
-                    const windowStart = dayjs().subtract(windowDays, 'day').startOf('day')
-                    return rangeStart !== null && !rangeStart.isBefore(windowStart)
+                    const windowStart = dayjs.utc().subtract(windowDays, 'day').startOf('day')
+                    return rangeStart !== null && rangeStart.valueOf() >= windowStart.valueOf()
                 }
             },
         ],

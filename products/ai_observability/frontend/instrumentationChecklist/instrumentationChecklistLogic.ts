@@ -92,8 +92,12 @@ export interface instrumentationChecklistLogicMeta {
             checklistLoading: boolean,
             pendingCheckKey: AIObservabilityInstrumentationCheckEnumApi | null
         ) => boolean
-        checklistCardState: (checks: InstrumentationCheckApi[]) => InstrumentationChecklistCardState
+        checklistCardState: (
+            checklistEnabled: boolean,
+            checks: InstrumentationCheckApi[]
+        ) => InstrumentationChecklistCardState
         warningForCheck: (
+            checklistEnabled: boolean,
             checks: InstrumentationCheckApi[]
         ) => (key: AIObservabilityInstrumentationCheckEnumApi) => InstrumentationCheckApi | null
         refreshFailed: (checklist: InstrumentationChecklistApi | null, lastLoadFailed: boolean) => boolean
@@ -111,11 +115,10 @@ export type instrumentationChecklistLogicType = MakeLogicType<
  * Owns the project's instrumentation checklist: the dashboard card, the tab empty-state
  * overrides and the trace-detail note all read their verdict from here.
  *
- * Every failure mode collapses to the same shape, because `checklist` stays null, which
- * leaves `checks` empty, `checklistCardState` at 'hidden' and `warningForCheck` returning
- * null. A consumer therefore needs one branch for "no checklist", whether the flag is off,
- * the request failed, or nothing has loaded yet. Nothing here ever accuses a project of
- * missing instrumentation on data it could not read.
+ * Every failure mode collapses to the same shape: `checklistCardState` sits at 'hidden' and
+ * `warningForCheck` returns null, whether the flag is off, the request failed, or nothing has
+ * loaded yet. A consumer therefore needs one branch for "no checklist", and nothing here ever
+ * accuses a project of missing instrumentation on data it could not read.
  *
  * Both write endpoints return the whole recomputed checklist, so a dismissal or a restore
  * installs its own response rather than triggering a second read.
@@ -187,9 +190,9 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
                 checklistLoading || pendingCheckKey !== null,
         ],
         checklistCardState: [
-            (s) => [s.checks],
-            (checks: InstrumentationCheckApi[]): InstrumentationChecklistCardState => {
-                if (checks.length === 0) {
+            (s) => [s.checklistEnabled, s.checks],
+            (checklistEnabled: boolean, checks: InstrumentationCheckApi[]): InstrumentationChecklistCardState => {
+                if (!checklistEnabled || checks.length === 0) {
                     return 'hidden'
                 }
                 if (checks.some((check) => check.status === InstrumentationCheckStatusEnumApi.Warning)) {
@@ -206,10 +209,14 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
             },
         ],
         warningForCheck: [
-            (s) => [s.checks],
+            (s) => [s.checklistEnabled, s.checks],
             (
+                checklistEnabled: boolean,
                 checks: InstrumentationCheckApi[]
             ): ((key: AIObservabilityInstrumentationCheckEnumApi) => InstrumentationCheckApi | null) => {
+                if (!checklistEnabled) {
+                    return () => null
+                }
                 return (key: AIObservabilityInstrumentationCheckEnumApi) =>
                     checks.find(
                         (check) => check.key === key && check.status === InstrumentationCheckStatusEnumApi.Warning

@@ -245,6 +245,28 @@ describe('instrumentationChecklistLogic', () => {
         expect(logic.values.checklistCardState).toBe(expected)
     })
 
+    // A stopped rollout has to take the card and the empty-state overrides with it, including in
+    // tabs that are already open and on the load where localStorage replays the old flag set.
+    it('takes a loaded checklist back off screen when the flag goes off', async () => {
+        mockRetrieve.mockResolvedValue(
+            buildChecklist(
+                InstrumentationCheckStatusEnumApi.Warning,
+                InstrumentationCheckStatusEnumApi.Ok,
+                InstrumentationCheckStatusEnumApi.Ok,
+                InstrumentationCheckStatusEnumApi.Ok
+            )
+        )
+        logic = instrumentationChecklistLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadInstrumentationChecklistSuccess'])
+        expect(logic.values.checklistCardState).toBe('warnings')
+
+        setFlag(false)
+
+        expect(logic.values.checklistCardState).toBe('hidden')
+        expect(logic.values.warningForCheck(AIObservabilityInstrumentationCheckEnumApi.Sessions)).toBeNull()
+    })
+
     it('only offers a check to an empty state when that check is warning', async () => {
         mockRetrieve.mockResolvedValue(
             buildChecklist(
