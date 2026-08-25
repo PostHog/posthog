@@ -665,6 +665,12 @@ export interface SignalReport {
   implementation_pr_merged?: boolean;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
+  /**
+   * Follow-up questions the report's author suggests asking about it, in written
+   * order (up to three). The Ask AI starter offers them; selecting one fills the
+   * composer without sending it.
+   */
+  suggested_prompts?: string[];
   /** The report's PR refund, when one exists (one refund per report, ever). */
   refund?: SignalReportRefund | null;
   /** Marks reports that were never billable ("Free"), so there is nothing to refund. */

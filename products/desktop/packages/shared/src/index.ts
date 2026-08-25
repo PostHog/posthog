@@ -214,7 +214,10 @@ export {
   type ParsedImageDataUrl,
   parseImageDataUrl,
 } from "./image";
-export { buildDiscussReportPrompt } from "./inbox-prompts";
+export {
+  buildDiscussReportPrompt,
+  normalizeSuggestedPrompts,
+} from "./inbox-prompts";
 export type {
   AvailableSuggestedReviewer,
   ExternalInboxSource,

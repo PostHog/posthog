@@ -653,6 +653,7 @@ export default function ReportDetailScreen() {
         visible={discussOpen}
         reportId={report.id}
         reportTitle={report.title}
+        suggestedPrompts={report.suggested_prompts}
         onClose={() => setDiscussOpen(false)}
         onSubmit={handleDiscussSubmit}
       />

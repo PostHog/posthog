@@ -12,6 +12,7 @@ import {
   textToContent,
 } from "@posthog/core/message-editor/content";
 import { Button, Spinner, Textarea } from "@posthog/quill";
+import { normalizeSuggestedPrompts } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useDiscussReport } from "@posthog/ui/features/inbox/hooks/useDiscussReport";
@@ -315,6 +316,23 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     [isDiscussing, discussReport, fireAction],
   );
 
+  // Fills the composer and stops. The reader still presses Start chat, so a
+  // mis-click costs nothing and a near-right question can be edited before it
+  // spends a run. The suggestion text never reaches analytics — only submit
+  // fires an event, and it records that a question was asked, not its text.
+  const fillSuggestion = useCallback(
+    (text: string) => {
+      if (isDiscussing) return;
+      setStarterDraft(report.id, text);
+    },
+    [isDiscussing, setStarterDraft, report.id],
+  );
+
+  // The report author's own follow-up questions, when present. They replace the
+  // fixed starter actions rather than sit beside them, so the reader sees the
+  // questions worth asking about this report first.
+  const suggestedPrompts = normalizeSuggestedPrompts(report.suggested_prompts);
+
   const starterPrompts = [
     {
       label: "Fix this issue",
@@ -346,24 +364,44 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
           The agent joins with the full report and its evidence already in
           context. Highlight any part of the report to quote it here.
         </span>
-        <div className="mt-2 grid gap-2">
-          {starterPrompts.map(({ label, prompt, Icon, variant }) => (
-            <Button
-              key={label}
-              type="button"
-              variant={variant}
-              className="h-10 justify-start rounded-lg px-4 text-[13px]"
-              // Once the composer holds a typed draft or a quoted passage, the
-              // one-click chips step aside — firing a chip must not silently
-              // discard what the user wrote or highlighted.
-              disabled={isDiscussing || starterDraft.trim().length > 0}
-              onClick={() => ask(prompt)}
-            >
-              <Icon size={16} />
-              {label}
-            </Button>
-          ))}
-        </div>
+        {suggestedPrompts.length > 0 ? (
+          <div className="mt-2 flex flex-col gap-2">
+            <span className="font-medium text-[12px] text-gray-10">
+              Suggested questions
+            </span>
+            {suggestedPrompts.map((suggestion) => (
+              <Button
+                key={suggestion}
+                type="button"
+                variant="outline"
+                className="h-auto min-h-10 justify-start whitespace-normal rounded-lg px-4 py-2 text-left text-[13px]"
+                disabled={isDiscussing}
+                onClick={() => fillSuggestion(suggestion)}
+              >
+                {suggestion}
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-2 grid gap-2">
+            {starterPrompts.map(({ label, prompt, Icon, variant }) => (
+              <Button
+                key={label}
+                type="button"
+                variant={variant}
+                className="h-10 justify-start rounded-lg px-4 text-[13px]"
+                // Once the composer holds a typed draft or a quoted passage, the
+                // one-click chips step aside — firing a chip must not silently
+                // discard what the user wrote or highlighted.
+                disabled={isDiscussing || starterDraft.trim().length > 0}
+                onClick={() => ask(prompt)}
+              >
+                <Icon size={16} />
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
       <form
         className="flex flex-col gap-2"

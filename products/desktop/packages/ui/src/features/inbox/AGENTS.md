@@ -110,6 +110,15 @@ The shared renderer type for the report is `SignalReport` in `packages/shared/sr
 
 Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
 
+Suggested questions: `SignalReport.suggested_prompts` carries up to three
+scout-authored follow-up questions. The Ask AI starter (`ReportChatStarter` in
+`components/ReportChatSidebar.tsx`) and the mobile discussion sheet
+(`DiscussReportSheet`) offer them above the composer; selecting one fills the
+composer without starting a run. `normalizeSuggestedPrompts` (in
+`@posthog/shared`) trims, drops empties, and caps at three. Reports with no
+suggestions keep the fixed starter actions. Only submitting fires an analytics
+event, and it records that a question was asked, never the text.
+
 PR refunds: `POST /api/projects/{teamId}/signals/reports/{id}/refund/` refunds a billed PR and archives the report (`PostHogAPIClient.refundSignalReport`). The action is gated behind the `signals-pr-refunds` flag (`SIGNALS_PR_REFUNDS_FLAG`) and `@posthog/core/inbox/refundEligibility`'s `computeRefundEligibility` (shared with the mobile host), which reads `implementation_pr_url`, `refund` (one `SignalReportRefund` per report, ever), `billing_exempt_reason`, and the backend-owned `refund_ineligibility_reason`. The server enforces the same rules, so the gate is display-only; `ReportRefundAction` shows nothing when the report is ineligible.
 
 Card headlines are derived client-side from `summary` by `utils/reportPresentation.ts`; there is no backend headline field.
