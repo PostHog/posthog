@@ -32,6 +32,8 @@ export type WithAgentNote<T = unknown> = T extends readonly (infer U)[]
     ? { results: U[]; _agentNote: string }
     : T & { _agentNote: string }
 
+export const AGENT_NOTE_KEY = '_agentNote'
+
 /** Adds `_agentNote` to a result. Wraps raw arrays in `{ results, _agentNote }` (see type above). */
 export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {
     if (Array.isArray(result)) {

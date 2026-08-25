@@ -4,6 +4,7 @@ import { getDiscoveryHint } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
+import { AGENT_NOTE_KEY } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
@@ -201,6 +202,16 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
         if (discoveryHint) {
             text = `${text}\n\n${discoveryHint}`
+        }
+    }
+
+    // A formatted table or the structuredContent pointer replaces the serialized result in the
+    // text channel, which is where `_agentNote` would otherwise have reached the model. Re-attach
+    // it as a footer so point-of-use guidance survives both.
+    if (!isStringResult && !useJson && (formattedResults !== undefined || structuredContentOnly)) {
+        const agentNote = (handlerResult as Record<string, unknown> | null | undefined)?.[AGENT_NOTE_KEY]
+        if (typeof agentNote === 'string' && agentNote.length > 0) {
+            text = `${text}\n\n${agentNote}`
         }
     }
 

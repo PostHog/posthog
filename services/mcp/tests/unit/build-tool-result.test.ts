@@ -186,6 +186,48 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
 // should only move onto `_meta` when a compact formatted table takes structuredContent's
 // place for the model — otherwise it stays in the standard structuredContent field so it
 // isn't duplicated under a non-standard `_meta` key.
+describe('buildToolResultPayload — agent notes', () => {
+    const AGENT_NOTE = 'This response carries the current value, so it is a good moment to offer an alert.'
+
+    it('appends the note to the text channel when a formatted table replaces the serialized result', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: { ...queryTrendsHandlerResult(), _agentNote: AGENT_NOTE },
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            suppressStructuredContentForFormattedResults: true,
+            distinctId: 'test-distinct-id',
+        })
+
+        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${AGENT_NOTE}`)
+    })
+
+    it('does not duplicate the note when the serialized result already carries it', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: { ...queryTrendsHandlerResult(false), _agentNote: AGENT_NOTE },
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            distinctId: 'test-distinct-id',
+        })
+
+        const occurrences = payload.content[0]!.text.split(AGENT_NOTE).length - 1
+        expect(occurrences).toBe(1)
+    })
+
+    it('leaves raw JSON output machine-parseable, carrying the note as a field', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: { ...queryTrendsHandlerResult(false), _agentNote: AGENT_NOTE },
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: { output_format: 'json' },
+            distinctId: 'test-distinct-id',
+        })
+
+        expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ _agentNote: AGENT_NOTE })
+    })
+})
+
 describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', () => {
     it('suppresses structuredContent and re-homes the payload onto _meta when a formatted table exists', () => {
         const payload = buildToolResultPayload({
