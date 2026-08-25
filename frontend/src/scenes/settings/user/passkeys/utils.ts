@@ -7,20 +7,26 @@ const WEBAUTHN_ERROR_MESSAGES: Record<string, string> = {
 
 const WEBAUTHN_CANCELLATION_ERROR_NAMES = new Set(['NotAllowedError', 'AbortError'])
 
-// SimpleWebAuthn surfaces user cancellations and authenticator timeouts as
-// `NotAllowedError`/`AbortError`, sometimes wrapped under an `error` property.
-// These are expected outcomes — never display them as errors or capture them
-// in exception tracking.
+// SimpleWebAuthn and WebKit surface user cancellations and authenticator
+// timeouts as `NotAllowedError`/`AbortError`, sometimes wrapped one or more
+// levels deep under an `error` or `cause` property (WebKit wraps a
+// `DOMException` cancellation under `cause`). These are expected outcomes —
+// never display them as errors or capture them in exception tracking.
 export function isWebAuthnCancellation(error: unknown): boolean {
-    if (!error || typeof error !== 'object') {
-        return false
+    let current = error
+    // Cap the walk to guard against cyclic references.
+    for (let depth = 0; depth < 10; depth++) {
+        if (!current || typeof current !== 'object') {
+            return false
+        }
+        const name = (current as { name?: unknown }).name
+        if (typeof name === 'string' && WEBAUTHN_CANCELLATION_ERROR_NAMES.has(name)) {
+            return true
+        }
+        const wrapped = current as { error?: unknown; cause?: unknown }
+        current = wrapped.cause ?? wrapped.error
     }
-    const name = (error as { name?: unknown }).name
-    if (typeof name === 'string' && WEBAUTHN_CANCELLATION_ERROR_NAMES.has(name)) {
-        return true
-    }
-    const nestedName = (error as { error?: { name?: unknown } }).error?.name
-    return typeof nestedName === 'string' && WEBAUTHN_CANCELLATION_ERROR_NAMES.has(nestedName)
+    return false
 }
 
 export function getPasskeyErrorMessage(error: any, defaultMessage?: string): string {
