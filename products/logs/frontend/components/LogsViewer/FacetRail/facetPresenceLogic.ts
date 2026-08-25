@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { logsAttributesRetrieve } from '../../../generated/api'
+import { _DateRangeApi } from '../../../generated/api.schemas'
 import { FACETS, FacetConfig, resolveFacets } from './facets'
 
 // Broad, filter-independent window for the "which resource attributes does this tenant emit" probe.
@@ -82,7 +83,9 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
                     }
                     const response = await logsAttributesRetrieve(String(values.currentTeamId), {
                         attribute_type: 'resource',
-                        dateRange: PRESENCE_LOOKBACK,
+                        // The generated URL builder renders each query param with String(), which turns an
+                        // object into "[object Object]". JSON-encode the range so the backend can parse it.
+                        dateRange: JSON.stringify(PRESENCE_LOOKBACK) as unknown as _DateRangeApi,
                         limit: 100,
                     })
                     return response.results.map((r) => r.name)
