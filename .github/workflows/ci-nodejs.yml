@@ -20,6 +20,11 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# `dorny/test-reporter` publishes a check run per shard; the workflow-level
+# permissions.window has to grow for it, and the SHA-pinned action is why.
+permissions:
+    checks: write
+
 jobs:
     # Job to decide if we should run nodejs services ci
     # See .github/actions/paths-filter/README.md for filter semantics
@@ -542,6 +547,21 @@ jobs:
                       nodejs/junit-results/posthog-jest-quarantine-*.jsonl
                   if-no-files-found: ignore
                   retention-days: 1
+
+            # Human-readable per-test breakdown in Checks — the slowest-test list and the
+            # per-file annotation table are the fastest "is this run healthy" scan a reviewer
+            # gets. Renders before the quarantine gate, so a fourth-party lookup in the
+            # artifact UI never has to happen first. Skipped on forks (no checks: write on
+            # the fork token) and paralleized by shard so one broken run doesn't mask the rest.
+            - name: Publish test report
+              if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+              uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
+              with:
+                  name: nodejs tests (shard ${{ matrix.shard }})
+                  path: |
+                      junit-results/junit-nodejs-*.xml
+                      nodejs/junit-results/junit-nodejs-*.xml
+                  reporter: jest-junit
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
