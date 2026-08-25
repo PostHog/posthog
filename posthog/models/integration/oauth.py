@@ -79,13 +79,12 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 
 
 # Instagram API with Facebook Login: the professional account is reached through the Facebook Page
-# it is linked to, so the grant needs the page permissions as well as the Instagram ones. Meta
-# replaced the legacy `instagram_*` permission names with `instagram_business_*`; the old names are
-# rejected at the OAuth dialog ("This app needs at least one supported permission").
+# it is linked to, so the grant needs the page permissions as well as the Instagram ones. These are
+# the Facebook Login permission names. The `instagram_business_*` names belong to Instagram Login, a
+# separate flow with its own authorize host, so the dialog rejects them as invalid scopes here.
 # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login
 INSTAGRAM_OAUTH_SCOPE = (
-    "instagram_business_basic instagram_business_manage_insights instagram_business_manage_comments"
-    " pages_show_list pages_read_engagement"
+    "instagram_basic instagram_manage_insights instagram_manage_comments pages_show_list pages_read_engagement"
 )
 
 
@@ -371,23 +370,6 @@ class OauthIntegration:
                 name_path="instance_url",
                 pkce=True,
             )
-        elif kind == "helpscout":
-            if not settings.HELPSCOUT_APP_CLIENT_ID or not settings.HELPSCOUT_APP_CLIENT_SECRET:
-                raise NotImplementedError("Help Scout app not configured")
-
-            return OauthConfig(
-                authorize_url="https://secure.helpscout.net/authentication/authorizeClientApplication",
-                token_url="https://api.helpscout.net/v2/oauth2/token",
-                token_info_url="https://api.helpscout.net/v2/users/me",
-                client_id=settings.HELPSCOUT_APP_CLIENT_ID,
-                client_secret=settings.HELPSCOUT_APP_CLIENT_SECRET,
-                # Help Scout grants the authorizing user's full Mailbox API access and takes no
-                # scope parameter on the authorize URL.
-                scope="",
-                id_path="id",
-                name_path="email",
-                token_info_config_fields=["id", "email"],
-            )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Hubspot app not configured")
@@ -583,6 +565,23 @@ class OauthIntegration:
                 scope="",
                 id_path="id",
                 name_path="email",
+            )
+        elif kind == "helpscout":
+            if not settings.HELPSCOUT_APP_CLIENT_ID or not settings.HELPSCOUT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Help Scout app not configured")
+
+            return OauthConfig(
+                authorize_url="https://secure.helpscout.net/authentication/authorizeClientApplication",
+                token_url="https://api.helpscout.net/v2/oauth2/token",
+                token_info_url="https://api.helpscout.net/v2/users/me",
+                client_id=settings.HELPSCOUT_APP_CLIENT_ID,
+                client_secret=settings.HELPSCOUT_APP_CLIENT_SECRET,
+                # Help Scout grants the authorizing user's full Mailbox API access and takes no
+                # scope parameter on the authorize URL.
+                scope="",
+                id_path="id",
+                name_path="email",
+                token_info_config_fields=["id", "email"],
             )
         elif kind == "linear":
             if not settings.LINEAR_APP_CLIENT_ID or not settings.LINEAR_APP_CLIENT_SECRET:
