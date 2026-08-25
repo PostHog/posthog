@@ -1373,6 +1373,39 @@ describe("AuthService", () => {
       }
     });
 
+    it("raises a not-authenticated error on the rejection itself", async () => {
+      vi.useFakeTimers();
+      try {
+        oauthFlow.startFlow.mockResolvedValue(
+          mockTokenResponse({
+            accessToken: "current-access-token",
+            refreshToken: "current-refresh-token",
+          }),
+        );
+        stubAuthFetch();
+
+        await service.initialize();
+        await service.login("us");
+
+        oauthFlow.refreshToken.mockReset();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Token revoked",
+          errorCode: "auth_error",
+        });
+
+        await vi.advanceTimersByTimeAsync(3_599_500);
+
+        // Raised by the rejection that tears the session down, so callers
+        // that stop on a dead session see it here, not one trigger later.
+        await expect(service.getValidAccessToken()).rejects.toBeInstanceOf(
+          NotAuthenticatedError,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("does not use the current access token when refresh token auth fails", async () => {
       vi.useFakeTimers();
       try {

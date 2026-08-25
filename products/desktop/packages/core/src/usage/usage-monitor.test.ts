@@ -326,6 +326,25 @@ describe("UsageMonitorService", () => {
     expect(fetchUsage).toHaveBeenCalledTimes(2);
   });
 
+  it("recovers polling when the user signs back into the same organization", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+    emitAuthState("org-1", "anonymous");
+
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    // A teardown publishes the anonymous org before any new sign-in, so
+    // returning to the same org is still a transition the listener acts on.
+    emitAuthState(null, "anonymous");
+    fetchUsage.mockResolvedValue(makeUsage());
+    emitAuthState("org-1", "authenticated");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
   it("resets the window after a success", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const fetchUsage = vi

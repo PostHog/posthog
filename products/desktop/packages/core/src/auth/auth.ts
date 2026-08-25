@@ -781,7 +781,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           generation: this.sessionGeneration,
           until: null,
         };
-        throw new Error(lastError);
+        // The session is already anonymous, so callers that stop on a dead
+        // session must see that class here rather than a trigger later.
+        throw new NotAuthenticatedError(lastError);
       }
 
       const isRetryable =
