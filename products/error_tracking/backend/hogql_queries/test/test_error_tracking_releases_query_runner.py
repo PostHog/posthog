@@ -140,6 +140,17 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Releases that share a first bucket order by version number. Unversioned releases sort last.
         assert [r.version for r in response.results] == ["2.8.0", "3a1b2c", "3.0.0", "2.9.0", None]
 
+    @freeze_time("2024-01-10T12:00:00Z")
+    def test_counts_an_event_at_the_inclusive_range_end(self) -> None:
+        self.create_issue(ISSUE_ID, ["fp-a"])
+        self.create_exception("fp-a", "2024-01-08T00:00:00Z", ("com.example.ios", "3.0.0", "1600"))
+        flush_persons_and_events()
+
+        response = self.run_query()
+
+        assert response.results[0].counts == [0, 0, 0, 0, 0, 0, 1]
+        assert response.total == 1
+
     @parameterized.expand([(10**9, MAX_RESOLUTION + 1), (-1, 2)])
     def test_clamps_resolution(self, resolution: int, max_bucket_count: int) -> None:
         runner = ErrorTrackingReleasesQueryRunner(

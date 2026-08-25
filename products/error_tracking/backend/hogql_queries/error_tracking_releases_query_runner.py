@@ -213,13 +213,13 @@ class ErrorTrackingReleasesQueryRunner(
         namespaces: set[str] = set()
 
         for namespace, version, build, series, _total in rows:
+            # The WHERE bounds rows to [date_from, date_to] and the grid starts at or before date_from, so
+            # only a bucket that starts exactly at an aligned date_to falls outside the grid. That instant
+            # folds into the last bucket, which keeps the inclusive range the events list uses.
             in_range = [
-                ((int(bucket) - aligned_from) // self.bucket_seconds, int(count))
+                (max(0, min((int(bucket) - aligned_from) // self.bucket_seconds, bucket_count - 1)), int(count))
                 for bucket, count in series
-                if 0 <= (int(bucket) - aligned_from) // self.bucket_seconds < bucket_count
             ]
-            if not in_range:
-                continue
             if namespace:
                 namespaces.add(namespace)
             if selected_namespace is not None and namespace != selected_namespace:
