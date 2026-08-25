@@ -1,3 +1,4 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
@@ -56,13 +57,6 @@ describe('CDP Internal Events Consumer', () => {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
-
-        // Don't actually connect Kafka — test the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 

@@ -1,3 +1,4 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
