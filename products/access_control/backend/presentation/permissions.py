@@ -9,6 +9,7 @@ here.
 
 from django.http import HttpRequest
 
+from rest_framework import permissions
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
@@ -37,12 +38,16 @@ class MCPAccessPermission(ScopeBasePermission):
         except ValueError:
             return True
 
-        required_scopes = self._get_required_scopes(request, view) or []
-        denial = mcp_access_denial_for_request(
-            request,
-            organization,
-            writes=any(scope.endswith(":write") for scope in required_scopes),
-        )
+        required_scopes = self._get_required_scopes(request, view)
+        if required_scopes is None:
+            # An unclassified action (custom action without required_scopes, or INTERNAL).
+            # On the default stack APIScopePermission already rejects token auth for these.
+            # A dangerously_get_permissions chain can omit APIScopePermission, so fall back
+            # to the HTTP method and treat every non-safe method as a write.
+            writes = request.method not in permissions.SAFE_METHODS
+        else:
+            writes = any(scope.endswith(":write") for scope in required_scopes)
+        denial = mcp_access_denial_for_request(request, organization, writes=writes)
         if denial is not None:
             self.message = denial
             return False

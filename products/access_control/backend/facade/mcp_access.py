@@ -25,7 +25,8 @@ MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
 class RequestLike(Protocol):
     """This protocol lists the request attributes this module reads. It is structural
-    because the facade layer must not import DRF."""
+    because the import-linter contract bans direct DRF imports from facade modules.
+    Indirect DRF use (posthog.auth) is allowed by the same contract."""
 
     headers: Any
 
