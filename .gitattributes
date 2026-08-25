@@ -40,3 +40,5 @@ common/hogql_parser/HogQLParserVisitor.cpp linguist-generated
 common/hogql_parser/HogQLParserVisitor.h linguist-generated
 common/hogql_parser/HogQLParserBaseVisitor.cpp linguist-generated
 common/hogql_parser/HogQLParserBaseVisitor.h linguist-generated
+
+pnpm-lock.yaml merge=union
