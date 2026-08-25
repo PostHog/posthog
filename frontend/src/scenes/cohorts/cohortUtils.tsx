@@ -210,11 +210,16 @@ export function validateGroup(
     const negatedCriteria = criteria.filter((c) => !!c.negation)
     const negatedCriteriaIndices = new Set(negatedCriteria.map((c) => c.index))
 
+    // A group with a single criterion has no meaningful operator. "Any" and "all" over one operand
+    // match the same persons. Treat such a group as AND so a lone negation can still be bounded by a
+    // positive criterion in a sibling group under an outer AND.
+    const groupIsAnd = group.type === FilterLogicalOperator.And || criteria.length === 1
+
     // A negation is bounded by a positive matching criterion either within this AND group, or — when
     // the cohort matches ALL criteria (outer AND) — within any sibling group.
-    const boundedWithinGroup = group.type === FilterLogicalOperator.And && negatedCriteria.length < criteria.length
+    const boundedWithinGroup = groupIsAnd && negatedCriteria.length < criteria.length
     const boundedBySibling =
-        group.type === FilterLogicalOperator.And &&
+        groupIsAnd &&
         outerOperator === FilterLogicalOperator.And &&
         siblingGroups.some((sibling) => hasPositiveCriterion(sibling))
 

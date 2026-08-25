@@ -123,6 +123,18 @@ describe('validateGroup', () => {
         expect(errors.id).toBeUndefined()
     })
 
+    it('allows a lone negation in an OR-typed group when a sibling group has a positive criterion and outer op is AND', () => {
+        // New groups are created with the OR operator, so the reported bug hits a lone negation in an
+        // OR-typed group. A single criterion has no meaningful operator, so this must save.
+        const orNegationGroup: CohortCriteriaGroupFilter = {
+            type: FilterLogicalOperator.Or,
+            values: [{ type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent, negation: true }],
+        }
+        const errors = validateGroup(orNegationGroup, FilterLogicalOperator.And, [positiveSiblingGroup])
+
+        expect(errors.id).toBeUndefined()
+    })
+
     it('still rejects a negation alone in its group when the outer operator is OR', () => {
         // Under OR the sibling group is unioned, not intersected, so it cannot bound the negation.
         const errors = validateGroup(negationGroup, FilterLogicalOperator.Or, [positiveSiblingGroup])
