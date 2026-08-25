@@ -760,6 +760,20 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 
+def get_sandbox_class_for_run_backend(backend: str) -> SandboxClass:
+    """Resolve the provider class for a run whose backend was chosen at context time.
+
+    Only ``"hogland"`` diverts from the process default. Every other value — including
+    the ``"modal"`` default — falls through to ``get_sandbox_class()`` so
+    ``SANDBOX_PROVIDER`` still selects docker / modal-docker / modal-evals in dev, test,
+    and evals. Routing straight to ``get_sandbox_class_for_backend("modal")`` here would
+    force ModalSandbox even under ``SANDBOX_PROVIDER=docker``, breaking local runs.
+    """
+    if backend == "hogland":
+        return _get_hogland_sandbox_class()
+    return get_sandbox_class()
+
+
 # hogland mints `box-<12 hex>` (hogd enforces `^box-[0-9a-f]{12}$`); Modal object ids
 # are `sb-...`. A box restored from a pen keeps a `box-` id, so this covers pens too.
 HOGLAND_SANDBOX_ID_PREFIX = "box-"

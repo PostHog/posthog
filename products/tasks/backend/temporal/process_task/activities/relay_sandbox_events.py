@@ -19,7 +19,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
@@ -152,8 +152,11 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         "Authorization": f"Bearer {connection_token}",
         "Accept": "text/event-stream",
     }
+    transport_token, token_param = sandbox_transport_token(task_run.state, input.sandbox_url)
     params: dict[str, str] = {}
-    if input.sandbox_connect_token:
+    if transport_token:
+        params[token_param] = transport_token
+    elif input.sandbox_connect_token:
         params["_modal_connect_token"] = input.sandbox_connect_token
 
     events_url = f"{input.sandbox_url.rstrip('/')}/events"
