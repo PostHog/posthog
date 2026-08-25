@@ -184,7 +184,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
-                        - .test_durations # Used for pytest-split sharding
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
                         # turbo-discover reads the module graph for the dependent
                         # cascade, and `tach check` validates it — a graph-only PR
@@ -261,7 +260,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
-                        - .test_durations
                         - .test_quarantine.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
@@ -504,9 +502,8 @@ jobs:
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
-              # cache (refreshed daily by ci-backend-update-test-timing.yml) over the
-              # committed file so counts track current timings; on a miss the committed file
-              # is the fallback. turbo-discover.js disables sharding gracefully if it's absent.
+              # cache (refreshed by ci-backend-update-test-timing.yml several times a day);
+              # the fallback step below covers a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -514,6 +511,27 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
 
             - name: Restore per-segment test durations from cache
               # Also restored here so the snapshot below covers the per-segment plan files.
@@ -525,30 +543,6 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
-
-            - name: Prefer a junit-scaled union over an unscaled cache copy
-              # Transition guard: the timing caches only carry junit-scaled product
-              # magnitudes once the updated timing workflow has run. Until then the
-              # newest cache would shadow the scaled committed baseline with call-only
-              # undercounts. Scaled beats unscaled regardless of age; once the caches
-              # carry the marker this step never fires and can be removed.
-              shell: bash
-              run: |
-                  # git show on a blob:none checkout is unreliable here; git checkout --
-                  # restores from the index, whose blob the original checkout already
-                  # materialized. Keep the cache copy when the committed file is not
-                  # scaled either, so the newer cache still wins outside the transition.
-                  if ! grep -q '"products/.junit-scaled"' .test_durations 2>/dev/null; then
-                      cp .test_durations /tmp/union-from-cache
-                      if git checkout -- .test_durations 2>/dev/null && grep -q '"products/.junit-scaled"' .test_durations; then
-                          echo "Using the junit-scaled committed .test_durations over an unscaled cache copy"
-                      else
-                          mv /tmp/union-from-cache .test_durations
-                          echo "Neither the cache nor the committed union is junit-scaled, keeping the cache copy"
-                      fi
-                  else
-                      echo "Restored union already junit-scaled"
-                  fi
 
             - name: Snapshot the sharding plan for this run
               # The timing caches float to their newest entry, so a re-run can shard
@@ -1103,8 +1097,8 @@ jobs:
 
             - name: Restore test durations from cache
               # pytest-split distributes this product's tests across shards using
-              # .test_durations. Restore the newest cache (refreshed daily) over the committed
-              # file; a miss leaves the committed fallback and pytest-split still runs.
+              # .test_durations. Restore the newest cache; the fallback step below covers
+              # a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -1112,6 +1106,27 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
 
             - name: Download the run's sharding plan snapshot
               # Same pinning as the Django job; falls back to the floating cache.
@@ -3103,8 +3118,8 @@ jobs:
 
             - name: Restore test durations from cache
               # pytest-split distributes Core/Temporal tests across shards using
-              # .test_durations. Restore the newest cache (refreshed daily) over the committed
-              # file; a miss leaves the committed fallback and pytest-split still runs.
+              # .test_durations. Restore the newest cache; the fallback step below covers
+              # a miss.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -3113,10 +3128,31 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
+
             - name: Restore per-segment test durations from cache
               # File-granularity sharding plans from a per-segment file (.test_durations.core /
               # .test_durations.temporal) scoped to exactly what the segment runs, avoiding the
-              # union file's cross-segment contamination. These are cache-only (NOT committed),
+              # union file's cross-segment contamination. These are cache-only as well,
               # written by the daily timing-update job on master so PR runs can restore them.
               # On a miss the file is simply absent and the "Run … tests" step omits
               # --split-plan-path, falling back to scoping the union (still correct, pre-fix
