@@ -1096,17 +1096,25 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 cache.handledOauthCodes.add(code)
             }
 
-            // Snapshot the integrations of this kind we already know about, so a failed create can
-            // tell a newly connected integration from one that existed before this attempt.
-            const priorIds = new Set(
-                (values.integrations ?? []).filter((i) => i.kind === resolvedKind).map((i) => i.id)
-            )
-
             // The callback URL is not project-scoped, so after this full-page round-trip the SPA may
             // have re-resolved to the user's default team. Target the team that started the flow
             // (carried through the OAuth state) so the integration lands on the project the user chose.
             const parsedTeamId = Number(team_id)
             const initiatingTeamId = Number.isFinite(parsedTeamId) ? parsedTeamId : undefined
+
+            // Snapshot the integrations of this kind that exist before this attempt, so a failed
+            // create can tell a newly connected integration from one that already existed. This is a
+            // fresh full-page mount, so values.integrations is usually still null here (the initial
+            // load is racing) — read the server directly instead of trusting the loader. If the
+            // baseline read fails we leave it null, and a later create failure stays a failure rather
+            // than a false success.
+            let priorIds: Set<IntegrationType['id']> | null = null
+            try {
+                const priorList = await api.integrations.list()
+                priorIds = new Set(priorList.results.filter((i) => i.kind === resolvedKind).map((i) => i.id))
+            } catch {
+                priorIds = null
+            }
 
             // Only the create is the connection. Keep it alone in the try so post-create bookkeeping
             // can't fail into the catch and toast an error over a working connection.
@@ -1121,14 +1129,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 )
             } catch (e) {
                 // The create can fail on the client after the server already connected the
-                // integration (a lost response, or a racing dispatch). Report failure only when no
-                // new integration of this kind appeared, so a working connection never shows an error.
+                // integration (a lost response, or a racing dispatch). Report success only when a
+                // new integration of this kind appeared since the baseline, so a working connection
+                // never shows an error and a genuine failure is never hidden as a success.
                 let connected = false
-                try {
-                    const res = await api.integrations.list()
-                    connected = res.results.some((i) => i.kind === resolvedKind && !priorIds.has(i.id))
-                } catch {
-                    // Fall through to the original error if we can't confirm.
+                if (priorIds) {
+                    const baseline = priorIds
+                    try {
+                        const res = await api.integrations.list()
+                        connected = res.results.some((i) => i.kind === resolvedKind && !baseline.has(i.id))
+                    } catch {
+                        // Fall through to the original error if we can't confirm.
+                    }
                 }
                 actions.loadIntegrations()
                 if (connected) {
