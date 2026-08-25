@@ -49,6 +49,9 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable` — marks which bars the handler acts on, so the
+     *  pointer cursor appears on those and the drag crosshair survives on the rest. */
+    isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Vertical bars only — horizontal bars interact along y,
      *  where the gesture is disabled by the core. See `ChartProps.onDateRangeZoom`. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
@@ -74,6 +77,7 @@ function BarChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     className,
     dataAttr,
@@ -441,6 +445,7 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
+            isPointClickable={isPointClickable}
             onDateRangeZoom={onDateRangeZoom}
             wrapClickData={onPointClick ? wrapClickData : undefined}
             resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}

@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useCallback, useMemo, useState } from 'react'
 
 import type { BarChartConfig, BarFillStyle, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
@@ -321,6 +322,40 @@ export const HatchedBars: Story = {
             <Stage>
                 <BarChart series={series} labels={DAYS} config={config} theme={theme} />
             </Stage>
+        )
+    },
+}
+
+/** Only the two tall bars do anything on click. `isPointClickable` marks the rest, so they keep
+ *  the drag crosshair instead of a pointer that promises an action they don't have. */
+export const MixedClickability: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const [status, setStatus] = useState('Hover the tall bars for a pointer, the rest for the drag crosshair')
+        const config: BarChartConfig = { showGrid: true }
+        const series = useMemo<Series[]>(
+            () => [{ key: 'volume', label: 'Occurrences', color: '', data: [12, 90, 14, 11, 85, 13, 12] }],
+            []
+        )
+        const isPointClickable = useCallback((dataIndex: number) => dataIndex === 1 || dataIndex === 4, [])
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span className="text-xs text-muted">{status}</span>
+                <Stage>
+                    <BarChart
+                        series={series}
+                        labels={DAYS}
+                        config={config}
+                        theme={theme}
+                        onPointClick={({ label }) => setStatus(`Clicked ${label}`)}
+                        isPointClickable={isPointClickable}
+                        onDateRangeZoom={({ startLabel, endLabel }) =>
+                            setStatus(`Dragged ${startLabel} → ${endLabel}`)
+                        }
+                    />
+                </Stage>
+            </div>
         )
     },
 }

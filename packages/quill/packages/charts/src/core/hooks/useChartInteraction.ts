@@ -43,6 +43,9 @@ interface UseChartInteractionOptions<Meta> {
     /** See `TooltipConfig.resolveClickToNearestSeries`. */
     resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** See `ChartProps.isPointClickable`. Read live, so an unmemoized consumer predicate does not
+     *  rebuild the click handler on every render. */
+    isPointClickable?: (dataIndex: number) => boolean
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     /** 2D brush — see `ChartProps.onAreaSelect`. Receives the committed `scales` so chart-type
      *  adapters can map the y pixel range onto their own bands. */
@@ -122,6 +125,7 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     resolveClickToNearestSeries = false,
     onPointClick,
+    isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
     resolveValue = defaultResolveValue,
@@ -350,6 +354,21 @@ export function useChartInteraction<Meta = unknown>({
         [tooltipCtxRef]
     )
 
+    // The click half of the rule the cursor reads, so the pointer can't promise an action that
+    // never fires. Returns undefined for a point the consumer marked non-actionable, which falls
+    // through to the pin and no-op paths below.
+    const isPointClickableRef = useLatest(isPointClickable)
+    const clickHandlerAt = useCallback(
+        (index: number): ((data: PointClickData<Meta>) => void) | undefined => {
+            if (!onPointClick || index < 0 || index >= labels.length) {
+                return undefined
+            }
+            const clickable = isPointClickableRef.current
+            return !clickable || clickable(index) ? onPointClick : undefined
+        },
+        [onPointClick, isPointClickableRef, labels.length]
+    )
+
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (originatesInTooltip(e)) {
@@ -383,11 +402,12 @@ export function useChartInteraction<Meta = unknown>({
                         // Mirror the mouse path: an unambiguous nearest-series tap fires the click
                         // action directly instead of pinning first, so touch users get the same
                         // one-tap drill-in mouse users get on a single click.
+                        const tapClick = clickHandlerAt(index)
                         if (
                             ctx &&
                             pinnable &&
                             resolveClickToNearestSeries &&
-                            onPointClick &&
+                            tapClick &&
                             ctx.seriesData.length > 1
                         ) {
                             const clickData = resolveNearestSeriesClickData(
@@ -399,7 +419,7 @@ export function useChartInteraction<Meta = unknown>({
                                 position
                             )
                             if (clickData) {
-                                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                                tapClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                                 return
                             }
                         }
@@ -427,7 +447,8 @@ export function useChartInteraction<Meta = unknown>({
             if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
                 // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
                 // and fire onPointClick directly instead of making the user pin then pick a row.
-                if (resolveClickToNearestSeries && onPointClick && clickPosition) {
+                const nearestClick = clickHandlerAt(currentIndex)
+                if (resolveClickToNearestSeries && nearestClick && clickPosition) {
                     const clickData = resolveNearestSeriesClickData(
                         currentIndex,
                         series,
@@ -437,7 +458,7 @@ export function useChartInteraction<Meta = unknown>({
                         clickPosition
                     )
                     if (clickData) {
-                        onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                        nearestClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                         return
                     }
                 }
@@ -445,15 +466,16 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            if (onPointClick) {
+            const pointClick = clickHandlerAt(currentIndex)
+            if (pointClick) {
                 const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, clickPosition)
                 if (clickData) {
-                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                    pointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                 }
             }
         },
         [
-            onPointClick,
+            clickHandlerAt,
             series,
             labels,
             resolveValue,

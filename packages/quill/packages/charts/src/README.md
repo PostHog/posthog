@@ -97,6 +97,10 @@ The cursor switches to `crosshair` while enabled, except over an
 actionable point (`onPointClick` is set) where it stays `pointer`. A
 plain click without movement still pins the tooltip or fires `onPointClick`.
 
+When the handler acts on only some points, pass `isPointClickable` alongside
+it. Rejected points keep the crosshair — or the default cursor when the chart
+has no drag gesture — and don't fire `onPointClick`.
+
 ## Custom overlays
 
 Render any React component as a child of the chart and read layout / hover state through hooks:

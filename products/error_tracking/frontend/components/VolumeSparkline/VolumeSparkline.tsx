@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import {
     type ChartMargins,
@@ -154,8 +154,26 @@ export function VolumeSparkline({
 
     const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
 
+    // One resolver for the cursor and the click, so a bucket never shows a pointer for an action
+    // its handler declines to take.
+    const isPointClickable = useCallback(
+        (dataIndex: number): boolean => {
+            const datum = data[dataIndex]
+            if (!datum) {
+                return false
+            }
+            // A flagged spike takes precedence: it opens the spike details popover rather than
+            // filtering to the bucket, so callers passing both handlers still reach the popover.
+            if (datum.isSpike && onSpikeClick) {
+                return true
+            }
+            return !!onBucketClick && bucketEnd(data, dataIndex) !== null
+        },
+        [data, onBucketClick, onSpikeClick]
+    )
+
     const onPointClick = useMemo(() => {
-        if (!onBucketClick && !(onSpikeClick && hasSpikes)) {
+        if (!onBucketClick && !onSpikeClick) {
             return undefined
         }
         return ({ dataIndex }: PointClickData) => {
@@ -163,22 +181,16 @@ export function VolumeSparkline({
             if (!datum) {
                 return
             }
-            const adjacentDate = data[dataIndex + 1]?.date
-            const previousDate = data[dataIndex - 1]?.date
-            const endDate =
-                adjacentDate ??
-                (previousDate ? new Date(datum.date.getTime() + datum.date.getTime() - previousDate.getTime()) : null)
-            // A flagged spike takes precedence: it opens the spike details popover rather than
-            // filtering to the bucket, so callers passing both handlers still reach the popover.
             if (datum.isSpike && onSpikeClick) {
                 onSpikeClick(datum, cursorRef.current.x, cursorRef.current.y)
                 return
             }
-            if (onBucketClick && endDate && endDate.getTime() > datum.date.getTime()) {
+            const endDate = bucketEnd(data, dataIndex)
+            if (onBucketClick && endDate) {
                 onBucketClick(datum.date, endDate)
             }
         }
-    }, [data, hasSpikes, onBucketClick, onSpikeClick])
+    }, [data, onBucketClick, onSpikeClick])
 
     return (
         <div
@@ -194,6 +206,7 @@ export function VolumeSparkline({
                 config={config}
                 onDateRangeZoom={onDateRangeZoom}
                 onPointClick={onPointClick}
+                isPointClickable={isPointClickable}
                 dataAttr="error-tracking-volume-sparkline"
             >
                 <HoverReporter sparklineKey={sparklineKey} data={data} />
@@ -208,6 +221,20 @@ export function VolumeSparkline({
             </TimeSeriesBarChart>
         </div>
     )
+}
+
+/** End of the bucket at `index`, taken from the next bucket's start, or mirrored from the
+ *  previous one for the last bucket. Null when the data gives no width to work from — a single
+ *  bucket, or placeholder data where every bucket shares one timestamp. */
+function bucketEnd(data: SparklineData, index: number): Date | null {
+    const start = data[index]?.date
+    if (!start) {
+        return null
+    }
+    const next = data[index + 1]?.date
+    const previous = data[index - 1]?.date
+    const end = next ?? (previous ? new Date(start.getTime() + start.getTime() - previous.getTime()) : null)
+    return end && end.getTime() > start.getTime() ? end : null
 }
 
 /** A chart child because `useChartHover` only works inside the chart. Yields to an event marker's
