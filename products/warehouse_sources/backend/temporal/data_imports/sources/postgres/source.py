@@ -8,6 +8,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
