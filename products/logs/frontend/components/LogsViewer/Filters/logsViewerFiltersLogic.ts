@@ -35,6 +35,7 @@ import {
     facetSelection,
     setFacetIncluded,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { LogsFilterTarget } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterAdd'
 
 export const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const VALID_SEVERITY_LEVELS: readonly LogSeverityLevel[] = ['trace', 'debug', 'info', 'warn', 'error', 'fatal']
@@ -153,6 +154,7 @@ export interface logsViewerFiltersLogicValues {
     dateRange: DateRange
     filterGroup: UniversalFiltersGroup
     filters: LogsViewerFilters
+    focusedFilter: LogsFilterTarget | null
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
@@ -178,6 +180,9 @@ export interface logsViewerFiltersLogicActions {
         operator: PropertyOperator
         propertyType: PropertyFilterType
         value: string
+    }
+    focusFilter: (target: LogsFilterTarget | null) => {
+        target: FacetFilterTarget | null
     }
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
@@ -249,6 +254,8 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         // setting individual filters
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
+        // Ask the chips bar to open the filter on this attribute for editing.
+        focusFilter: (target: LogsFilterTarget | null) => ({ target }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup, openFilterOnInsert: boolean = true) => ({
             filterGroup,
             openFilterOnInsert,
@@ -314,6 +321,15 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             false as boolean,
             {
                 setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
+            },
+        ],
+        // The attribute whose chip the bar holds open, or null for none. Keyed on the attribute
+        // rather than a position: filters come and go, and a stale index would open whichever
+        // filter shifted into that slot.
+        focusedFilter: [
+            null as LogsFilterTarget | null,
+            {
+                focusFilter: (_, { target }) => target,
             },
         ],
         pinnedFilters: [

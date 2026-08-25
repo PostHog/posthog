@@ -373,26 +373,30 @@ const facetValuesMock: MockSignature = async ({ request }) => {
     return [200, { results }]
 }
 
+// The taxonomic filter asks for `attribute_type=log|resource` and reads a paginated list whose items
+// carry their own propertyFilterType (see the Log attributes / Resource attributes groups in
+// taxonomicFilterLogic). Answering any other shape leaves those groups empty in the picker.
+function attributeTypeOf(request: Request): PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute {
+    return new URL(request.url).searchParams.get('attribute_type') === 'resource'
+        ? PropertyFilterType.LogResourceAttribute
+        : PropertyFilterType.LogAttribute
+}
+
 const attributesMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
-    const type = (new URL(request.url).searchParams.get('attribute_type') ?? 'log_attribute') as
-        | PropertyFilterType.LogAttribute
-        | PropertyFilterType.LogResourceAttribute
-    const results = Object.keys(attributeExamples[type]).map((key) => ({
-        id: key,
-        name: key,
-        type: type,
-    }))
-    return [200, results]
+    const type = attributeTypeOf(request)
+    const search = (new URL(request.url).searchParams.get('search') ?? '').toLowerCase()
+    const results = Object.keys(attributeExamples[type])
+        .filter((key) => !search || key.toLowerCase().includes(search))
+        .map((name) => ({ name, propertyFilterType: type, matchedOn: 'key' }))
+    return [200, { results, count: results.length }]
 }
 
 const valuesMock: MockSignature = async ({ request }) => {
     await delayIfNotTestRunner()
     const url = new URL(request.url)
     const key = url.searchParams.get('key') ?? ''
-    const type = (url.searchParams.get('attribute_type') ?? 'log_attribute') as
-        | PropertyFilterType.LogAttribute
-        | PropertyFilterType.LogResourceAttribute
+    const type = attributeTypeOf(request)
     const results = (attributeExamples[type][key] ?? []).map((value) => ({
         id: value,
         name: value,
@@ -487,6 +491,10 @@ export default {
         // while the handwritten ApiRequest helpers are environment-scoped.
         mswDecorator({
             get: {
+                // Both prefixes, because both callers exist: the taxonomic filter asks the
+                // environment-scoped path, and facetPresenceLogic asks the project-scoped one through
+                // the generated client. Answering only one empties the other's list.
+                '/api/environments/:team_id/logs/attributes': attributesMock,
                 '/api/projects/:team_id/logs/attributes': attributesMock,
                 '/api/environments/:team_id/logs/values': valuesMock,
                 '/api/environments/:team_id/logs/has_logs': () => [200, { hasLogs: true }],
