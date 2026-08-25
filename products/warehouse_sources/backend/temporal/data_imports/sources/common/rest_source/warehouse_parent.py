@@ -63,17 +63,27 @@ class ScanPosition:
     holding a seen-set, or materializing the table.
 
     `row_offset` counts rows the scan *emitted* from that fragment, so it is relative to the
-    filter in force. `version` and `filter_fingerprint` record what it was relative to;
-    `matches` is the guard a caller uses before trusting a stored position.
+    table, version and filter in force. All three are recorded here, and `matches` is the
+    guard a caller uses before trusting a stored position.
+
+    `table_uri` is not redundant with `version`: Delta versions are small integers that
+    restart at 0 whenever a table is recreated, which the reset paths in the loader do
+    routinely, so a position saved against an old table would otherwise match a rebuilt one
+    at the same number and skip fragments the scan has never read.
     """
 
     fragment_index: int
     row_offset: int
+    table_uri: str
     version: int
     filter_fingerprint: str | None = None
 
     def matches(self, table: "ParentTableRef", row_filter_fingerprint: str | None) -> bool:
-        return self.version == table.version and self.filter_fingerprint == row_filter_fingerprint
+        return (
+            self.table_uri == table.uri
+            and self.version == table.version
+            and self.filter_fingerprint == row_filter_fingerprint
+        )
 
 
 @frozen
@@ -89,11 +99,19 @@ class ParentPage:
     fragment_index: int
     row_offset: int
 
-    def position_after(self, row_index: int, version: int, filter_fingerprint: str | None = None) -> ScanPosition:
+    def position_after(
+        self, row_index: int, table: "ParentTableRef", filter_fingerprint: str | None = None
+    ) -> ScanPosition:
+        """The position to resume from after fully consuming this page's row `row_index`.
+
+        Takes the table ref rather than a bare version so a caller cannot record a position
+        without the identity that makes it safe to reuse.
+        """
         return ScanPosition(
             fragment_index=self.fragment_index,
             row_offset=self.row_offset + row_index + 1,
-            version=version,
+            table_uri=table.uri,
+            version=table.version,
             filter_fingerprint=filter_fingerprint,
         )
 
@@ -415,9 +433,9 @@ def iter_parent_pages_with_positions(
     checkpoint a `ScanPosition` and pass it back as `start_position` to pick up where it
     stopped. Fragments are walked in sorted-path order — a metadata sort over the file list,
     not a sort of rows — and enumerated independently of the filter, so an index means the
-    same file whether or not pushdown pruned it. A `start_position` from a different version
-    or filter is the caller's to reject (`ScanPosition.matches`); passing a stale one skips
-    the wrong rows rather than raising.
+    same file whether or not pushdown pruned it. A `start_position` from a different table,
+    version or filter is the caller's to reject (`ScanPosition.matches`); passing a stale one
+    skips the wrong rows rather than raising.
     """
     page_size = max(1, min(page_size, MAX_PARENT_PAGE_SIZE))
     delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())

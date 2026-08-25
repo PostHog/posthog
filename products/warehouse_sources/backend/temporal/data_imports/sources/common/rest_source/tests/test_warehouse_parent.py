@@ -456,7 +456,7 @@ def test_resume_from_a_position_yields_exactly_the_unconsumed_rows(tmp_path: Pat
         uri,
         columns=["id"],
         page_size=10,
-        start_position=ScanPosition(fragment_index=1, row_offset=2, version=version),
+        start_position=ScanPosition(fragment_index=1, row_offset=2, table_uri=uri, version=version),
     )
 
     assert [row["id"] for page in resumed for row in page.rows] == everything[6:]
@@ -477,7 +477,7 @@ def test_position_after_a_row_resumes_at_the_next_row(tmp_path: Path, page_size:
         for page in pages:
             for index in range(len(page.rows)):
                 if consumed == stop_after:
-                    position = page.position_after(index, version=version)
+                    position = page.position_after(index, table=ParentTableRef(uri=uri, version=version))
                     break
                 consumed += 1
             if position is not None:
@@ -533,21 +533,54 @@ def test_a_pinned_version_keeps_its_positions_through_a_compaction(tmp_path: Pat
         version=pinned,
         columns=["id"],
         page_size=10,
-        start_position=ScanPosition(fragment_index=2, row_offset=0, version=pinned),
+        start_position=ScanPosition(fragment_index=2, row_offset=0, table_uri=uri, version=pinned),
     )
     assert [row["id"] for page in resumed for row in page.rows] == before[6:]
 
 
-def test_scan_position_matches_only_its_own_version_and_filter() -> None:
+def test_scan_position_matches_only_its_own_table_version_and_filter() -> None:
     # The guard a caller uses before trusting stored state: offsets count emitted rows, so a
-    # different version or a moved filter floor makes the same offset a different row.
+    # different table, version or moved filter floor makes the same offset a different row.
     table = ParentTableRef(uri="s3://bucket/table", version=7)
-    position = ScanPosition(fragment_index=0, row_offset=3, version=7, filter_fingerprint="last_seen>=2026-05-01")
+    position = ScanPosition(
+        fragment_index=0,
+        row_offset=3,
+        table_uri="s3://bucket/table",
+        version=7,
+        filter_fingerprint="last_seen>=2026-05-01",
+    )
 
     assert position.matches(table, "last_seen>=2026-05-01")
     assert not position.matches(table, "last_seen>=2026-06-01")
     assert not position.matches(ParentTableRef(uri="s3://bucket/table", version=8), "last_seen>=2026-05-01")
     assert not position.matches(table, None)
+    # Delta versions restart at 0 when a table is recreated, so a position from a different
+    # table at the same version number must not pass — it would skip fragments in a table the
+    # scan has never read.
+    assert not position.matches(ParentTableRef(uri="s3://bucket/rebuilt", version=7), "last_seen>=2026-05-01")
+
+
+def test_the_plain_reader_reraises_even_if_the_scan_swallows_the_exception() -> None:
+    # The wrapper hands the consumer's exception to the scan so the outcome is classified
+    # correctly. A scan that swallowed it and kept yielding would leave the consumer's error
+    # lost, so the wrapper re-raises rather than trusting the scan to do it.
+    def _swallowing_scan(**_kwargs):
+        try:
+            yield warehouse_parent.ParentPage(rows=[{"id": "1"}], fragment_index=0, row_offset=0)
+        except BaseException:
+            yield warehouse_parent.ParentPage(rows=[{"id": "2"}], fragment_index=0, row_offset=1)
+
+    with patch.object(warehouse_parent, "iter_parent_pages_with_positions", _swallowing_scan):
+        pages = warehouse_parent.iter_parent_pages_from_warehouse(
+            table=ParentTableRef(uri="s3://bucket/table", version=1),
+            parent_name="issues",
+            columns=["id"],
+            page_size=10,
+            schema_name="issue_hashes",
+        )
+        next(pages)
+        with pytest.raises(RuntimeError, match="consumer blew up"):
+            pages.throw(RuntimeError("consumer blew up"))
 
 
 def test_plain_reader_still_yields_bare_pages(tmp_path: Path) -> None:
