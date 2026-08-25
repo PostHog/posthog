@@ -69,7 +69,9 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
 ): ProcessingStep<T, T & EventUsageRecordContext> {
     return function recordEventUsageStep(input: T): Promise<PipelineResult<T & EventUsageRecordContext>> {
-        const usageKey = resolveUsageKey(input.preparedEvent.event)
+        const usageKey = input.eventUsageBatch.accepts(input.preparedEvent.teamId)
+            ? resolveUsageKey(input.preparedEvent.event)
+            : undefined
         const eventUsageRecord = usageKey
             ? { teamId: input.preparedEvent.teamId, usageKey, recordId: analyticsRecordId(input.preparedEvent) }
             : undefined

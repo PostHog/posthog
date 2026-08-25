@@ -10,20 +10,10 @@ export type UsageIngestionConfig = Pick<
     | 'USAGE_INGESTION_TLS'
     | 'USAGE_INGESTION_TIMEOUT_MS'
     | 'USAGE_INGESTION_MAX_BATCH_SIZE'
-    | 'USAGE_INGESTION_REPORT_EVENTS_TEAMS'
-    | 'USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS'
-    | 'USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS'
-    | 'USAGE_INGESTION_REPORT_CDP_TEAMS'
+    | 'USAGE_INGESTION_REPORT_TEAMS'
 >
 
 export type UsageReportSite = 'events' | 'ai_events' | 'exceptions' | 'cdp'
-
-const TEAM_MATCHER_KEYS = {
-    events: 'USAGE_INGESTION_REPORT_EVENTS_TEAMS',
-    ai_events: 'USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS',
-    exceptions: 'USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS',
-    cdp: 'USAGE_INGESTION_REPORT_CDP_TEAMS',
-} as const
 
 const PRODUCER_IDS = {
     events: 'ingestion',
@@ -32,15 +22,15 @@ const PRODUCER_IDS = {
     cdp: 'cdp',
 } as const
 
-export function usageReportTeamMatcher(config: UsageIngestionConfig, site: UsageReportSite): ValueMatcher<number> {
-    return buildIntegerMatcher(config[TEAM_MATCHER_KEYS[site]], true)
+export function usageReportTeamMatcher(config: UsageIngestionConfig): ValueMatcher<number> {
+    return buildIntegerMatcher(config.USAGE_INGESTION_REPORT_TEAMS, true)
 }
 
 export function createUsageIngestionClient(
     config: UsageIngestionConfig,
     site: UsageReportSite
 ): UsageIngestionClient | null {
-    if (!config.USAGE_INGESTION_ADDR || !config[TEAM_MATCHER_KEYS[site]]) {
+    if (!config.USAGE_INGESTION_ADDR || !config.USAGE_INGESTION_REPORT_TEAMS) {
         return null
     }
     return new UsageIngestionClient({

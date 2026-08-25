@@ -388,7 +388,7 @@ export class IngestionConsumer {
 
     private createEventUsageBatch(): () => UsageRecordBatch {
         const client = createUsageIngestionClient(this.config, 'events')
-        const isTeamEnabled = usageReportTeamMatcher(this.config, 'events')
+        const isTeamEnabled = usageReportTeamMatcher(this.config)
         return () => new UsageRecordBatch(client, { unit: 'events', isTeamEnabled })
     }
 

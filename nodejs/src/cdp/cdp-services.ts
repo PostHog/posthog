@@ -474,7 +474,7 @@ export function createCdpCoreServices(
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
     const cdpUsageReporter = new CdpUsageReporterService(
         createUsageIngestionClient(config, 'cdp'),
-        usageReportTeamMatcher(config, 'cdp')
+        usageReportTeamMatcher(config)
     )
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,

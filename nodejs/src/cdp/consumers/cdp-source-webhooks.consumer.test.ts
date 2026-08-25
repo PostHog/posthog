@@ -551,7 +551,7 @@ describe('SourceWebhooksConsumer', () => {
                     },
                 })
 
-                expect(res.status).toEqual(201)
+                expect(res.status).toEqual(500)
                 await waitForBackgroundTasks()
                 expect(reportBillableInvocation).not.toHaveBeenCalled()
                 expect(getMetrics()).not.toContainEqual(

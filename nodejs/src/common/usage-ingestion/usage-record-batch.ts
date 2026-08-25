@@ -36,8 +36,13 @@ export class UsageRecordBatch {
         return this.records.size
     }
 
+    /** Whether a record for this team would be kept, so a caller can skip building one. */
+    accepts(teamId: number): boolean {
+        return this.client !== null && this.config.isTeamEnabled(teamId)
+    }
+
     add(teamId: number, usageKey: string, recordId: string): void {
-        if (!this.client || !this.config.isTeamEnabled(teamId)) {
+        if (!this.accepts(teamId)) {
             return
         }
         const key = `${teamId}:${usageKey}:${recordId}`
@@ -57,6 +62,10 @@ export class UsageRecordBatch {
         usageKey: string,
         recordId: string
     ): void {
+        // A team that is not reporting must not put the flush behind its Kafka writes.
+        if (!this.accepts(teamId)) {
+            return
+        }
         this.pendingAcknowledgements.push(
             Promise.all(acknowledgements)
                 .then((results) => {
