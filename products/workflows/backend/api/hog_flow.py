@@ -88,7 +88,7 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
@@ -138,6 +138,7 @@ from products.workflows.backend.services.batch_audience import (
     SUPPORTED_DEDUPE_KEYS,
     get_batch_audience_count,
     get_batch_audience_person_ids,
+    lower_realtime_cohorts_to_membership,
 )
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
@@ -1110,7 +1111,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], "
             "actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, "
             "type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} "
-            "to reference a cohort. "
+            "to reference a cohort. Batch/schedule audiences accept static, property-based, and realtime "
+            "cohorts (a realtime cohort must have finished calculating); other behavioral cohorts are "
+            "rejected. "
             "batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts "
             "audience fans out one run per customer analytics account and takes account filters instead: "
             "properties entries of type 'account_custom_property' (key = definition id), plus "
@@ -1237,16 +1240,35 @@ class HogFlowActionSerializer(serializers.Serializer):
                 continue  # missing/invalid cohort surfaces during audience resolution, not here
             if cohort.is_static:
                 continue
+            if cohort.cohort_type == CohortType.REALTIME and self._cohort_conditions_enabled():
+                if cohort.is_flag_compatible:
+                    # The realtime pipeline materializes membership for the whole cohort,
+                    # dependencies included, so the dependency walk below doesn't apply.
+                    continue
+                if any(p.type == "behavioral" for p in cohort.properties.flat):
+                    raise serializers.ValidationError(
+                        {
+                            "filters": (
+                                f"Cohort '{cohort.name}' isn't ready for realtime evaluation. "
+                                "Audiences can only use realtime cohorts that have finished calculating."
+                            )
+                        }
+                    )
             for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
                 if dep.is_static:
                     continue
                 if any(p.type == "behavioral" for p in dep.properties.flat):
+                    realtime_hint = (
+                        " or a realtime cohort that has finished calculating"
+                        if self._cohort_conditions_enabled()
+                        else ""
+                    )
                     raise serializers.ValidationError(
                         {
                             "filters": (
                                 f"Cohort '{dep.name}' targets event behavior, which batch/schedule audiences "
-                                "can't evaluate. Use a static or property-based cohort, or an event trigger "
-                                "for behavioral targeting."
+                                f"can't evaluate. Use a static or property-based cohort{realtime_hint}, or an "
+                                "event trigger for behavioral targeting."
                             )
                         }
                     )
@@ -4194,7 +4216,12 @@ class HogFlowViewSet(
             blast_radius = BlastRadiusResult(affected=affected, total=total)
             applied_dedupe_key = dedupe_key
         else:
-            blast_radius = get_user_blast_radius(self.team, filters, group_type_index)
+            # Lower into a local so the confirm token below stays minted over the raw filters,
+            # which is what the batch_jobs endpoint compares the token against.
+            counted_filters = (
+                lower_realtime_cohorts_to_membership(self.team, filters) if group_type_index is None else filters
+            )
+            blast_radius = get_user_blast_radius(self.team, counted_filters, group_type_index)
 
         return Response(
             BlastRadiusSerializer(
@@ -4876,6 +4903,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             reject_flag_conditions_in_audience(team, filters)
+            if group_type_index is None:
+                filters = lower_realtime_cohorts_to_membership(team, filters)
             result = get_user_blast_radius(team, filters, group_type_index)
             return Response(
                 BlastRadiusSerializer(

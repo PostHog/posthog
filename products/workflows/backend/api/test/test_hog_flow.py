@@ -3094,6 +3094,26 @@ class TestHogFlowAPI(APIBaseTest):
         response = self._post_batch_with_cohort(wrapper.pk)
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(["batch", "schedule"])
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_audience_allows_backfilled_realtime_cohort(self, trigger_type: str, _mock_flag):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+        assert response.status_code == 201, response.json()
+
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_audience_rejects_unbackfilled_realtime_cohort(self, _mock_flag):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
+        response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 400, response.json()
+        assert "isn't ready for realtime evaluation" in response.json()["detail"]
+
+    def test_hog_flow_audience_rejects_realtime_cohort_without_flag(self):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 400, response.json()
+        assert "targets event behavior" in response.json()["detail"]
+
     def test_hog_flow_batch_trigger_behavioral_cohort_rejected_for_mcp_draft(self):
         # Draft is lenient for the UI builder but enforced for programmatic (MCP) callers.
         cohort = self._make_cohort(behavioral=True)
