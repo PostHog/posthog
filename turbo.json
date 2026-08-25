@@ -24,7 +24,19 @@
             "outputs": [],
             "cache": true,
             "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"],
-            "passThroughEnv": ["PYTEST_ADDOPTS"]
+            // Credentials and the fork-PR flag the product-run temporal suites need
+            // (tasks sandbox JWT, batch-exports Modal/S3, RUNS_ON_INTERNAL_PR that
+            // skips internal-only tests for external contributors). Turbo strips
+            // undeclared env vars, so a var set on the CI job never reaches pytest
+            // unless listed here. Pass-through, not env: they must not become cache keys.
+            "passThroughEnv": [
+                "PYTEST_ADDOPTS",
+                "RUNS_ON_INTERNAL_PR",
+                "SANDBOX_JWT_PRIVATE_KEY",
+                "MODAL_TOKEN_ID",
+                "MODAL_TOKEN_SECRET",
+                "AWS_S3_ALLOW_UNSAFE_RENAME"
+            ]
         },
         "backend:lint": {
             "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],

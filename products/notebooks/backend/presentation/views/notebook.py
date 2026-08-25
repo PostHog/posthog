@@ -80,7 +80,7 @@ from products.notebooks.backend.sql_v2_references import (
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
-from products.notebooks.backend.sql_v2_runs import finish_node_run
+from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
@@ -1336,6 +1336,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # caller lost access mid-query. Advancing the row leaks nothing — the gate below still
         # decides whether any of it is returned.
         rows = sync_direct_run(run)
+        # The kernel lane's equivalent, and here for the same reason: the sandbox delivers its
+        # envelope once with no retry, so a lost delivery leaves a run nothing else can move.
+        # The two are mutually exclusive — each is a no-op for the other's node types.
+        expire_stale_kernel_run(run)
         self._require_run_connection_access(run, user)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
