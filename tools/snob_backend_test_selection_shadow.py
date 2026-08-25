@@ -681,6 +681,9 @@ def build_result(base_ref: str) -> dict[str, object]:
         "combined": {
             "tests": combined_tests,
             "count": len(combined_tests),
+            # Product directories with a selected test file. ci-backend narrows the
+            # product matrix to them on a legacy diff.
+            "products": sorted({p for p in map(_product_name, combined_tests) if p}),
             "duration_seconds": round(selected_seconds),
         },
         "durations": {

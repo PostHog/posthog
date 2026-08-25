@@ -162,6 +162,21 @@ function affectedArgs(taskName) {
     return args
 }
 
+// Turbo's affected query for one task, null when it fails. The caller decides whether
+// that is fatal (a products-only diff has nothing else to go on) or only disables the
+// narrowed product matrix on a legacy diff.
+function queryAffectedTasks(taskName) {
+    try {
+        return parseAffectedTasks(runTurbo(affectedArgs(taskName)))
+    } catch (e) {
+        console.error(`::warning::turbo affected query for ${taskName} failed: ${e.message}`)
+        if (e.stderr) {
+            console.error(e.stderr.toString().slice(0, 1000))
+        }
+        return null
+    }
+}
+
 function logAffectedReasons(label, tasks) {
     const reasons = {}
     for (const task of tasks) {
@@ -397,6 +412,86 @@ function loadTachModuleGraph() {
         console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
         return null
     }
+}
+
+// Products that transitively depend on `products` per tach.toml, or null when the
+// graph cannot be read. Callers treat null as "unknown dependents" and widen.
+function tachDependentProducts(products, allProductSet) {
+    const tachGraph = loadTachModuleGraph()
+    if (tachGraph === null) {
+        return null
+    }
+    return tachDependents(products, tachGraph).filter((p) => allProductSet.has(p))
+}
+
+// Products a schema change reaches, [] for a purely additive change, or null when
+// the schema diff is unavailable and every product has to run.
+function schemaAffectedProducts() {
+    const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
+    console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
+    if (impact.kind === 'fallback') {
+        return null
+    }
+    if (impact.kind !== 'impacting') {
+        console.error('Schema change is purely additive — no extra products needed')
+        return []
+    }
+    console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
+    if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
+        console.error(
+            `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
+        )
+    }
+    return impact.affectedProducts
+}
+
+// The products a legacy diff must test whatever the backend test selector reached: the
+// ones Turbo saw change, their tach dependents, and the ones a schema change reaches.
+// Null when any of that is unknowable, which callers must treat as "do not narrow".
+function legacyMustRunProducts(affectedTasks, allProductSet, schemaChanged) {
+    const affected = getAffectedTaskProducts(affectedTasks)
+    const dependents = tachDependentProducts(affected, allProductSet)
+    if (dependents === null) {
+        return null
+    }
+    const schemaProducts = schemaChanged ? schemaAffectedProducts() : []
+    if (schemaProducts === null) {
+        return null
+    }
+    return [...new Set([...affected, ...dependents, ...schemaProducts])]
+}
+
+// The backend test selector's output (tools/snob_backend_test_selection_shadow.py), or
+// null when it is absent or unreadable.
+function loadSelection(path) {
+    if (!path) {
+        return null
+    }
+    try {
+        return JSON.parse(fs.readFileSync(path, 'utf-8'))
+    } catch (e) {
+        console.error(`::warning::Could not read the backend test selection at ${path} (${e.message}) — product matrix will not be narrowed`)
+        return null
+    }
+}
+
+// Products to test on a legacy diff once the selector's product list is known: the
+// must-run set plus the products the selector reached through the import graph. Null
+// when the selection cannot be trusted: missing, or carrying a full-run signal, which
+// is the same signal that puts ci-backend's Django matrix on a full run.
+function narrowedProducts(products, mustRunProducts, selection) {
+    const fullRunReasons = selection && selection.ast ? selection.ast.full_run_reasons : null
+    if (!Array.isArray(fullRunReasons)) {
+        return null
+    }
+    if (fullRunReasons.length > 0) {
+        console.error(`Selector requested a full run — keeping the full product matrix:\n  ${fullRunReasons.join('\n  ')}`)
+        return null
+    }
+    const selected = ((selection.combined && selection.combined.products) || []).map(moduleToProduct)
+    const keep = new Set([...mustRunProducts, ...selected])
+    console.error(`Products reached by the backend test selector: ${JSON.stringify(selected)}`)
+    return products.filter((p) => keep.has(p))
 }
 
 function loadTestDurations() {
@@ -698,6 +793,7 @@ function buildMatrix(products, durations) {
 // Exported for unit tests, plus the Django sizing pieces that
 // selected-django-shards.js reuses so narrowed runs share one budget.
 module.exports = {
+    narrowedProducts,
     calculateShards,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_SEGMENTS,
@@ -722,10 +818,6 @@ let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
     allTestTasks = parseTurboTasks(runTurbo(['run', 'backend:test', '--dry-run=json']))
     if (!legacyChanged) {
-        console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
-        console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
-        affectedTestTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:test')))
-        affectedContractTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:contract-check')))
         contractTasks = parseTurboTasks(runTurbo(['run', 'backend:contract-check', '--dry-run=json']))
     }
 } catch (e) {
@@ -734,6 +826,20 @@ try {
         console.error(e.stderr.toString().slice(0, 1000))
     }
     process.exit(1)
+}
+console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
+console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
+if (!legacyChanged) {
+    affectedTestTasks = queryAffectedTasks('backend:test')
+    affectedContractTasks = queryAffectedTasks('backend:contract-check')
+    if (affectedTestTasks === null || affectedContractTasks === null) {
+        console.error('turbo discovery failed')
+        process.exit(1)
+    }
+} else if (process.env.SELECTION_JSON) {
+    // A legacy diff with a backend test selection still asks which products changed:
+    // that set seeds the narrowed product matrix. A failed query only disables it.
+    affectedTestTasks = queryAffectedTasks('backend:test')
 }
 const allProducts = getAllProducts(allTestTasks)
 const allProductSet = new Set(allProducts)
@@ -744,12 +850,19 @@ let runLegacy
 // (which the diff-based selector handles) from an inferred product->legacy cascade
 // (which it cannot see). Empty when runLegacy is false.
 let runLegacyReason = ''
+// On a legacy diff the full product matrix is the fallback. Given a backend test
+// selection, the matrix narrows to these products plus the ones the selector reached
+// through the import graph. Null when that narrowing is not safe.
+let mustRunProducts = null
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
     runLegacy = true
     runLegacyReason = 'legacy_changed'
+    if (affectedTestTasks) {
+        mustRunProducts = legacyMustRunProducts(affectedTestTasks, allProductSet, schemaChanged)
+    }
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
@@ -777,15 +890,14 @@ if (legacyChanged) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
             runLegacyReason = 'contract_cascade'
-            const tachGraph = loadTachModuleGraph()
-            if (tachGraph === null) {
+            const dependents = tachDependentProducts(affectedContracts, allProductSet)
+            if (dependents === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
                 // graph we cannot know which products depend on the changed contract, and
                 // guessing "none" silently recreates the gap this cascade exists to close.
                 console.error('Dependent cascade unavailable — testing all products rather than risk skipping a dependent')
                 products = allProducts
             } else {
-                const dependents = tachDependents(affectedContracts, tachGraph).filter((p) => allProductSet.has(p))
                 if (dependents.length > 0) {
                     console.error(
                         `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
@@ -805,29 +917,16 @@ if (legacyChanged) {
     }
 
     if (schemaChanged) {
-        const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
-        console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
-        if (impact.kind === 'fallback') {
-            console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
+        const schemaProducts = schemaAffectedProducts()
+        if (schemaProducts === null) {
+            console.error('Schema diff unavailable — falling back to all products + Django')
             products = allProducts
-            runLegacy = true
-            runLegacyReason = 'schema'
         } else {
-            if (impact.kind === 'impacting') {
-                console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
-                if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
-                    console.error(
-                        `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
-                    )
-                }
-                products = [...new Set([...products, ...impact.affectedProducts])].sort()
-            } else {
-                console.error('Schema change is purely additive — no extra products needed')
-            }
-            // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
-            runLegacy = true
-            runLegacyReason = 'schema'
+            products = [...new Set([...products, ...schemaProducts])].sort()
         }
+        // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
+        runLegacy = true
+        runLegacyReason = 'schema'
     }
 }
 
@@ -852,6 +951,7 @@ if (quarantinedProducts.size > 0) {
 // never sees .test_quarantine.json as a product input). Django's side of the same
 // invariant is carried by FULL_RUN_PATTERNS in the backend test selector, since a
 // legacy diff no longer implies a full Django run on its own.
+const liftedProducts = []
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
@@ -861,8 +961,23 @@ if (process.env.TURBO_SCM_BASE) {
         if (!allProductSet.has(name) || productSet.has(name)) {continue}
         console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
         products.push(name)
+        liftedProducts.push(name)
     }
     products.sort()
+}
+
+// Narrow the legacy-diff matrix after every drop and lift above, so narrowing can only
+// remove products. The matrix is then packed from the narrowed list.
+const productCountBeforeNarrowing = products.length
+let productMatrixNarrowed = false
+if (mustRunProducts !== null) {
+    const mustRun = [...new Set([...mustRunProducts, ...liftedProducts])].sort()
+    console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
+    const narrowed = narrowedProducts(products, mustRun, loadSelection(process.env.SELECTION_JSON))
+    if (narrowed !== null) {
+        products = narrowed
+        productMatrixNarrowed = true
+    }
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
@@ -877,6 +992,10 @@ const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
     run_legacy_reason: runLegacyReason,
+    // Telemetry for the capture-test-selection job.
+    product_matrix_narrowed: productMatrixNarrowed,
+    product_count: products.length,
+    product_count_full: productCountBeforeNarrowing,
     django_shards: djangoShards,
 }
 // eslint-disable-next-line no-console
