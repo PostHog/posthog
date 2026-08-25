@@ -1,5 +1,5 @@
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { useTaskFeedSelectionStore } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { useParams } from "@tanstack/react-router";
 
@@ -14,7 +14,7 @@ export interface ActiveSession {
  */
 export function useActiveSession(): ActiveSession {
   const { showsActivityDetail } = useRailSurface();
-  const selected = useActivityDetailStore((s) => s.selected);
+  const selected = useActivitySelection();
   const feedSelected = useTaskFeedSelectionStore((s) => s.selected);
   const params = useParams({ strict: false });
 

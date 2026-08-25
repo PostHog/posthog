@@ -649,11 +649,15 @@ jobs:
         # the full matrices on a PR.
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
+        # run_legacy=false means the django job below is skipped outright, so there
+        # is no matrix left to narrow — only the exact string skips, which keeps an
+        # empty output (turbo-discover skipped or failed) on the selecting path.
         if: |
             github.event_name == 'pull_request' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
-            needs.changes.outputs.backend == 'true'
+            needs.changes.outputs.backend == 'true' &&
+            needs.turbo-discover.outputs.run_legacy != 'false'
         runs-on: depot-ubuntu-24.04
         # Headroom over checkout + uv + the selector's whole-tree parse. A timeout here
         # leaves MODE empty, which on a ready PR means the full matrix — the worst case.
@@ -826,9 +830,10 @@ jobs:
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
                   #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags,
-                  #                   posthog/test/repo_invariants)
-                  #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
-                  #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
+                  #                   common/hogvm/python/test, posthog/test/repo_invariants)
+                  #   Core POE on:    posthog/clickhouse, posthog/queries, ee/clickhouse/,
+                  #                   products/product_analytics/backend/tests/api,
+                  #                   posthog/api/test/dashboards/test_dashboard.py
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
@@ -855,7 +860,7 @@ jobs:
                           posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/dashboards/test_dashboard.py)
                               poe+=("$f")
                               core+=("$f")
                               ;;

@@ -35,7 +35,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -893,12 +893,15 @@ def process_social_domain_jit_provisioning_signup(
         )
         return user
     else:
+        scim_enabled = (
+            domain_instance.identity_provider_configs_for_scope(ConfigScope.SCIM).filter(scim_enabled=True).exists()
+        )
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_exists",
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.idp_config.scim_enabled,
+            scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -949,7 +952,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.idp_config.scim_enabled,
+                    scim_enabled=scim_enabled,
                 )
 
     return user

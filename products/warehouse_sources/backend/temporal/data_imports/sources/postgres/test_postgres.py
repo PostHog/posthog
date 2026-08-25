@@ -400,6 +400,10 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'psycopg2.OperationalError: could not connect to server: Connection refused\n\tIs the server running on host "10.0.0.1" and accepting TCP/IP connections on port 5432?',
             'psycopg2.OperationalError: could not connect to server: No route to host\n\tIs the server running on host "10.0.0.1"?',
+            # The OS-level TCP connect() timeout (ETIMEDOUT) — no response at all, as opposed to the
+            # immediate rejection of "Connection refused". Observed against a private RDS endpoint
+            # PostHog can't route to.
+            'could not connect to server "some_server"\nDETAIL:  connection to server at "10.0.5.177", port 5432 failed: Connection timed out\n\tIs the server running on that host and accepting TCP/IP connections?',
             'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
