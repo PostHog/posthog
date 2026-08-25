@@ -494,6 +494,24 @@ services:
             COOKIELESS_REDIS_HOST: redis7
             COOKIELESS_REDIS_PORT: 6379
 
+    usage-ingestion:
+        image: ghcr.io/posthog/posthog/usage-ingestion:master
+        build:
+            context: rust/
+            args:
+                BIN: usage-ingestion
+        restart: on-failure
+        healthcheck:
+            test: ['CMD', 'curl', '-f', 'http://localhost:7144/_readiness']
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 10s
+        environment:
+            USAGE_INGESTION_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            RUST_LOG: 'info'
+
     personhog-replica:
         image: ghcr.io/posthog/posthog/personhog-replica:master
         build:
