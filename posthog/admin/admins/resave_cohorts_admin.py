@@ -28,14 +28,17 @@ def resave_cohorts_view(request):
                 "batch_size": form.cleaned_data["batch_size"],
                 "dry_run": form.cleaned_data["dry_run"],
             }
-            if form.cleaned_data.get("team_id"):
+            team_id = form.cleaned_data.get("team_id")
+            if team_id is not None:
+                # Presence, not truthiness: team 0 has to reach the command, which rejects it. Reading
+                # it as "no team given" would silently widen the run to every team.
                 # `call_command` skips argparse coercion for keyword options, so the list the
                 # `--team-id` flag builds has to be passed already built.
-                command_kwargs["team_id"] = [form.cleaned_data["team_id"]]
+                command_kwargs["team_id"] = [team_id]
 
             try:
                 call_command("resave_cohorts", **command_kwargs)
-                scope = f"team {form.cleaned_data['team_id']}" if form.cleaned_data.get("team_id") else "all teams"
+                scope = f"team {team_id}" if team_id is not None else "all teams"
                 mode = "dry-run" if form.cleaned_data["dry_run"] else "apply"
                 messages.success(
                     request,
