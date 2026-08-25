@@ -2,7 +2,9 @@ import {
   ArrowsOutSimpleIcon,
   ChatCircleIcon,
   GitPullRequestIcon,
+  MagnifyingGlassIcon,
   ShapesIcon,
+  WrenchIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
@@ -150,11 +152,11 @@ function ReportChatConversation({
   );
   const [sendingPrompt, setSendingPrompt] = useState<string | null>(null);
   const workPrompt = report.implementation_pr_url
-    ? "Continue working on this report. Take the next concrete step toward resolving it."
-    : "Fix the issue in this report and monitor the result.";
+    ? "Continue working on this report and its existing pull request. Re-read the analysis and take the next concrete step toward resolving it."
+    : "Continue investigating this report. Analyze the evidence and take the next concrete step.";
   const workLabel = report.implementation_pr_url
-    ? "Continue the task"
-    : "Fix and monitor";
+    ? "Continue the fix"
+    : "Continue the analysis";
   const canvasPrompt =
     "Create a canvas that visualizes this report using its evidence and relevant live data.";
 
@@ -205,28 +207,28 @@ function ReportChatConversation({
     <EmbeddedSessionView
       task={task}
       threadActions={({ sendPrompt, isPromptPending }) => (
-        <div className="flex flex-wrap items-center gap-1.5 border-border border-t px-3 py-2">
+        <div className="flex items-center gap-2 border-border border-t px-3 py-3">
           <Button
             type="button"
-            variant="outline"
-            className="h-7 rounded-full px-3 text-[12px]"
+            variant="primary"
+            className="h-9 flex-1 rounded-lg px-4 text-[13px]"
             loading={sendingPrompt === workPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
             onClick={() => void sendSuggestedPrompt(workPrompt, sendPrompt)}
           >
-            <GitPullRequestIcon size={13} />
+            <GitPullRequestIcon size={15} />
             {workLabel}
           </Button>
           <Button
             type="button"
             variant="outline"
-            className="h-7 rounded-full px-3 text-[12px]"
+            className="h-9 flex-1 rounded-lg px-4 text-[13px]"
             loading={sendingPrompt === canvasPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
             onClick={() => void sendSuggestedPrompt(canvasPrompt, sendPrompt)}
           >
-            <ShapesIcon size={13} />
-            Visualize on a canvas
+            <ShapesIcon size={15} />
+            Visualize in a Canvas
           </Button>
         </div>
       )}
@@ -313,34 +315,52 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     [isDiscussing, discussReport, fireAction],
   );
 
+  const starterPrompts = [
+    {
+      label: "Fix this issue",
+      prompt:
+        "Fix the issue in this report. Investigate the root cause, implement the fix, and open a pull request.",
+      Icon: WrenchIcon,
+      variant: "primary" as const,
+    },
+    {
+      label: "Investigate further",
+      prompt:
+        "Continue investigating this report. Analyze the evidence and explain the most useful next step.",
+      Icon: MagnifyingGlassIcon,
+      variant: "outline" as const,
+    },
+    {
+      label: "Visualize in a Canvas",
+      prompt:
+        "Create a canvas that visualizes this report using its evidence and relevant live data.",
+      Icon: ShapesIcon,
+      variant: "outline" as const,
+    },
+  ];
+
   return (
     <div className="flex h-full flex-col justify-between gap-3 p-3">
       <div className="flex flex-col gap-1 pt-1">
-        <span className="font-medium text-[14px] text-gray-12">
-          Chat about this report
-        </span>
         <span className="text-[13px] text-gray-11">
           The agent joins with the full report and its evidence already in
           context. Highlight any part of the report to quote it here.
         </span>
-        <div className="mt-1 flex flex-wrap gap-1.5">
-          {[
-            "What caused this?",
-            "Who is affected?",
-            "Walk me through the fix",
-          ].map((prompt) => (
+        <div className="mt-2 grid gap-2">
+          {starterPrompts.map(({ label, prompt, Icon, variant }) => (
             <Button
-              key={prompt}
+              key={label}
               type="button"
-              variant="outline"
-              size="sm"
+              variant={variant}
+              className="h-10 justify-start rounded-lg px-4 text-[13px]"
               // Once the composer holds a typed draft or a quoted passage, the
               // one-click chips step aside — firing a chip must not silently
               // discard what the user wrote or highlighted.
               disabled={isDiscussing || starterDraft.trim().length > 0}
               onClick={() => ask(prompt)}
             >
-              {prompt}
+              <Icon size={16} />
+              {label}
             </Button>
           ))}
         </div>

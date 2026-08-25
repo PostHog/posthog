@@ -67,7 +67,6 @@ export function TrendCard({
                         name={title}
                         type="line"
                         color={lineColor}
-                        maximumIndicator={false}
                         className="h-16 w-full"
                         renderLabel={(label) => label}
                         renderTooltipValue={renderTooltipValue}
