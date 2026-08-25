@@ -138,7 +138,7 @@ posthog-persons-<run_id>-<part>.parquet
 ## Important notes
 
 - The maximum export interval is one week. Split longer user requests into separate export runs or ask which week to export.
-- The `hogql` model is in closed beta and is enabled per team. A permission error on that model means the team does not have access yet, not that the request was malformed. Report that back instead of retrying with a different query, and tell the user they can contact PostHog support to request access.
+- The `hogql` model is in closed beta and is enabled per team. A permission error that says HogQL batch exports are not enabled means the team does not have the beta. Report that instead of retrying with a different query, and tell the user they can contact PostHog support to request access.
 - A run can briefly report `Running` after completion while file records are being created. Poll again instead of failing immediately.
 - Download URLs are temporary. If a URL expires, call the REST download endpoint again for a fresh redirect.
 - Do not send the signed URL to unrelated services unless the user explicitly asks; it grants temporary access to the exported file.

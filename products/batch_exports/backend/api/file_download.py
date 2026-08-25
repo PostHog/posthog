@@ -102,9 +102,10 @@ class FileDownloadSessionsRequestSerializer(serializers.Serializer):
 
 HOGQL_QUERY_HELP_TEXT = (
     "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled "
-    "per team, so a permission error means it is not enabled for this team yet. Contact PostHog "
-    "support to request access. Placeholders are not currently supported, and every column in the "
-    "SELECT clause must be a field or have an alias. The query runs as of the time the export "
+    "per team; when it is not enabled, the request fails with a permission error that names HogQL "
+    "batch exports. Contact PostHog support to request access. Placeholders are not currently "
+    "supported, and every column in the SELECT clause must be a field or have an alias. The "
+    "query runs as of the time the export "
     "starts, so events ingested moments before may not be included yet."
 )
 
