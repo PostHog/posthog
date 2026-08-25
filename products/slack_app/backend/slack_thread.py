@@ -8,14 +8,23 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_model_classifier_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_forking_enabled,
+    is_slack_app_home_enabled,
+    is_slack_app_model_classifier_enabled,
+)
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
+    fork_menu_actions_block,
+    fork_menu_element,
     normalize_labeled_mentions_to_bare,
+    personal_integrations_url,
+    post_slack_thread_reply,
     reply_footer_block,
+    slack_message_exists,
     viewer_has_code_access,
 )
 
@@ -139,6 +148,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._footer_flag: bool | None = None
+        self._fork_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -172,27 +182,81 @@ class SlackThreadHandler:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
 
+    def reader_footer(self) -> RunFooter:
+        """`run_footer` as this reply's reader may see it, links withheld where they can't
+        open them.
+
+        The one place that answers this, so a card's buttons and the footer's links can't
+        disagree about the same reader. A footer carrying no links asks nothing, which
+        keeps a plain answer off the identity lookup behind the access check.
+        """
+        if not (self.run_footer.task_url or self.run_footer.desktop_url):
+            return self.run_footer
+        if self.viewer_can_open_code_links():
+            return self.run_footer
+        return replace(self.run_footer, task_url=None, desktop_url=None)
+
+    def reader_task_url(self) -> str | None:
+        """The task page this reply's reader may open, or `None` where they may not."""
+        return self.reader_footer().task_url
+
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
         """This handler's footer, or `None` when the workspace isn't in the rollout.
 
         "Configure" points at the Home tab, so it only appears where that tab exists — a
         workspace outside the Home rollout would land on an empty one. The Home flag is
-        only consulted once there is actually a link to gate.
+        only consulted once there is actually something to gate.
         """
         # A handler with nothing to describe can't produce a footer, so it never pays for
-        # the flag lookups. Configure alone, under a reply, isn't worth a line.
+        # the flag lookups.
         if not self.run_footer.has_content():
             return None
         if not self.footer_enabled():
             return None
+        footer = self.reader_footer()
+        if not include_task_url:
+            footer = replace(footer, task_url=None)
         integration = self._get_integration()
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
-        footer = self.run_footer if include_task_url else replace(self.run_footer, task_url=None)
-        if not self.viewer_can_open_code_links():
-            footer = replace(footer, task_url=None, desktop_url=None)
         return reply_footer_block(footer, configure_url)
+
+    def _fork_menu(self) -> dict[str, Any] | None:
+        """The overflow menu for this reply, or `None` outside the rollout.
+
+        Only ever asked for once a footer exists, which is what keeps a reply with
+        nothing to describe off the integration lookup behind the flag — the same
+        bargain `_footer_block` makes.
+        """
+        integration = self._get_integration()
+        # Memoized like the sibling gates: a reply asks for this up to three times, and
+        # the flag is evaluated remotely.
+        if self._fork_flag is None:
+            self._fork_flag = is_slack_app_forking_enabled(integration)
+        if not self._fork_flag:
+            return None
+        return fork_menu_element(integration.id)
+
+    def _append_fork_menu(self, ts: str) -> None:
+        """Add the fork menu to a streamed reply, which has no section to hang it on.
+
+        Its own call on purpose: Slack documents no block-type restriction on a streamed
+        `blocks` chunk but does not confirm interactive blocks are allowed either, and
+        the answer rides the append before this one — a rejected request must cost the
+        menu, never the reply.
+        """
+        menu = self._fork_menu()
+        if not menu:
+            return
+        try:
+            self._get_client().chat_appendStream(
+                channel=self.context.channel,
+                ts=ts,
+                chunks=[{"type": "blocks", "blocks": [fork_menu_actions_block(menu)]}],
+            )
+        except Exception as e:
+            logger.warning("slack_app_fork_menu_append_failed", error=str(e))
 
     def _get_bot_user_id(self) -> str | None:
         if self._bot_user_id is None:
@@ -202,6 +266,19 @@ class SlackThreadHandler:
             except Exception as e:
                 logger.warning("slack_auth_test_failed", error=str(e))
         return self._bot_user_id
+
+    def _post_in_thread(self, **kwargs: Any) -> Any:
+        """Post in the run's thread, or nothing at all once the prompt it answers is gone.
+
+        Every lifecycle card and relayed answer goes through here, so a user who deletes
+        the prompt mid-run simply stops hearing from us.
+        """
+        return post_slack_thread_reply(
+            self._get_client(),
+            channel=self.context.channel,
+            thread_ts=self.context.thread_ts,
+            **kwargs,
+        )
 
     def _find_progress_message_ts(self) -> str | None:
         """Find existing progress message in the thread."""
@@ -264,6 +341,9 @@ class SlackThreadHandler:
             return None
         try:
             client = self._get_client()
+            if not slack_message_exists(client, self.context.channel, self.context.thread_ts):
+                logger.warning("slack_app_status_stream_skipped_message_deleted", channel=self.context.channel)
+                return None
             integration = self._get_integration()
             response = client.chat_startStream(
                 channel=self.context.channel,
@@ -346,6 +426,8 @@ class SlackThreadHandler:
                 )
             except Exception as e:
                 logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
+        if footer:
+            self._append_fork_menu(ts)
         try:
             self._get_client().chat_stopStream(
                 channel=self.context.channel,
@@ -400,12 +482,7 @@ class SlackThreadHandler:
                     blocks=blocks,
                 )
             else:
-                client.chat_postMessage(
-                    channel=self.context.channel,
-                    thread_ts=self.context.thread_ts,
-                    text=text,
-                    blocks=blocks,
-                )
+                self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
@@ -414,6 +491,7 @@ class SlackThreadHandler:
         pr_url: str,
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
+        bot_authored: bool = False,
     ) -> None:
         """Post the single per-run "PR opened" card.
 
@@ -425,6 +503,12 @@ class SlackThreadHandler:
 
         ``reply_target_slack_user_id`` is the resolved actor — typically the
         most recent thread participant. ``None`` produces an untagged message.
+
+        ``bot_authored`` means the run fell back to the team GitHub installation
+        because the actor had no usable personal one, so the pull request carries
+        the bot's identity rather than theirs. This card is the first place that
+        becomes visible, and it is the only surface guaranteed to reach someone
+        who only ever talks to @PostHog from Slack.
         """
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
@@ -457,8 +541,20 @@ class SlackThreadHandler:
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "actions", "elements": buttons},
         ]
+        if bot_authored:
+            blocks.append(context_block(self._personal_github_hint()))
 
         self._delete_progress_and_post(header, blocks)
+
+    def _personal_github_hint(self) -> str:
+        """One muted line telling the reader why the pull request isn't theirs.
+
+        Written for the next run rather than this one: authorship is fixed when a run is
+        created, so connecting now changes who the following pull requests belong to, and
+        the commits this thread pushes once someone replies here.
+        """
+        url = personal_integrations_url(self._get_integration().team_id)
+        return f"Opened by the PostHog bot. <{url}|Connect your GitHub> so pull requests are opened as you."
 
     def post_footer(self) -> None:
         """Post the footer alone, for an answer with no message of its own to close.
@@ -470,13 +566,12 @@ class SlackThreadHandler:
         footer = self._footer_block()
         if not footer:
             return
+        blocks = [footer]
+        menu = self._fork_menu()
+        if menu:
+            blocks.append(fork_menu_actions_block(menu))
         try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=footer["elements"][0]["text"],
-                blocks=[footer],
-            )
+            self._post_in_thread(text=footer["elements"][0]["text"], blocks=blocks)
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 
@@ -494,21 +589,18 @@ class SlackThreadHandler:
         # No footer means no blocks at all, so an ordinary message stays the plain-text
         # post it has always been. `expand` keeps the answer fully visible: a section
         # collapses behind "Show more", which plain text never did.
-        blocks: list[dict[str, Any]] | None = (
-            [
-                {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}},
-                footer,
-            ]
-            if footer
-            else None
-        )
+        blocks: list[dict[str, Any]] | None = None
+        if footer:
+            answer: dict[str, Any] = {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}}
+            # The menu hangs off the answer, not the footer: a `context` block rejects
+            # interactive elements, and moving the footer to a `section` to hold one
+            # would cost it the muted styling that makes it read as a footer.
+            menu = self._fork_menu()
+            if menu:
+                answer["accessory"] = menu
+            blocks = [answer, footer]
         try:
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=text,
-                blocks=blocks,
-            )
+            self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
@@ -646,11 +738,6 @@ class SlackThreadHandler:
                 blocks = [*blocks, footer]
         try:
             self.delete_progress()
-            self._get_client().chat_postMessage(
-                channel=self.context.channel,
-                thread_ts=self.context.thread_ts,
-                text=text,
-                blocks=blocks,
-            )
+            self._post_in_thread(text=text, blocks=blocks)
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))

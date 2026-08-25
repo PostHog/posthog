@@ -2,11 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconBug } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -15,6 +14,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CardSkeleton } from './components/cards/CardSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
+import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
+import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
@@ -96,6 +97,8 @@ function ActiveTabBody({
             return <NotActionableTab />
         case 'archived':
             return <ArchivedTab />
+        case 'scouts':
+            return <ScoutsRoster />
         case 'runs':
             return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
@@ -126,7 +129,9 @@ function InboxListView(): JSX.Element {
     // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar or the
     // rail here is what caused the normal inbox to flash in and get replaced by the welcome page.
     const pending = onboardingMode === 'pending'
-    const showRail = wide && !onboarding && !pending
+    // The Scouts tab is a full-width table, and the rail's own scout widget just links here — so
+    // the rail would be both redundant and the reason the table has nowhere to breathe.
+    const showRail = wide && !onboarding && !pending && activeTab !== 'scouts'
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -205,9 +210,21 @@ function InboxListView(): JSX.Element {
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
+    const { reportDetailScrolled } = useActions(inboxSceneLogic)
+    // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
+    // so a fast native scroll doesn't dispatch an action on every frame.
+    const scrolledReportRef = useRef<string | null>(null)
 
     return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+        <div
+            className="flex flex-col min-h-0 flex-1 overflow-auto"
+            onScroll={() => {
+                if (scrolledReportRef.current !== report.id) {
+                    scrolledReportRef.current = report.id
+                    reportDetailScrolled()
+                }
+            }}
+        >
             {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
             <ReportDetail key={report.id} report={report} tab={activeTab} />
         </div>
@@ -240,7 +257,6 @@ function InboxPanelView({ onBack, children }: { onBack: () => void; children: JS
 export function InboxScene(): JSX.Element {
     const {
         activeTab,
-        isRunningSessionAnalysis,
         selectedReportId,
         selectedReport,
         selectedReportLoading,
@@ -248,9 +264,8 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen,
         isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
+    const { setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
-    const { isDev } = useValues(preflightLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -298,21 +313,13 @@ export function InboxScene(): JSX.Element {
                               : INBOX_TAB_DESCRIPTION[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
+                    // Creating a scout is the Scouts tab's primary action, so it sits in the scene
+                    // header rather than inside the roster — one predictable place, and it stays
+                    // reachable when the roster is filtered down to nothing. Not while onboarding
+                    // has the tab locked (or is still deciding): the roster isn't reachable then.
                     actions={
-                        isDev ? (
-                            <Tooltip title="Analyze the last 7 days of sessions">
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => runSessionAnalysis()}
-                                    loading={isRunningSessionAnalysis}
-                                    size="small"
-                                    data-attr="run-session-analysis-button"
-                                    tooltip="DEBUG-only"
-                                    icon={<IconBug />}
-                                >
-                                    Run session analysis
-                                </LemonButton>
-                            </Tooltip>
+                        activeTab === 'scouts' && onboardingMode !== 'takeover' && onboardingMode !== 'pending' ? (
+                            <ScoutsRosterActions />
                         ) : undefined
                     }
                 />

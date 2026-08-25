@@ -97,7 +97,23 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.isSyncingExternalEdit).toBe(false)
     })
 
-    it('warns instead of clobbering when there are unsaved local edits', async () => {
+    it('reloads (server wins) over unsaved edits that auto-save can flush', async () => {
+        // The unsaved buffer is at most a few seconds old when auto-save is healthy, so an
+        // external edit reconciles silently instead of interrupting with the conflict banner.
+        logic.actions.setWorkflowValue('name', 'My local edit')
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+
+        expect(logic.values.externallyEdited).toBe(false)
+        expect(getCalls).toBe(2)
+        // The server copy won; the local buffer was dropped.
+        expect(logic.values.workflow.name).toBe('External edits test')
+    })
+
+    it('warns instead of clobbering when auto-save is off and there are unsaved local edits', async () => {
         logic.actions.setAutoSaveEnabled(false)
         logic.actions.setWorkflowValue('name', 'My local edit')
         expect(logic.values.hasUnsavedChanges).toBe(true)
@@ -110,6 +126,71 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(true)
         expect(logic.values.isSyncingExternalEdit).toBe(false)
         expect(getCalls).toBe(1)
+    })
+
+    it.each([
+        [
+            'the workflow has no name, so auto-save cannot flush',
+            (l: ReturnType<typeof workflowLogic.build>) => l.actions.setWorkflowValue('name', ''),
+        ],
+        [
+            'only a manual save persists a pending schedule change',
+            (l: ReturnType<typeof workflowLogic.build>) => l.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z'),
+        ],
+    ])('warns instead of reloading when %s', async (_label, makeDirty) => {
+        makeDirty(logic)
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setExternallyEdited'])
+
+        expect(logic.values.externallyEdited).toBe(true)
+        expect(getCalls).toBe(1)
+    })
+
+    it('reloads over dirty edits despite action validation errors (incomplete steps stage safely)', async () => {
+        // The co-editing case: an active workflow with a half-built email step. Its validation
+        // errors must not park the user's buffer as unflushable, or an agent edit arriving via SSE
+        // dead-ends behind a banner instead of reconciling.
+        const withInvalidEmail = makeWorkflow({
+            status: 'active',
+            actions: [
+                ...makeWorkflow().actions,
+                {
+                    id: 'email_node',
+                    type: 'function_email',
+                    name: 'Email',
+                    description: '',
+                    created_at: 0,
+                    updated_at: 0,
+                    config: { template_id: 'template-email', inputs: { email: { value: {} } } },
+                },
+            ] as HogFlow['actions'],
+        })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, withInvalidEmail]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+        logic.actions.loadWorkflow()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        expect(logic.values.workflowHasErrors).toBe(true)
+        const baselineGets = getCalls
+
+        logic.actions.setWorkflowValue('name', 'My local edit')
+        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+
+        expect(logic.values.externallyEdited).toBe(false)
+        expect(getCalls).toBe(baselineGets + 1)
     })
 
     it.each([
@@ -220,7 +301,7 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.workflow.name).toBe('My local edit')
     })
 
-    it('shows the banner when a save is rejected as stale (409 backstop)', async () => {
+    it('shows the banner when a manual save is rejected as stale (409 backstop)', async () => {
         silenceKeaLoadersErrors() // the 409 save failure is the scenario under test
         useMocks({
             get: {
@@ -239,5 +320,61 @@ describe('workflowLogic external edits', () => {
         }).toDispatchActions(['saveWorkflowFailure'])
 
         expect(logic.values.externallyEdited).toBe(true)
+    })
+
+    it('shows the banner when an auto-save 409s with a pending schedule change, instead of reloading it away', async () => {
+        // Only a manual save persists a schedule change, so the silent-reload path would wipe it.
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, makeWorkflow()]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+            },
+        })
+        logic.actions.setScheduleStartsAt('2026-07-01T00:00:00.000Z')
+        logic.actions.setWorkflowValue('name', 'Conflicting edit')
+        const baselineGets = getCalls
+
+        await expectLogic(logic, () => {
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+        }).toDispatchActions(['saveWorkflowFailure'])
+
+        expect(logic.values.externallyEdited).toBe(true)
+        expect(getCalls).toBe(baselineGets)
+    })
+
+    it('silently reloads when an auto-save is rejected as stale, instead of showing the banner', async () => {
+        silenceKeaLoadersErrors() // the 409 save failure is the scenario under test
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, makeWorkflow()]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+            },
+        })
+        logic.actions.setWorkflowValue('name', 'Conflicting edit')
+
+        await expectLogic(logic, () => {
+            // The public shape of an auto-save: the autoSaveWorkflow listener marks the flight
+            // before dispatching the save (skipping its debounce here).
+            logic.actions.markAutoSave(true)
+            logic.actions.saveWorkflow(logic.values.workflow)
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'saveWorkflowFailure', 'loadWorkflowSuccess'])
+
+        expect(logic.values.externallyEdited).toBe(false)
+        expect(logic.values.isSyncingExternalEdit).toBe(false)
+        expect(getCalls).toBe(2)
     })
 })

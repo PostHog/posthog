@@ -33,6 +33,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         loading,
         activePanelSubject,
         visibleResourceKeySet,
+        filteredResourceKeySet,
         accessDetailPanelEnabled,
         ruleModalState,
     } = useValues(logic)
@@ -89,6 +90,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 loading={loading}
                                 canEditAny={canEdit}
                                 visibleResources={visibleResourceKeySet}
+                                filteredResources={filteredResourceKeySet}
                                 selectedEntryId={openInPanelId}
                                 onEdit={(entry) => {
                                     if (!accessDetailPanelEnabled) {

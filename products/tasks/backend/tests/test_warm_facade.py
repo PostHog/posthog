@@ -12,6 +12,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 
 from products.tasks.backend.facade import (
+    access as tasks_access,
     api as facade,
     contracts,
 )
@@ -49,10 +50,21 @@ WARM_SRC = "products.tasks.backend.logic.services.warm.SandboxWarmer"
 TITLE_SRC = "products.tasks.backend.logic.services.title_generator"
 
 
+def _allow_desktop_access(test_case: APIBaseTest) -> None:
+    access_patcher = patch(
+        "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+        return_value=tasks_access.DesktopAccessDecision.ALLOWED,
+    )
+    access_patcher.start()
+    test_case.addCleanup(access_patcher.stop)
+
+
 class TestWarmTaskSandbox(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+        # The warm endpoint gates on Desktop access; these tests cover warm forwarding, not the gate.
+        _allow_desktop_access(self)
 
     def _warm(self, **overrides):
         kwargs: dict[str, Any] = {
@@ -170,6 +182,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         run = TaskRun.objects.get(id=result.run_id)
         assert run.state["sandbox_environment_id"] == str(sandbox_environment.id)
         assert run.state["custom_image_id"] == str(custom_image.id)
+        assert "use_modal_network_allowlist" not in run.state
 
     def test_births_draft_task_and_returns_warm_dto(self):
         def fake_warm(self_warmer, **kwargs):
@@ -355,6 +368,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
             repository_cache_updated_at=django_timezone.now(),
         )
+        _allow_desktop_access(self)
 
     def _warm_run(
         self,
@@ -486,7 +500,10 @@ class TestCreateTaskWarmReuse(APIBaseTest):
     def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
         warm_task, run = self._warm_run()
 
-        with patch("products.tasks.backend.logic.services.compute_quota.is_compute_quota_exhausted", return_value=True):
+        with patch(
+            "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason",
+            return_value="posthog_code_billing_limit_exceeded",
+        ):
             response = self.client.post(
                 "/api/projects/@current/tasks/",
                 {"description": "fix the bug", "repository": "posthog/posthog", "branch": "main"},

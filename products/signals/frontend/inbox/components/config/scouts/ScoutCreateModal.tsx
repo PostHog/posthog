@@ -30,6 +30,7 @@ import {
     SIGNALS_SCOUT_SKILL_PREFIX,
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
+import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 
 export interface ScoutCreateModalProps {
@@ -171,6 +172,16 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                             placeholder="Describe the signals, thresholds, investigation steps, and reporting criteria."
                             data-attr="scout-create-instructions"
                         />
+                    </LemonField>
+
+                    <LemonField name="config.mcp_gateway_server_ids">
+                        {({ value, onChange }) => (
+                            <ScoutMcpServersPicker
+                                selectedServerIds={value ?? []}
+                                onChange={onChange}
+                                disabledReason={isScoutCreateFormSubmitting ? 'Creating the scout' : undefined}
+                            />
+                        )}
                     </LemonField>
 
                     <div className="flex flex-col gap-3 border-t border-primary pt-4">

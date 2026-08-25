@@ -16,10 +16,7 @@ import type {
   TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { ConversationSearchBar } from "@posthog/ui/features/sessions/components/ConversationSearchBar";
-import {
-  PROMPT_RECALL_HINT_KEY,
-  type PromptRecallHandler,
-} from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
@@ -64,6 +61,7 @@ import {
 import { useThreadScrollRequest } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
 import {
   DIFF_WORKER_FACTORY,
@@ -101,6 +99,10 @@ export interface ConversationViewProps {
    * plain Up/Down presses (caret at the input boundary) to it.
    */
   promptRecallRef?: RefObject<PromptRecallHandler | null>;
+  /** See `SharedChatThreadProps.olderHistoryCursor`. */
+  olderHistoryCursor?: number;
+  isLoadingOlderHistory?: boolean;
+  onLoadOlderHistory?: () => void;
 }
 
 export function ConversationView({
@@ -146,7 +148,10 @@ export function ConversationView({
     items: conversationItems,
     lastTurnInfo,
     isCompacting,
+    isClearing,
+    isBackgroundTurnActive,
     completedToolCallCount,
+    lastActivityAt,
   } = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -293,7 +298,7 @@ export function ConversationView({
       const nextMessage = userMessages[nextIndex];
       if (!nextMessage) return;
 
-      useSettingsStore.getState().markHintLearned(PROMPT_RECALL_HINT_KEY);
+      useSettingsStore.getState().markHintLearned(TIP_KEYS.recallMessageNav);
       setKeyboardFocusedMessageId(nextMessage.id);
       scrollToUserMessage(nextMessage.id, nextMessage.index);
     },
@@ -492,7 +497,10 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
+        isClearing={isClearing}
+        isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
+        lastActivityAt={lastActivityAt}
       />
     </div>
   );

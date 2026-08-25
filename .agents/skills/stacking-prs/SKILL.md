@@ -5,8 +5,9 @@ description: >
   Use when asked to stack PRs, split a large change into a stack, add a layer to a stack,
   restack or rebase a stack, adopt existing branches or PRs into a stack, check out
   someone else's stack, or land a stack. Covers creating and submitting stacks
-  (draft-first), cascade rebases with `gh stack sync`, and landing one bottom-first
-  via `/merging-prs` rather than `gh stack merge`.
+  (draft-first), cascade rebases with `gh stack sync`, and landing one through the
+  Trunk merge queue via `/merging-prs` — whole-stack via `/trunk merge` on the top
+  layer, or bottom-first — never `gh stack merge`.
 ---
 
 # Stacked PRs with `gh stack`
@@ -22,6 +23,21 @@ gh extension install github/gh-stack   # or: gh extension upgrade stack
 ```
 
 Upstream docs: [about stacked PRs](https://docs.github.com/en/pull-requests/get-started/about-stacked-prs), [CLI commands](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands).
+
+## In a cloud task sandbox, use `gh_stack` instead
+
+The rest of this skill assumes a developer machine.
+Cloud task runs block `git commit` and `git push` so unsigned commits cannot leave the sandbox, which takes out every `gh stack` command that publishes a stack — `submit`, `sync`, `push`, and `link` with branch arguments all push, and `gh stack add -m` commits.
+
+There, build the stack from the signed-commit tooling and link it with the `gh_stack` MCP tool, which drives GitHub's Stacks REST API and never pushes:
+
+1. Commit each layer with `git_signed_commit`, passing a new `branch` — the checkout already sits on the layer below, so the branch starts there.
+2. Open each layer's PR with `gh pr create --base <branch of the layer below>`.
+3. Link them with `gh_stack`, operation `create`, passing `pull_requests` bottom to top.
+
+To restack a layer: check that layer out, `git rebase <its parent branch>`, then republish it with `git_signed_rewrite` passing `onto` = the parent branch.
+`gh stack rebase` still does the rebase itself, but nothing may publish the result — `gh stack push` and `gh stack sync` both push.
+`git_signed_rewrite` replays whatever local HEAD points at and uses `branch` only to pick which remote ref moves, so the layer has to be the checked-out branch or you publish the wrong history to it.
 
 ## Create a stack
 
@@ -64,19 +80,27 @@ gh stack sync --prune    # also delete local branches for merged PRs
 - `gh stack view --short` shows status (`--json` for scripting); a `⚠` means that layer needs a rebase, which blocks merging. `gh stack checkout <stack-number|PR|URL>` pulls down and tracks a stack you don't have locally, including a teammate's.
 - `gh stack modify` interactively reorders, folds, drops, or renames layers. `gh stack unstack` removes the stack on GitHub (`--local` to only drop local tracking).
 - Batch work before syncing. Each sync force-pushes and re-runs a full CI matrix for every rebased layer, so sync when you need the rebase, not to track master.
+- Layer branches move without you: ReviewHog and other bots push fix commits straight onto PR branches. `gh stack sync` fetches first and pushes with `--force-with-lease`, so it refuses when a branch moved; treat that refusal as "someone committed here, go read it", not "retry". Before any manual `git push` or rebase of a layer, `git fetch origin` and fast-forward onto the remote head. Never plain force-push a layer branch.
 - The `ci:preflight` pre-push hook runs on these pushes like any other; never bypass it.
 
 ## Merging
 
-A stack lands bottom-first, one layer at a time.
-Merge the layer based on `master` via `/merging-prs`, exactly as you would an unstacked PR; being in a stack changes nothing about how it reaches `master`.
-GitHub then retargets the next layer onto `master` and updates the stack:
+Both paths go through the Trunk merge queue via `/merging-prs`; never `gh stack merge`, which merges the chain through GitHub's API and bypasses the queue. An agent must obtain explicit user approval in the current conversation for the identified stack before enqueueing, re-enqueueing, or otherwise causing any layer to land.
+
+**Whole stack at once (default).**
+The queue handles stacks natively: enqueueing a PR enqueues it and every unmerged layer below it, tests them together, and merges them atomically.
+After explicit user approval, comment `/trunk merge` on the **top** PR to land the whole stack, or on the highest layer that's ready to land just the bottom part.
+Every layer being merged must individually pass `/merging-prs` preflight (ready, approved, no failing checks — pending ones are fine, the queue waits for them) — a mid-stack draft or missing approval blocks the layers above it.
+
+**Bottom-first, one layer at a time.**
+After explicit user approval, merge the layer based on `master` via `/merging-prs`, exactly as you would an unstacked PR.
+GitHub then retargets the next layer onto `master` and updates the stack.
+
+After either path:
 
 ```bash
-gh stack sync --prune   # replay the remaining layers onto the squashed commit, drop the merged branch
+gh stack sync --prune   # replay the remaining layers onto the squashed commit(s), drop merged branches
 ```
-
-Repeat for the new bottom layer.
 
 Do **not** use `gh stack merge`.
 It merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside the path AGENTS.md requires ("Merging PRs").

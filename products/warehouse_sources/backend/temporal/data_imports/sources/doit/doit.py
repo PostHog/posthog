@@ -1,6 +1,5 @@
 import hashlib
 import datetime
-from dataclasses import dataclass
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -8,6 +7,8 @@ import pyarrow as pa
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_iterator
@@ -82,7 +83,7 @@ def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class DoItReport:
     id: str
     # Normalized identifier used as the schema row name.

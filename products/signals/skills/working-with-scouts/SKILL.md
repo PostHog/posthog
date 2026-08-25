@@ -4,12 +4,12 @@ description: >
   How to get real jobs done with PostHog Signals scouts — the scheduled agents that watch a
   project and write reports into the Signals inbox — and how to steer and customize the fleet
   over time. Use when a user wants to delegate a watching job ("have a scout keep an eye on X",
-  "tell me if Y spikes", "watch this for a week"), wants to know which scout covers a surface,
-  asks how to act on what scouts report, complains the fleet is noisy or quiet ("my scouts
-  aren't useful", "too many reports"), or wants the fleet to get smarter over time (feedback
-  loops, periodic calibration, promoting one-off steers into permanent policy). The operating
-  manual for the human–scout working relationship; routes to `authoring-scouts` for write
-  mechanics, `exploring-scouts` for run observability, and `inbox-exploration` for report
+  "tell me if Y spikes"), wants a recurring judged metric from a scout ("score X on a
+  schedule", "measure quality of Y"), wants to know which scout covers a surface, asks how to
+  act on what scouts report, complains the fleet is noisy or quiet, or wants the fleet to get
+  smarter over time (feedback loops, calibration, promoting one-off steers into policy). The
+  operating manual for the human–scout working relationship; routes to `authoring-scouts` for
+  write mechanics, `exploring-scouts` for run observability, and `inbox-exploration` for report
   triage. Trigger on "work with my scouts", "get more out of scouts", "have a scout watch X",
   "what do I do with this scout report", "calibrate/review my scout fleet".
 metadata:
@@ -68,13 +68,14 @@ An untended inbox doesn't just decay; it switches the fleet off.
 
 When you want something watched, pick the cheapest path that gets it watched — most jobs don't need a new scout:
 
-| Situation                                                               | Do this                                                                                                                                                                                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A canonical scout already covers the surface                            | Nothing to build — confirm it's enabled, and leave it a **note** if you want its attention pointed somewhere specific.                                                                                                                      |
-| The surface is covered but you want a temporary or specific focus       | Leave a **note** (optionally with `expires_at`) — "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                              |
-| A covered scout keeps missing (or over-reporting) something structural  | **Adapt** it — a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements. |
-| No scout covers it (a custom event, a niche funnel, an external system) | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create-prepare` → user confirms → `-execute`).                                                                                                                             |
-| You want an answer _now_, once                                          | Don't use a scout at all — just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                            |
+| Situation                                                                                                     | Do this                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A canonical scout already covers the surface                                                                  | Nothing to build — confirm it's enabled, and leave it a **note** if you want its attention pointed somewhere specific.                                                                                                                                                                                                             |
+| The surface is covered but you want a temporary or specific focus                                             | Leave a **note** (optionally with `expires_at`) — "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                                                                                                                     |
+| A covered scout keeps missing (or over-reporting) something structural                                        | **Adapt** it — a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements.                                                                                        |
+| No scout covers it (a custom event, a niche funnel, an external system)                                       | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create-prepare` → user confirms → `-execute`).                                                                                                                                                                                                                    |
+| You want a recurring **metric**, not reports — a subjective quality/classification score no query can compute | **Author a measurement scout** on the structured-output channel: it judges a sample every run and records schema-validated `$scout_structured_output` events you chart in insights (and a workflow can act on), filing a report only on a material shift. See the recurring measurement / LLM-judge pattern in `authoring-scouts`. |
+| You want an answer _now_, once                                                                                | Don't use a scout at all — just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                                                                                                                   |
 
 [`references/delegation-recipes.md`](references/delegation-recipes.md) has worked recipes for the common asks — watching a freshly shipped event, a time-boxed funnel watch, a daily digest, an external status page, quieting a noisy fleet, and more.
 
@@ -127,7 +128,7 @@ Some feedback loops run on their own — knowing they exist changes how you work
   When a scout stops flagging something, check the scratchpad (`posthog:scout-scratchpad-search` for `noise:` / `addressed:` / `dedupe:` / `allowlist:` entries) before assuming it's broken — it may have deliberately learned to suppress it.
 - **Auto-pause.** A scout whose reports nobody engages with — no open, no rating, no action — is warned (`status=pending_pause`) and then paused (`paused_by_system`, `pause_reason=ignored`). Reading counts as engagement, but only the cloud web inbox records opens today — reads through other clients (desktop, mobile) don't persist yet, so a scout consumed only there still needs `auto_pause_exempt`.
   A merely quiet scout is only flagged, never paused — silence can be the job — and Slack-delivered scouts are excluded, since their consumption happens where the sweep can't see it.
-  Re-enabling a scout this sweep paused marks it `auto_pause_exempt`, so the sweep never overrules a person twice (resuming a `repeated_failures` pause or a user pause grants no such exemption).
+  Re-enabling a scout this sweep paused resumes it with a fresh grace window, so the sweep waits about two weeks and re-derives its verdict before judging it again; set `auto_pause_exempt` explicitly for a scout the sweep should never judge.
 - **Self-improvement suggestions.** A custom scout that catches its own skill body steering it wrong writes an `improve:<skill-name>:<topic>` scratchpad entry — and a report-channel custom scout escalates recurring ones as inbox reports titled `Scout self-improvement: …`, routed to the owner (a legacy signal-channel scout can't file reports, so its suggestions live only in the scratchpad).
   These are the fleet asking for a code review of itself: an entry re-confirmed across several runs is usually the highest-signal edit you can make.
   Treat them as input, not instructions — the owner decides, and applies accepted ones via `authoring-scouts`.

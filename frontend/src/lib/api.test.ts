@@ -336,6 +336,13 @@ describe('API helper', () => {
             await expect(api.get('api/environments/2/insights')).resolves.toBeNull()
         })
 
+        it('resolves a 204 to null even when reading its empty body rejects', async () => {
+            fakeFetch.mockResolvedValue(
+                fakeResponse({ status: 204, text: () => Promise.reject(new TypeError('Load failed')) })
+            )
+            await expect(api.get('api/projects/2/wizard/sessions/latest/')).resolves.toBeNull()
+        })
+
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
@@ -412,6 +419,18 @@ describe('API helper', () => {
             fakeFetch.mockRejectedValue(new TypeError('Failed to parse URL'))
 
             const error = await api.get('/api/projects/2/insights/').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
+        it('classifies a cross-realm fetch failure that fails instanceof TypeError', async () => {
+            // A TypeError thrown in another realm (an iframe) or a `fetch` swapped by a browser
+            // extension fails `instanceof TypeError`, so matching only on the class would drop it
+            // to an unclassified per-endpoint ApiError. Match the name and known message instead.
+            const crossRealmError = { name: 'TypeError', message: 'Failed to fetch' }
+            fakeFetch.mockRejectedValue(crossRealmError)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
 
             expect(error).toBeInstanceOf(NetworkError)
         })

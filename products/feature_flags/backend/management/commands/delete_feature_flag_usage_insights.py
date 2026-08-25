@@ -27,12 +27,13 @@ from posthog.utils import friendly_time
 from products.alerts.backend.facade.api import insight_ids_with_alerts
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import dashboard_ids_with_subscriptions, insight_ids_with_subscriptions
 from products.feature_flags.backend.api.feature_flag import (
     USAGE_DASHBOARD_DESCRIPTION_PREFIX,
     USAGE_DASHBOARD_NAME_PREFIX,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Tags each activity-log entry so a sweep's deletions are distinguishable from a user's.
 _JOB_TYPE = "delete_feature_flag_usage_insights"
@@ -108,9 +109,10 @@ class _SweepStats:
 
 class Command(BaseCommand):
     help = (
-        "Soft-delete the insights PostHog auto-generates on feature flag usage dashboards. "
-        "Mirrors the insight bulk_delete side effects (tiles, activity log) and nulls "
-        "FeatureFlag.usage_dashboard for any flag whose usage dashboard ends up empty."
+        "Soft-delete the insights PostHog auto-generates on feature flag usage dashboards, whether "
+        "the owning flag is live or soft-deleted. Mirrors the insight bulk_delete side effects "
+        "(tiles, activity log) and nulls FeatureFlag.usage_dashboard for any flag whose usage "
+        "dashboard ends up empty."
     )
 
     options: _SweepOptions
@@ -134,10 +136,10 @@ class Command(BaseCommand):
             "--include-orphaned",
             action="store_true",
             help=(
-                "Also sweep classified insights not reachable from any live FeatureFlag.usage_dashboard "
-                "(e.g. left behind when a flag was deleted). Off by default, so only insights on a "
-                "live flag usage dashboard are removed. Scans the whole insight table, so run it "
-                "off-peak."
+                "Also sweep classified insights on generated dashboards that no flag row references, "
+                "e.g. when a soft-deleted flag is hard-deleted to free its key for reuse. "
+                "Off by default, so only insights a flag row (live or soft-deleted) still points at "
+                "are removed. Scans the whole insight table, so run it off-peak."
             ),
         )
         parser.add_argument(
@@ -235,7 +237,8 @@ class Command(BaseCommand):
             time.sleep(self.options.sleep_interval)
 
     def _keep_ids(self, candidates: list[_Candidate]) -> set[int]:
-        """Candidates to keep: edited, favorited, alerted, publicly shared, or on the keep-list file.
+        """Candidates to keep: edited, favorited, alerted, publicly shared, subscribed to, on a
+        dashboard that is itself shared or subscribed to, or on the keep-list file.
 
         An insight without `is_sample` is one somebody edited. The generator sets that marker on every
         insight it creates, and `InsightSerializer.update` clears it on any PATCH, so its absence is
@@ -251,8 +254,30 @@ class Command(BaseCommand):
         keep |= set(
             SharingConfiguration.objects.filter(insight_id__in=ids, enabled=True).values_list("insight_id", flat=True)
         )
+        keep |= insight_ids_with_subscriptions(ids)
         keep |= insight_ids_with_alerts(ids)
+        keep |= self._ids_on_dashboards_in_use(ids)
         return keep
+
+    def _ids_on_dashboards_in_use(self, insight_ids: list[int]) -> set[int]:
+        """Insights with a live tile on a dashboard that is itself shared or subscribed to.
+
+        A dashboard-level share link or scheduled delivery serves every tile on the dashboard, so
+        sweeping any of them would blank a surface someone still reads. The insight-level checks in
+        `_keep_ids` cannot see these: a dashboard's SharingConfiguration and Subscription rows carry
+        no insight id.
+        """
+        tiles = list(DashboardTile.objects.filter(insight_id__in=insight_ids).values_list("insight_id", "dashboard_id"))
+        dashboard_ids = {dashboard_id for _, dashboard_id in tiles}
+        if not dashboard_ids:
+            return set()
+        in_use = set(
+            SharingConfiguration.objects.filter(dashboard_id__in=dashboard_ids, enabled=True).values_list(
+                "dashboard_id", flat=True
+            )
+        )
+        in_use |= dashboard_ids_with_subscriptions(dashboard_ids)
+        return {insight_id for insight_id, dashboard_id in tiles if dashboard_id in in_use}
 
     def _deletable(self, candidates: list[_Candidate]) -> list[_Candidate]:
         """Candidates with no keep signal, truncated to what --limit still allows. Records the kept count."""
@@ -264,7 +289,7 @@ class Command(BaseCommand):
         return deletable
 
     def _soft_delete(self, insights: list[_Candidate]) -> None:
-        """Mirror InsightViewSet.bulk_delete (products/product_analytics/backend/api/insight.py): soft-delete
+        """Mirror InsightViewSet.bulk_delete (products/product_analytics/backend/presentation/insight.py): soft-delete
         the insights and their tiles, then log each removal as system activity.
 
         Three of bulk_delete's steps are deliberately dropped: its alert teardown, because `_keep_ids`
@@ -335,7 +360,10 @@ class Command(BaseCommand):
         return had_tiles - keeps_a_tile
 
     def _unlink_usage_dashboards(self, emptied: set[int]) -> None:
-        """Null usage_dashboard on every flag pointing at one of these dashboards.
+        """Null usage_dashboard on every flag pointing at one of these dashboards, soft-deleted flags
+        included: FeatureFlagViewSet.dashboard regenerates only when the FK is null or its dashboard
+        row is deleted, and this sweep leaves the dashboard alive, so a flag restored while still
+        linked would reopen its emptied dashboard instead.
 
         Reports the pairs it severs: unlike the soft deletes, this write keeps no copy of the old
         value, so its own output is what makes the run reversible.
@@ -343,21 +371,33 @@ class Command(BaseCommand):
         # Read the pairs once and write against those ids, so the lines an operator would replay from
         # are the rows actually written.
         severed = list(
-            FeatureFlag.objects.filter(usage_dashboard_id__in=emptied).values_list("id", "usage_dashboard_id")
+            FeatureFlag.objects_including_soft_deleted.filter(usage_dashboard_id__in=emptied).values_list(
+                "id", "usage_dashboard_id"
+            )
         )
         for flag_id, dashboard_id in severed:
             self.stdout.write(f"  unlink flag_id={flag_id} usage_dashboard_id={dashboard_id}")
         if not self.options.dry_run:
-            FeatureFlag.objects.filter(id__in=[flag_id for flag_id, _ in severed]).update(usage_dashboard=None)
+            FeatureFlag.objects_including_soft_deleted.filter(id__in=[flag_id for flag_id, _ in severed]).update(
+                usage_dashboard=None
+            )
         self.stats.flags_nulled += len(severed)
 
-    def _delete_referential(self) -> None:
-        """Pass 1: the authoritative set, meaning insights on a live FeatureFlag.usage_dashboard that
-        match the classifier."""
-        flags = FeatureFlag.objects.filter(usage_dashboard_id__isnull=False)
+    def _usage_dashboard_flags(self) -> QuerySet[FeatureFlag]:
+        """Every flag row that vouches for a usage dashboard, soft-deleted rows included: deleting
+        a flag never touches usage_dashboard, so the row still proves PostHog generated whatever
+        the dashboard holds. Pass 1 scans it and pass 2 excludes it, so both passes must read flags
+        through this one queryset.
+        """
+        flags = FeatureFlag.objects_including_soft_deleted.filter(usage_dashboard_id__isnull=False)
         if self.options.team_id is not None:
             flags = flags.filter(team_id=self.options.team_id)
-        flag_rows = flags.order_by("id").values_list("id", "usage_dashboard_id")
+        return flags
+
+    def _delete_referential(self) -> None:
+        """Pass 1: the authoritative set, meaning insights on any FeatureFlag.usage_dashboard that
+        match the classifier."""
+        flag_rows = self._usage_dashboard_flags().order_by("id").values_list("id", "usage_dashboard_id")
 
         self.stdout.write("Pass 1 (referential): scanning feature flags with a usage dashboard")
         last_id = 0
@@ -395,11 +435,12 @@ class Command(BaseCommand):
             self._throttle(wrote=bool(deletable or emptied))
 
     def _delete_orphaned(self) -> None:
-        """Pass 2 (opt-in): generated insights left on a generated dashboard no live flag points at."""
-        live_usage_dashboards = FeatureFlag.objects.filter(usage_dashboard_id__isnull=False)
+        """Pass 2 (opt-in): generated insights left on a generated dashboard no flag row points at."""
         # Anchor on the dashboard the generator stamps, so a name match is never the only evidence that
-        # PostHog created the insight. Deleting a flag leaves its dashboard behind, which is what keeps
-        # the orphans reachable; ones whose dashboard was deleted outright stay out of scope.
+        # PostHog created the insight. Pass 1 owns every dashboard a flag row still references, so this
+        # pass exists for dashboards with no flag row at all (hard-deleted rows, see
+        # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
+        # ones whose dashboard was deleted outright stay out of scope.
         generated_dashboards = Dashboard.objects.filter(
             creation_mode="template",
             name__startswith=USAGE_DASHBOARD_NAME_PREFIX,
@@ -415,11 +456,10 @@ class Command(BaseCommand):
             ),
         )
         if self.options.team_id is not None:
-            live_usage_dashboards = live_usage_dashboards.filter(team_id=self.options.team_id)
             insights = insights.filter(team_id=self.options.team_id)
         insight_rows = _candidate_rows(insights.order_by("id"))
 
-        self.stdout.write("Pass 2 (orphaned): scanning generated dashboards no live flag points at")
+        self.stdout.write("Pass 2 (orphaned): scanning generated dashboards no flag row points at")
         last_id = 0
         while not self._limit_reached:
             batch = [_Candidate(**row) for row in insight_rows.filter(id__gt=last_id)[: self.options.batch_size]]
@@ -427,11 +467,11 @@ class Command(BaseCommand):
                 break
             last_id = batch[-1].id
 
-            # Drop any still reachable from a live usage dashboard, since pass 1 owns those.
+            # Drop any still reachable from a flag's usage dashboard, since pass 1 owns those.
             reachable = set(
                 DashboardTile.objects.filter(
                     insight_id__in=[c.id for c in batch],
-                    dashboard_id__in=live_usage_dashboards.values("usage_dashboard_id"),
+                    dashboard_id__in=self._usage_dashboard_flags().values("usage_dashboard_id"),
                 ).values_list("insight_id", flat=True)
             )
             deletable = self._deletable([c for c in batch if c.id not in reachable])

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createSignedCommit = vi.fn();
-const reportCommitArtefacts = vi.fn();
-const reportTaskRunBranch = vi.fn();
+const reportSignedCommitActivity = vi.fn();
 
 vi.mock("@posthog/git/signed-commit", async (importOriginal) => {
   const actual =
@@ -14,8 +13,8 @@ vi.mock("@posthog/git/signed-commit", async (importOriginal) => {
 });
 
 vi.mock("../../../signed-commit-artefacts", () => ({
-  reportCommitArtefacts: (...args: unknown[]) => reportCommitArtefacts(...args),
-  reportTaskRunBranch: (...args: unknown[]) => reportTaskRunBranch(...args),
+  reportSignedCommitActivity: (...args: unknown[]) =>
+    reportSignedCommitActivity(...args),
 }));
 
 // Importing the tool after the mock so its transitive `createSignedCommit`
@@ -27,8 +26,7 @@ describe("signed-commit tool handler", () => {
 
   beforeEach(() => {
     createSignedCommit.mockReset();
-    reportCommitArtefacts.mockReset();
-    reportTaskRunBranch.mockReset();
+    reportSignedCommitActivity.mockReset();
     createSignedCommit.mockResolvedValue({
       branch: "posthog-code/feature",
       repository: "x/y",
@@ -110,11 +108,20 @@ describe("signed-commit tool handler", () => {
       { message: "chore: bump" },
     );
 
-    expect(reportTaskRunBranch).toHaveBeenCalledWith({
+    expect(reportSignedCommitActivity).toHaveBeenCalledWith({
       taskId: "task-1",
       taskRunId: "run-1",
-      repository: "x/y",
-      branch: "posthog-code/feature",
+      result: {
+        branch: "posthog-code/feature",
+        repository: "x/y",
+        commits: [
+          {
+            sha: "deadbeef",
+            url: "https://github.com/x/y/commit/deadbeef",
+          },
+        ],
+      },
+      message: "chore: bump",
       updateCheckoutBranch: true,
     });
   });
@@ -130,11 +137,14 @@ describe("signed-commit tool handler", () => {
       { message: "chore: bump", cwd: "." },
     );
 
-    expect(reportTaskRunBranch).toHaveBeenCalledWith({
+    expect(reportSignedCommitActivity).toHaveBeenCalledWith({
       taskId: "task-1",
       taskRunId: "run-1",
-      repository: "x/y",
-      branch: "posthog-code/feature",
+      result: expect.objectContaining({
+        repository: "x/y",
+        branch: "posthog-code/feature",
+      }),
+      message: "chore: bump",
       updateCheckoutBranch: true,
     });
   });
@@ -153,11 +163,14 @@ describe("signed-commit tool handler", () => {
       },
     );
 
-    expect(reportTaskRunBranch).toHaveBeenCalledWith({
+    expect(reportSignedCommitActivity).toHaveBeenCalledWith({
       taskId: "task-1",
       taskRunId: "run-1",
-      repository: "x/y",
-      branch: "posthog-code/feature",
+      result: expect.objectContaining({
+        repository: "x/y",
+        branch: "posthog-code/feature",
+      }),
+      message: "chore: bump",
       updateCheckoutBranch: false,
     });
   });

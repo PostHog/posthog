@@ -368,6 +368,18 @@ export const LogsAlertConfigurationStateEnumApi = {
     Broken: 'broken',
 } as const
 
+export interface AlertScheduleRestrictionWindowApi {
+    /** Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)). */
+    start: string
+    /** End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally. */
+    end: string
+}
+
+export interface AlertScheduleRestrictionApi {
+    /** Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours. */
+    blocked_windows: AlertScheduleRestrictionWindowApi[]
+}
+
 export interface LogsAlertStateIntervalApi {
     /** Interval start (UTC, inclusive). */
     start: string
@@ -509,6 +521,8 @@ export interface LogsAlertConfigurationApi {
      * @minimum 0
      */
     cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
      * @nullable
@@ -616,6 +630,8 @@ export interface PatchedLogsAlertConfigurationApi {
      * @minimum 0
      */
     cooldown_minutes?: number
+    /** Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
      * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
      * @nullable
@@ -1046,6 +1062,76 @@ export interface LogsAnomalyScanResponseApi {
 
 export interface LogsAnomalyScanErrorApi {
     /** Human readable description of why the scan could not run. */
+    error: string
+}
+
+/**
+ * * `60` - 60
+ */
+export type IntervalMinutesEnumApi = (typeof IntervalMinutesEnumApi)[keyof typeof IntervalMinutesEnumApi]
+
+export const IntervalMinutesEnumApi = {
+    Number60: 60,
+} as const
+
+export interface LogsSeriesBandsRequestApi {
+    /** Service whose per-series volume to chart (the log record's service_name). */
+    serviceName: string
+    /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+     *
+     * * `60` - 60 */
+    intervalMinutes?: IntervalMinutesEnumApi
+}
+
+export interface LogsSeriesBandBucketApi {
+    /** Start of the display bucket (UTC). */
+    time: string
+    /** Log count observed in this bucket. */
+    observed: number
+    /**
+     * Lower edge of the expected band. Null while the series has too little history to band.
+     * @nullable
+     */
+    lower: number | null
+    /**
+     * Upper edge of the expected band. Null while the series has too little history to band.
+     * @nullable
+     */
+    upper: number | null
+}
+
+export interface LogsSeriesBandSeriesApi {
+    /** Namespace of the emitting resource; empty when the logs carry none. */
+    namespace: string
+    /** Deployment environment of the emitting resource; empty when the logs carry none. */
+    environment: string
+    /** Lowercased log severity of this series (for example info, error). */
+    severity: string
+    /** Total observed log count over the window. Series are ordered by this, descending. */
+    total_count: number
+    /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+    baseline_weeks: number
+    /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+    buckets: LogsSeriesBandBucketApi[]
+}
+
+export interface LogsSeriesBandsResponseApi {
+    /** Service the series belong to. */
+    service_name: string
+    /** Start of the observed window (UTC, inclusive). */
+    window_start: string
+    /** End of the observed window (UTC, exclusive). */
+    window_end: string
+    /** Display grain of the buckets, in minutes. */
+    interval_minutes: number
+    /** True when the service has more series than the response carries; the quietest were dropped. */
+    series_truncated: boolean
+    /** One entry per (namespace, environment, severity) series, ordered by observed volume descending. */
+    series: LogsSeriesBandSeriesApi[]
+}
+
+export interface LogsSeriesBandsErrorApi {
+    /** Human readable description of why the series could not be charted. */
     error: string
 }
 
@@ -1541,7 +1627,7 @@ export interface _LogsPatternsRequestApi {
 }
 
 export interface _LogPatternExampleApi {
-    /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, not the raw stored line. */
+    /** Log body as the miner saw it: whitespace-collapsed and truncated to the mining length cap, with the message field extracted from JSON bodies. This is not the raw stored line. */
     body: string
     /** Severity of the sampled line, e.g. "info", "error". */
     severity_text: string
@@ -1582,7 +1668,7 @@ export interface _LogPatternApi {
     /** Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample counts, not extrapolated — severity dominance is a proportion, so scaling would not change it. */
     severity_counts: _LogPatternApiSeverityCounts
     /**
-     * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the pattern's own examples before being offered. Null when the template lacks literal content or validation failed — never trust an unvalidated predicate. Use with the message/regex log property filter.
+     * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
      * @nullable
      */
     match_regex: string | null
@@ -2013,6 +2099,11 @@ export interface _LogsServicesBodyApi {
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
+    /**
+     * Case-insensitive substring match on service name, applied before aggregation. Use to reach services beyond the response cap.
+     * @maxLength 200
+     */
+    serviceNameSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
 }
@@ -2067,10 +2158,12 @@ export interface _LogsServicesSummaryApi {
 }
 
 export interface _LogsServicesResponseApi {
-    /** Per-service aggregates, ordered by log_count descending. Capped at 25 services. */
+    /** Per-service aggregates, ordered by log_count descending. Capped at 10000 services. */
     services: _LogsServiceAggregateApi[]
-    /** Time-bucketed counts broken down by service, for plotting volume over time. */
+    /** Time-bucketed counts broken down by service, for plotting volume over time. Covers only the top 25 services in this response; re-request with `serviceNames` to get sparklines for specific services. */
     sparkline: _LogsServicesSparklineBucketApi[]
+    /** True distinct service count for the window and filters, unaffected by the 10000-service cap on `services`. Greater than the length of `services` when the response is truncated. */
+    total_services: number
     /** Roll-up stats for the Services tab header. */
     summary?: _LogsServicesSummaryApi
 }

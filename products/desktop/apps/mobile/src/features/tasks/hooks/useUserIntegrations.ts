@@ -15,13 +15,12 @@ import {
  * than the team-level ones, matching how the desktop app links GitHub per user.
  *
  * Used by the interactive task-creation flow (new task screen, task list empty
- * state, connect prompt). Automations stay on {@link useIntegrations} because
- * they run server-side without a user and need the team integration.
+ * state, connect prompt).
  *
  * Repos are keyed by the numeric GitHub `installation_id` so the existing
  * number-based picker/`RepositoryOption` keep working; `getUserIntegrationId`
  * maps that back to the `UserIntegration` UUID for task creation. No persisted
- * cache here (unlike the team hook) so it can't clobber the automations cache.
+ * cache here (unlike the team hook) so it can't clobber the team cache.
  */
 export const userIntegrationKeys = {
   all: ["user-integrations"] as const,

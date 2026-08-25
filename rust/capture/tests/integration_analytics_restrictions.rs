@@ -123,12 +123,14 @@ async fn setup_analytics_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -340,7 +342,7 @@ async fn test_analytics_force_overflow_restriction() {
 
 #[tokio::test]
 async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event() {
-    // A $ai_* event diverted onto the AI lane is governed by ai-scoped
+    // An AI event diverted onto the AI lane is governed by ai-scoped
     // restrictions — the same Pipeline::Ai slice the dedicated AI endpoints
     // consult — so this test inserts its ForceOverflow under Pipeline::Ai.
     //
@@ -548,12 +550,14 @@ async fn setup_analytics_router_with_redirect_to_topic(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch

@@ -58,6 +58,7 @@ fn main() {
         rejoins: 0,
         router_joins: 0,
         zombie_window,
+        hold_pods: 0,
         cancels: 0,
         probes: false,
     };

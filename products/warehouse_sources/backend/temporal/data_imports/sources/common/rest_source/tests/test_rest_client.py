@@ -588,6 +588,30 @@ class TestRESTClient:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
+    def test_backoff_ceiling_widens_the_exponential_fallback(self, MockSession, mock_sleep) -> None:
+        # A 429 without a Retry-After backs off on the exponential fallback, capped at the client's
+        # ceiling. Raising the ceiling lets a source whose rate-limit window is longer than the
+        # default 60s cap wait past it — the fallback grows to 128s here instead of stopping at 60s.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.side_effect = [*[rate_limited] * 8, ok]
+
+        client = RESTClient(base_url="https://api.example.com", max_retry_attempts=9, retry_backoff_max_seconds=300.0)
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        waits = [call.args[0] for call in mock_sleep.call_args_list]
+        assert waits == [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
     def test_send_request_respects_retry_after_header(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}

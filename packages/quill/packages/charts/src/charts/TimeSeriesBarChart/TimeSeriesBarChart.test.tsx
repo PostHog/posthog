@@ -291,7 +291,7 @@ describe('TimeSeriesBarChart', () => {
                     series={SPIKY_SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ valueDomain: [0, 246] }}
+                    config={{ valueDomain: { min: 0, max: 246 } }}
                 />
             ).chart
             expect(maxTick(pinned)).toBeLessThanOrEqual(246)
@@ -303,7 +303,7 @@ describe('TimeSeriesBarChart', () => {
                     series={SPIKY_SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ valueDomain: [0, 246], goalLines: [{ value: 1000, label: 'Target' }] }}
+                    config={{ valueDomain: { min: 0, max: 246 }, goalLines: [{ value: 1000, label: 'Target' }] }}
                 />
             )
             expect(maxTick(chart)).toBeLessThanOrEqual(246)

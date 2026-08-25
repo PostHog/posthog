@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -116,6 +116,8 @@ CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMD
 class ComPostHogNamespace(TypedDict, total=False):
     verification_token: str
     scopes: list[str]
+    optional_scopes: list[str]
+    provisioning: bool
 
 
 # Functional form required: "com.posthog" is not a valid Python identifier.
@@ -302,13 +304,13 @@ def fetch_client_json_document(
     # the first lookup with a public address and the second with an internal one. Pinning
     # the connection to the addresses we actually validated closes that rebinding window;
     # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
-    allowed, reason, pinned_ips = validate_url_and_pin_ips(url)
-    if not allowed:
-        raise CIMDValidationError(f"URL blocked: {reason}")
+    verdict = validate_url_and_pin_ips(url)
+    if not verdict.allowed:
+        raise CIMDValidationError(f"URL blocked: {verdict.reason}")
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
-    chosen_ip = select_pinned_ip(pinned_ips)
+    chosen_ip = select_pinned_ip(verdict.pinned_ips)
     if chosen_ip is not None:
         adapter.pin(hostname, chosen_ip)
 
@@ -593,26 +595,66 @@ def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None
     return filter_to_unprivileged_scopes(raw_optional)
 
 
-def _resolve_client_authentication(metadata: CIMDMetadataDocument) -> tuple[str, str | None]:
+def _cimd_declares_provisioning(metadata: CIMDMetadataDocument) -> bool:
+    """Whether the document opts its client into being an agentic provisioning partner.
+
+    This is the proof of control that registration turns on. A CIMD client_id is a public
+    HTTPS URL that appears in /authorize query strings and in the client's own documentation,
+    so a request naming one says nothing about who sent it; the document served from that URL
+    is the one thing only its owner can change. Requiring the declaration here is what keeps a
+    stranger from conscripting a third party's OAuth client into a provisioning partner, which
+    would hand the caller that client's identity and account-request quota, and would flip the
+    client's own token exchanges onto an auth method it never agreed to send.
+
+    Strictly ``True``: a truthy string or a non-empty dict is a malformed declaration, and
+    treating one as consent would grant capabilities off a typo.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return False
+    return com_posthog.get("provisioning") is True
+
+
+def _resolve_client_authentication(
+    metadata: CIMDMetadataDocument, *, allow_confidential: bool
+) -> tuple[str, str | None]:
     """Map a validated CIMD document's declared auth method onto ``(client_type, jwks_uri)``.
 
     A client advertising private_key_jwt is confidential in the RFC 6749 sense even though it
     holds no secret, because it can authenticate; everything else is public and relies on PKCE.
     Those two stored fields are what OAuthApplication.token_endpoint_auth_method reads back.
 
-    This is what lets a client upgrade in place: it edits its own metadata document, and the
-    next refresh promotes it without the client_id changing or an operator being involved.
+    ``allow_confidential`` gates the promotion to a registered provisioning partner: the
+    document alone is not proof of anything, since the client that publishes it also controls
+    it, so an unregistered CIMD client declaring private_key_jwt stays public and keeps relying
+    on PKCE as its enforced baseline, rather than being upgraded into an auth method it may
+    never actually send. A partner, once registered, keeps upgrading and downgrading in place
+    as it edits its document, with no client_id change or operator involved.
+
+    A self-controlled declaration can only ever lower what we require, never raise it — that
+    takes partner registration. But the jwks_uri is stored either way, so a client that starts
+    signing later (a runtime change PostHog does not control) can still be verified and
+    accepted; see ``verify_client_assertion``. The declaration is a menu, not a mandate.
     """
     auth_method = metadata.get("token_endpoint_auth_method", TokenEndpointAuthMethod.NONE.value)
-    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
+    if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value and allow_confidential:
         return AbstractApplication.CLIENT_CONFIDENTIAL, metadata.get("jwks_uri")
-    return AbstractApplication.CLIENT_PUBLIC, None
+    return AbstractApplication.CLIENT_PUBLIC, metadata.get("jwks_uri")
 
 
 def _create_cimd_application(
-    url: str, metadata: CIMDMetadataDocument, *, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+    url: str,
+    metadata: CIMDMetadataDocument,
+    *,
+    allow_confidential: bool = False,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
 ) -> OAuthApplication:
-    """Create a new OAuthApplication from CIMD metadata."""
+    """Create a new OAuthApplication from CIMD metadata.
+
+    A brand new row has no ``is_provisioning_partner`` state of its own yet, so
+    ``allow_confidential`` is the caller's only say in whether a declared private_key_jwt is
+    honored on creation; see ``_resolve_client_authentication``.
+    """
     client_name = metadata.get("client_name", "CIMD Client")
     try:
         validate_client_name(client_name)
@@ -627,7 +669,7 @@ def _create_cimd_application(
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
-    client_type, jwks_uri = _resolve_client_authentication(metadata)
+    client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
     app = OAuthApplication(
         name=client_name,
@@ -666,43 +708,27 @@ def _touch_verification_token(token: CIMDVerificationToken) -> None:
     CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
-def _retier_account_requests_limit(app: OAuthApplication, *, verified: bool) -> None:
-    """Move a partner's account-request limit onto the verified or unverified default tier.
+def _describe_validation_error(error: ValidationError) -> str:
+    """Flatten a model ValidationError into one line a partner can act on.
 
-    Only our own default tiers move. An explicit admin override (source="admin") stays put, and
-    so does a legacy row with no source recorded, treated conservatively as admin so a value
-    that pre-dates the field is not clobbered.
-
-    Locks and re-reads before deciding, because the caller's copy of the app was loaded before a
-    network fetch of the metadata document. That window is wide enough for an admin to have
-    revoked a capability in it, and merging into a stale blob would write the revoked value back.
+    Field names are safe to name: every field the update writes comes from the document itself,
+    which is public by construction.
     """
-    with transaction.atomic():
-        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
-        config = current.provisioning
-        if not current.is_provisioning_partner or config.rate_limit_source not in (
-            "default_unverified",
-            "default_verified",
-        ):
-            return
-        app.update_provisioning(
-            rate_limits=config.rate_limits.model_copy(
-                update={
-                    "account_requests": (
-                        CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-                        if verified
-                        else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
-                    )
-                }
-            ),
-            rate_limit_source="default_verified" if verified else "default_unverified",
-        )
+    error_dict = getattr(error, "message_dict", None)
+    if not error_dict:
+        return " ".join(error.messages)
+    return "; ".join(
+        " ".join(messages) if field == NON_FIELD_ERRORS else f"{field}: {' '.join(messages)}"
+        for field, messages in error_dict.items()
+    )
 
 
 def _update_cimd_application(
     app: OAuthApplication,
     metadata: CIMDMetadataDocument,
     *,
+    allow_confidential: bool = False,
+    strict: bool = False,
     capture_ph_event: CapturePhEvent = posthoganalytics.capture,
 ) -> OAuthApplication:
     """
@@ -710,6 +736,14 @@ def _update_cimd_application(
 
     On validation failure, refreshes from the database so the caller never
     sees a partially-mutated in-memory object.
+
+    ``strict=True`` turns that rejection into a ``CIMDValidationError`` instead of a kept row.
+    Registration asks for it, because a rejected save leaves the row describing an older
+    document, and everything registration then decides - the provisioning promotion, the
+    client_type it derives from the stored key set, the response it reports - would describe
+    metadata the client no longer publishes, with the caller told the fetch succeeded. Every
+    other caller leaves it False: a refresh that cannot store a document is a partner keeping
+    the config it last published, not a reason to break it.
     """
     client_name = metadata.get("client_name")
     if client_name:
@@ -723,10 +757,14 @@ def _update_cimd_application(
     app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
     app.cimd_metadata_last_fetched = timezone.now()
 
-    # Re-derived on every refresh, in both directions: a client that starts publishing a
-    # jwks_uri is promoted to confidential here, and one that stops is demoted back to public
-    # rather than being left as a confidential client whose key source has gone away.
-    app.client_type, app.jwks_uri = _resolve_client_authentication(metadata)
+    # Re-derived on every refresh, in both directions: a registered partner that starts
+    # publishing a jwks_uri is promoted to confidential here, and one that stops is demoted
+    # back to public rather than being left as a confidential client whose key source has gone
+    # away. A non-partner's document never promotes client_type this way, but its jwks_uri is
+    # still stored — see _resolve_client_authentication.
+    app.client_type, app.jwks_uri = _resolve_client_authentication(
+        metadata, allow_confidential=allow_confidential or app.is_provisioning_partner
+    )
 
     # Re-evaluate verification on every refresh so a rotated/removed token
     # unlinks the app on the next fetch.
@@ -765,16 +803,14 @@ def _update_cimd_application(
         capture_exception(e)
         # Refresh from DB so we don't return a mutated-but-unsaved object
         app.refresh_from_db()
+        if strict:
+            raise CIMDValidationError(f"Metadata document was rejected: {_describe_validation_error(e)}") from e
     else:
         if verification is not None:
             _touch_verification_token(verification)
-        # Keep the rate-limit tier in step with verification status. Written after the main save
-        # and through its own locked merge, rather than as another field on it, because the whole
-        # provisioning blob has to be rewritten to change one key inside it.
-        if old_org_id is None and new_org_id is not None:
-            _retier_account_requests_limit(app, verified=True)
-        elif old_org_id is not None and new_org_id is None:
-            _retier_account_requests_limit(app, verified=False)
+        # No rate-limit re-tiering on verification flips: the partner tier is derived
+        # from organization_id at request time (OAuthApplication.partner_tier), so
+        # the budgets follow the flip with nothing persisted.
         # Emit a distinct event on org re-linking so a metadata compromise
         # flipping A→B (or A→None, None→A) is visible in analytics, not
         # just buried in the generic refresh event.
@@ -793,8 +829,36 @@ def _update_cimd_application(
     return app
 
 
+def _register_partner_if_declared(
+    app: OAuthApplication, metadata: CIMDMetadataDocument, *, register_provisioning: bool
+) -> None:
+    """Opt a CIMD client into provisioning when its own document asks for it.
+
+    Both conditions are required. ``register_provisioning`` says the caller is the registration
+    endpoint, and the declaration says the client wants this, which is the part a stranger
+    cannot supply. Kept next to the fetch because this is the only point where the document and
+    the row it was written to are both in hand: nothing on the app records what the document
+    declared, so a caller further out would have to take the request's word for it.
+
+    Already-registered partners are left alone, so re-registering can neither reinstate a
+    partner an admin deactivated nor re-apply the defaults over its current config. The check
+    here only saves the lock; ``apply_provisioning_defaults`` repeats it on the locked row,
+    which is what settles a registration racing an admin promoting the same client.
+    """
+    if not register_provisioning or app.is_provisioning_partner:
+        return
+    if not _cimd_declares_provisioning(metadata):
+        return
+    apply_provisioning_defaults(app)
+    app.refresh_from_db()
+
+
 def fetch_and_upsert_cimd_application(
-    url: str, capture_ph_event: CapturePhEvent = posthoganalytics.capture
+    url: str,
+    capture_ph_event: CapturePhEvent = posthoganalytics.capture,
+    *,
+    allow_confidential: bool = False,
+    register_provisioning: bool = False,
 ) -> OAuthApplication | None:
     """
     Fetch CIMD metadata and create or update the application.
@@ -804,6 +868,22 @@ def fetch_and_upsert_cimd_application(
     (meaning another caller is already handling it).
 
     Used by both synchronous (new client) and asynchronous (stale refresh) paths.
+
+    ``allow_confidential=True`` is for the explicit provisioning client-registration endpoint
+    only: a client hitting that endpoint is opting in to being a provisioning partner in the
+    same request, so its declared private_key_jwt is honored immediately rather than waiting
+    for the next hourly refresh to notice ``is_provisioning_partner`` has since flipped. Every
+    other caller leaves this False; an already-registered partner still promotes on refresh via
+    its persisted ``is_provisioning_partner``, independent of this flag.
+
+    ``register_provisioning=True`` marks the call the client-registration endpoint makes, which
+    is the only place a CIMD client becomes a provisioning partner. The flag alone does not
+    grant anything: the freshly fetched document also has to declare the opt-in, so the
+    capabilities follow the client's published intent rather than whoever sent the request. The
+    ordinary /authorize and background-refresh paths leave it False, so registration stays an
+    explicit act at one endpoint instead of a side effect of any fetch. It also makes a document
+    that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
+    granted off metadata we could not store; see ``_update_cimd_application``.
     """
     if is_cimd_url_blocked(url):
         logger.warning("cimd_blocked_url_fetch_attempt", url=url)
@@ -819,8 +899,15 @@ def fetch_and_upsert_cimd_application(
 
         app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
         if app:
-            updated = _update_cimd_application(app, metadata, capture_ph_event=capture_ph_event)
+            updated = _update_cimd_application(
+                app,
+                metadata,
+                allow_confidential=allow_confidential,
+                strict=register_provisioning,
+                capture_ph_event=capture_ph_event,
+            )
             logger.debug("cimd_app_updated", url=url, app_id=str(updated.pk))
+            _register_partner_if_declared(updated, metadata, register_provisioning=register_provisioning)
             capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_metadata_refreshed",
@@ -836,8 +923,11 @@ def fetch_and_upsert_cimd_application(
             return updated
 
         try:
-            new_app = _create_cimd_application(url, metadata, capture_ph_event=capture_ph_event)
+            new_app = _create_cimd_application(
+                url, metadata, allow_confidential=allow_confidential, capture_ph_event=capture_ph_event
+            )
             logger.debug("cimd_app_created", url=url, app_id=str(new_app.pk), client_name=new_app.name)
+            _register_partner_if_declared(new_app, metadata, register_provisioning=register_provisioning)
             capture_ph_event(
                 distinct_id=url,
                 event="cimd_application_created",
@@ -861,6 +951,9 @@ def fetch_and_upsert_cimd_application(
             app = OAuthApplication.objects.filter(cimd_metadata_url=url).first()
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
+                # The row a concurrent caller won the race with was written from this same
+                # document, so the declaration in it still speaks for this client.
+                _register_partner_if_declared(app, metadata, register_provisioning=register_provisioning)
                 return app
             raise
     finally:
@@ -938,17 +1031,6 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
     return OAuthApplication.objects.get(client_id=client_id)
 
 
-# Defaults applied when a CIMD app is opted into provisioning at client_registration. A
-# self-serve partner gets there without manual admin setup, at the same trust level as other
-# PKCE partners. The account-request rate limit is set to a conservative floor so a single
-# self-serve partner cannot burn through bulk user-onboarding calls - admin can raise it
-# per-partner once a partner demonstrates legitimate volume. Verified partners (those who
-# presented a valid `posthog_verification_token`) get a higher default since abuse is
-# traceable to a real PostHog organization.
-CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
-CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
-
-
 def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
     """The config a CIMD app gets when it registers itself, layered over whatever it already has.
 
@@ -962,68 +1044,70 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     trust. GitHub grants, wizard runs, deep links and skipped consent are granted by an admin or
     not at all.
 
+    No rate limits are written here: budgets are derived per request from the partner's tier
+    (auth method x verification), so registration and verification change what the partner
+    gets without persisting anything an admin override could collide with.
+
     Layered rather than replacing the config wholesale, so an admin who granted a capability
     before the app first registered does not have it silently dropped here. For the ordinary
     case - a brand new self-registered client - the existing config is empty and the two are
     the same thing.
     """
-    config = app.provisioning
-    changes: dict[str, object] = {"active": True, "can_create_accounts": True, "can_provision_resources": True}
-
-    # Verified partners (those who presented a valid `posthog_verification_token`) get a higher
-    # account-request limit, since abuse is traceable to a real PostHog organization. An admin
-    # override already recorded on the app outranks both tiers.
-    if config.rate_limit_source != "admin":
-        verified = app.organization_id is not None
-        changes["rate_limits"] = config.rate_limits.model_copy(
-            update={
-                "account_requests": (
-                    CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-                    if verified
-                    else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
-                )
-            }
-        )
-        changes["rate_limit_source"] = "default_verified" if verified else "default_unverified"
-
-    return config.model_copy(update=changes)
+    return app.provisioning.model_copy(
+        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
+    )
 
 
 def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
-    Respects the `disabled` kill switch - returns the app untouched rather than re-enabling a
-    partner an admin has explicitly disabled.
+    Only ever promotes a client that is not a partner yet, and respects the `disabled` kill
+    switch: an app that is either already registered or explicitly disabled comes back untouched,
+    rather than having the defaults laid over the config it has now.
 
-    Locks and re-reads the config first. Registration runs after a network fetch of the metadata
-    document, so the caller's copy of the app can be seconds or minutes old, and layering the
-    defaults over that copy would write back a capability - or a cleared kill switch - that an
-    admin revoked while the fetch was in flight.
+    Both of those are decided on the locked row, not the caller's. Registration runs after a
+    network fetch of the metadata document, so the copy it hands in can be seconds or minutes
+    old, and an admin can promote and restrict the client inside that window. Deciding from the
+    stale copy would write back a capability - or a cleared kill switch - that the admin revoked
+    while the fetch was in flight.
+
+    Promotion to confidential happens in the same write. A partner that publishes a key set has
+    to present an assertion, and the bare-client_id path stays open to a public app, so an app
+    that is a partner but still public would accept an unauthenticated caller acting as that
+    partner. The locked row supplies the key set, since a stale in-memory copy could promote an
+    app whose document no longer publishes one.
     """
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
         app._provisioning_config = current._provisioning_config
+        if current.is_provisioning_partner:
+            # Registered since the caller read the row, so this is no longer the promotion it
+            # looked like then, and the defaults would land on top of a config an admin set.
+            app.is_provisioning_partner = True
+            return app
         if app.provisioning.disabled:
             return app
-        became_partner = not current.is_provisioning_partner
         app.is_provisioning_partner = True
         app.provisioning = _cimd_provisioning_defaults_for(app)
-        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
+        updated_fields = ["is_provisioning_partner", "_provisioning_config"]
+        if current.jwks_uri:
+            app.jwks_uri = current.jwks_uri
+            app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
+            updated_fields.append("client_type")
+        app.save(update_fields=updated_fields)
 
-    # A partner appearing without an admin creating it is the event worth watching for abuse,
-    # so it fires on the transition only - re-running the defaults over an existing partner is
-    # not a new partner.
-    if became_partner:
-        posthoganalytics.capture(
-            distinct_id=app.cimd_metadata_url or str(app.pk),
-            event="cimd_provisioning_partner_registered",
-            properties={
-                "cimd_url": app.cimd_metadata_url,
-                "client_name": app.name,
-                "app_id": str(app.pk),
-                "account_requests_rate_limit": app.provisioning.rate_limits.account_requests,
-                "is_verified": app.organization_id is not None,
-                "organization_id": str(app.organization_id) if app.organization_id else None,
-            },
-        )
+    # A partner appearing without an admin creating it is the event worth watching for abuse.
+    # Only the promotion reaches here, so it fires on the transition and nowhere else.
+    posthoganalytics.capture(
+        distinct_id=app.cimd_metadata_url or str(app.pk),
+        event="cimd_provisioning_partner_registered",
+        properties={
+            "cimd_url": app.cimd_metadata_url,
+            "client_name": app.name,
+            "app_id": str(app.pk),
+            "partner_tier": app.partner_tier,
+            "is_verified": app.organization_id is not None,
+            "organization_id": str(app.organization_id) if app.organization_id else None,
+        },
+    )
     return app

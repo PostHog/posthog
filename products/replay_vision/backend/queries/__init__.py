@@ -8,8 +8,10 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     ScannerCandidateQuery,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+    DISABLED_ESTIMATE_STALE_AFTER,
     ESTIMATE_STALE_AFTER,
+    PREVIEW_ESTIMATE_BUDGET,
+    SAVE_ESTIMATE_BUDGET,
     ScannerVolumeEstimate,
     estimate_scanner_session_volume,
     project_monthly_observations,
@@ -19,7 +21,9 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
 __all__ = [
     "DEFAULT_CANDIDATE_LIMIT",
     "DEFAULT_MAX_EXECUTION_SECONDS",
-    "ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS",
+    "PREVIEW_ESTIMATE_BUDGET",
+    "SAVE_ESTIMATE_BUDGET",
+    "DISABLED_ESTIMATE_STALE_AFTER",
     "ESTIMATE_STALE_AFTER",
     "MIN_SAMPLING_RATE",
     "SAMPLE_RATE_PRECISION",

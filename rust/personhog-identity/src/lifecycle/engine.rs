@@ -114,7 +114,12 @@ impl From<SagaError> for Status {
     fn from(err: SagaError) -> Status {
         match err {
             SagaError::Db(e) => Status::internal(format!("database error: {e}")),
-            SagaError::RequestMismatch(msg) => Status::failed_precondition(msg),
+            // A definitive refusal (the op_id belongs to a different
+            // request), marked so callers branch on the reason instead of
+            // the message and retry layers never loop on it.
+            SagaError::RequestMismatch(msg) => {
+                personhog_common::grpc::semantic_refusal(msg, "op_id_reused")
+            }
             SagaError::Busy => Status::unavailable(
                 "another instance is driving this operation; retry with the same op_id",
             ),
@@ -225,7 +230,7 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        sqlx::query!(
+        let inserted = sqlx::query!(
             r#"
             INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request)
             VALUES ($1, $2, $3, $4, $5)
@@ -238,12 +243,23 @@ impl Engine {
             request,
         )
         .execute(&self.pool)
-        .await?;
+        .await?
+        .rows_affected()
+            > 0;
 
         let row = self.load(op_id).await?.ok_or_else(|| {
             SagaError::CorruptState(format!("op {op_id} vanished right after create-or-attach"))
         })?;
-        if row.op_type != driver.op_type() || row.team_id != team_id || row.request != *request {
+        // Only a genuine attach is verified: the reloaded copy of our own
+        // insert has been through jsonb normalization (number rewriting,
+        // key ordering), so comparing it against the caller's request
+        // would reject a first call whose request isn't normalization-
+        // stable — and its retries with it, forever.
+        if !inserted
+            && (row.op_type != driver.op_type()
+                || row.team_id != team_id
+                || row.request != *request)
+        {
             return Err(SagaError::RequestMismatch(format!(
                 "op {op_id} already exists with a different request"
             )));

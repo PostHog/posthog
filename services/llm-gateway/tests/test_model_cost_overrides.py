@@ -54,6 +54,16 @@ class TestApplyModelCostOverrides:
         assert cost_map[model_id] == MODEL_COST_OVERRIDES[model_id]
         assert cost_map[model_id] is not MODEL_COST_OVERRIDES[model_id]
 
+    def test_pinned_membership_is_exactly_the_baseten_contract_prices(self) -> None:
+        # Literals on purpose: the parametrized tests above derive their groups from the
+        # sets under test, so removing a member there only reshuffles which semantics get
+        # asserted. Un-pinning a contract price must fail here.
+        assert PINNED_MODEL_COST_OVERRIDES == {
+            "baseten/zai-org/glm-5.2",
+            "baseten/deepseek-ai/deepseek-v4-flash-0731",
+            "baseten/zai-org/glm-5.3",
+        }
+
     def test_returns_same_object_in_place(self) -> None:
         cost_map: dict[str, ModelCost] = {}
         assert apply_model_cost_overrides(cost_map) is cost_map

@@ -43,6 +43,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.kafka_client.routing import producer_scope
@@ -130,6 +131,8 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
         "last_calculation_duration_ms",
         "errors_calculating",
         "last_error_at",
+        "last_import_total_count",
+        "last_import_unmatched_count",
         # NOTE: `groups` is the legacy cohort-condition field (deprecated in favour of
         # `filters`).  calculate_people_ch() always saves it in update_fields even when
         # unchanged (see cohort.py:347).  Real definition changes go through a full save
@@ -343,6 +346,26 @@ def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, An
     }
 
 
+def _drop_unreferenced_unevaluable_flags(flags_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return the flags worth caching: evaluable ones, plus unevaluable ones that
+    another flag's dependency conditions reference.
+
+    An unreferenced inactive/deleted flag is dead weight — the matcher filters it
+    out before reading it and nothing resolves against it. A referenced one is
+    load-bearing: the matcher pre-seeds its id as false, so a dependent with
+    ``flag_evaluates_to: false`` on a disabled flag still matches; dropping it
+    would turn that dependent into a missing-dependency miss.
+
+    ``_extract_direct_dependency_ids`` returns nothing for unevaluable flags, so
+    only evaluable flags contribute references: a chain of inactive flags keeps
+    just the hop an evaluable flag points at.
+    """
+    referenced_ids: set[int] = set()
+    for flag in flags_data:
+        referenced_ids |= _extract_direct_dependency_ids(flag)
+    return [flag for flag in flags_data if not _is_unevaluable(flag) or flag["id"] in referenced_ids]
+
+
 def _blank_inactive_filters(flags_data: list[dict[str, Any]]) -> None:
     """Empty the ``filters`` of flags that can never be evaluated, in place.
 
@@ -353,29 +376,29 @@ def _blank_inactive_filters(flags_data: list[dict[str, Any]]) -> None:
 
     Order-independent: dependency and cohort extraction guard on ``_is_unevaluable``
     themselves.
-
-    Not folded into ``serialize_feature_flags``, which
-    ``set_feature_flags_for_team_in_cache`` also uses to populate the separate
-    legacy ``team_feature_flags_{project_id}`` cache.
     """
     for flag in flags_data:
         if _is_unevaluable(flag):
             # Matches an empty Rust ``FlagFilters``, whose ``groups`` has no
             # ``skip_serializing_if`` and so serializes as a key rather than ``{}``.
-            # Both writers of this entry must emit the same bytes to share one etag.
+            # Both writers of this entry emit this same blank shape.
             flag["filters"] = {"groups": []}
 
 
 def _build_flags_payload(
     flags_data: list[dict[str, Any]],
-    evaluation_metadata: dict[str, Any],
     cohorts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Assemble the ``flags.json`` wrapper, blanking unevaluable flags' filters.
+    """Assemble the ``flags.json`` wrapper: drop unreferenced unevaluable flags,
+    compute dependency metadata on the survivors, and blank the kept unevaluable
+    flags' filters.
 
-    Blanking lives here so no writer can assemble a payload without it. The Rust side
+    These steps live here so no writer can assemble a payload without them, and so
+    the metadata can never be computed on a pre-drop flag list. The Rust side
     reaches the same point through a single ``build_flags_cache``.
     """
+    flags_data = _drop_unreferenced_unevaluable_flags(flags_data)
+    evaluation_metadata = _compute_flag_dependencies(flags_data)
     _blank_inactive_filters(flags_data)
     return {"flags": flags_data, "evaluation_metadata": evaluation_metadata, "cohorts": cohorts}
 
@@ -388,9 +411,10 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     must match rust/feature-flags/src/flags/flag_models.rs::HypercacheFlagsWrapper.
     Changes to this structure must follow the expand-and-contract pattern.
 
-    Fetches all feature flags for the team (including inactive, excluding deleted)
-    and returns them wrapped in a dict that HyperCache can serialize. The actual
-    flag data is in the "flags" key as a list of flag dictionaries.
+    Fetches the team's evaluable feature flags (active, not deleted), plus the
+    inactive flags another flag's dependency conditions reference, wrapped in a
+    dict that HyperCache can serialize. The actual flag data is in the "flags"
+    key as a list of flag dictionaries.
 
     Encrypted remote config flags are excluded since they can only be accessed via
     the dedicated /remote_config endpoint which handles decryption. Including them
@@ -404,19 +428,18 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
     flags_data = serialize_feature_flags(flags)
-    evaluation_metadata = _compute_flag_dependencies(flags_data)
-
     cohorts = _get_referenced_cohorts(team.id, flags_data)
+    payload = _build_flags_payload(flags_data, cohorts)
 
     logger.info(
         "Loaded feature flags for service cache",
         team_id=team.id,
         project_id=team.project_id,
-        flag_count=len(flags_data),
+        flag_count=len(payload["flags"]),
         cohort_count=len(cohorts),
     )
 
-    return _build_flags_payload(flags_data, evaluation_metadata, cohorts)
+    return payload
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -440,8 +463,9 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         return {}
 
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
-    # Include disabled flags (active=False) so flag dependencies can reference them
-    # and evaluate them as false, rather than raising DependencyNotFound errors.
+    # Disabled flags (active=False) are loaded too: ones referenced by another
+    # flag's dependencies stay in the payload and evaluate as false, and
+    # _build_flags_payload drops the rest.
     # Exclude encrypted payload flags - they can only be accessed via the
     # dedicated /remote_config endpoint which handles decryption.
     # Note: We intentionally don't select_related("team") here because we only need
@@ -491,19 +515,18 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Build result for each team
     result: dict[int, dict[str, Any]] = {}
     for team in teams:
-        flags_data = flags_data_by_team[team.id]
-        evaluation_metadata = _compute_flag_dependencies(flags_data)
-
         team_cohorts = cohorts_by_team.get(team.id, [])
+        payload = _build_flags_payload(flags_data_by_team[team.id], team_cohorts)
+
         logger.info(
             "Loaded feature flags for service cache (batch)",
             team_id=team.id,
             project_id=team.project_id,
-            flag_count=len(flags_data),
+            flag_count=len(payload["flags"]),
             cohort_count=len(team_cohorts),
         )
 
-        result[team.id] = _build_flags_payload(flags_data, evaluation_metadata, team_cohorts)
+        result[team.id] = payload
 
     return result
 
@@ -674,6 +697,12 @@ def verify_team_flags(
     # Find stale flags (in cache but not in DB)
     for flag_id in cached_flags_by_id:
         if flag_id not in db_flags_by_id:
+            # An unevaluable cached row is invisible to the matcher, so its presence
+            # is not drift worth repairing, and reporting it would repair-rewrite
+            # every old-shape entry at once. A stale ACTIVE flag still reports: its
+            # cached copy has active=True.
+            if _is_unevaluable(cached_flags_by_id[flag_id]):
+                continue
             diff = {
                 "type": "STALE_IN_CACHE",
                 "flag_id": flag_id,
@@ -896,6 +925,10 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # Late-bound via lambda: the attribution fn lives in the transitional
+    # Kafka-routing block further down this module and is deleted with it at
+    # cutover, so it isn't defined yet when this config is constructed.
+    get_primary_writer_fn=lambda team_id: get_team_primary_flags_writer(team_id),
     # The refresh loads flags by team id/project_id; it reads no other Team columns.
     # Narrowing the SELECT keeps it resilient to newly added Team columns the read
     # replica may not have applied yet (organization_id keeps the select_related valid).
@@ -1005,8 +1038,10 @@ def get_cache_stats() -> dict[str, Any]:
 # outlives cutover — `cohort_changed_flags_cache` still calls it directly until
 # cohort invalidation gets its own topic. Throwaway code by design; don't polish.
 #
-# Transitional surface: KAFKA_ROUTING_FLAG, _route_to_kafka,
-# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
+# Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
+# _route_to_kafka, get_team_primary_flags_writer (and its config binding on
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), _produce_invalidation,
+# _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
@@ -1014,6 +1049,56 @@ def get_cache_stats() -> dict[str, Any]:
 # string is kept as "dual-write" (not renamed to match KAFKA_ROUTING_FLAG) since
 # it's the live PostHog flag key — renaming it would repoint the rollout.
 KAFKA_ROUTING_FLAG = "flags-cache-kafka-dual-write"
+
+
+def _evaluate_kafka_routing_flag(team_id: int) -> bool | None:
+    # The SDK annotates feature_enabled as returning bool, but it returns
+    # None when local evaluation can't resolve the flag. Widen the type so
+    # callers can handle the None branch under type checking.
+    result: bool | None = posthoganalytics.feature_enabled(
+        KAFKA_ROUTING_FLAG,
+        f"team-{team_id}",
+        groups={"project": str(team_id)},
+        group_properties={"project": {"id": str(team_id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+    return result
+
+
+def get_team_primary_flags_writer(team_id: int) -> str:
+    """Which writer owns this team's flags.json entry: "rust" when the routing
+    flag sends its invalidations to the Kafka builder, otherwise "python".
+
+    Attributes verifier fixes to the writer whose output needed fixing. During
+    the Kafka-builder ramp, a fix on a rust-routed team is the signal that the
+    Rust builder diverged from the Python one, which the unattributed fix
+    counter cannot separate from baseline repair noise. Evaluation failures
+    resolve to "unknown" rather than "python" so an attribution outage cannot
+    masquerade as a clean Rust ramp.
+    """
+    try:
+        result = _evaluate_kafka_routing_flag(team_id)
+    except SoftTimeLimitExceeded:
+        # A Celery soft-time-limit is a task-control signal, not an attribution
+        # failure. Let it propagate so the verify sweep winds down, matching the
+        # other SoftTimeLimitExceeded guards in the verifier.
+        raise
+    except Exception:
+        # Mirror _route_to_kafka's evaluation-failure logging so a broken
+        # attribution client is diagnosable in Sentry, because otherwise it only
+        # shows up as a rise in writer="unknown" that cannot be told apart from a
+        # cold local flag cache (which returns None below and is expected at boot).
+        logger.warning(
+            "flags_cache_writer_attribution_flag_evaluation_failed",
+            team_id=team_id,
+            flag=KAFKA_ROUTING_FLAG,
+            exc_info=True,
+        )
+        return "unknown"
+    if result is None:
+        return "unknown"
+    return "rust" if result else "python"
 
 
 def _route_to_kafka(team_id: int) -> bool:
@@ -1026,17 +1111,7 @@ def _route_to_kafka(team_id: int) -> bool:
     expected; a sustained non-zero rate means polling is broken.
     """
     try:
-        # The SDK annotates feature_enabled as returning bool, but it returns
-        # None when local evaluation can't resolve the flag. Widen the type so
-        # the None branch below survives type checking.
-        result: bool | None = posthoganalytics.feature_enabled(
-            KAFKA_ROUTING_FLAG,
-            f"team-{team_id}",
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        result = _evaluate_kafka_routing_flag(team_id)
     except Exception:
         # If the flag client misbehaves, default to Celery-only — never block the signal handler.
         # Log so a silent disable across the fleet during rollout is visible in Sentry.

@@ -7,7 +7,7 @@ import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,13 +34,17 @@ from .community_skill_services import (
 )
 from .skill_serializers import LLMSkillSerializer
 from .skill_services import LLMSkillDuplicateNameConflictError, LLMSkillFileLimitError, LLMSkillFilePathConflictError
+from .skill_template_services import (
+    MissingTemplateVariableError,
+    TemplateRenderTooLargeError,
+    TemplateVariableTooLargeError,
+    UnknownSuppliedVariableError,
+    UnknownTemplatePlaceholderError,
+)
 
 logger = structlog.get_logger(__name__)
 
 COMMUNITY_SKILL_FEATURE_FLAG = "llm-analytics-community-skills"
-# Installing copies into a regular LLMSkill, whose UI and APIs are gated by this base flag — so the
-# marketplace also requires it, otherwise installed skills would be unreachable.
-BASE_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 
 class CommunitySkillBurstThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -77,19 +81,18 @@ class CommunitySkillFeatureFlagPermission(BasePermission):
 
         # Honor POSTHOG_FEATURE_FLAGS_FORCE_ENABLED so self-hosted deployments can enable the
         # marketplace without a round-trip to PostHog Cloud, matching the canonical permission.
-        return all(
-            flag in _FORCE_ENABLED_FLAGS
-            or bool(
-                posthoganalytics.feature_enabled(
-                    flag,
-                    distinct_id,
-                    groups=groups,
-                    group_properties=group_properties,
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
+        if COMMUNITY_SKILL_FEATURE_FLAG in _FORCE_ENABLED_FLAGS:
+            return True
+
+        return bool(
+            posthoganalytics.feature_enabled(
+                COMMUNITY_SKILL_FEATURE_FLAG,
+                distinct_id,
+                groups=groups,
+                group_properties=group_properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
             )
-            for flag in (COMMUNITY_SKILL_FEATURE_FLAG, BASE_SKILL_FEATURE_FLAG)
         )
 
 
@@ -190,11 +193,35 @@ class CommunitySkillViewSet(
                 user=cast(User, request.user),
                 slug=slug,
                 new_name=payload.validated_data.get("new_name"),
+                variables=payload.validated_data.get("variables"),
             )
         except CommunitySkillNotFoundError:
             return Response(
                 {"detail": f"Community skill '{slug}' not found."},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except (
+            MissingTemplateVariableError,
+            TemplateRenderTooLargeError,
+            TemplateVariableTooLargeError,
+            UnknownSuppliedVariableError,
+        ) as err:
+            # All four are fixable by the caller (supply the value / shorter values / fix the key),
+            # so they're 400s against the field that carried them.
+            raise ValidationError({"variables": str(err)}) from err
+        except UnknownTemplatePlaceholderError as err:
+            # The template body references a variable it never declared — a content-repo bug the
+            # caller can't fix, so surface it as a server-side fault, not a bad request. Returning a
+            # hand-built 500 skips DRF's exception handler, so log it here or a broken catalog entry
+            # fails every install with no server-side signal.
+            logger.exception(
+                "Community skill template references an undeclared placeholder",
+                slug=slug,
+                placeholder=err.placeholder,
+            )
+            return Response(
+                {"detail": str(err)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         except LLMSkillDuplicateNameConflictError:
             # Only blame the new_name field when the caller actually supplied it — otherwise the
@@ -226,6 +253,7 @@ class CommunitySkillViewSet(
             {
                 "community_skill_slug": slug,
                 "installed_skill_name": installed.name,
+                "installed_as_template": "instantiated_from" in (installed.metadata or {}),
             },
             team=self.team,
             request=request,

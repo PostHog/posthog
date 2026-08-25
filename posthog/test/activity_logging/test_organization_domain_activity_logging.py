@@ -127,7 +127,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
         assert field_change is not None, f"Expected change for '{expected_field_name}' not found in {changes}"
         self.assertEqual(field_change["after"], expected_logged_value)
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_domain_verification_activity_logging(self, mock_dns_query):
         response = self.client.post(
             "/api/organizations/@current/domains/",
@@ -140,7 +140,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             scope="OrganizationDomain",
         ).delete()
 
-        mock_dns_query.return_value = FakeDNSResponse(
+        mock_dns_query.return_value.resolve.return_value = FakeDNSResponse(
             [
                 dns.rrset.from_text(
                     "_posthog-challenge.verify.example.com.",
@@ -169,7 +169,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
         verified_change = next((c for c in changes if c["field"] == "domain verification"), None)
         assert verified_change is not None, f"Expected 'domain verification' change not found in {changes}"
 
-    @patch("posthog.models.organization_domain.dns.resolver.resolve")
+    @patch("posthog.models.organization_domain.dnssec_resolver")
     def test_failed_verification_excludes_last_verification_retry(self, mock_dns_query):
         response = self.client.post(
             "/api/organizations/@current/domains/",
@@ -182,7 +182,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             scope="OrganizationDomain",
         ).delete()
 
-        mock_dns_query.side_effect = dns.resolver.NoAnswer()
+        mock_dns_query.return_value.resolve.side_effect = dns.resolver.NoAnswer()
 
         response = self.client.post(f"/api/organizations/@current/domains/{domain.id}/verify")
         self.assertEqual(response.status_code, 200)

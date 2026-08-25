@@ -25,6 +25,7 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
+const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -127,8 +128,19 @@ function packageToProduct(pkg) {
     return pkg.replace('@posthog/products-', '')
 }
 
-function getIsolatedProducts(contractTasks) {
-    return new Set(contractTasks.map((t) => packageToProduct(t.package)))
+// A product that ships the contract-check script but no turbo.json of its own
+// inherits the root task, whose inputs are the product's whole backend. Every
+// backend edit then reads as a contract change, so the isolation it claims can
+// never pay out. Requiring the narrowed declaration keeps "isolated" meaning
+// what turbo-discover uses it for, and reading it through loadContractSurfaces
+// keeps this reader and the Trunk lane reader on one definition.
+function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
+    const products = contractTasks.map((t) => packageToProduct(t.package))
+    // Package names use dashes, product directories use underscores; the surface
+    // reader resolves products/<dir>/turbo.json, so look up the directory form.
+    const toDir = (product) => product.replace(/-/g, '_')
+    const surfaces = loadContractSurfaces(repoRoot, products.map(toDir))
+    return new Set(products.filter((product) => surfaces.has(toDir(product))))
 }
 
 function getAffectedTaskProducts(tasks) {
@@ -524,14 +536,16 @@ function packProducts(products, durations) {
     return buckets
 }
 
-// Path filters matching the Django workflow pytest invocations.
-// Core: posthog/ + ee/ minus temporal, dags, hogvm
+// Path filters matching the Django workflow pytest invocations. A segment that
+// drifts from its pytest targets sizes shards for a run that never happens, so
+// turbo-discover.test.js asserts these against ci-backend.yml itself.
+// Core: posthog/ + ee/ minus the paths the Core invocation --ignore's
 // Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
-// Temporal: posthog/temporal + products/batch_exports/backend/tests/temporal + products/tasks/backend/temporal
+// Temporal: posthog/temporal + the product temporal/emission suites it runs alongside
 const DJANGO_SEGMENTS = {
     Core: {
         include: ['posthog/', 'ee/'],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/'],
+        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/python/test/', 'posthog/test/repo_invariants/'],
     },
     CorePOE: {
         // Keep in sync with the person-on-events pytest targets in
@@ -539,14 +553,26 @@ const DJANGO_SEGMENTS = {
         include: [
             'posthog/clickhouse/',
             'posthog/queries/',
-            'products/product_analytics/backend/api/test/',
+            'products/product_analytics/backend/tests/api/',
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/', 'posthog/hogql_queries/', 'posthog/hogql/'],
+        exclude: [
+            'posthog/temporal/',
+            'posthog/dags/',
+            'common/hogvm/python/test/',
+            'posthog/test/repo_invariants/',
+            'posthog/hogql_queries/',
+            'posthog/hogql/',
+        ],
     },
     Temporal: {
-        include: ['posthog/temporal/', 'products/batch_exports/backend/tests/temporal/', 'products/tasks/backend/temporal/'],
+        include: [
+            'posthog/temporal/',
+            'products/batch_exports/backend/tests/temporal/',
+            'products/tasks/backend/temporal/',
+            'products/signals/backend/emission/',
+        ],
         exclude: [],
     },
 }
@@ -566,11 +592,13 @@ function getSegmentDuration(segment, durations) {
 // Fallback shard counts used when .test_durations is missing.
 const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
-function calculateShards(totalWorkSeconds, overheadSeconds) {
+// minShards: full runs keep the DJANGO_MIN_SHARDS floor, but a narrowed
+// (test-selection) run may legitimately fit one shard.
+function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_MIN_SHARDS) {
     const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
     if (testBudget <= 0) {return DJANGO_MAX_SHARDS}
     const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
-    return Math.max(DJANGO_MIN_SHARDS, Math.min(DJANGO_MAX_SHARDS, shards))
+    return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
 function buildDjangoShards(durations) {
@@ -667,8 +695,13 @@ function buildMatrix(products, durations) {
     return matrix
 }
 
-// Exported for unit tests only — not part of the public API.
+// Exported for unit tests, plus the Django sizing pieces that
+// selected-django-shards.js reuses so narrowed runs share one budget.
 module.exports = {
+    calculateShards,
+    DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
+    DJANGO_SEGMENTS,
+    getIsolatedProducts,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
@@ -707,11 +740,16 @@ const allProductSet = new Set(allProducts)
 
 let products
 let runLegacy
+// Why runLegacy was set, so ci-backend's test selection can tell a direct legacy edit
+// (which the diff-based selector handles) from an inferred product->legacy cascade
+// (which it cannot see). Empty when runLegacy is false.
+let runLegacyReason = ''
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
     products = allProducts
     runLegacy = true
+    runLegacyReason = 'legacy_changed'
 } else {
     const isolatedProducts = getIsolatedProducts(contractTasks)
     const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
@@ -728,6 +766,7 @@ if (legacyChanged) {
         )
         products = allProducts
         runLegacy = true
+        runLegacyReason = 'non_isolated_product'
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -737,6 +776,7 @@ if (legacyChanged) {
         if (affectedContracts.length > 0) {
             console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
+            runLegacyReason = 'contract_cascade'
             const tachGraph = loadTachModuleGraph()
             if (tachGraph === null) {
                 // Fail toward over-testing, like the quarantine loaders above: without the
@@ -771,6 +811,7 @@ if (legacyChanged) {
             console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
             products = allProducts
             runLegacy = true
+            runLegacyReason = 'schema'
         } else {
             if (impact.kind === 'impacting') {
                 console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
@@ -785,6 +826,7 @@ if (legacyChanged) {
             }
             // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
             runLegacy = true
+            runLegacyReason = 'schema'
         }
     }
 }
@@ -803,11 +845,13 @@ if (quarantinedProducts.size > 0) {
     products = dropProducts(products, allProducts, quarantinedProducts, 'Quarantined products (mode: skip)')
 }
 
-// Un-quarantining must re-run the suite. Today the ci-backend `legacy` paths-
-// filter already forces a full run on any PR touching the quarantine file, so
-// this diff against the merge base rarely changes the outcome — it is the
-// backstop that keeps product re-runs correct if that coarse trigger is ever
-// narrowed (Turbo itself never sees .test_quarantine.json as a product input).
+// Un-quarantining must re-run the suite. The ci-backend `legacy` paths-filter still
+// pulls every product into the matrix on any PR touching the quarantine file, so this
+// diff against the merge base rarely changes the outcome — it is the backstop that
+// keeps product re-runs correct if that coarse trigger is ever narrowed (Turbo itself
+// never sees .test_quarantine.json as a product input). Django's side of the same
+// invariant is carried by FULL_RUN_PATTERNS in the backend test selector, since a
+// legacy diff no longer implies a full Django run on its own.
 if (process.env.TURBO_SCM_BASE) {
     const baseQuarantined = loadBaseQuarantinedSkipProducts(process.env.TURBO_SCM_BASE, todayISO)
     const allProductSet = new Set(allProducts)
@@ -822,7 +866,7 @@ if (process.env.TURBO_SCM_BASE) {
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
-console.error(`Run legacy (Django): ${runLegacy}`)
+console.error(`Run legacy (Django): ${runLegacy}${runLegacyReason ? ` (${runLegacyReason})` : ''}`)
 
 const durations = loadTestDurations()
 
@@ -832,6 +876,7 @@ const djangoShards = buildDjangoShards(durations)
 const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
+    run_legacy_reason: runLegacyReason,
     django_shards: djangoShards,
 }
 // eslint-disable-next-line no-console

@@ -112,9 +112,10 @@ _CROSS_ENGINE_REF_ERROR_FOR_PYTHON = (
     "'{name}' ran on a warehouse connection, and Python cells can only read PostHog results. "
     "Re-run '{name}' on PostHog to use it here."
 )
+# Covers both kinds of local frame: one a Python cell bound, and one a SQL cell left behind when
+# reading a Python dataframe rerouted it to the sandbox. Neither is reachable from a warehouse.
 _LOCAL_FRAME_REF_ERROR = (
-    "'{name}' is a Python dataframe, so only a cell running on PostHog can read it. "
-    "Switch this cell to PostHog to use it."
+    "You can't query the local dataframe '{name}' because this cell points to a data source other than PostHog."
 )
 
 
@@ -1188,7 +1189,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # that warehouse's SQL. Inlining either elsewhere would ship the wrong query.
         latest_by_node: dict[str, tuple[str, str]] = {}
         other_engine_nodes: set[str] = set()
+        # A SQL node rerouted to DuckDB binds its result into the kernel namespace under its
+        # dataframe name, exactly like a Python node — there is no ClickHouse query to inline,
+        # but the frame is there to read. So it becomes a local ref rather than an absent one.
+        kernel_frame_nodes: set[str] = set()
         for other_node_id, run_id, run_code, run_type, run_connection_id, run_send_raw in latest_runs:
+            if run_type == NotebookNodeRun.NodeType.DUCKDB:
+                kernel_frame_nodes.add(other_node_id)
+                continue
             if run_type != NotebookNodeRun.NodeType.HOGQL:
                 continue
             if run_connection_id == connection_id and bool(run_send_raw) == send_raw_query:
@@ -1198,7 +1206,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         cross_engine_error = _CROSS_ENGINE_REF_ERROR_FOR_PYTHON if node_type == "python" else _CROSS_ENGINE_REF_ERROR
         refs: dict[str, SQLV2Ref] = {}
         for name, spec in ref_specs.items():
-            if spec["kind"] == "local":
+            if spec["kind"] == "local" or spec["node_id"] in kernel_frame_nodes:
                 # A kernel frame lives in the sandbox, which only reaches PostHog's own data — a
                 # connection run can't be rerouted there, so mark it unusable instead.
                 refs[name] = (

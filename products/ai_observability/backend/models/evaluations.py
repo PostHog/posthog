@@ -1,6 +1,7 @@
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 import structlog
 
@@ -40,6 +41,11 @@ class EvaluationStatusReason(models.TextChoices):
     PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
     MODEL_NOT_FOUND = "model_not_found", "Model not found"
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
+
+
+def evaluation_status_reason_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(EvaluationStatusReason.choices)
 
 
 class EvaluationQuerySet(models.QuerySet):
@@ -94,7 +100,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason = models.CharField(max_length=50, choices=evaluation_status_reason_choices, null=True, blank=True)
     status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)

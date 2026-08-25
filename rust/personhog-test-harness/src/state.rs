@@ -7,9 +7,12 @@ use tokio::sync::RwLock;
 use crate::report::ConsistencyViolation;
 
 /// Journal of acked writes. Every property write acked by the leader path is
-/// recorded here; verification asserts each one is visible afterwards. Keys
-/// are unique per write, so the final state must contain every acked key
-/// regardless of the interleaving of concurrent writers.
+/// recorded here; verification asserts each one is visible afterwards.
+///
+/// Keys are reused, so the journal is only authoritative because each key
+/// belongs to one worker and workers write sequentially. A write whose
+/// outcome is unknown breaks that and drops its key — see
+/// [`PersonState::record_write_uncertain`].
 #[derive(Clone)]
 pub struct PersonState {
     inner: Arc<RwLock<Journal>>,
@@ -143,6 +146,16 @@ impl PersonState {
             });
         for (k, v) in properties {
             entry.written_properties.insert(k, v);
+        }
+    }
+
+    /// Drop a key whose write errored: it may still have applied, so the
+    /// journalled value could be superseded and asserting it would fail a
+    /// correct stack. The next ack for the key restores coverage.
+    pub async fn record_write_uncertain(&self, person_id: i64, key: &str) {
+        let mut journal = self.inner.write().await;
+        if let Some(entry) = journal.persons.get_mut(&person_id) {
+            entry.written_properties.remove(key);
         }
     }
 
@@ -416,6 +429,41 @@ mod tests {
         // verification must still hold it visible.
         let snapshot = state.snapshot().await;
         assert!(snapshot[&1].written_properties.contains_key("k3"));
+    }
+
+    /// With keys reused, a write that errored but still applied would
+    /// overwrite a journalled value and manufacture a violation against a
+    /// correct stack. Dropping the key is what makes reuse safe, and the
+    /// next ack has to bring it back or coverage decays over a run.
+    #[tokio::test]
+    async fn an_uncertain_write_drops_its_key_until_the_next_ack() {
+        let state = PersonState::new();
+        state
+            .record_write(1, 1, props(&[("k1", "v1"), ("k2", "v2")]))
+            .await;
+
+        state.record_write_uncertain(1, "k1").await;
+        // k1 can no longer be asserted; k2 is untouched.
+        assert!(state
+            .verify(1, &json!({"k1": "raced", "k2": "v2"}), 1)
+            .await
+            .is_empty());
+        assert_eq!(
+            violation_keys(state.verify(1, &json!({"k1": "raced"}), 1).await),
+            vec!["k2"]
+        );
+
+        // A later ack restores the key, and it verifies again.
+        state.record_write(1, 2, props(&[("k1", "v3")])).await;
+        assert_eq!(
+            violation_keys(
+                state
+                    .verify(1, &json!({"k1": "stale", "k2": "v2"}), 2)
+                    .await
+            ),
+            vec!["k1"]
+        );
+        assert!(state.take_anomalies().await.is_empty());
     }
 
     #[tokio::test]

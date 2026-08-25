@@ -79,10 +79,18 @@ export interface errorTrackingSceneLogicActions {
     mutationSuccess: (mutationName: string) => {
         mutationName: string
     } // issueActionsLogic
-    setDateRange: (dateRange: DateRange) => {
+    setDateRange: (
+        dateRange: DateRange,
+        fromPreview?: boolean | undefined
+    ) => {
         dateRange: DateRange
+        fromPreview: boolean
     } // issueFiltersLogic
-    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+    setFilterGroup: (
+        filterGroup: UniversalFiltersGroup,
+        filterAddedFromPreview?: number | undefined
+    ) => {
+        filterAddedFromPreview: number
         filterGroup: UniversalFiltersGroup
     } // issueFiltersLogic
     setFilterTestAccounts: (filterTestAccounts: boolean) => {

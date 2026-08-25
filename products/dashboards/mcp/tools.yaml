@@ -25,6 +25,12 @@ tools:
             from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context
             — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation,
             see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
+
+            A dashboard is the right artifact for a set of metrics someone will check repeatedly over time — monitoring,
+            weekly or monthly tracking, team overviews, launch and health boards. It is the wrong one for a deep dive:
+            an investigation with a narrative, intermediate steps, and a conclusion belongs in a notebook (`search
+            notebooks-`), which interleaves prose with executable SQL and Python cells. When a deep dive turns up a few
+            metrics worth tracking, save those as insights rather than reshaping the analysis into a dashboard.
         exclude_params:
             - creation_mode
             - effective_restriction_level

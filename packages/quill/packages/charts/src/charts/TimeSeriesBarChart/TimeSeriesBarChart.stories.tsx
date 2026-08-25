@@ -256,7 +256,7 @@ function PinnedValueDomainCell({ title, pinned }: { title: string; pinned: boole
                     config={{
                         yAxis: { hide: true },
                         minBarSize: 2,
-                        valueDomain: pinned ? [0, 246] : undefined,
+                        valueDomain: pinned ? { min: 0, max: 246 } : undefined,
                     }}
                 />
             </Stage>
@@ -271,7 +271,7 @@ export const PinnedValueDomain: Story = {
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
             <PinnedValueDomainCell title="default (niced headroom)" pinned={false} />
-            <PinnedValueDomainCell title="valueDomain: [0, dataMax]" pinned />
+            <PinnedValueDomainCell title="valueDomain: { min: 0, max: dataMax }" pinned />
         </div>
     ),
 }

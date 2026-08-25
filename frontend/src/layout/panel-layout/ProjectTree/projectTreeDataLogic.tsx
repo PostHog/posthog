@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { IconDocument, IconFolder, IconPlus } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -34,12 +35,18 @@ import {
     escapePath,
     formatUrlAsName,
     isGroupViewShortcut,
+    isPathUnder,
     joinPath,
+    matchesRefType,
+    parentPath,
+    refTypeParams,
+    reparentPath,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
+import type { ProductTreePath } from '~/products'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
@@ -60,10 +67,37 @@ const DELETE_ALERT_LIMIT = 0
  * Success/Failure reducers).
  */
 const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
+/**
+ * Upper bound on a single move request. A batch reports only once every one of its moves has settled, so
+ * without this one stalled request would withhold the toast and the Undo from every item that already
+ * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
+ */
+const MOVE_TIMEOUT_MS = 30000
 export const PAGINATION_LIMIT = 100
-const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
+const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Partial<Record<ProductTreePath, readonly ProductTreePath[]>> = {
     'LLM analytics': ['MCP analytics'],
+    // Replay vision scans the recordings Session replay captures, so alone it has nothing to work on.
+    'Session replay': ['Replay vision'],
 }
+
+// Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes
+// identical messages the user would see one toast whose Undo reverts only the item it was built for. Every
+// move therefore goes through `moveItems`, as a batch of one or more, and reports when the batch settles.
+export interface MovedItem {
+    item: FileSystemEntry
+    oldPath: string
+    newPath: string
+}
+
+interface MoveBatch {
+    // Emptying this is what tells the batch every move has settled.
+    pending: Set<string>
+    moved: MovedItem[]
+    failed: { error: unknown }[]
+    projectTreeLogicKey: string
+}
+
+let lastMoveBatchId = 0
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
@@ -374,6 +408,15 @@ export interface projectTreeDataLogicActions {
         newPath: string
         projectTreeLogicKey: string
     }
+    moveItems: (
+        moves: { item: FileSystemEntry; newPath: string }[],
+        force: boolean,
+        projectTreeLogicKey: string
+    ) => {
+        force: boolean
+        moves: { item: FileSystemEntry; newPath: string }[]
+        projectTreeLogicKey: string
+    }
     movedItem: (
         item: FileSystemEntry,
         oldPath: string,
@@ -382,6 +425,9 @@ export interface projectTreeDataLogicActions {
         item: FileSystemEntry
         newPath: string
         oldPath: string
+    }
+    movesSettled: (moved: MovedItem[]) => {
+        moved: MovedItem[]
     }
     pruneClosedFolders: (expandedFolders: string[]) => {
         expandedFolders: string[]
@@ -578,7 +624,20 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             force,
             projectTreeLogicKey,
         }),
+        // Prefer this over looping `moveItem`, which would report each move separately (see MoveBatch).
+        moveItems: (
+            moves: { item: FileSystemEntry; newPath: string }[],
+            force: boolean,
+            projectTreeLogicKey: string
+        ) => ({
+            moves,
+            force,
+            projectTreeLogicKey,
+        }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
+        // Sits beside `movedItem` rather than replacing it: that one re-paths a single row as it lands, this
+        // one is for work worth doing once per operation, such as a refetch.
+        movesSettled: (moved: MovedItem[]) => ({ moved }),
         // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
         restoredItems: true,
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
@@ -603,7 +662,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         pruneClosedFolders: (expandedFolders: string[]) => ({ expandedFolders }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         unfiledItems: [
             false as boolean,
             {
@@ -628,6 +687,48 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             false,
             {
                 queueAction: async ({ action, projectTreeLogicKey }) => {
+                    // Undo has to revert every item that landed, so the batch reports only once none are left
+                    // in flight.
+                    const settleMoveBatch = (settle: (batch: MoveBatch) => void): void => {
+                        const batch: MoveBatch | undefined = action.batchId
+                            ? cache.moveBatches?.get(action.batchId)
+                            : undefined
+                        if (!batch || !action.item.id || !batch.pending.delete(action.item.id)) {
+                            return
+                        }
+                        settle(batch)
+                        if (batch.pending.size > 0) {
+                            return
+                        }
+                        cache.moveBatches.delete(action.batchId)
+                        if (batch.moved.length > 0) {
+                            // Every `movedItem` has already patched its row; this marks the operation boundary.
+                            actions.movesSettled(batch.moved)
+                            lemonToast.success(`Moved ${pluralize(batch.moved.length, 'item')}`, {
+                                button: {
+                                    label: 'Undo',
+                                    dataAttr: 'undo-project-tree-move',
+                                    action: () => {
+                                        actions.moveItems(
+                                            batch.moved.map(({ item, oldPath, newPath }) => ({
+                                                item: { ...item, path: newPath },
+                                                newPath: oldPath,
+                                            })),
+                                            false,
+                                            batch.projectTreeLogicKey
+                                        )
+                                    },
+                                },
+                            })
+                        }
+                        if (batch.failed.length === 1) {
+                            // A lone failure keeps the underlying error, which is the only place a user (or a
+                            // support ticket) can see why the move was rejected.
+                            lemonToast.error(`Error moving item: ${batch.failed[0].error}`)
+                        } else if (batch.failed.length > 1) {
+                            lemonToast.error(`Could not move ${pluralize(batch.failed.length, 'item')}. Try again.`)
+                        }
+                    }
                     if ((action.type === 'prepare-move' || action.type === 'prepare-link') && action.newPath) {
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
@@ -637,54 +738,48 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
                                 if (!confirm(confirmMessage)) {
+                                    // Nothing will land for this item, so settling it as neither moved nor
+                                    // failed keeps the rest of the batch from waiting on it.
+                                    settleMoveBatch(() => {})
                                     return false
                                 }
                             }
                             actions.queueAction({ ...action, type: verb }, projectTreeLogicKey)
                         } catch (error) {
                             console.error(`Error ${verbing} item:`, error)
-                            lemonToast.error(`Error ${verbing} item: ${error}`)
+                            if (action.type === 'prepare-link') {
+                                lemonToast.error(`Error ${verbing} item: ${error}`)
+                            } else {
+                                settleMoveBatch((batch) => batch.failed.push({ error }))
+                            }
                             actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'move' && action.newPath) {
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
-                            await api.fileSystem.move(action.item.id, newPath)
+                            await withTimeout(
+                                () => api.fileSystem.move(action.item.id, newPath),
+                                MOVE_TIMEOUT_MS,
+                                `projectTreeDataLogic: moving ${action.item.type} timed out`
+                            )
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
-                            if (action.item.type === 'dashboard') {
-                                // EXPERIMENT CLEANUP (flag dashboards-list-view · experiment 379125): a
-                                // dashboard-specific event in the generic move path — a deliberate altitude
-                                // compromise. It lives here, not in dashboardsFileSystemLogic, because that logic
-                                // mounts only in the tree arm, so emitting there would miss control-arm moves and
-                                // break the arm-agnostic primary metric. Remove or relocate (e.g. behind a generic
-                                // post-move analytics hook) once we agree on a solution / the experiment ends.
-                                // method/count + undo net-out deferred.
-                                eventUsageLogic.actions.reportDashboardMovedToFolder({
-                                    fromDepth: splitPath(oldPath).length,
-                                    toDepth: splitPath(newPath).length,
-                                    fromUnfiled: oldPath.startsWith('Unfiled/'),
-                                    toUnfiled: newPath.startsWith('Unfiled/'),
-                                })
-                            }
-                            lemonToast.success('Item moved successfully', {
-                                button: {
-                                    label: 'Undo',
-                                    dataAttr: 'undo-project-tree-move',
-                                    action: () => {
-                                        actions.moveItem(
-                                            { ...action.item, path: newPath },
-                                            oldPath,
-                                            false,
-                                            projectTreeLogicKey
-                                        )
-                                    },
-                                },
-                            })
+                            settleMoveBatch((batch) => batch.moved.push({ item: action.item, oldPath, newPath }))
                         } catch (error) {
-                            console.error('Error moving item:', error)
-                            lemonToast.error(`Error moving item: ${error}`)
+                            // The batch toast can only report a count, so the item and its batch have to reach
+                            // error tracking here or a failed bulk move leaves nothing to diagnose from.
+                            console.error('Error moving item:', error, {
+                                itemId: action.item.id,
+                                itemType: action.item.type,
+                                batchId: action.batchId,
+                            })
+                            posthog.captureException(error, {
+                                item_id: action.item.id,
+                                item_type: action.item.type,
+                                move_batch_id: action.batchId,
+                            })
+                            settleMoveBatch((batch) => batch.failed.push({ error }))
                             actions.removeQueuedAction(action)
                         }
                     } else if (action.type === 'link' && action.newPath) {
@@ -800,9 +895,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                       }))
                                                   )
                                                   const foldersToReload = new Set(
-                                                      undoableEntries.map((entry) =>
-                                                          joinPath(splitPath(entry.path || '').slice(0, -1))
-                                                      )
+                                                      undoableEntries.map((entry) => parentPath(entry.path))
                                                   )
                                                   for (const folder of foldersToReload) {
                                                       actions.loadFolder(folder, true)
@@ -945,7 +1038,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 addLoadedResults: (state, { results }) => appendResultsToFolders(results, state),
                 createSavedItem: (state, { savedItem }) => {
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+                    const folder = parentPath(savedItem.path)
                     return {
                         ...state,
                         [folder]: (state[folder] || []).find((f) => f.id === savedItem.id)
@@ -954,7 +1047,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                 },
                 deleteSavedItem: (state, { savedItem }) => {
-                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+                    const folder = parentPath(savedItem.path)
                     const newState = { ...state }
                     // The parent folder may not be loaded into the store yet (folders load lazily); only
                     // prune it when it's present — otherwise state[folder] is undefined and .filter throws.
@@ -963,7 +1056,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {
-                            if (folder === savedItem.path || folder.startsWith(savedItem.path + '/')) {
+                            if (isPathUnder(folder, savedItem.path)) {
                                 delete newState[folder]
                             }
                         }
@@ -973,17 +1066,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
                     for (const [folder, files] of Object.entries(newState)) {
-                        if (
-                            files.some(
-                                (file) =>
-                                    (type.endsWith('/') ? file.type?.startsWith(type) : file.type === type) &&
-                                    file.ref === ref
-                            )
-                        ) {
+                        if (files.some((file) => matchesRefType(file.type, type) && file.ref === ref)) {
                             newState[folder] = files.filter(
-                                (file) =>
-                                    (type.endsWith('/') ? !file.type?.startsWith(type) : file.type !== type) ||
-                                    file.ref !== ref
+                                (file) => !matchesRefType(file.type, type) || file.ref !== ref
                             )
                         }
                     }
@@ -991,22 +1076,24 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 movedItem: (state, { oldPath, newPath, item }) => {
                     const newState = { ...state }
-                    const oldParentFolder = joinPath(splitPath(oldPath).slice(0, -1))
+                    const oldParentFolder = parentPath(oldPath)
                     for (const folder of Object.keys(newState)) {
                         if (folder === oldParentFolder) {
                             newState[folder] = newState[folder].filter((i) => i.id !== item.id)
-                            const newParentFolder = joinPath(splitPath(newPath).slice(0, -1))
+                            const newParentFolder = parentPath(newPath)
                             newState[newParentFolder] = [
                                 ...(newState[newParentFolder] ?? []),
                                 { ...item, path: newPath },
                             ]
-                        } else if (folder === oldPath || folder.startsWith(oldPath + '/')) {
-                            const newFolder = newPath + folder.slice(oldPath.length)
+                            continue
+                        }
+                        const newFolder = reparentPath(folder, oldPath, newPath)
+                        if (newFolder !== null) {
                             newState[newFolder] = [
                                 ...(newState[newFolder] ?? []),
-                                ...newState[folder].map((item) => ({
-                                    ...item,
-                                    path: newFolder + item.path.slice(folder.length),
+                                ...newState[folder].map((entry) => ({
+                                    ...entry,
+                                    path: reparentPath(entry.path, folder, newFolder) ?? entry.path,
                                 })),
                             ]
                             delete newState[folder]
@@ -1320,11 +1407,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 if (!projectTreeRef || !projectTreeRef.type || !projectTreeRef.ref) {
                     return null
                 }
-                const treeItem = projectTreeRef.type.endsWith('/')
-                    ? sortedItems.find(
-                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
-                      )
-                    : sortedItems.find((item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref)
+                const treeItem = sortedItems.find(
+                    (item) => matchesRefType(item.type, projectTreeRef.type) && item.ref === projectTreeRef.ref
+                )
                 return treeItem ?? null
             },
         ],
@@ -1543,7 +1628,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     for (const item of customProducts) {
                         for (const productPath of [
                             item.product_path,
-                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path] ?? []),
+                            // product_path arrives as a plain string; a path not in the union just misses the map.
+                            ...(PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS[item.product_path as ProductTreePath] ?? []),
                         ]) {
                             if (selectedProductPaths.has(productPath)) {
                                 continue
@@ -1593,7 +1679,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap
             const activeEntryId = map.get(activeTreeId)
@@ -1662,9 +1748,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             }
         },
         syncTypeAndRef: async ({ type, ref }) => {
-            const items = await (type.endsWith('/')
-                ? api.fileSystem.list({ type__startswith: type, ref })
-                : api.fileSystem.list({ type, ref }))
+            const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
             if (items.users?.length > 0) {
                 actions.addLoadedUsers(items.users)
             }
@@ -1691,23 +1775,43 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 projectTreeLogicKey
             )
         },
-        moveItem: async ({ item, newPath, force, projectTreeLogicKey }) => {
-            if (newPath === item.path) {
+        moveItem: ({ item, newPath, force, projectTreeLogicKey }) => {
+            actions.moveItems([{ item, newPath }], force, projectTreeLogicKey)
+        },
+        moveItems: ({ moves, force, projectTreeLogicKey }) => {
+            const moving = moves.filter(({ item, newPath }) => {
+                if (newPath === item.path) {
+                    return false
+                }
+                if (!item.id) {
+                    lemonToast.error("Sorry, can't move an unsaved item (no id)")
+                    return false
+                }
+                return true
+            })
+            if (moving.length === 0) {
                 return
             }
-            if (!item.id) {
-                lemonToast.error("Sorry, can't move an unsaved item (no id)")
-                return
+            const batchId = String(++lastMoveBatchId)
+            cache.moveBatches = cache.moveBatches ?? new Map<string, MoveBatch>()
+            cache.moveBatches.set(batchId, {
+                pending: new Set(moving.map(({ item }) => item.id as string)),
+                moved: [],
+                failed: [],
+                projectTreeLogicKey,
+            })
+            for (const { item, newPath } of moving) {
+                actions.queueAction(
+                    {
+                        type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
+                        item,
+                        path: item.path,
+                        newPath,
+                        batchId,
+                    },
+                    projectTreeLogicKey
+                )
             }
-            actions.queueAction(
-                {
-                    type: !force && item.type === 'folder' ? 'prepare-move' : 'move',
-                    item,
-                    path: item.path,
-                    newPath: newPath,
-                },
-                projectTreeLogicKey
-            )
         },
         linkItem: async ({ oldPath, newPath, force, projectTreeLogicKey }) => {
             if (newPath === oldPath) {

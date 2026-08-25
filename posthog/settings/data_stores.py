@@ -316,6 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# The cluster the native-JSON events tables are rolled out on. Named here so the deletion
+# registry can say where a storage table lives; whether a given deployment can reach it is
+# decided by probing the hosts, not by comparing this against the handle's cluster.
+CLICKHOUSE_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_EVENTS_CLUSTER", "events")
 # CI uses this to run the test suite against both schemas. Production reads use the instance settings.
 CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
@@ -551,6 +555,23 @@ INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACK
 # The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
 WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_RESCHEDULE_JWT_SECRET", "local-dev-workflows-reschedule-jwt" if DEBUG or TEST else "")
+)
+
+# Scoped JWT keys for the workflows cancel routes (invocations/cancel and batch_jobs/:id/cancel).
+# Web mints, the plugin server's cancel routes verify. A dedicated key per the scoped-JWT rule
+# (one key per caller/callee surface), so cancel from the web tier never carries the reschedule
+# sweep's key, and a leak of one can't forge the other. Comma-separated, newest first: the first
+# key signs, the plugin server verifies against all. Empty outside dev/test, so the cancel routes
+# fail closed until provisioned. The dev/test value must match the plugin server's default
+# (nodejs/src/cdp/config.ts).
+WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
+# must match the plugin server's minting default so local workflows work with no setup.
+TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")

@@ -27,7 +27,7 @@ import {
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
-import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
+import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import {
     hasKnownSourceProduct,
     knownSourceProductEntries,
@@ -72,8 +72,9 @@ export function ReportDetailBadges({
     return (
         <>
             <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
-            {/* "Ready" is the default terminal state; once actionability is known, surface that instead. */}
-            {(report.status !== 'ready' || !report.actionability) && <SignalReportStatusBadge status={report.status} />}
+            {!isStatusRedundantWithActionability(report.status, report.actionability) && (
+                <SignalReportStatusBadge status={report.status} />
+            )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
@@ -105,8 +106,7 @@ function ReportDetailMeta({
     scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    // "Ready" is the default terminal state; surface the status chip only until actionability is known.
-    const showStatus = report.status !== 'ready' || !report.actionability
+    const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
 
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {

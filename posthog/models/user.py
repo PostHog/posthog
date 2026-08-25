@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
 from django.db import models, transaction
-from django.db.models import Func, Value
-from django.db.models.functions import Lower
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
@@ -17,7 +15,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
+from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -68,8 +66,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
-    # Off by default: forwarding comment text into Slack is opt-in, not implied by linking Slack.
-    "task_comments_slack_dm": False,
+    "task_comments_slack_dm": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
@@ -339,10 +336,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         verbose_name = _("user")
         verbose_name_plural = _("users")
         indexes = [
-            models.Index(
-                Func(Lower("email"), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace"),
-                name="user_stripped_alias_idx",
-            ),
+            models.Index(STRIPPED_EMAIL_EXPRESSION, name="user_stripped_alias_idx"),
         ]
 
     # Remove unused attributes from `AbstractUser`

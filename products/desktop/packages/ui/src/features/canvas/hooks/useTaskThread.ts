@@ -46,6 +46,9 @@ export function useTaskThread(
       enabled: !!taskId && enabled,
       refetchInterval: pollIntervalMs,
       staleTime: pollIntervalMs,
+      // The poll is the retry. Request-level retries also hold the timeline's
+      // first paint behind their backoff, since it gates on this query settling.
+      retry: false,
     },
   );
   useEffect(() => {

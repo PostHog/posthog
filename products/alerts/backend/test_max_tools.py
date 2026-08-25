@@ -15,7 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .max_tools import CreateAlertAction, UpdateAlertAction, UpsertAlertTool
 

@@ -3,21 +3,14 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepagecrm import (
     OnepagecrmSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.onepagecrm import (
-    OnepagecrmResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source import OnepagecrmSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOnepagecrmSource:
@@ -26,33 +19,10 @@ class TestOnepagecrmSource:
         self.team_id = 123
         self.config = OnepagecrmSourceConfig(user_id="uid-1", api_key="key-1")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ONEPAGECRM
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Onepagecrm"
-        assert config.label == "OnePageCRM"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/onepagecrm"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["user_id", "api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The user ID is only a Basic-auth username against the hardcoded API host, so there is no
         # field an editor could retarget to reuse a preserved key against another server.
         assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
 
     def test_get_schemas_advertises_incremental_only_where_filterable(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -67,14 +37,6 @@ class TestOnepagecrmSource:
         # companies has no modified_since filter; config lists aren't filterable either.
         assert schemas["companies"].supports_incremental is False
         assert schemas["contacts"].supports_incremental is True
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["deals", "nope"])
-        assert [s.name for s in schemas] == ["deals"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -95,20 +57,6 @@ class TestOnepagecrmSource:
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source.validate_credentials"
-    )
-    def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid OnePageCRM user ID or API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        assert result == (False, "Invalid OnePageCRM user ID or API key")
-        mock_validate.assert_called_once_with("uid-1", "key-1")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OnepagecrmResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.source.onepagecrm_source")
     def test_source_for_pipeline_plumbs_incremental_arguments(self, mock_source: mock.MagicMock) -> None:

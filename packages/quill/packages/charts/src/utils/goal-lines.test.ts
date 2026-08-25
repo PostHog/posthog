@@ -88,10 +88,20 @@ describe('goal-lines', () => {
     })
 
     describe('mergeValueDomains', () => {
+        // A pin beating the goal lines is settled at resolution, not here, so a pinned pair still
+        // merges and keeps the `include` that resolution will discard.
         it.each([
             ['returns the defined side when the other is undefined', undefined, { include: [5] }, { include: [5] }],
-            ['a fixed domain wins over an include set', [0, 10] as const, { include: [50] }, [0, 10]],
             ['two include sets merge', { include: [5] }, { include: [50] }, { include: [5, 50] }],
+            ['a bound and an include set both survive', { min: 40 }, { include: [500] }, { min: 40, include: [500] }],
+            ['bounds merge field by field', { min: 40 }, { max: 90 }, { min: 40, max: 90 }],
+            ['the left side wins a contested bound', { max: 60 }, { max: 90 }, { max: 60 }],
+            [
+                'a pin keeps the include for the resolver to drop',
+                { min: 0, max: 10 },
+                { include: [50] },
+                { min: 0, max: 10, include: [50] },
+            ],
         ] as const)('%s', (_, a, b, expected) => {
             expect(mergeValueDomains(a, b)).toEqual(expected)
         })

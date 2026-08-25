@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
@@ -10,6 +12,7 @@ export class TriggerHandler implements ActionHandler {
     async execute({
         invocation,
         action,
+        result,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'trigger' }>>): Promise<ActionHandlerResult> {
         if (action.config.type !== 'event') {
             return { nextAction: findContinueAction(invocation) }
@@ -26,7 +29,12 @@ export class TriggerHandler implements ActionHandler {
         }
 
         if (!filterResults.match) {
-            return { finished: true }
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: 'Workflow trigger did not match the event.',
+            })
+            return { finished: true, skipped: true }
         }
 
         return { nextAction: findContinueAction(invocation) }

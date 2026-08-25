@@ -172,6 +172,16 @@ class TestObservationLabels(_VisionAPITestCase):
         )
         # All six ratings were given today, including those on out-of-window observations.
         self.assertEqual(labels["by_rating_day"], [{"date": now.date().isoformat(), "up": 2, "down": 4}])
+        # These snapshots carry only a version and a config, so the wider fields read as not recorded.
+        not_recorded = {
+            "scanner_type": None,
+            "model": None,
+            "provider": None,
+            "emits_signals": None,
+            "query": None,
+            "sampling_rate": None,
+            "sampling_mode": None,
+        }
         self.assertEqual(
             labels["version_markers"],
             [
@@ -180,6 +190,7 @@ class TestObservationLabels(_VisionAPITestCase):
                     "version": 1,
                     "prompt": "v1 prompt",
                     "scanner_config": v1_config,
+                    **not_recorded,
                     "up": 0,
                     "down": 1,
                     "total": 1,
@@ -189,11 +200,54 @@ class TestObservationLabels(_VisionAPITestCase):
                     "version": 2,
                     "prompt": "v2 prompt",
                     "scanner_config": v2_config,
+                    **not_recorded,
                     "up": 1,
                     "down": 1,
                     "total": 3,
                 },
             ],
+        )
+
+    def test_version_markers_carry_every_tracked_field(self) -> None:
+        newer = self._create_observation(self.scanner, "sess-newer")
+        query = {"kind": "RecordingsQuery", "events": [{"id": "$pageview"}]}
+        ReplayObservation.objects.filter(id=self.observation.id).update(
+            scanner_snapshot={
+                "scanner_version": 1,
+                "scanner_config": {"prompt": "same prompt"},
+                "scanner_type": "monitor",
+                "model": "gemini-3.5-flash-lite",
+                "provider": "google",
+                "emits_signals": False,
+                "query": query,
+                "sampling_rate": 0.5,
+                "sampling_mode": "focused",
+            }
+        )
+        ReplayObservation.objects.filter(id=newer.id).update(
+            scanner_snapshot={
+                "scanner_version": 2,
+                "scanner_config": {"prompt": "same prompt"},
+                "scanner_type": "monitor",
+                "model": "gemini-3.5-flash-lite",
+                "provider": "google",
+                "emits_signals": False,
+                "query": query,
+                "sampling_rate": 1.0,
+                "sampling_mode": "balanced",
+            }
+        )
+
+        markers = self.client.get(f"{self.observations_url(self.scanner.id)}stats/").json()["labels"]["version_markers"]
+
+        # v1 to v2 changed sampling only, so without these fields the bump looks like nothing changed.
+        self.assertEqual(
+            [(m["version"], m["sampling_rate"], m["sampling_mode"]) for m in markers],
+            [(1, 0.5, "focused"), (2, 1.0, "balanced")],
+        )
+        self.assertEqual(
+            [(m["scanner_type"], m["model"], m["provider"], m["emits_signals"], m["query"]) for m in markers],
+            [("monitor", "gemini-3.5-flash-lite", "google", False, query)] * 2,
         )
 
     def test_order_by_label_groups_labeled_with_unlabeled_last(self) -> None:

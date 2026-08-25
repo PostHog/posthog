@@ -109,6 +109,34 @@ describe("selectionCommentAction", () => {
     overlay.remove();
   });
 
+  it.each(["Shift", "ArrowLeft", "Home", "End", "PageUp", "PageDown"])(
+    "ignores the %s selection key while focus is inside the comment UI",
+    (key) => {
+      const callbacks = {
+        onGestureStart: vi.fn(),
+        onSelectionSettled: vi.fn(),
+      } satisfies SelectionSettleGateCallbacks;
+      const remove = installSelectionSettleGate(document, callbacks);
+      const overlay = document.createElement("div");
+      overlay.setAttribute("data-selection-comment-overlay", "");
+      const textarea = document.createElement("textarea");
+      overlay.appendChild(textarea);
+      document.body.appendChild(overlay);
+
+      textarea.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true }),
+      );
+      textarea.dispatchEvent(
+        new KeyboardEvent("keyup", { key, bubbles: true }),
+      );
+      expect(callbacks.onGestureStart).not.toHaveBeenCalled();
+      expect(callbacks.onSelectionSettled).not.toHaveBeenCalled();
+
+      remove();
+      overlay.remove();
+    },
+  );
+
   it("ignores secondary buttons, which open menus instead of selecting", () => {
     const callbacks = { onGestureStart: vi.fn() };
     const remove = installSelectionSettleGate(document, callbacks);
@@ -174,6 +202,27 @@ describe("selectionCommentAction", () => {
 
     document.dispatchEvent(
       new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true }),
+    );
+    await settleFrames();
+    expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);
+    remove();
+  });
+
+  it("still treats Shift outside the comment UI as a selection gesture", async () => {
+    const callbacks = {
+      onGestureStart: vi.fn(),
+      onSelectionSettled: vi.fn(),
+    } satisfies SelectionSettleGateCallbacks;
+    const remove = installSelectionSettleGate(document, callbacks);
+    const target = eventTarget();
+
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Shift", bubbles: true }),
+    );
+    expect(callbacks.onGestureStart).toHaveBeenCalledTimes(1);
+
+    target.dispatchEvent(
+      new KeyboardEvent("keyup", { key: "Shift", bubbles: true }),
     );
     await settleFrames();
     expect(callbacks.onSelectionSettled).toHaveBeenCalledTimes(1);

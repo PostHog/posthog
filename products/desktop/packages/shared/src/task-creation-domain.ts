@@ -58,6 +58,13 @@ export interface TaskCreationInput {
    */
   cloudRtkEnabled?: boolean;
   signalReportId?: string;
+  /**
+   * How the task relates to its signal report ("discussion", "canvas", …).
+   * Routes the server's per-report cap: unlabelled defaults to implementation,
+   * which burns the report's one-live-PR gate — so every non-PR flow must
+   * label itself. Only sent when signalReportId is set.
+   */
+  signalReportTaskRelationship?: string;
   additionalDirectories?: string[];
   /**
    * CONTEXT.md of the channel a task was created in, if any. Appended to the
@@ -65,13 +72,15 @@ export interface TaskCreationInput {
    * agent may draw on, not instructions it must follow.
    */
   channelContext?: string;
+  /** Repo-relative context wiki page for this channel. Takes precedence over the legacy body. */
+  channelContextPath?: string;
   /** Display name of that channel, embedded in the context block for the UI. */
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
   /**
    * Desktop file-system folder id that owns this channel's CONTEXT.md (the
-   * `/website/$channelId` id — distinct from the backend feed `channelId`
+   * `/spaces/$channelId` id — distinct from the backend feed `channelId`
    * above). When set, the injected context tells the agent to publish upkeep
    * corrections to this exact id via the PostHog MCP, rather than resolving the
    * channel by display name.
@@ -93,7 +102,7 @@ export interface TaskCreationInput {
   /**
    * Desktop-only local MCP servers (stdio / private URL) designated for
    * relaying into the cloud run via the creating desktop
-   * (docs/cloud-mcp-relay.md). Names only. Cloud-only.
+   * (docs/CLOUD-MCP-RELAY.md). Names only. Cloud-only.
    */
   relayedMcpServers?: CloudMcpServerRelayDesignation[];
   /**

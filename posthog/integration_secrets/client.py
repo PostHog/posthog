@@ -17,10 +17,16 @@ Three behaviours are load-bearing:
    unreachable service raises rather than quietly serving something stale. The service
    needs an availability SLO before the environment variables come out.
 
-3. **Environment fallback only when the client is off.** Unconfigured, flag disabled, or
-   a flag check that errored means "read `os.environ` as before". That covers self-hosted
-   deployments, local development, and the rollout window. It is not an outage path: once
-   the client is on and the service is down, the call fails.
+3. **Environment fallback only when the client is off.** Flag disabled, a flag check that
+   errored, or NEITHER variable configured means "read `os.environ` as before". That covers
+   self-hosted deployments, local development, and the rollout window. It is not an outage
+   path: once the client is on and the service is down, the call fails.
+
+   Half-configured is the exception, and it raises. A URL without a signing key (or the
+   reverse) reads as "not configured" and quietly serves credentials from the pod's own
+   environment — which looks like success for every key still mounted there and fails only
+   for the ones that have actually moved to the service. That is the shape of a rollout that
+   appears to work and hasn't started.
 
 The token carries the request. `keys` is the exact set this call needs, so a token lifted
 from a log unlocks those fields for five minutes rather than everything the deployment
@@ -44,7 +50,7 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
 from .callers import IntegrationCaller
-from .errors import SecretInRecoveryError, SecretMissingError
+from .errors import IntegrationServiceMisconfiguredError, SecretInRecoveryError, SecretMissingError
 
 logger = structlog.get_logger(__name__)
 
@@ -82,15 +88,22 @@ class SecretValue:
 
     state: str
     value: str | None = field(repr=False)
-    previous: str | None = field(repr=False)
+    incoming: str | None = field(repr=False)
 
 
 @frozen
 class RotatingSecret:
-    """Current value plus the outgoing one, so the two cannot be transposed silently."""
+    """The live value plus the staged replacement, so the two cannot be transposed silently.
+
+    `incoming` is the value a rotation has staged and the service already accepts — NOT the
+    outgoing one. A rotation stages the replacement in `<KEY>_FALLBACKS` while the live value
+    stays put, and completing it moves the staged value across and drops the sibling. So the
+    overlap is the staging window: once a rotation completes, the old value stops being served
+    and there is nothing to fall back to.
+    """
 
     current: str = field(repr=False)
-    previous: str | None = field(repr=False)
+    incoming: str | None = field(repr=False)
 
 
 def integration_service_signing_keys() -> list[str]:
@@ -100,6 +113,18 @@ def integration_service_signing_keys() -> list[str]:
     every key it holds for this deployment, so a key rotation is zero-downtime.
     """
     return [key for key in get_list(settings.INTEGRATION_SERVICE_JWT_SECRET or "") if key]
+
+
+def _missing_config() -> str | None:
+    """The variable a half-configured deployment still needs, or None.
+
+    Both set, or both unset, are the two states someone can mean. Exactly one is neither.
+    """
+    has_url = bool(settings.INTEGRATION_SERVICE_URL)
+    has_keys = bool(integration_service_signing_keys())
+    if has_url == has_keys:
+        return None
+    return "INTEGRATION_SERVICE_JWT_SECRET" if has_url else "INTEGRATION_SERVICE_URL"
 
 
 def _disabled_reason() -> str | None:
@@ -140,23 +165,27 @@ class IntegrationSecretsClient:
             out[key] = secret.value
         return out
 
-    def get_with_previous(self, key: str, caller: IntegrationCaller) -> RotatingSecret:
-        """Current value plus the outgoing one while a rotation is in flight.
+    def get_with_incoming(self, key: str, caller: IntegrationCaller) -> RotatingSecret:
+        """The live value plus the staged replacement, while a rotation is in flight.
 
-        For callers that can retry against a third party: try current, and on an auth
-        failure retry with previous. Nothing is reported back — the service works out for
-        itself when the old value is safe to retire.
+        For callers that can retry against a third party: try current, and on an auth failure
+        retry with `incoming` — which is what you want when the credential has already been
+        rotated at the provider and the live value no longer works there. Nothing is reported
+        back; the service works out for itself when a staged value is safe to promote.
         """
         secret = self._resolve([key], caller)[key]
         if secret.state == "recovery" or secret.value is None:
             raise SecretInRecoveryError(key)
-        return RotatingSecret(current=secret.value, previous=secret.previous)
+        return RotatingSecret(current=secret.value, incoming=secret.incoming)
 
     def _resolve(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
+        missing = _missing_config()
+        if missing is not None:
+            raise IntegrationServiceMisconfiguredError(missing)
         reason = _disabled_reason()
         if reason is not None:
             INTEGRATION_SECRET_ENV_FALLBACK_COUNTER.labels(reason=reason).inc()
-            return {key: self._from_environment(key) for key in keys}
+            return {key: self._from_environment(key, reason) for key in keys}
         return self._fetch(keys, caller)
 
     def _fetch(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
@@ -181,7 +210,10 @@ class IntegrationSecretsClient:
             resolved[key] = SecretValue(
                 state=payload.get("state", "steady"),
                 value=payload.get("value"),
-                previous=payload.get("previous"),
+                # `previous` is the wire name for the staged value. It is wrong, and renaming a
+                # field both sides read needs a release where each accepts either — so the
+                # correction stops at this boundary rather than propagating the wrong idea.
+                incoming=payload.get("previous"),
             )
             INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="ok").inc()
 
@@ -196,11 +228,13 @@ class IntegrationSecretsClient:
         )
         return {"Authorization": f"Bearer {token}"}
 
-    def _from_environment(self, key: str) -> SecretValue:
+    def _from_environment(self, key: str, disabled_reason: str) -> SecretValue:
         value = os.environ.get(key) or getattr(settings, key, "")
         if not value:
-            raise SecretMissingError(key)
-        return SecretValue(state="steady", value=value, previous=None)
+            # Carry the reason: without it this reads as "the service doesn't have it", which is
+            # the one thing it does not mean — the service was never asked.
+            raise SecretMissingError(key, disabled_reason=disabled_reason)
+        return SecretValue(state="steady", value=value, incoming=None)
 
 
 _client = IntegrationSecretsClient()
@@ -214,5 +248,5 @@ def get_many(keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
     return _client.get_many(keys, caller)
 
 
-def get_with_previous(key: str, caller: IntegrationCaller) -> RotatingSecret:
-    return _client.get_with_previous(key, caller)
+def get_with_incoming(key: str, caller: IntegrationCaller) -> RotatingSecret:
+    return _client.get_with_incoming(key, caller)

@@ -1,7 +1,4 @@
-import {
-  reviewerAvatarToneClass,
-  reviewerInitials,
-} from "@posthog/core/inbox/artefacts";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 
 interface ReviewerAvatarProps {
   name?: string | null;
@@ -11,32 +8,28 @@ interface ReviewerAvatarProps {
   className?: string;
 }
 
-const SIZE_CLASS = {
-  sm: "h-5 w-5 text-[9px]",
-  md: "h-6 w-6 text-[10px]",
-} as const;
+const QUILL_SIZE = { sm: "xs", md: "sm" } as const;
 
+// Adapts a teammate's flat display name onto the app-wide UserAvatar, which
+// wants first/last for initials.
 export function ReviewerAvatar({
   name,
   email,
   seed,
   size = "md",
-  className = "",
+  className,
 }: ReviewerAvatarProps) {
-  const initials = reviewerInitials(name, email);
-  const toneClass = reviewerAvatarToneClass(seed);
-
+  const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
   return (
-    <span
-      className={[
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold leading-none",
-        SIZE_CLASS[size],
-        toneClass,
-        className,
-      ].join(" ")}
-      aria-hidden
-    >
-      {initials}
-    </span>
+    <UserAvatar
+      user={{
+        uuid: seed,
+        email,
+        first_name: parts[0],
+        last_name: parts.length > 1 ? parts[parts.length - 1] : undefined,
+      }}
+      size={QUILL_SIZE[size]}
+      className={className}
+    />
   );
 }

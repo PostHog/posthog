@@ -202,6 +202,7 @@ export interface insightVizDataLogicValues {
     hasFormula: boolean
     hasLegend: boolean
     hasOnlyDataWarehouseSeries: boolean
+    hasRenderableResults: boolean
     insightFilter: InsightFilter | null | undefined
     interval: IntervalType | null | undefined
     isAllEventsQuery: boolean
@@ -1197,6 +1198,7 @@ export interface insightVizDataLogicMeta {
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
+        hasRenderableResults: (insightData: Record<string, any>) => boolean
         allEventNames: (
             querySource:
                 | FunnelsQuery
@@ -2433,6 +2435,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         timezone: [(s) => [s.insightData], (insightData: Record<string, any>) => insightData?.timezone || 'UTC'],
 
+        hasRenderableResults: [
+            (s) => [s.insightData],
+            (insightData: Record<string, any>): boolean => insightData?.result != null || insightData?.results != null,
+        ],
+
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
             (s) => [s.querySource, actionsModel.selectors.actions],
@@ -2878,6 +2885,22 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).properties = undefined
         ;(mergedUpdate as LifecycleQuery).filterTestAccounts = false
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
+    }
+
+    // Switching a retention entity away from the data warehouse invalidates the "Custom entities"
+    // aggregation target, which the backend rejects for non-warehouse entities.
+    if (isRetentionQuery(currentState) && maybeChangedInsightFilter) {
+        const nextRetentionFilter = maybeChangedInsightFilter as RetentionFilter
+        if (
+            nextRetentionFilter.customAggregationTarget &&
+            (nextRetentionFilter.targetEntity?.type !== 'data_warehouse' ||
+                nextRetentionFilter.returningEntity?.type !== 'data_warehouse')
+        ) {
+            ;(mergedUpdate as RetentionQuery).retentionFilter = {
+                ...nextRetentionFilter,
+                customAggregationTarget: undefined,
+            }
+        }
     }
 
     // We do not support properties, filtering test accounts, and sampling for DWH nodes

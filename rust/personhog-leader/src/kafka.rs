@@ -48,6 +48,9 @@ pub async fn produce_person_changelog(
 ) -> Result<i64, String> {
     let key = changelog_message_key(person.team_id, person.id);
     let payload = person.encode_to_vec();
+    // Recorded before the send so a payload rejected by the broker
+    // (message.max.bytes) still shows up in the distribution.
+    histogram!("personhog_leader_kafka_produce_bytes").record(payload.len() as f64);
 
     let record = FutureRecord::to(topic)
         .partition(partition as i32)

@@ -1,4 +1,7 @@
 from django.db import models
+from django.db.models import Case, CharField, Expression, FloatField, Func, Value, When
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast
 
 from posthog.models.utils import UUIDModel
 
@@ -52,6 +55,14 @@ class ReplayObservation(UUIDModel):
         null=True,
         blank=True,
         help_text="Start time of the recorded session; copied from session metadata so downstream steps don't re-query.",
+    )
+    session_group_keys = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Group keys the recorded session's events carry, keyed by group type index (e.g. {'0': 'acme-inc'}). "
+            "Resolved at scan time so the emitted event can be attributed to the group without re-querying."
+        ),
     )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
@@ -160,3 +171,29 @@ class ReplayObservation(UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.scanner_id}:{self.session_id} [{self.status}]"
+
+
+def jsonb_typeof(expr: Expression) -> Func:
+    return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
+
+
+def annotate_output_number(
+    qs: "models.QuerySet[ReplayObservation]", key: str, alias: str
+) -> "models.QuerySet[ReplayObservation]":
+    """Annotate `alias` with `scanner_result.model_output.<key>` as a float, null when the value isn't numeric.
+
+    CASE-guard the cast so schema drift or a manual fixup (a `score` stored as a string) can't 500 the query.
+    """
+    type_alias = f"{alias}_type"
+    value_jsonb = KeyTransform(key, KeyTransform("model_output", "scanner_result"))
+    value_text = KeyTextTransform(key, KeyTextTransform("model_output", "scanner_result"))
+    return qs.annotate(
+        **{
+            type_alias: jsonb_typeof(value_jsonb),
+            alias: Case(
+                When(**{type_alias: "number"}, then=Cast(value_text, FloatField())),
+                default=Value(None),
+                output_field=FloatField(),
+            ),
+        }
+    )

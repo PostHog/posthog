@@ -25,6 +25,7 @@ from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
@@ -412,7 +413,7 @@ async def _summarize_goal(
     )
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class UtmSplitCounts:
     total: int
     integrated: int

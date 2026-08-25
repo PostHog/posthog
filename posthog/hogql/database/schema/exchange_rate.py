@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
@@ -10,6 +9,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
 )
 
+from posthog.dataclasses import frozen
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ def currency_expression_for_events(team: "Team", event_config: "RevenueAnalytics
     return ast.Constant(value=team.base_currency)
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class RevenueEventExprs:
     # Checks whether the event is the one we're looking for
     comparison_expr: ast.Expr

@@ -11,33 +11,42 @@
 //
 // Endpoint gaps inherited here (backend follow-ups): suites that don't ship junit
 // into the span pipeline are invisible, and rerun_passed_count only flows from
-// retry-enabled lanes. Master-burst breakage is filtered out client-side.
+// retry-enabled lanes. Master-burst breakage and branch-only tests are filtered
+// out client-side.
 
-import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
-const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
-const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
-const API_KEY = process.env.POSTHOG_API_KEY || ''
+import {
+    AUTH_HEADERS,
+    cell,
+    DRY_RUN,
+    editWorkflowBlock,
+    GITHUB_REPOSITORY,
+    GITHUB_SERVER_URL,
+    hogql,
+    HOST,
+    linkedCell,
+    postToSlack,
+    PROJECT_ID,
+    API_KEY,
+    repoPathResolver,
+    requestPosthog,
+    resolveOwners,
+    shortName,
+    SLACK_BOT_TOKEN,
+    SLACK_CHANNEL,
+} from './weekly-report-common.mjs'
+
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 // The synced runs table name carries the warehouse source prefix, which differs per project.
 const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
 const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedtests'
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
-const SLACK_CHANNEL = process.env.SLACK_CHANNEL || 'C09ADEV3AJD' // #flakey-tests
-const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
-
-const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com'
-const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || 'PostHog/posthog'
-const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
-const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
 const TOP_N = 10
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
 const REPORT_RUNNERS = ['pytest', 'jest']
 const RUNNER_LABELS = { pytest: 'pytest', jest: 'Jest' }
-const PARKED_NAMES_SHOWN = 5
 
 // Two systems can suppress a failing test, and only one of them reaches the endpoint. The
 // quarantine file xfails the test, so the span records 'xfailed' and the item arrives already
@@ -47,41 +56,6 @@ const PARKED_NAMES_SHOWN = 5
 // current, masking decides whether a quarantine actually keeps a failure from failing CI.
 const TRUNK_UPLOADS_ON = process.env.TRUNK_UPLOAD_ENABLED === 'true'
 const TRUNK_MASKS_CI = TRUNK_UPLOADS_ON && process.env.TRUNK_QUARANTINE_ENABLED === 'true'
-
-const RETRY_ATTEMPTS = 3
-const RETRY_DELAY_MS = 30_000
-
-async function request(url, options, label) {
-    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(150_000) })
-    const body = await res.text()
-    const fail = (detail, retryable) => {
-        throw Object.assign(new Error(`${label} -> ${res.status}: ${detail}`), { retryable })
-    }
-    let parsed
-    try {
-        parsed = JSON.parse(body)
-    } catch {
-        fail(`non-JSON response (${body.slice(0, 120)})`, true)
-    }
-    if (!res.ok) {
-        fail(parsed?.detail || body, res.status >= 500 || res.status === 429)
-    }
-    return parsed
-}
-
-async function withRetry(fn) {
-    for (let attempt = 1; ; attempt++) {
-        try {
-            return await fn()
-        } catch (err) {
-            if (err.retryable === false || attempt >= RETRY_ATTEMPTS) {
-                throw err
-            }
-            console.warn(`${err.message} — attempt ${attempt}/${RETRY_ATTEMPTS}, retrying in ${RETRY_DELAY_MS / 1000}s`)
-            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS))
-        }
-    }
-}
 
 function endpointUrl(action, params = {}) {
     const url = new URL(`${HOST}/api/projects/${PROJECT_ID}/engineering_analytics/${action}/`)
@@ -96,8 +70,6 @@ function endpointUrl(action, params = {}) {
     return url
 }
 
-const AUTH_HEADERS = { Authorization: `Bearer ${API_KEY}` }
-
 function flakyTestsUrl(runner) {
     return endpointUrl('flaky_tests', {
         date_from: '-7d',
@@ -108,23 +80,7 @@ function flakyTestsUrl(runner) {
 }
 
 function fetchFlakyTests(runner) {
-    return withRetry(() => request(flakyTestsUrl(runner), { headers: AUTH_HEADERS }, 'flaky_tests'))
-}
-
-// `values` bind through HogQL's {placeholder} syntax, escaped server-side — never
-// concatenate attacker-controlled test ids into the query source.
-function hogql(query, values) {
-    return withRetry(() =>
-        request(
-            `${HOST}/api/projects/${PROJECT_ID}/query/`,
-            {
-                method: 'POST',
-                headers: { ...AUTH_HEADERS, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: { kind: 'HogQLQuery', query, values } }),
-            },
-            'query'
-        )
-    )
+    return requestPosthog(flakyTestsUrl(runner), { headers: AUTH_HEADERS }, 'flaky_tests')
 }
 
 // A same-commit recovery proves a flake, so only suppress likely one-merge bursts
@@ -138,81 +94,37 @@ function isMasterBurst(item) {
     )
 }
 
-function selectReportCandidates(items, runner) {
-    return items.filter((item) => item.runner === runner && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
+// A test with no file on master runs only on the branch that added it, so only that branch can fix
+// it. The span scan is branch-agnostic by design, so the checkout is what tells the two apart.
+function selectReportCandidates(items, runner, toRepoPaths) {
+    const qualifying = items.filter((item) => item.runner === runner && !isMasterBurst(item))
+    const onMaster = []
+    const branchOnly = []
+    for (const item of qualifying) {
+        if (toRepoPaths(item.selector.split('::')[0]).length > 0) {
+            onMaster.push(item)
+        } else {
+            branchOnly.push(item)
+        }
+    }
+    if (branchOnly.length > 0) {
+        // Never drop silently: a resolver that stopped matching would read as a quiet week.
+        console.info(
+            `${runner}: dropped ${branchOnly.length} test(s) with no file on master: ${branchOnly
+                .map((item) => item.selector)
+                .join(', ')}`
+        )
+    }
+    return onMaster.slice(0, CANDIDATE_POOL)
 }
 
-async function fetchCandidatePools(runners, fetchTests = fetchFlakyTests) {
+async function fetchCandidatePools(runners, toRepoPaths, fetchTests = fetchFlakyTests) {
     return Promise.all(
         runners.map(async (runner) => {
             const result = await fetchTests(runner)
-            return { runner, candidates: selectReportCandidates(result.items || [], runner) }
+            return { runner, candidates: selectReportCandidates(result.items || [], runner, toRepoPaths) }
         })
     )
-}
-
-// Product suites run from their product dir, so a selector path may be repo- or
-// product-relative — suffix-match the tracked index (full even under sparse checkout).
-function trackedTestPaths(runGit = execFileSync) {
-    // The tracked-file list is a few MB; the 1MB execFileSync default truncates it.
-    return runGit('git', ['ls-files', '*.py', '*.js', '*.jsx', '*.ts', '*.tsx'], {
-        encoding: 'utf8',
-        maxBuffer: 64 * 1024 * 1024,
-    })
-        .split('\n')
-        .filter(Boolean)
-}
-
-function repoPathResolver(trackedPaths = trackedTestPaths()) {
-    const trackedSet = new Set(trackedPaths)
-    const bySuffix = new Map()
-    for (const path of trackedPaths) {
-        const base = path.split('/').pop()
-        if (!bySuffix.has(base)) {
-            bySuffix.set(base, [])
-        }
-        bySuffix.get(base).push(path)
-    }
-    return (selectorPath) => {
-        if (trackedSet.has(selectorPath)) {
-            return [selectorPath]
-        }
-        return (bySuffix.get(selectorPath.split('/').pop()) || []).filter((p) => p.endsWith(`/${selectorPath}`))
-    }
-}
-
-// Ambiguous suffix matches only count when every candidate agrees on the owner.
-function resolveOwners(items) {
-    const toRepoPaths = repoPathResolver()
-    const candidates = new Map()
-    for (const item of items) {
-        const selectorPath = item.selector.split('::')[0]
-        if (!candidates.has(selectorPath)) {
-            candidates.set(selectorPath, toRepoPaths(selectorPath))
-        }
-    }
-    const allPaths = [...new Set([...candidates.values()].flat())]
-    let resolved = {}
-    if (allPaths.length > 0) {
-        try {
-            const out = execFileSync('python3', ['-m', 'posthog_owners'], {
-                encoding: 'utf8',
-                input: allPaths.join('\n'),
-                env: { ...process.env, PYTHONPATH: 'tools/owners' },
-            })
-            resolved = JSON.parse(out)
-        } catch (err) {
-            // Degrade to "unowned" rather than skipping the week's post.
-            console.warn(`owners resolution failed — reporting all tests as unowned: ${err.message}`)
-        }
-    }
-    return (item) => {
-        const selectorPath = item.selector.split('::')[0]
-        const paths = candidates.get(selectorPath) || []
-        const owners = new Set(paths.map((p) => (resolved[p]?.owners || [])[0] || 'unowned'))
-        const owner = owners.size === 1 ? [...owners][0] : 'unowned'
-        return { owner, repoPath: paths.length === 1 ? paths[0] : null }
-    }
 }
 
 // One test carries different leading path segments depending on who named it: a product suite
@@ -362,26 +274,23 @@ function testStatusFor(trunkFor, masksCi = TRUNK_MASKS_CI) {
         // decide: with any of them the test is still red and still work.
         const quarantineFile = item.classification === 'quarantined' || item.quarantined_failed_run_count > 0
         if (quarantineFile && !item.failed_run_count) {
-            return { parked: true, source: 'the quarantine file' }
+            return { parked: true }
         }
         const trunk = trunkFor(item)
         if (!trunk) {
             return null
         }
-        return { parked: masksCi, source: 'Trunk', since: trunk.quarantinedAt }
+        return { parked: masksCi }
     }
 }
 
-// Parked tests leave the queue but stay listed below the table: a long-lived auto-quarantine
-// covering a real breakage is the thing nobody notices otherwise.
+// Parked tests leave the queue: a suppressed failure does not fail CI, so nobody has to act on it.
 //
-// Partitioning has to precede clustering. A cluster's selector is a bare file path, which can
+// Dropping them has to precede clustering. A cluster's selector is a bare file path, which can
 // never match a test id, so collapsing first buries parked tests in a row that then ranks as if
 // CI still failed on them.
 function buildQueue(candidates, statusFor) {
-    const parked = candidates.filter((item) => statusFor(item)?.parked)
-    const queue = candidates.filter((item) => !statusFor(item)?.parked)
-    return { queue: collapseClusters(queue), parked: parked.map((item) => ({ ...item, park: statusFor(item) })) }
+    return collapseClusters(candidates.filter((item) => !statusFor(item)?.parked))
 }
 
 // 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
@@ -434,28 +343,11 @@ async function buildRunnerReports(
     return Promise.all(
         candidatePools.map(async ({ runner, candidates }) => {
             const statusFor = testStatusFor(await getTrunk(runner))
-            const { queue, parked } = buildQueue(candidates, statusFor)
+            const queue = buildQueue(candidates, statusFor)
             const extrasFor = await getEnrichment(runner, queue)
-            return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor, parked }
+            return { runner, candidates: rankReportCandidates(queue, extrasFor), extrasFor, statusFor }
         })
     )
-}
-
-function cell(text) {
-    return { type: 'raw_text', text }
-}
-
-function linkedCell(links) {
-    const elements = links.flatMap(({ url, text }, index) => [
-        ...(index > 0 ? [{ type: 'text', text: ' ' }] : []),
-        { type: 'link', url, text },
-    ])
-    return { type: 'rich_text', elements: [{ type: 'rich_text_section', elements }] }
-}
-
-function shortName(selector) {
-    const name = selector.split('::').pop()
-    return name.length > 36 ? `${name.slice(0, 35)}…` : name
 }
 
 function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
@@ -486,23 +378,8 @@ function tableRows(items, ownerFor, extrasFor, statusFor = () => null) {
     })
 }
 
-function parkedSummary(parked) {
-    const shown = parked.slice(0, PARKED_NAMES_SHOWN).map((item) => shortName(item.selector))
-    const remaining = parked.length - shown.length
-    const names = remaining > 0 ? `${shown.join(', ')}, and ${remaining} more` : shown.join(', ')
-    const oldest = parked
-        .map((item) => item.park?.since)
-        .filter(Boolean)
-        .sort()[0]
-    const since = oldest ? ` Oldest parked ${oldest.slice(0, 10)}.` : ''
-    const count = parked.length === 1 ? '1 test is' : `${parked.length} tests are`
-    return `${count} quarantined, so CI no longer fails on them: ${names}.${since} Fix them or take them out of quarantine.`
-}
-
-function buildBlocks(now, rows, parked = []) {
+function buildBlocks(now, rows) {
     const dateLabel = now.toISOString().slice(0, 10)
-    // Every candidate can be parked, which leaves the parked note as the whole report.
-    const heading = rows.length > 0 ? `Top ${rows.length} flaky tests` : 'Flaky tests'
     const blocks = [
         {
             type: 'section',
@@ -511,64 +388,36 @@ function buildBlocks(now, rows, parked = []) {
                 text: `*Weekly flaky tests - ${dateLabel}* _(CI, last 7 days, up to ${TOP_N} per runner)_`,
             },
         },
+        {
+            type: 'table',
+            column_settings: [
+                { align: 'left' },
+                { align: 'left' },
+                { align: 'left' },
+                { align: 'right' },
+                { align: 'right' },
+                { align: 'left' },
+            ],
+            rows: [
+                [cell('test'), cell('runner'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')],
+                ...rows,
+            ],
+        },
+        {
+            type: 'context',
+            elements: [
+                {
+                    type: 'mrkdwn',
+                    text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
+                },
+            ],
+        },
     ]
-    if (rows.length > 0) {
-        blocks.push(
-            {
-                type: 'table',
-                column_settings: [
-                    { align: 'left' },
-                    { align: 'left' },
-                    { align: 'left' },
-                    { align: 'right' },
-                    { align: 'right' },
-                    { align: 'left' },
-                ],
-                rows: [
-                    [cell('test'), cell('runner'), cell('owner'), cell('rescued'), cell('fails'), cell('logs')],
-                    ...rows,
-                ],
-            },
-            {
-                type: 'context',
-                elements: [
-                    {
-                        type: 'mrkdwn',
-                        text: 'Fix: `/fixing-flaky-tests` · Park 14 days: `hogli test:quarantine add <test id>`',
-                    },
-                ],
-            }
-        )
-    }
-    if (parked.length > 0) {
-        blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: parkedSummary(parked) }] })
-    }
-    const workflowPath = GITHUB_WORKFLOW_REF.split('@')[0].replace(`${GITHUB_REPOSITORY}/`, '')
-    if (GITHUB_REPOSITORY && workflowPath) {
-        const editUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/edit/${GITHUB_REF_NAME}/${workflowPath}`
-        blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `<${editUrl}|edit this workflow>` }] })
+    const editBlock = editWorkflowBlock()
+    if (editBlock) {
+        blocks.push(editBlock)
     }
     return blocks
-}
-
-async function postToSlack(blocks) {
-    const res = await fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
-        body: JSON.stringify({
-            channel: SLACK_CHANNEL,
-            blocks,
-            text: 'Weekly flaky test report', // notification fallback
-            unfurl_links: false,
-        }),
-    })
-    const data = await res.json()
-    if (!data.ok) {
-        const validationDetails = Array.isArray(data.response_metadata?.messages)
-            ? `: ${data.response_metadata.messages.join('; ')}`
-            : ''
-        throw new Error(`Slack chat.postMessage failed: ${data.error}${validationDetails}`)
-    }
 }
 
 async function main() {
@@ -577,18 +426,19 @@ async function main() {
         return
     }
     const now = new Date()
-    const runnerReports = await buildRunnerReports(await fetchCandidatePools(REPORT_RUNNERS))
+    // Built once so the filter and the owner resolution share one git ls-files.
+    const toRepoPaths = repoPathResolver()
+    const runnerReports = await buildRunnerReports(await fetchCandidatePools(REPORT_RUNNERS, toRepoPaths))
     const reportCandidates = runnerReports.flatMap(({ candidates }) => candidates)
-    const parked = runnerReports.flatMap((report) => report.parked)
-    if (reportCandidates.length === 0 && parked.length === 0) {
+    if (reportCandidates.length === 0) {
         console.info('No qualifying flaky tests this week — nothing to post.')
         return
     }
-    const ownerFor = resolveOwners(reportCandidates)
+    const ownerFor = resolveOwners(reportCandidates, toRepoPaths)
     const rows = runnerReports.flatMap(({ candidates, extrasFor, statusFor }) =>
         tableRows(candidates, ownerFor, extrasFor, statusFor)
     )
-    const blocks = buildBlocks(now, rows, parked)
+    const blocks = buildBlocks(now, rows)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         return
@@ -596,7 +446,7 @@ async function main() {
     if (!SLACK_BOT_TOKEN) {
         throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
-    await postToSlack(blocks)
+    await postToSlack(blocks, 'Weekly flaky test report')
     console.info(`Posted weekly flaky report to ${SLACK_CHANNEL}.`)
 }
 
@@ -618,9 +468,7 @@ export {
     fetchTrunkQuarantined,
     flakyTestsUrl,
     REPORT_RUNNERS,
-    repoPathResolver,
     selectReportCandidates,
     tableRows,
     testStatusFor,
-    trackedTestPaths,
 }

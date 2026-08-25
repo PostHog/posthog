@@ -90,6 +90,33 @@ pub enum IssueStatus {
     Suppressed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IssueSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+pub(crate) fn infer_issue_severity(
+    exception_level: Option<&str>,
+    handled: Option<bool>,
+) -> Option<IssueSeverity> {
+    match exception_level.map(str::to_ascii_lowercase).as_deref() {
+        Some("fatal" | "critical") => Some(IssueSeverity::Critical),
+        Some("warning" | "warn") => Some(IssueSeverity::Medium),
+        Some("info" | "log" | "debug" | "trace") => Some(IssueSeverity::Low),
+        Some("error") => handled.map(|handled| {
+            if handled {
+                IssueSeverity::Medium
+            } else {
+                IssueSeverity::High
+            }
+        }),
+        _ => None,
+    }
+}
+
 impl Issue {
     pub async fn load_by_fingerprint<'c, E>(
         executor: E,
@@ -139,10 +166,11 @@ impl Issue {
         Ok(res)
     }
 
-    pub async fn insert_new<'c, E>(
+    pub(crate) async fn insert_new<'c, E>(
         team_id: i32,
         name: String,
         description: String,
+        severity: Option<IssueSeverity>,
         executor: E,
     ) -> Result<Issue, UnhandledError>
     where
@@ -161,7 +189,7 @@ impl Issue {
             id: Uuid::now_v7(),
             team_id,
             status: IssueStatus::Active,
-            severity: None,
+            severity: severity.map(|severity| severity.to_string()),
             name: Some(name),
             description: Some(description),
             created_at: Utc::now(),
@@ -169,12 +197,13 @@ impl Issue {
 
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO posthog_errortrackingissue (id, team_id, status, severity, name, description, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
             issue.id,
             issue.team_id,
             issue.status.to_string(),
+            issue.severity,
             issue.name,
             issue.description,
             issue.created_at
@@ -183,6 +212,23 @@ impl Issue {
         .await?;
 
         Ok(issue)
+    }
+
+    pub async fn apply_initial_severity<'c, E>(
+        &mut self,
+        severity: String,
+        executor: E,
+    ) -> Result<(), sqlx::Error>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query("UPDATE posthog_errortrackingissue SET severity = $1 WHERE id = $2")
+            .bind(&severity)
+            .bind(self.id)
+            .execute(executor)
+            .await?;
+        self.severity = Some(severity);
+        Ok(())
     }
 
     pub async fn maybe_reopen<'c, E>(&mut self, executor: E) -> Result<bool, UnhandledError>
@@ -587,6 +633,7 @@ fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
         name: issue.name.clone(),
         description: issue.description.clone(),
         status: issue.status.to_string(),
+        severity: issue.severity.clone(),
         created_at: issue.created_at,
     }
 }
@@ -642,6 +689,17 @@ impl Display for IssueStatus {
     }
 }
 
+impl Display for IssueSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IssueSeverity::Low => write!(f, "low"),
+            IssueSeverity::Medium => write!(f, "medium"),
+            IssueSeverity::High => write!(f, "high"),
+            IssueSeverity::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use common_redis::{MockRedisClient, MockRedisValue};
@@ -673,6 +731,56 @@ mod test {
             super::error_tracking_event_properties_key(42, event_uuid),
             "error_tracking:event_properties:v1:42:01982721-5e00-7000-8000-000000000001"
         );
+    }
+
+    #[test]
+    fn infers_issue_severity_only_from_confident_signals() {
+        for (level, handled, expected) in [
+            (Some("fatal"), Some(true), Some("critical")),
+            (Some("critical"), Some(false), Some("critical")),
+            (Some("error"), Some(false), Some("high")),
+            (Some("error"), Some(true), Some("medium")),
+            (Some("error"), None, None),
+            (Some("warning"), Some(false), Some("medium")),
+            (Some("warn"), None, Some("medium")),
+            (Some("info"), Some(false), Some("low")),
+            (Some("log"), Some(true), Some("low")),
+            (Some("debug"), None, Some("low")),
+            (Some("trace"), Some(true), Some("low")),
+            (None, Some(false), None),
+            (None, Some(true), None),
+            (Some("custom"), Some(false), None),
+            (Some("CUSTOM"), Some(true), None),
+        ] {
+            assert_eq!(
+                super::infer_issue_severity(level, handled).map(|severity| severity.to_string()),
+                expected.map(str::to_string)
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn initial_severity_update_reaches_state_and_notification_payloads(pool: sqlx::PgPool) {
+        let mut issue = super::Issue::insert_new(
+            1,
+            "TypeError".to_string(),
+            "Example".to_string(),
+            None,
+            &pool,
+        )
+        .await
+        .unwrap();
+
+        issue
+            .apply_initial_severity("critical".to_string(), &pool)
+            .await
+            .unwrap();
+
+        let state =
+            super::FingerprintIssueState::new(&issue, "fingerprint", None, chrono::Utc::now());
+        let snapshot = super::issue_snapshot(&issue);
+        assert_eq!(state.issue_severity.as_deref(), Some("critical"));
+        assert_eq!(snapshot.severity.as_deref(), Some("critical"));
     }
 
     #[tokio::test]

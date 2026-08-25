@@ -86,6 +86,17 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `fetch_page` (decagon.py) already retries `DecagonRetryableError` (429/5xx),
+        # `requests.ReadTimeout`, and `requests.ConnectionError` with backoff; if that budget
+        # still exhausts, Temporal retries the whole activity, so the failure is transient and
+        # self-recovering. Match the host rather than the per-endpoint path, so a timeout or
+        # dropped connection on any Decagon endpoint is covered.
+        return {
+            "HTTPSConnectionPool(host='api.decagon.ai', port=443)",
+            "Decagon API error (retryable)",
+        }
+
     def get_schemas(
         self,
         config: DecagonSourceConfig,

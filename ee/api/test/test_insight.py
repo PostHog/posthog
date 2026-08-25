@@ -16,7 +16,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
 from ee.models import DashboardPrivilege

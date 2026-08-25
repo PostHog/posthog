@@ -334,6 +334,12 @@ function buildProductManifests() {
     )
     const serializedTreeItemsNew = makeArrExpr(treeItemsNew)
     const serializedTreeItemsProducts = makeArrExpr(treeItemsProducts)
+    // A literal union of product tree paths, so code that hardcodes a path (e.g. sidebar companion
+    // maps) fails to compile on a typo instead of silently matching nothing.
+    const serializedProductTreePaths = Object.keys(treeItemsProducts)
+        .sort((a, b) => a.localeCompare(b))
+        .map((p) => JSON.stringify(p))
+        .join(' | ')
     const serializedTreeItemsGames = makeArrExpr(treeItemsGames)
     const serializedTreeItemsMetadata = makeArrExpr(treeItemsMetadata)
 
@@ -369,6 +375,9 @@ function buildProductManifests() {
 
         ${autogenDisclaimer}
         export const getTreeItemsNew = (): FileSystemImport[] => ${serializedTreeItemsNew}
+
+        ${autogenDisclaimer}
+        export type ProductTreePath = ${serializedProductTreePaths}
 
         ${autogenDisclaimer}
         export const getTreeItemsProducts = (): FileSystemImport[] => ${serializedTreeItemsProducts}

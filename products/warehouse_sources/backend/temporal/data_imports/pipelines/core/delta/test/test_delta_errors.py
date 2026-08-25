@@ -27,6 +27,13 @@ class TestIsTransientObjectStoreError:
             ),
             ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
             (
+                # s3fs wraps a CopyObject/PutObject 5xx as a plain OSError once boto's own retries
+                # are exhausted - S3's fixed InternalError message, not a bug in our code.
+                "s3_internal_error_os_error",
+                OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
+            (
                 # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
                 # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
                 # hitting our own instance-role-authenticated bucket, different client library.

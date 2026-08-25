@@ -80,10 +80,13 @@ class ShardTimings:
         return shards
 
 
-# Maps the script's segment names to the artifact-key fragment used by
-# ci-backend.yml ("junit-results-backend-<artifact-key>-<group>"). Add new
-# segments here when adding JUnit-mode carrier detection for them.
-_JUNIT_ARTIFACT_KEY = {"Core": "core", "CorePOE": "core-poe", "Temporal": "temporal"}
+# Maps segment names to the JUnit artifact prefix used by ci-backend.yml.
+_JUNIT_ARTIFACT_PREFIX = {
+    "Core": "junit-results-backend-core",
+    "CorePOE": "junit-results-backend-core-poe",
+    "Temporal": "junit-results-backend-temporal",
+    "Products": "product-junit-results",
+}
 
 
 @dataclass
@@ -115,10 +118,10 @@ class JUnitShard:
                 continue
 
             if segment:
-                artifact_key = _JUNIT_ARTIFACT_KEY.get(segment, segment.lower())
+                artifact_prefix = _JUNIT_ARTIFACT_PREFIX.get(segment, f"junit-results-backend-{segment.lower()}")
                 # Anchor with `\d+$` so the Core prefix doesn't accidentally
                 # eat core-poe-N (which also starts with junit-results-backend-core-).
-                pattern = re.compile(rf"^junit-results-backend-{re.escape(artifact_key)}-\d+$")
+                pattern = re.compile(rf"^{re.escape(artifact_prefix)}-\d+$")
                 if not pattern.match(shard_dir.name.lower()):
                     continue
 
@@ -126,7 +129,11 @@ class JUnitShard:
             if not xml_files:
                 continue
 
-            shards.append(cls(name=shard_dir.name, call_times=cls._parse_call_times(xml_files[0])))
+            call_times: dict[str, float] = {}
+            for xml_file in xml_files:
+                for test_id, call_time in cls._parse_call_times(xml_file).items():
+                    call_times[test_id] = max(call_times.get(test_id, 0.0), call_time)
+            shards.append(cls(name=shard_dir.name, call_times=call_times))
 
         return shards
 
@@ -319,7 +326,11 @@ class MigrationTaxCorrector:
             )
         else:
             logger.info("  No JUnit-detected contamination")
-        return MigrationTaxResult(corrected, migration_tax_seconds=avg_removed, carriers_found=len(removed))
+        return MigrationTaxResult(
+            corrected,
+            migration_tax_seconds=avg_removed,
+            carriers_found=len(removed),
+        )
 
     @staticmethod
     def _lookup_call_time(test_id: str, junit_call: dict[str, float]) -> float | None:
@@ -446,6 +457,12 @@ def ensure_minimum_duration(durations: dict[str, float]) -> dict[str, float]:
     return {test: max(MIN_DURATION, dur) for test, dur in durations.items()}
 
 
+def shard_sets_match(timing_shards: list[ShardTimings], junit_shards: list[JUnitShard]) -> bool:
+    timing_ids = {shard.name.rsplit("-", 1)[-1] for shard in timing_shards}
+    junit_ids = {shard.name.rsplit("-", 1)[-1] for shard in junit_shards}
+    return timing_ids == junit_ids
+
+
 def collect_existing_tests(segment: str | None = None) -> set[str]:
     """Collect test names that actually exist in the codebase.
 
@@ -496,7 +513,7 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
-def run_merge_files(input_files: list[Path], output_file: Path) -> None:
+def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
     Fails loudly if no inputs survive — silently emitting an empty file would
@@ -514,6 +531,10 @@ def run_merge_files(input_files: list[Path], output_file: Path) -> None:
         logger.error("No input files found to merge — refusing to write empty %s", output_file)
         sys.exit(1)
 
+    if replace_prefix and len(sources) > 1:
+        sources[0] = {
+            test_id: duration for test_id, duration in sources[0].items() if not test_id.startswith(replace_prefix)
+        }
     merged = outlier_merge_durations(sources)
     with open(output_file, "w") as f:
         json.dump(merged, f, indent=4, sort_keys=True)
@@ -618,11 +639,16 @@ def main():
         default="mean",
         help="Aggregation for --average-files (default: mean).",
     )
+    parser.add_argument(
+        "--replace-prefix",
+        default=None,
+        help="In merge mode, remove matching entries from the first input before merging fresh segment data.",
+    )
 
     args = parser.parse_args()
 
     if args.merge_files:
-        run_merge_files(args.merge_files, args.output_file)
+        run_merge_files(args.merge_files, args.output_file, args.replace_prefix)
         return
 
     if args.average_files:
@@ -638,6 +664,17 @@ def main():
         logger.info("  Filtering to segment: %s", args.segment)
     shards = ShardTimings.load_all(args.artifacts_dir, segment=args.segment)
     logger.info("  Loaded %d shards", len(shards))
+    if not shards:
+        # Same guard as run_merge_files/run_average_files: an empty durations file is
+        # worse than no file. It contributes nothing to the union merge, so every
+        # product the missing segment covers silently sizes to zero and gets packed
+        # into a bucket it then runs straight past.
+        logger.error(
+            "No timing artifacts for segment %s in %s — refusing to write an empty durations file",
+            args.segment or "all",
+            args.artifacts_dir,
+        )
+        sys.exit(1)
 
     # Merge using outlier detection (not naive last-wins)
     logger.info("Merging with outlier detection...")
@@ -693,6 +730,19 @@ def main():
             len(durations),
             before_count - len(durations),
         )
+
+    if args.segment == "Products" and junit_shards:
+        if shard_sets_match(shards, junit_shards):
+            ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
+            before_count = len(durations)
+            durations = {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+            logger.info(
+                "  Scoped Products to complete JUnit coverage (%d shards, dropped %d stale nodeids)",
+                len(junit_shards),
+                before_count - len(durations),
+            )
+        else:
+            logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
 
     # Filter to only existing tests if requested
     if args.filter_existing:

@@ -92,12 +92,21 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
         self.excluded_variants = set(self.experiment.excluded_variants or [])
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         self.variants = [
             variant.get("key")
             for variant in multivariate_data.get("variants", [])
             if variant.get("key") not in self.excluded_variants
         ]
+        # No variants means the exposure SQL (`variant IN {variants}`) matches nothing.
+        # For a running experiment that's a broken flag (variants stripped out from under
+        # it) — surface it rather than render an empty chart that reads as "no exposures".
+        # Stopped/draft experiments may legitimately keep a flag that was later simplified
+        # to boolean, so they fall through and degrade to an empty result instead.
+        if not multivariate_data.get("variants") and self.experiment.is_running:
+            raise ValidationError(
+                "This experiment's feature flag has no variants. Restore the flag's variants to see exposure data."
+            )
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(
@@ -190,7 +199,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         Compares observed variant distribution against expected (from rollout percentages).
         Returns None if insufficient data.
         """
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         variants_config = multivariate_data.get("variants", [])
 
         if not variants_config or not total_exposures:
@@ -278,7 +287,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # query (the cache key), so the running/stopped decision matches the cached window.
         if self.window_end_date is not None:
             return None
-        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         flag_variants = multivariate_data.get("variants", [])
         exposure_params = get_exposure_config_params_for_builder(
             self.exposure_criteria, self.team, self.experiment.start_date

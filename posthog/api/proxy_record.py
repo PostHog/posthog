@@ -20,6 +20,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
+from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
@@ -93,6 +94,16 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     created_by: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True, help_text="ID of the user who created this proxy record."
     )
+
+    def validate_domain(self, value: str) -> str:
+        # The stored value is later used both as a DNS query name and as the authority of a
+        # URL we request. Those two grammars accept different bytes, so a value that is not a
+        # plain hostname can resolve as one host and be connected to as another.
+        if not is_valid_proxy_domain(value):
+            raise serializers.ValidationError(
+                "Enter a domain name on its own, like e.example.com, with no protocol, port, or path."
+            )
+        return value
 
 
 class ProxyRecordListResponseSerializer(serializers.Serializer):

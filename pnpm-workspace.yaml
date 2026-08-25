@@ -7,6 +7,7 @@ packages:
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
+    - packages/llm-normalizer
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -26,7 +27,6 @@ packages:
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'
-    - rust/cyclotron-node
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
 
@@ -144,9 +144,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.9.1
+    '@posthog/brand': 0.10.0
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.410.1
+    posthog-js: ^1.418.16
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4

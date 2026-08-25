@@ -104,11 +104,25 @@ def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
     return True
 
 
-def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -> int:
-    """Returns how many of the nodes were actually suspended, not how many were passed in."""
-    return sum(
-        _persist_change(node, lambda locked: clear_node_suspension(locked, engine=engine, by=by)) for node in nodes
-    )
+def resume_nodes(
+    nodes: Iterable[Node],
+    *,
+    by: str,
+    engine: str | None = None,
+    only_if: Callable[[Node], bool] | None = None,
+) -> int:
+    """Returns how many of the nodes were actually suspended, not how many were passed in.
+
+    `only_if` runs against the locked row, so a caller that decided to resume from an earlier read
+    can re-test that decision against state nothing else can change while the check runs.
+    """
+
+    def change(locked: Node) -> bool:
+        if only_if is not None and not only_if(locked):
+            return False
+        return clear_node_suspension(locked, engine=engine, by=by)
+
+    return sum(_persist_change(node, change) for node in nodes)
 
 
 def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:
