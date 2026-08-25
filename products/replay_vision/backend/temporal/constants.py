@@ -6,6 +6,10 @@ from temporalio.common import Priority
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
+# ApplicationError type for an admission that found the capped scanner's row lock held. Always
+# retryable: the create activity's backoff spreads contenders that Postgres would otherwise queue.
+SCANNER_ADMISSION_BUSY_ERROR_TYPE = "ScannerAdmissionBusy"
+
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +

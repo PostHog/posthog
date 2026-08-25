@@ -92,10 +92,13 @@ _STATE_ACTIVITY_RETRY = common.RetryPolicy(
 _STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
 # Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry.
+# Unlimited attempts, bounded by schedule_to_close (3m): a ScannerAdmissionBusy rejection must be
+# able to retry across a whole contention wave, or every admission in the wave becomes a dropped
+# scan — the sweep watermark and backfill cursor advance past a session with no observation row.
 _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
-    maximum_interval=dt.timedelta(seconds=10),
-    maximum_attempts=5,
+    maximum_interval=dt.timedelta(seconds=15),
+    maximum_attempts=0,
     non_retryable_error_types=["ValueError"],
 )
 
