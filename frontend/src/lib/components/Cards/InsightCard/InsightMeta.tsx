@@ -171,7 +171,7 @@ export function InsightMeta({
     }
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
-    const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
+    const { exportContext, insightData, query, savingDisplayOptions } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -247,6 +247,7 @@ export function InsightMeta({
         insightData,
         variablesOverride,
         loading: loading || loadingQueued,
+        saving: savingDisplayOptions,
         persistDisplayOptions,
     })
     const displayMenuItems = [...visualizationItems, ...displayOptionItems]

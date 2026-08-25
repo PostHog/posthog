@@ -22,6 +22,8 @@ export interface SqlVisualizationPickerProps {
     rowCount?: number
     /** Distinguishes a tile still computing from one that genuinely returned nothing. */
     loading?: boolean
+    /** True while a pick is being saved. The held pick is dropped once it settles either way. */
+    saving?: boolean
     disabledReason?: string | null
     persistDisplayOptions: (node: Node) => void
 }
@@ -97,6 +99,7 @@ export function SqlVisualizationPicker({
     types,
     rowCount,
     loading,
+    saving,
     disabledReason,
     persistDisplayOptions,
 }: SqlVisualizationPickerProps): JSX.Element {
@@ -119,11 +122,16 @@ export function SqlVisualizationPicker({
     )
 
     // The save is debounced and then round trips, so show the pick straight away rather than leaving
-    // the menu on the old value for a second. The held value goes once the saved query catches up.
-    // A save that fails keeps showing the attempted type until the tile reloads, and the failure
-    // toast is the signal for that.
+    // the menu on the old value for a second. The held pick is dropped once the save settles,
+    // whether it landed or not, so a failed one falls back to the saved type and can be retried.
+    // Without that the select would keep reporting a type the insight does not have, and LemonSelect
+    // suppresses onChange for an unchanged value, so picking it again would do nothing.
     const [pending, setPending] = useState<ChartDisplayType | null>(null)
-    useEffect(() => setPending(null), [query.display])
+    useEffect(() => {
+        if (!saving) {
+            setPending(null)
+        }
+    }, [saving, query.display])
 
     const visualizationType = pending ?? query.display ?? ChartDisplayType.ActionsTable
 
@@ -132,6 +140,7 @@ export function SqlVisualizationPicker({
             className="pb-2 px-2"
             fullWidth
             size="small"
+            loading={saving}
             disabledReason={
                 disabledReason ??
                 (columns.length

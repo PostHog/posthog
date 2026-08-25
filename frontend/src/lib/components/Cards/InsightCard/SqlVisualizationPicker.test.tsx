@@ -24,8 +24,10 @@ describe('SqlVisualizationPicker', () => {
         rowCount: 2,
     }
 
+    const TRIGGER = '[data-attr="dashboard-insight-visualization-picker"]'
+
     const openPicker = async (container: HTMLElement): Promise<void> => {
-        const trigger = container.querySelector('[data-attr="dashboard-insight-visualization-picker"]')
+        const trigger = container.querySelector(TRIGGER)
         await userEvent.click(trigger as HTMLElement)
     }
 
@@ -103,5 +105,39 @@ describe('SqlVisualizationPicker', () => {
         expect(container.querySelector('[data-attr="dashboard-insight-visualization-picker"]')).toHaveTextContent(
             'Pie chart'
         )
+    })
+
+    // Reported four times in review: without this the select keeps showing a type the insight does
+    // not have, and because LemonSelect suppresses onChange for an unchanged value, re-picking that
+    // same type does nothing. The user cannot recover without a reload.
+    it('falls back to the saved type when a save settles without landing, so the pick can be retried', async () => {
+        const persistDisplayOptions = jest.fn()
+        const { container, rerender } = render(
+            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={persistDisplayOptions} />
+        )
+
+        await openPicker(container)
+        await pick('Pie chart')
+        expect(container.querySelector(TRIGGER)).toHaveTextContent('Pie chart')
+
+        // The save goes out, then settles without the saved query changing — what a failure looks like.
+        rerender(
+            <SqlVisualizationPicker
+                query={query}
+                {...twoColumnData}
+                saving
+                persistDisplayOptions={persistDisplayOptions}
+            />
+        )
+        rerender(
+            <SqlVisualizationPicker
+                query={query}
+                {...twoColumnData}
+                saving={false}
+                persistDisplayOptions={persistDisplayOptions}
+            />
+        )
+
+        expect(container.querySelector(TRIGGER)).toHaveTextContent('Table')
     })
 })

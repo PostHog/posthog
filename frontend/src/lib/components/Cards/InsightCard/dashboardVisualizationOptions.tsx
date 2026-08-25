@@ -22,6 +22,7 @@ export function useDashboardVisualizationOptions({
     insightData,
     variablesOverride,
     loading,
+    saving,
     persistDisplayOptions,
 }: {
     query: Node | null
@@ -29,6 +30,7 @@ export function useDashboardVisualizationOptions({
     variablesOverride?: Record<string, HogQLVariable> | null
     /** So a tile that has not produced results yet is not reported as having none. */
     loading?: boolean
+    saving?: boolean
     persistDisplayOptions?: (node: Node) => void
 }): LemonMenuItems {
     const show = shouldShowSqlVisualizationPicker(query, !!persistDisplayOptions)
@@ -62,6 +64,7 @@ export function useDashboardVisualizationOptions({
                                 types={types}
                                 rowCount={rowCount}
                                 loading={loading}
+                                saving={saving}
                                 disabledReason={
                                     overriddenVariable
                                         ? 'This dashboard overrides a variable this insight uses. Open the insight to change its chart type.'
@@ -74,5 +77,5 @@ export function useDashboardVisualizationOptions({
                 ],
             },
         ]
-    }, [show, query, columns, types, rowCount, loading, overriddenVariable, persistDisplayOptions])
+    }, [show, query, columns, types, rowCount, loading, saving, overriddenVariable, persistDisplayOptions])
 }
