@@ -136,9 +136,14 @@ class Command(BaseCommand):
         # replicated migrate() selects from the Distributed tracking table.
         # That query fans out to every node in the migrations cluster. When the
         # cluster has more than one node, the local tables must already exist on
-        # all of them. A single-node cluster, or no cluster at all, needs no
-        # pre-create. infi's auto-create lands on the one node and the SELECT
-        # reads it back.
+        # all of them, so we pre-create them. A single-node cluster needs no
+        # pre-create: infi's auto-create lands on the one node and the SELECT
+        # reads it back. An undefined cluster (no rows in system.clusters) also
+        # returns False and skips the pre-create, but it is not made safe here:
+        # infi still builds the tracking tables with `ON CLUSTER <cluster>` and
+        # ClickHouse fails loudly with CLUSTER_DOESNT_EXIST. That is acceptable
+        # — an undefined posthog_migrations cluster is an invalid configuration
+        # that also breaks host discovery elsewhere, so failing early is correct.
         with default_client() as client:
             [(node_count,)] = client.execute(
                 "SELECT count() FROM system.clusters WHERE cluster = %(cluster)s",
