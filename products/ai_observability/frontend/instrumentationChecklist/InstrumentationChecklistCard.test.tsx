@@ -67,8 +67,8 @@ function toggle(): HTMLElement | null {
     return document.querySelector('[data-attr="ai-observability-instrumentation-checklist-toggle"]')
 }
 
-function panel(): Element | null | undefined {
-    return toggle()?.closest('.LemonCollapsePanel')
+function panel(): Element | null {
+    return toggle()?.closest('.LemonCollapsePanel') ?? null
 }
 
 // Re-queried on every use: switching a button to disabled adds a tooltip wrapper, which remounts it.
