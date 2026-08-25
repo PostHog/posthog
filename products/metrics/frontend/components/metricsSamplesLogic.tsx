@@ -14,7 +14,7 @@ import type {
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { formatSeriesName, seriesColor } from './metricsSeries'
-import { type MetricsViewMode, type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
+import { type MetricsViewerSeries, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 // The side panel next to the chart: per-series aggregates, or the raw emissions
 // behind the chart with their trace linkage (the metric->trace pivot).
@@ -47,7 +47,6 @@ export interface metricsSamplesLogicValues {
     queryFilters: _MetricFilterApi[] // metricsViewerLogic
     queryResults: MetricsViewerSeries[] // metricsViewerLogic
     selectedMetricType: OtelMetricTypeEnumApi | null // metricsViewerLogic
-    viewMode: MetricsViewMode // metricsViewerLogic
     currentTeamId: number | null // teamLogic
     activeTab: MetricsPanelTab
     aggregateRows: MetricsAggregateRow[]
@@ -125,7 +124,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             teamLogic,
             ['currentTeamId'],
             metricsViewerLogic,
-            ['metricName', 'dateFrom', 'dateTo', 'queryFilters', 'selectedMetricType', 'queryResults', 'viewMode'],
+            ['metricName', 'dateFrom', 'dateTo', 'queryFilters', 'selectedMetricType', 'queryResults'],
         ],
         actions: [
             metricsViewerLogic,
@@ -223,11 +222,9 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                 }
             },
             // The chart's exemplar overlay renders from these samples, so every chart
-            // redraw refreshes them; stat mode has no chart to dot, so skip it there.
+            // redraw refreshes them.
             fetchQueryResultsSuccess: () => {
-                if (values.viewMode === 'chart') {
-                    actions.loadSamples({})
-                }
+                actions.loadSamples({})
             },
             setMetricName: reloadWhenShown,
             setDateFrom: reloadWhenShown,

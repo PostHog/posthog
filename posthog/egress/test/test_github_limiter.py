@@ -1,5 +1,7 @@
 import uuid
 
+from unittest.mock import patch
+
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
@@ -8,14 +10,22 @@ from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.limiter import (
+    _IDLE_RESERVE,
+    _RESERVE,
     GitHubRateResource,
+    _interactive_last_written,
+    _interactive_memo,
     _last_written,
     _observed_memo,
     _tier_budgets,
     classify_github_resource,
+    consume_github_installation_sync,
     get_observed_core_limit,
     github_installation_key,
+    has_interactive_demand,
     installation_id_from_key,
+    interactive_demand_cache_key,
+    note_interactive_demand,
     observed_core_limit_cache_key,
     remember_observed_core_limit,
 )
@@ -38,10 +48,15 @@ class GitHubLimiterTestCase(SimpleTestCase):
         super().setUp()
         _observed_memo.clear()
         _last_written.clear()
+        _interactive_memo.clear()
+        _interactive_last_written.clear()
         self.installation_id = f"test-{uuid.uuid4().hex[:8]}"
         self.addCleanup(cache.delete, observed_core_limit_cache_key(self.installation_id))
+        self.addCleanup(cache.delete, interactive_demand_cache_key(self.installation_id))
         self.addCleanup(_observed_memo.clear)
         self.addCleanup(_last_written.clear)
+        self.addCleanup(_interactive_memo.clear)
+        self.addCleanup(_interactive_last_written.clear)
 
 
 class TestGitHubTierBudgets(GitHubLimiterTestCase):
@@ -66,16 +81,32 @@ class TestGitHubTierBudgets(GitHubLimiterTestCase):
         with self.settings(GITHUB_EGRESS_PER_MINUTE_BUDGET=200):
             assert _tier_budgets(15_000) == (13_500, 200)
 
-    def test_policy_reads_observed_tier_for_the_keys_installation(self) -> None:
-        # Guards the wiring: key parsing + tier read + reserve attach. If resolve_policy stops
-        # passing the key, or the store's key drifts from the writer's, every installation silently
-        # falls back to the flat default budget and the reserve ladder detaches.
+    @parameterized.expand(
+        [
+            ("interactive_demand_holds_the_full_reserve", True, _RESERVE),
+            ("idle_installation_releases_it_to_batch", False, _IDLE_RESERVE),
+        ]
+    )
+    def test_policy_reads_observed_tier_and_reserve_for_the_keys_installation(
+        self, _name: str, interactive: bool, expected_reserve: dict[Priority, float]
+    ) -> None:
+        # Guards the wiring: key parsing + tier read + reserve selection. If resolve_policy stops
+        # passing the key, or either store's key drifts from its writer's, every installation
+        # silently falls back to the flat default budget and the reserve ladder detaches.
+        #
+        # The reserve branch decides how much of an installation's hourly budget a backfill may
+        # use, and neither way of breaking it raises: stuck on the full reserve costs a bulk sync a
+        # third of every hour, and stuck on the idle one lets it starve interactive traffic.
+        # Asserted against the constants, so retuning either ladder is not a test change.
         cache.set(observed_core_limit_cache_key(self.installation_id), 5_000, 60)
+        if interactive:
+            note_interactive_demand(self.installation_id)
 
         policy = resolve_policy(github_installation_key(self.installation_id))
 
         assert policy.limits == ((250, 60.0), (4_500, 3600.0))
-        assert policy.reserve_fraction(Priority.BATCH) > policy.reserve_fraction(Priority.NORMAL) > 0.0
+        assert policy.reserve_fraction(Priority.BATCH) == expected_reserve[Priority.BATCH]
+        assert policy.reserve_fraction(Priority.NORMAL) == expected_reserve[Priority.NORMAL]
         assert policy.reserve_fraction(Priority.CRITICAL) == 0.0
 
 
@@ -113,6 +144,45 @@ class TestObservedCoreLimitStore(GitHubLimiterTestCase):
         # the policy's window smaller than a single call and raise on every acquire, CRITICAL included).
         cache.set(observed_core_limit_cache_key(self.installation_id), cached, 60)
         assert get_observed_core_limit(self.installation_id) is None
+
+
+class TestInteractiveDemandMarker(GitHubLimiterTestCase):
+    # The marker is what lets a bulk sync use an idle installation's whole budget, so both ways of
+    # mis-scoping it are silent. Stamping for BATCH makes a warehouse sync record its own demand and
+    # reserve headroom against itself, which returns the backfill to 70% and looks like no change at
+    # all. Stamping for a search call reserves core headroom on the strength of a different counter.
+    @parameterized.expand(
+        [
+            ("critical_core_counts", Priority.CRITICAL, GitHubRateResource.CORE, True),
+            ("normal_core_counts", Priority.NORMAL, GitHubRateResource.CORE, True),
+            ("batch_core_does_not", Priority.BATCH, GitHubRateResource.CORE, False),
+            ("normal_search_does_not", Priority.NORMAL, GitHubRateResource.SEARCH, False),
+        ]
+    )
+    def test_only_interactive_core_calls_mark_demand(
+        self, _name: str, priority: Priority, resource: GitHubRateResource, expected: bool
+    ) -> None:
+        consume_github_installation_sync(self.installation_id, priority=priority, resource=resource)
+
+        # Read through the shared cache, the way another worker process would.
+        _interactive_memo.clear()
+        assert has_interactive_demand(self.installation_id) is expected
+
+    def test_demand_is_marked_even_when_the_call_is_denied(self) -> None:
+        # A denied interactive call is the moment the reserve matters most, so gating the stamp on
+        # the admission result would drop the signal exactly when it is needed.
+        with patch("posthog.egress.github.limiter.get_outbound_rate_limiter") as limiter:
+            limiter.return_value.consume_sync.return_value = False
+            assert consume_github_installation_sync(self.installation_id, priority=Priority.NORMAL) is False
+
+        _interactive_memo.clear()
+        assert has_interactive_demand(self.installation_id) is True
+
+    def test_unreachable_cache_keeps_the_reserve(self) -> None:
+        # Failing open here would hand every installation's full budget to bulk traffic during a
+        # cache outage, so the unknown answer has to be the protective one.
+        with patch("posthog.egress.github.limiter.cache.get", side_effect=Exception("cache unavailable")):
+            assert has_interactive_demand(self.installation_id) is True
 
 
 class TestClassifyGithubResource(SimpleTestCase):
