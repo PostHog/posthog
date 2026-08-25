@@ -1275,10 +1275,16 @@ class TestSQLV2RunResult(APIBaseTest):
     def _url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/"
 
-    def _create_run(self, status, envelope=None, error="") -> NotebookNodeRun:
+    def _create_run(self, status, envelope=None, error="", node_type=NotebookNodeRun.NodeType.HOGQL) -> NotebookNodeRun:
         with team_scope(self.team.id):
             return NotebookNodeRun.objects.create(
-                team=self.team, notebook=self.notebook, node_id="n1", status=status, envelope=envelope, error=error
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                status=status,
+                envelope=envelope,
+                error=error,
+                node_type=node_type,
             )
 
     @parameterized.expand(
@@ -1330,18 +1336,26 @@ class TestSQLV2RunResult(APIBaseTest):
         _restrict_query_access(self)
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
 
+    @parameterized.expand(
+        [
+            # hogql: no query status left, so the run can never complete.
+            ("direct", NotebookNodeRun.NodeType.HOGQL, "expired"),
+            # python: the sandbox delivers its envelope once with no retry, so a lost
+            # delivery leaves nothing able to move the row.
+            ("kernel", NotebookNodeRun.NodeType.PYTHON, "never reported"),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_running_direct_run_expires_to_failed_after_grace(self, _mock_enabled):
-        # A RUNNING hogql run with no query status left can never complete — this poll is
-        # its watchdog. Within the grace window it keeps waiting (covers pre-deploy
-        # kernel-executed hogql runs whose callback is still due).
+    def test_running_run_expires_to_failed_after_grace(self, _name, node_type, expected_error, _mock_enabled):
+        # This poll is the watchdog for both lanes. Within the grace window it keeps waiting,
+        # which for hogql also covers pre-deploy kernel-executed runs whose callback is due.
         with freeze_time("2026-07-01T00:00:00Z"):
-            expired = self._create_run(NotebookNodeRun.Status.RUNNING)
+            expired = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(expired.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
-        self.assertIn("expired", body["error"])
+        self.assertIn(expected_error, body["error"])
 
-        young = self._create_run(NotebookNodeRun.Status.RUNNING)
+        young = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(young.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.RUNNING)
 
