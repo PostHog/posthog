@@ -77,8 +77,13 @@ export function modelNotchSuggestion(
 export interface CostChecklistInput {
   /** The model new sessions start on, or null when the user has not picked one. */
   defaultModelId: string | null;
-  /** True when the user has at least one custom image worth starting from. */
-  hasCustomImage: boolean;
+  /**
+   * True when a ready custom image exists, false when custom images are
+   * available but none is ready, null when they are unavailable or not yet
+   * loaded. Null omits the row rather than advertising a build the user
+   * cannot start.
+   */
+  hasCustomImage: boolean | null;
   /**
    * Every skill worth a row, in ranked order, each already resolved to
    * whether it is present locally.
@@ -121,10 +126,11 @@ export function buildCostChecklist({
 
   // The image itself is the record, so this row reads the account rather than
   // a stored completion: a build that was started and then failed or deleted
-  // leaves nothing behind, and the recommendation comes back.
-  if (hasCustomImage) {
+  // leaves nothing behind, and the recommendation comes back. Null means the
+  // account is not known yet or custom images are off, so no row is shown.
+  if (hasCustomImage === true) {
     finished.push({ kind: "custom-image", done: true });
-  } else {
+  } else if (hasCustomImage === false) {
     active.push({ kind: "custom-image", done: false });
   }
 

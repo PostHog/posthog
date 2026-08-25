@@ -30,6 +30,19 @@ describe("buildCostChecklist", () => {
     ).toEqual([{ kind: "custom-image", done: false }]);
   });
 
+  it("omits the image row when the account is not known or custom images are off", () => {
+    // Null means unavailable or not yet loaded, so no image row appears at all
+    // rather than a suggestion the user cannot act on.
+    expect(buildCostChecklist({ ...base, hasCustomImage: null })).toEqual([]);
+    expect(
+      buildCostChecklist({
+        ...base,
+        hasCustomImage: null,
+        completed: ["custom-image"],
+      }),
+    ).toEqual([]);
+  });
+
   it("keeps a completed item as a checked record and sinks it below active work", () => {
     const items = buildCostChecklist({
       ...base,
