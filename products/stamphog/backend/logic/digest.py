@@ -43,6 +43,12 @@ MAX_DIGEST_PRS = 40
 # is the only thing between a model outage and a hundred lines in a channel. Low for that reason.
 MAX_FALLBACK_PRS = 10
 
+# The four rules that admit a merge to a digest, as the model must name them. Asking for the rule
+# rather than only the verdict is what stops the bar being rationalized away: on a batch of routine
+# connector fixes, an unnamed bar kept most of them and a named one kept a handful. Enforced below,
+# so a rule the model invented drops the merge instead of carrying it.
+KEEP_RULES = frozenset({"contract", "assumption", "decision", "customer"})
+
 # A team that owns exactly one file of a change this size was swept, not targeted. Derived from
 # what the audience row already carries, so it needs no capture-time decision. Flagged to the model
 # rather than dropped outright: a one-line change in a team's own product can still be the thing
@@ -144,41 +150,62 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "",
         "WHERE THE LINE IS",
         "",
-        'The test is not "did something change". It is "would a teammate want to have been told".',
-        "Ask: if this merged and nobody outside the author knew, would that be a problem?",
+        "Start from dropping, and make each pull request earn its way out. The test is not whether",
+        "something changed, and not whether the change was good. It is whether a teammate who reads",
+        "the line would do something differently today: change what they are building, revisit an",
+        "assumption they hold, warn a customer, or go and look at their own code. If the honest",
+        "reaction is a nod, it does not go in.",
         "",
-        "Keep a PR when one of these is true:",
-        "- Someone could build on it or against it: a contract, a default, a limit, a schema, a name",
-        "  that other code or other people depend on.",
-        "- It could catch someone out later: behavior they would sit and debug, an assumption that",
-        "  stopped being true, data that now looks different.",
-        "- It carries a decision a reasonable person could disagree with.",
-        "- It changes cost, load, or risk that this team carries.",
-        "- It is user-facing enough that a support conversation could turn on it.",
+        "Keep a pull request only when one of these four rules fits it, and name that rule in your",
+        "answer:",
+        "- contract: it changes something other code or other people already depend on, such as an",
+        "  API, a schema, a default, a limit, a name, or a permission.",
+        "- assumption: it makes an assumption somebody holds stop being true, so they would sit and",
+        "  debug the difference later without knowing why.",
+        "- decision: it carries a choice a reasonable teammate could argue with.",
+        "- customer: a customer has to do something differently now, or something they could do",
+        "  before is gone or works differently. Restoring behavior that was always meant to work is",
+        "  not this rule, however visible the repair was.",
         "",
-        'Drop a PR when the honest reaction is "sure, fine":',
-        "- Polish inside one surface with no knock-on: a panel that remembers its state, a reworded",
-        "  tooltip, a spinner, a selection nicety.",
-        "- Something that was plainly broken and is now plainly not, with no decision in it.",
-        "- Work with no observable result: refactors, renames, tests, dependency bumps, formatting,",
-        "  comments, dead code, config with no runtime effect.",
+        "If naming the rule takes any stretching, the rule does not fit and the pull request does not",
+        "clear the bar. Leave it out.",
         "",
-        "When unsure, leave it out. Missing one thing is a small loss. Carrying three things nobody",
-        "needed teaches the channel to skip the next digest.",
+        "ONE RULE OVERRIDES THE FOUR",
         "",
-        "Keeping nothing is a correct answer, and the common one. Return an empty prs list. Never",
-        "pad the digest to make it look worth sending.",
+        "A repair is never news on its own. If the change makes something behave the way it was",
+        "always supposed to behave, drop it, whichever of the four rules seems to fit. Making a",
+        "broken integration work is maintenance. Changing what a working integration does is news.",
+        "",
+        "This is the rule most often argued around, because a repair is easy to describe as a",
+        "customer change: the customer's sync now works, the customer now sees a clear error, the",
+        "customer is no longer stuck. None of that is a customer change. The customer wanted it to",
+        "work all along, and nothing they do changes.",
+        "",
+        "Drop a pull request when any of these is true, whatever else it does:",
+        "- It repairs something that was broken. Fixing a bug is the work, not news. Keep a fix only",
+        "  when people had built on the broken behavior, or when it also changes a contract above.",
+        "- It handles one more error, retry, timeout, status code, or edge case in one integration.",
+        "  This is the most common merge this team makes, and almost none of it is worth a morning.",
+        "- It adds, scaffolds, or promotes something nobody can use yet.",
+        "- It only changes how the code is written: refactors, renames, tests, dependency bumps,",
+        "  formatting, comments, dead code, config with no runtime effect.",
+        "- It polishes one screen or one flow and nothing outside it can tell.",
+        "",
+        "When a keep rule and a drop rule both fit, the drop wins. When you are unsure, drop.",
         "",
         "HOW MANY TO KEEP",
         "",
-        "There is no target count. Judge each pull request on its own and keep every one that clears",
-        "the bar. Zero on a quiet day and nine on a heavy one are both correct answers.",
+        "There is no cap, and no target. The bar decides. The bar is high, so on most days it lets",
+        "one or two through, and on many days none at all. If you are holding more than a handful,",
+        "you stopped applying the bar and started summarizing the list: go back over what you kept",
+        "and drop everything you could not defend to a busy engineer who asks why it was worth their",
+        "morning.",
         "",
-        "Do not pad the list to make the digest look worth sending, and do not trim it to look brief.",
-        "The bar decides the length.",
+        "Keeping nothing is a correct answer and the most common one. Return an empty prs list.",
+        "Never pad the digest to make it look worth sending.",
         "",
         "The reader gets one of these every weekday. A list with nothing they needed teaches them to",
-        "skip the next one, so a short list is better than a padded one.",
+        "skip the next one.",
         "",
         "CALIBRATION (real merges in this codebase)",
         "- Keep: a scanner auto-materializes hot event properties for the heaviest teams, off by",
@@ -186,8 +213,11 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "- Keep: error tracking stops filing handled API failures as issues. Everyone's issue list",
         "  changes shape, and somebody was relying on seeing those.",
         "- Keep: an outbound bot changes its user agent string. Site owners block on that string.",
+        "- Drop: a connector stops retrying a 404 that was never going to succeed.",
+        "- Drop: a connector reports exhausted retries as a warning instead of an exception.",
+        "- Drop: two new warehouse sources are scaffolded but nobody can connect one yet.",
+        "- Drop: a sync fails fast with a clear message where it used to burn its retry budget.",
         "- Drop: a right panel stays closed after you close it.",
-        "- Drop: a sidebar highlights only what you explicitly picked.",
         "- Drop: a test now covers an id flowing through auth. Nothing observable changed.",
         "",
         "A <reviewed_summary> is stamphog's own one-line description, written while it reviewed the",
@@ -256,7 +286,8 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "  lines, and a channel post that promises news it does not have costs more than silence.",
         "",
         "Return STRICT JSON only, no prose, in this shape:",
-        '{"headline": "...", "prs": [{"index": 0, "summary": "..."}]}',
+        '{"headline": "...", "prs": [{"index": 0, "rule": "contract", "summary": "..."}]}',
+        '"rule" must be exactly one of: contract, assumption, decision, customer.',
         "Key each PR you keep by the exact index we assigned below, not by its number — PR "
         "numbers repeat across repositories, so a bare number is ambiguous.",
         "",
@@ -345,6 +376,12 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
         # bool is an int subclass; reject it so a stray `true` can't alias index 1.
         pr = prs_by_index.get(index) if isinstance(index, int) and not isinstance(index, bool) else None
         if pr is None:
+            continue
+        if item.get("rule") not in KEEP_RULES:
+            # The model was asked to name the rule that admits this merge. Anything else means it
+            # kept the merge without one, which is the drift the named rules exist to catch. A
+            # response where nothing survives this raises below and falls back to the plain list.
+            logger.info("stamphog_digest_pr_dropped_without_rule", pr_number=pr.pr_number, rule=item.get("rule"))
             continue
         picked.append(
             DigestPRSummary(

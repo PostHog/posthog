@@ -661,7 +661,14 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps({"prs": [{"index": 0, "summary": "repo a change"}, {"index": 1, "summary": "repo b change"}]})
+    content = json.dumps(
+        {
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "repo a change"},
+                {"index": 1, "rule": "customer", "summary": "repo b change"},
+            ]
+        }
+    )
 
     with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
         summary = summarize_merged_prs(prs)
@@ -679,6 +686,10 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         ("empty_list_is_intentional_filtering", '{"prs": []}', True),
         ("unrecognizable_entries_are_not", '{"prs": [{"index": 99}, "junk"]}', False),
         ("missing_key_is_not", '{"summary": "x"}', False),
+        # A kept PR must name the rule that admits it. Without that check the model keeps most of a
+        # routine batch and calls all of it a customer change, which is the drift the rules catch.
+        ("a_kept_pr_without_a_rule_is_not", '{"prs": [{"index": 0, "summary": "x"}]}', False),
+        ("a_kept_pr_with_an_invented_rule_is_not", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', False),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:
@@ -718,7 +729,7 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
     # that answers with a URL either shows a raw link mid-sentence or, once escaped, shows raw
     # markup. Neither is repairable in place, so a link drops the headline and the renderer leads
     # with the scope line instead.
-    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "summary": "Ship it."}]})
+    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]})
     summary = _parse_llm_response(content, {0: _pr_stub("o/r", 1, "Ship it", "https://example.com/1")})
     assert summary.headline == expected
     # A rejected headline never costs the change line it was written over.
