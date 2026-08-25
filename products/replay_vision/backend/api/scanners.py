@@ -1276,6 +1276,13 @@ class ResolveScopeResponseSerializer(serializers.Serializer):
     sampled = serializers.BooleanField(
         help_text="True when the count was extrapolated from a sample rather than counted exactly.",
     )
+    scope_understood = serializers.BooleanField(
+        help_text=(
+            "False when the scope phrase held no word to search on, so nothing was looked up. Tells "
+            "an empty result caused by an unreadable phrase apart from one caused by a product that "
+            "genuinely has no matching surface. Ask for different words rather than report neither."
+        ),
+    )
     degraded_sources = serializers.ListField(
         child=serializers.CharField(),
         help_text=(

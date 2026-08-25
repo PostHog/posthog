@@ -115,6 +115,34 @@ class TestScopeResolution(BaseTest):
         assert resolution.matched_sessions is None
         assert self.estimate.call_count == 0
 
+    @parameterized.expand(
+        [
+            ("stopwords_only", "the flow", False),
+            ("digits_and_stopword", "404 page", False),
+            ("unreadable_script", "\u652f\u4ed8", False),
+            ("fullwidth", "\uff12\uff46\uff41", False),
+            ("readable_but_no_match", "zzzqq", True),
+            ("readable_and_matches", "billing", True),
+        ]
+    )
+    def test_unreadable_scope_is_told_apart_from_no_match(self, _name: str, scope: str, understood: bool) -> None:
+        # Both cases return an empty answer, so without this flag the UI cannot tell a phrase it
+        # could not read from a product that genuinely has nothing matching, and says the wrong one.
+        self.paths.return_value = _paths(("/billing", 900))
+
+        assert self._resolve(scope).scope_understood is understood
+
+    def test_filter_values_keep_one_spelling_of_each_page(self) -> None:
+        # `icontains` makes these match the same sessions, so keeping all four would spend the whole
+        # value budget on one page.
+        self.paths.return_value = _paths(
+            ("/Billing", 40), ("/billing", 30), ("/billing/", 20), ("/BILLING", 10), ("/billing-history", 5)
+        )
+
+        resolution = self._resolve("billing")
+
+        assert _visited_page_values(resolution.query) == ["/Billing", "/billing-history"]
+
     def test_playlist_reuses_saved_filters_without_dates(self) -> None:
         playlist = self._playlist(
             name="Billing rage clicks",

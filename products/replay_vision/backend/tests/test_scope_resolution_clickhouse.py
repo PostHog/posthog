@@ -29,14 +29,24 @@ class TestTopVisitedPaths(ClickhouseTestMixin):
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
     @staticmethod
-    def _produce(team_id: int, session_id: str, urls: list[str], ago: dt.timedelta = dt.timedelta(hours=1)) -> None:
+    def _produce(
+        team_id: int,
+        session_id: str,
+        urls: list[str],
+        ago: dt.timedelta = dt.timedelta(hours=1),
+        active_milliseconds: int = 30_000,
+        length: dt.timedelta = dt.timedelta(minutes=1),
+    ) -> None:
         start = _NOW - ago
         produce_replay_summary(
             team_id=team_id,
             session_id=session_id,
             first_timestamp=start.isoformat(),
-            last_timestamp=(start + dt.timedelta(minutes=1)).isoformat(),
+            last_timestamp=(start + length).isoformat(),
             all_urls=urls,
+            # Clears the eligibility floor by default, so tests about ranking are not silently
+            # emptied by the eligibility filter.
+            active_milliseconds=active_milliseconds,
         )
 
     @pytest.mark.django_db
@@ -67,6 +77,24 @@ class TestTopVisitedPaths(ClickhouseTestMixin):
         results = fetch_top_visited_paths(team=team)
 
         assert [r.pathname for r in results] == ["/billing"]
+
+    @pytest.mark.django_db
+    def test_sessions_a_scanner_cannot_observe_are_not_counted(self, team) -> None:
+        # A landing page collects many short bounces. Counting them overstates the volume and
+        # outranks pages whose sessions a scanner would actually watch.
+        self._produce(team.id, "watchable", ["https://ex.test/deep"])
+        for i in range(5):
+            self._produce(
+                team.id,
+                f"bounce-{i}",
+                ["https://ex.test/landing"],
+                active_milliseconds=1_000,
+                length=dt.timedelta(seconds=3),
+            )
+
+        results = fetch_top_visited_paths(team=team)
+
+        assert [(r.pathname, r.sessions) for r in results] == [("/deep", 1)]
 
 
 @freeze_time(_NOW.strftime("%Y-%m-%dT%H:%M:%SZ"))

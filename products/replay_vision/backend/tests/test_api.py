@@ -3599,6 +3599,7 @@ class TestScannerResolveAPI(_VisionAPITestCase):
             window_days=7,
             sampled=True,
             degraded_sources=("events",),
+            scope_understood=True,
         )
         with self._patch_resolve(resolution) as mock_resolve:
             response = self.client.post(self.resolve_url, data={"scope": "billing"}, format="json")
@@ -3628,6 +3629,7 @@ class TestScannerResolveAPI(_VisionAPITestCase):
             "matched_sessions": 4200,
             "window_days": 7,
             "sampled": True,
+            "scope_understood": True,
             "degraded_sources": ["events"],
         }
         assert mock_resolve.call_args.kwargs["scope"] == "billing"

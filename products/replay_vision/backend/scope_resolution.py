@@ -85,6 +85,9 @@ class ScopeResolution:
     sampled: bool
     # Sources that errored and contributed nothing, so a caller can say the answer is partial.
     degraded_sources: tuple[str, ...]
+    # False when the phrase held no word to search on. Distinguishes "we could not read that" from
+    # "we looked and your product has nothing like it", which are the same empty answer otherwise.
+    scope_understood: bool = True
 
 
 @frozen
@@ -120,8 +123,10 @@ def resolve_scope(
     scope_tokens = _tokens(scope, drop_playlist_markers=playlist_requested)
     phrase = _normalize(scope)
     if not scope_tokens:
-        # A phrase with no content words would match everything, and an everything-filter is worse
-        # than none: it reads as narrowing while narrowing nothing.
+        # Nothing to search on. The tokenizer keeps only ASCII words, so this covers a phrase of
+        # stopwords ("the flow"), a digit-and-stopword phrase ("404 page"), and any script it cannot
+        # read. An everything-filter would be worse than none, so the caller gets scope_understood
+        # False and can ask for different words rather than report an empty product.
         return ScopeResolution(
             scope=scope,
             surfaces=(),
@@ -130,6 +135,7 @@ def resolve_scope(
             window_days=None,
             sampled=False,
             degraded_sources=(),
+            scope_understood=False,
         )
 
     degraded: list[str] = []
@@ -417,7 +423,21 @@ def _build_query(playlist: SessionRecordingPlaylist | None, pathnames: Sequence[
     # Matched pages ANDed as separate properties match almost nothing. One property holding every
     # value compiles to arrayExists(... multiSearchAny ...), which is the "touched any of these" the
     # caller means.
-    values = list(dict.fromkeys(p for p in pathnames if _page_can_ground(p)))[:_MAX_FILTER_PAGES]
+    #
+    # The operator is `icontains`, so "/Billing", "/billing" and "/billing/" all match the same
+    # sessions. Keeping them as separate values would spend the small value budget several times on
+    # one page, so only the highest-ranked spelling of each is kept.
+    seen: set[str] = set()
+    values: list[str] = []
+    for pathname in pathnames:
+        if not _page_can_ground(pathname):
+            continue
+        if (key := pathname.casefold().rstrip("/")) in seen:
+            continue
+        seen.add(key)
+        values.append(pathname)
+        if len(values) == _MAX_FILTER_PAGES:
+            break
     if not values:
         return None
     return {

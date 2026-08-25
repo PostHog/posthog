@@ -2152,6 +2152,8 @@ export interface ResolveScopeResponseApi {
     window_days: number | null
     /** True when the count was extrapolated from a sample rather than counted exactly. */
     sampled: boolean
+    /** False when the scope phrase held no word to search on, so nothing was looked up. Tells an empty result caused by an unreadable phrase apart from one caused by a product that genuinely has no matching surface. Ask for different words rather than report neither. */
+    scope_understood: boolean
     /** Sources that errored and contributed nothing: any of `pages`, `playlists`, `actions`, `events`, `estimate`. Empty on a complete answer; a non-empty list means the result is partial. */
     degraded_sources: string[]
 }
