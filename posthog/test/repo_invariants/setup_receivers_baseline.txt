@@ -155,6 +155,7 @@ post_save:products.ai_observability.backend.models.llm_prompt.invalidate_llm_pro
 post_save:products.ai_observability.backend.models.provider_keys.provider_key_saved
 post_save:products.ai_observability.backend.models.taggers.tagger_saved
 post_save:products.annotations.backend.activity_logging.annotation_created
+post_save:products.autoresearch.backend.signals.on_task_run_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.action_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.cohort_saved
 post_save:products.cdp.backend.models.hog_functions.hog_function.enabled_default_hog_functions_for_new_team
