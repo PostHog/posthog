@@ -1173,6 +1173,9 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    # Shared RBAC viewset/serializer mixins: DRF code cannot live in facade.*, so external
+    # consumers import these from presentation instead
+    "backend\\.presentation\\.access_control.*",
     "backend\\.presentation\\.views.*",
     "backend\\.routes.*",
 ]
