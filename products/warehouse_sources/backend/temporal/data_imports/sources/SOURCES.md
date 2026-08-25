@@ -953,6 +953,7 @@ doesn't conflict with concurrent PRs.
 - codacy
 - codecov
 - collibra
+- commission_junction
 - constant_contact
 - conta_azul
 - contentsquare
@@ -1150,6 +1151,7 @@ doesn't conflict with concurrent PRs.
 - lingo_dev
 - linkedin_pages
 - linnworks
+- liveblocks
 - llama_cloud
 - lodgify
 - logicmonitor
@@ -1202,6 +1204,7 @@ doesn't conflict with concurrent PRs.
 - msg91
 - mycase
 - nasa
+- nationbuilder
 - navan
 - neon_crm
 - netsuite
@@ -1346,6 +1349,7 @@ doesn't conflict with concurrent PRs.
 - sideshift
 - signnow
 - sim
+- simon_data
 - simplecast
 - simplesat
 - simpro
@@ -1386,6 +1390,7 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tackle_io
 - talkdesk
+- tana
 - teamup_fitness
 - tebra
 - telli
