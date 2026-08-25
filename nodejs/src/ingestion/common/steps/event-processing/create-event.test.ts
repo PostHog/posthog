@@ -142,4 +142,18 @@ describe('getElementsChain', () => {
         expect(properties).not.toHaveProperty('$elements_chain')
         expect(properties).not.toHaveProperty('$elements')
     })
+
+    // A truthy non-array `$elements` used to slip past the `elements.length` guard and throw.
+    it.each([
+        ['a non-empty string', 'div'],
+        ['an object with a length key', { length: 3 }],
+    ])('returns empty string without throwing when $elements is %s', (_label, elements) => {
+        const properties = { $elements: elements, other: 'value' }
+
+        const result = getElementsChain(properties)
+
+        expect(result).toBe('')
+        expect(properties).not.toHaveProperty('$elements')
+        expect(properties).toHaveProperty('other', 'value')
+    })
 })

@@ -107,8 +107,18 @@ export function chainToElements(chain: string, teamId: number, options: { throwO
     return elements
 }
 
+// `$elements` arrives as raw client JSON, so an array can still hold a `null`, a scalar, or a
+// nested array. Reading such an entry as a record throws (for `null`/`undefined`) or produces a
+// garbage element, so callers use this to skip non-object entries.
+export function isValidElementEntry(el: unknown): el is Record<string, any> {
+    return typeof el === 'object' && el !== null && !Array.isArray(el)
+}
+
 export function extractElements(elements: Array<Record<string, any>>): Element[] {
-    return elements.map((el) => ({
+    if (!Array.isArray(elements)) {
+        return []
+    }
+    return elements.filter(isValidElementEntry).map((el) => ({
         text: el['$el_text']?.slice(0, 400),
         tag_name: el['tag_name'],
         href: el['attr__href']?.slice(0, 2048),

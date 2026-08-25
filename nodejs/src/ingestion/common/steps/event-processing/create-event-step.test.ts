@@ -288,6 +288,59 @@ describe('create-event-step', () => {
             }
         })
 
+        describe('invalid $elements', () => {
+            it.each([
+                ['a non-empty string', 'div'],
+                ['an object with a length key', { length: 3 }],
+                ['an array containing a null entry', [null]],
+            ])('emits an invalid_elements warning when $elements is %s', async (_, elements) => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        properties: { ...mockPreparedEvent.properties, $elements: elements },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    // The event still ingests, only with an empty elements chain.
+                    expect(result.value.eventsToEmit[0].event.elements_chain).toBe('')
+                    expect(result.warnings).toHaveLength(1)
+                    expect(result.warnings[0].type).toBe('invalid_elements')
+                    expect(result.warnings[0].key).toBe('distinct-id-789')
+                }
+            })
+
+            it('does not warn when $elements is a valid array', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        properties: {
+                            ...mockPreparedEvent.properties,
+                            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2 }],
+                        },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.warnings).toHaveLength(0)
+                }
+            })
+        })
+
         describe('$experiment_exposure duplication', () => {
             it('duplicates multivariate $feature_flag_called events for allowlisted teams with a deterministic uuid', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
