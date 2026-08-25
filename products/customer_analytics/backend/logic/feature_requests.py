@@ -25,7 +25,7 @@ from products.customer_analytics.backend.models import (
 )
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class _FeatureRequestWithPermissionLinks(Protocol):

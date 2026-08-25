@@ -75,15 +75,11 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     QueryFailureCache,
 )
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.shared_link_user import SharedLinkUser
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 from posthog.slo.types import SloOutcome
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
 
