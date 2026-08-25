@@ -81,7 +81,7 @@ function NavIcon({
             aria-label={label}
             data-selected={isActive || undefined}
             onClick={onClick}
-            className="group relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
+            className="group relative shrink-0 pl-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
           >
             {icon}
             {badge}
@@ -170,6 +170,7 @@ function ActivityNavItem({
       isActive={isActive}
       onClick={onClick}
       badge={badge}
+      className="pl-0"
     />
   );
 
