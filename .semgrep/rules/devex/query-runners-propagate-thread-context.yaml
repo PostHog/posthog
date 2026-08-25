@@ -6,7 +6,9 @@ rules:
           context, the ClickHouse query tags, and the warehouse-warning accumulator. Losing the span
           context means each worker opens its spans with no parent, so one parallel insight reports
           a separate trace per series instead of a single request trace, and the request trace shows
-          an unexplained gap where the query work should be.
+          an unexplained gap where the query work should be. Losing the query tags means the
+          worker's ClickHouse queries land in `system.query_log` with no product or feature
+          attribution.
 
           Use `run_in_parallel_threads` from `posthog.hogql_queries.utils.parallel`, which copies the
           caller's context into every worker. Pass thunks (`functools.partial`) instead of
@@ -14,20 +16,31 @@ rules:
 
               run_in_parallel_threads([partial(run, index, query) for index, query in enumerate(queries)])
 
-          A `ThreadPoolExecutor` needs the same treatment — submit
-          `contextvars.copy_context().run` rather than the bare callable.
+          A `ThreadPoolExecutor` loses the context the same way, and this rule does not detect that
+          form. Submit a fresh `contextvars.copy_context().run` per task, as
+          `posthog/hogql_queries/utils/timestamp_utils.py` does. One `Context` cannot be entered
+          twice, so hoisting a single `copy_context()` above the loop raises `RuntimeError` on the
+          second task.
 
           For a thread that genuinely must not inherit the caller's context, add
           `# nosemgrep: query-runners-propagate-thread-context` with a one-line why.
-      severity: ERROR
+
+          Backlog: `products/experiments/backend/hogql_queries/experiment_trends_query_runner.py`
+          still spawns bare threads. Converting it changes which ClickHouse cluster and user its
+          subqueries use, and starts metering their scanned bytes, because that runner propagates no
+          tags today. That needs its own change, so the rule stays at WARNING until then. The
+          new-warnings CI pass still blocks any bare thread a PR adds.
+      severity: WARNING
       languages: [python]
+      # Anchored at the repo root, which is where CI scans from. The leading slash also opts out of
+      # semgrep's Semgrepignore v2 deprecation warning for unanchored patterns.
       paths:
           include:
-              - 'posthog/hogql_queries/**'
-              - 'products/*/backend/hogql_queries/**'
+              - '/posthog/hogql_queries/**'
+              - '/products/*/backend/hogql_queries/**'
           exclude:
-              # the sanctioned implementation — this is the helper the rule points callers to
-              - 'posthog/hogql_queries/utils/parallel.py'
+              # The helper this rule points callers to, which is the one place the bare thread is correct.
+              - '/posthog/hogql_queries/utils/parallel.py'
       pattern-either:
           - pattern: threading.Thread(...)
           - pattern: Thread(...)
