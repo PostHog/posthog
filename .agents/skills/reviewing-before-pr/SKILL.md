@@ -32,7 +32,7 @@ A finding handled here is an ordinary pre-push edit; the same finding after the 
 ## Notes
 
 - **Exit 78 means not signed in.** Ask the user to run `greptile login` and sign in with Google, using their @posthog.com account — that is what grants access to the PostHog Greptile org, so pick "Continue with Google" in the browser window rather than creating an email-and-password account. Headless environments set `GREPTILE_API_KEY` in `.env.local` instead (an `op://` 1Password reference resolves there). Never attempt the interactive login yourself.
-- **Missing CLI.** Flox activation installs it (pinned in `.flox/env/on-activate.sh`), so re-entering the environment usually fixes it. Outside flox: `brew install greptileai/tap/greptile` or `npm install -g greptile`.
+- **Missing CLI.** Flox activation installs the version pinned in `.flox/env/on-activate.sh` into the machine-shared store `~/.config/posthog/tools/greptile/`, so re-entering the environment usually fixes it. Outside flox: `brew install greptileai/tap/greptile` or `npm install -g greptile`.
 - **Held-back files.** Greptile holds back files that look like they contain secrets. Leave them held back; pass `--include <path>` only when certain the file is safe to send.
 - **Focus.** `--instructions "<text>"` steers the reviewer, the same way an `@greptile` comment does on a PR.
 - **`--force`** starts a fresh paid review even when HEAD already has one — only when the user asks for it.

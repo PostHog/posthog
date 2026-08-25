@@ -401,29 +401,40 @@ else
 fi
 
 # ── Step 2b: Greptile CLI ──────────────────────────────────────────
-# Pinned npm install into the flox cache: greptile is not in the flox
-# catalog (proprietary npm package), and `hogli review` needs it. A failed
-# install must not break activation; the CLI is only needed at PR-open
-# time and `hogli review` prints install guidance when it is absent.
+# Machine-global, version-addressed store: greptile is not in the flox
+# catalog (proprietary npm package), and `hogli review` needs it. One npm
+# install per machine per pinned version serves every checkout and survives
+# .flox/cache wipes; each activation only ensures the version and symlinks
+# the venv bin, so worktrees on different branches resolve their own pin.
+# A failed install must not break activation; the CLI is only needed at
+# PR-open time and `hogli review` prints install guidance when it is absent.
 _GREPTILE_VERSION="3.4.1"
-_GREPTILE_PREFIX="$FLOX_ENV_CACHE/greptile"
-_GREPTILE_BIN="$_GREPTILE_PREFIX/node_modules/.bin/greptile"
-_GREPTILE_STAMP="$_GREPTILE_PREFIX/.version"
+_GREPTILE_STORE="$HOME/.config/posthog/tools/greptile/$_GREPTILE_VERSION"
+_GREPTILE_BIN="$_GREPTILE_STORE/node_modules/.bin/greptile"
+_GREPTILE_STAMP="$_GREPTILE_STORE/.complete"
 
 _install_greptile() {
-  # Explicit `|| return`: run_step invokes this inside `if`/`||`, where bash
-  # ignores errexit, so a failed install would otherwise fall through and
-  # stamp the broken state as installed.
-  if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
-    "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix '$_GREPTILE_PREFIX' --no-fund --no-audit greptile@$_GREPTILE_VERSION" || return 1
-  else
-    npm install --prefix "$_GREPTILE_PREFIX" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || return 1
-  fi
-  [[ -x "$_GREPTILE_BIN" ]] || return 1
-  printf '%s' "$_GREPTILE_VERSION" > "$_GREPTILE_STAMP"
+  # Explicit `|| return`/`|| exit`: run_step invokes this inside `if`/`||`,
+  # where bash ignores errexit, so a failed install would otherwise fall
+  # through and stamp the broken state as installed.
+  mkdir -p "$_GREPTILE_STORE" || return 1
+  (
+    # The store is shared across checkouts, so serialize concurrent
+    # activations (fresh worktrees) installing the same version.
+    flock 9 || exit 1
+    if [[ ! -x "$_GREPTILE_BIN" || ! -f "$_GREPTILE_STAMP" ]]; then
+      if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
+        "$FLOX_ENV_PROJECT/bin/dev-sandbox" "npm install --prefix '$_GREPTILE_STORE' --no-fund --no-audit greptile@$_GREPTILE_VERSION" || exit 1
+      else
+        npm install --prefix "$_GREPTILE_STORE" --no-fund --no-audit "greptile@$_GREPTILE_VERSION" || exit 1
+      fi
+      [[ -x "$_GREPTILE_BIN" ]] || exit 1
+      touch "$_GREPTILE_STAMP" || exit 1
+    fi
+  ) 9>"$_GREPTILE_STORE/.install.lock"
 }
 
-if [[ -x "$_GREPTILE_BIN" && "$(cat "$_GREPTILE_STAMP" 2>/dev/null || true)" == "$_GREPTILE_VERSION" ]]; then
+if [[ -x "$_GREPTILE_BIN" && -f "$_GREPTILE_STAMP" ]]; then
   done_step "Greptile CLI (cached)"
 else
   run_step "Greptile CLI" _install_greptile \
