@@ -1041,19 +1041,9 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 
 
 class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
-    """Counts a user's gateway-token MINTS per program, not requests.
+    """Derives the per-user, per-program mint bucket. `reserve_wizard_mint` counts it.
 
-    Its own namespace, so a mint never spends the wizard query allowance and a
-    gateway flap cannot exhaust the budget the legacy fallback depends on.
-
-    DRF evaluates throttles in `initial()`, before the view body, so charging on
-    arrival would spend a run's quota on requests that never mint: the feature
-    unconfigured, the org not rolled out, or a program this deploy has not been
-    told about. Each answers 404, which the CLI is meant to treat as an invisible
-    "stay on the legacy gateway" and will retry; at 5/day the sixth such retry
-    would return a run-killing 429 for a rollout state the user cannot see. The
-    same reasoning as the sibling cloud-run throttle, which counts runs rather
-    than requests for exactly this reason.
+    Its own namespace, so a mint never spends the wizard query allowance.
     """
 
     # Assigned by SimpleRateThrottle.__init__ from the parsed rate.
