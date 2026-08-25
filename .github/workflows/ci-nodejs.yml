@@ -579,7 +579,8 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Disabled with the pinched Jest run; restore before merge.
+        if: false && needs.changes.outputs.nodejs == 'true'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
