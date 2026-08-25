@@ -333,8 +333,11 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
 
     def test_revenue_aggregated_per_person_across_event_and_warehouse_sources(self):
         self.setup_schema_sources()
-        self.join.source_table_key = "id"
-        self.join.save()
+
+        # The default `PERSON_ID` is the all-zeros UUID, which is also what the warehouse leg's
+        # LEFT JOIN yields for a customer with no person. Sharing it would merge the event person
+        # into the unmatched-customer row and hide whether the event leg contributed at all.
+        self.PERSON_ID = "0193a0b1-2c3d-4e5f-8899-aabbccddeeff"
         self.setup_events()
 
         self.team.revenue_analytics_config.events = [
@@ -351,17 +354,32 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         # Both source kinds are configured, so the two legs of the UNION ALL must agree on `person_id`
         warehouse_person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
 
+        # `cus_2` through `cus_6` have no matching person, so the warehouse leg groups them under the
+        # all-zeros UUID and reports their revenue as one synthetic person. That is a defect in its own
+        # right, asserted here so that fixing it shows up as a failure rather than passing unnoticed.
+        unattributed_row = (
+            "00000000-0000-0000-0000-000000000000",
+            Decimal("9188.1098773452"),
+            Decimal("3173.4137916666"),
+        )
+
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
-                parse_select("SELECT person_id FROM persons_revenue_analytics ORDER BY person_id ASC"),
+                parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics"),
                 self.team,
                 user=self.user,
                 modifiers=self.MODIFIERS,
             )
 
             self.assertEqual(
-                [row[0] for row in results.results],
-                sorted([self.PERSON_ID, str(warehouse_person.uuid)]),
+                sorted(results.results),
+                sorted(
+                    [
+                        unattributed_row,
+                        (str(warehouse_person.uuid), Decimal("283.8496260553"), Decimal("22.9631447238")),
+                        (self.PERSON_ID, Decimal("279.28474"), Decimal("0")),
+                    ]
+                ),
             )
 
     def test_query_revenue_analytics_table_sources(self):
