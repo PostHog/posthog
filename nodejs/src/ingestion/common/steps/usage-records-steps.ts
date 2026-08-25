@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { UsageKeyResolver } from '~/ingestion/common/usage-records/billable-events'
@@ -33,12 +35,18 @@ export interface RecordEventUsageInput {
  * is not that identity: two events sharing one but differing in day, name or distinct_id are
  * separate rows there, and the nightly report counts them separately, so billing must too.
  *
+ * Hashed rather than joined, because event names and distinct IDs are client-supplied and
+ * together exceed the 512-byte identifier the service accepts. One oversized record makes the
+ * service reject the whole request, which would drop every record batched with it.
+ *
  * The timestamp is UTC-normalized upstream, so its first ten characters are the same day
  * `toDate` resolves.
  */
 function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
     const day = preparedEvent.timestamp.slice(0, 10)
-    return `${day}:${preparedEvent.event}:${preparedEvent.distinctId}:${preparedEvent.eventUuid}`
+    // The separator cannot appear in a hex digest, so no two tuples share an input string.
+    const identity = `${preparedEvent.event}\n${preparedEvent.distinctId}\n${preparedEvent.eventUuid}`
+    return `${day}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
 }
 
 export interface EventUsageRecord {
