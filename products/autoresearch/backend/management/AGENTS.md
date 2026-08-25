@@ -2,8 +2,6 @@
 
 The headless entrypoints. Four commands cover the whole product lifecycle, and together they are how autoresearch is exercised end to end locally without a browser.
 
-This package landed with `autoresearch_validate`, `autoresearch_score`, and `autoresearch_validate_online`. `autoresearch_train` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 Every command calls the same functions the API and the Temporal activities call. They are thin wrappers, not a parallel implementation, and they should stay that way.
 
 **All of them bypass the `autoresearch` feature flag.** That is why local CLI testing works with no flag setup while the API and UI still need one.
