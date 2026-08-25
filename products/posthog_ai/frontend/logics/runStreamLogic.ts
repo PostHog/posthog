@@ -1411,6 +1411,7 @@ export interface runStreamLogicValues {
     toolInvocations: Map<string, ToolInvocation>
     traceId: string | null
     turnComplete: boolean
+    turnCounted: boolean
     turnsSeen: number
 }
 
@@ -1505,6 +1506,9 @@ export interface runStreamLogicActions {
         value: true
     }
     markTurnComplete: () => {
+        value: true
+    }
+    markTurnCounted: () => {
         value: true
     }
     mergeResourcesUsed: (
@@ -1830,6 +1834,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: true,
+        /** Marks this turn as counted towards `chat with ai`, so it can only be counted once. */
+        markTurnCounted: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
         /**
@@ -2135,6 +2141,18 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 markTurnComplete: (state: number) => state + 1,
                 reset: () => 0,
+            },
+        ],
+        // Whether this turn already counted towards `chat with ai`. Set for replayed agent output too,
+        // so a reload part-way through a turn doesn't count that turn a second time when live frames
+        // resume. Reopened by the next human message, exactly like `turnComplete`.
+        turnCounted: [
+            false,
+            {
+                markTurnCounted: () => true,
+                markRunStarted: () => false,
+                pushHumanMessage: () => false,
+                reset: () => false,
             },
         ],
         // Products the agent grounded answers in, unioned by id (first-seen order) across the whole
@@ -3149,8 +3167,49 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
             const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
             let preToolStatus: ToolInvocationStatus | undefined
+
+            /**
+             * Counts this turn towards `chat with ai` — the event PostHog AI usage series are built on,
+             * which only the legacy LangGraph runner emits. Fired as soon as the turn is known not to
+             * have failed, rather than on turn completion: by the time the agent streams its first
+             * output the run has provisioned and accepted the prompt, and waiting for the end loses
+             * every turn whose reader navigates away mid-generation.
+             *
+             * `replayed` marks the turn counted without capturing, so a reload part-way through a turn
+             * cannot count it twice.
+             */
+            const countTurn = (replayed: boolean): void => {
+                if (values.turnCounted) {
+                    return
+                }
+                actions.markTurnCounted()
+                const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+                if (replayed || !isPostHogAiRun(props.conversationId, activeRun?.taskId ?? values.bootstrappedTaskId)) {
+                    return
+                }
+                posthog.capture('chat with ai', {
+                    // This turn has not completed yet, so the count of completed turns is its own
+                    // ordinal — the same one `computeTurnTrailers` gives the feedback actions, so a
+                    // rating joins back to its turn.
+                    turn_index: values.turnsSeen,
+                    is_new_conversation: values.turnsSeen === 0,
+                    // Agent modes are a LangGraph concept. Legacy sends null for a mode-less turn.
+                    agent_mode: null,
+                    agent_runtime: 'sandbox',
+                    conversation_id: props.conversationId,
+                    trace_id: values.traceId,
+                    run_id: activeRun?.runId,
+                    task_id: activeRun?.taskId,
+                })
+            }
+
             if (method === 'session/update') {
                 const u = notification.params?.update
+                // Agent output — the earliest per-turn proof that nothing failed. `isKnownSessionUpdate`
+                // excludes the user's own echoed message, which says nothing about the agent.
+                if (isKnownSessionUpdate(u)) {
+                    countTurn(isReplay)
+                }
                 if (isRecord(u) && u.sessionUpdate === 'tool_call') {
                     const invocation = invocationFromToolCall(u)
                     if (invocation) {
@@ -3203,34 +3262,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             if (method === '_posthog/turn_complete') {
                 if (!isReplay) {
-                    const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-                    // `chat with ai` is what PostHog's own usage dashboards count turns with, and the
-                    // legacy LangGraph runner is the only thing emitting it — so the sandbox runtime has
-                    // to keep it alive or those series flatline as conversations move over.
-                    //
-                    // `turnComplete` is the once-per-turn latch. A turn can carry two identical frames:
-                    // the agent-server broadcasts one, and Django injects its own after a synchronous
-                    // follow-up delivery. The reducer reopens on the next human message, so a real
-                    // follow-up turn still captures.
-                    if (
-                        !values.turnComplete &&
-                        isPostHogAiRun(props.conversationId, activeRun?.taskId ?? values.bootstrappedTaskId)
-                    ) {
-                        posthog.capture('chat with ai', {
-                            // Read before `markTurnComplete` folds this turn in, so it is this turn's
-                            // own ordinal — the same one `computeTurnTrailers` gives the feedback actions,
-                            // so a rating joins back to its turn.
-                            turn_index: values.turnsSeen,
-                            is_new_conversation: values.turnsSeen === 0,
-                            // Agent modes are a LangGraph concept. Legacy sends null for a mode-less turn.
-                            agent_mode: null,
-                            agent_runtime: 'sandbox',
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            run_id: activeRun?.runId,
-                            task_id: activeRun?.taskId,
-                        })
-                    }
+                    // Fallback for a turn that produced no agent output at all: `countTurn` already
+                    // ran for every turn that streamed anything, and the latch makes this a no-op then.
+                    countTurn(false)
                     actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
                 }
                 actions.markTurnComplete()
