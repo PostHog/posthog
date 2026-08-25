@@ -96,9 +96,9 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                 {report.actionability && <SignalReportActionabilityBadge actionability={report.actionability} />}
             </div>
 
-            <div className="flex flex-none items-start gap-3 px-6 pt-3">
+            <div className="flex flex-none items-center gap-3 px-6 pt-3">
                 {report.priority && (
-                    <div className="mt-0.5 shrink-0">
+                    <div className="shrink-0">
                         <SignalReportPriorityBadge priority={report.priority} />
                     </div>
                 )}
@@ -320,7 +320,7 @@ export function InboxTriageView(): JSX.Element {
                         {previousReport && (
                             <PeekStrip
                                 report={previousReport}
-                                shortcut={<KeyboardShortcut k />}
+                                shortcut={<KeyboardShortcut arrowup />}
                                 onClick={() => navigate(-1)}
                                 dataAttr="inbox-triage-peek-previous"
                             />
@@ -329,7 +329,7 @@ export function InboxTriageView(): JSX.Element {
                         {nextReport && (
                             <PeekStrip
                                 report={nextReport}
-                                shortcut={<KeyboardShortcut j />}
+                                shortcut={<KeyboardShortcut arrowdown />}
                                 onClick={() => navigate(1)}
                                 dataAttr="inbox-triage-peek-next"
                             />
@@ -341,10 +341,7 @@ export function InboxTriageView(): JSX.Element {
             <footer className="flex flex-none flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-primary px-4 py-1.5 text-xxs text-tertiary">
                 <HintBarItem shortcut={<KeyboardShortcut arrowdown />} label="next" />
                 <HintBarItem shortcut={<KeyboardShortcut arrowup />} label="previous" />
-                <HintBarItem shortcut={<KeyboardShortcut enter />} label="read summary" />
-                <HintBarItem shortcut={<KeyboardShortcut o />} label="open report" />
-                <HintBarItem shortcut={<KeyboardShortcut a />} label="archive" />
-                <HintBarItem shortcut={<KeyboardShortcut c />} label="create PR" />
+                <HintBarItem shortcut={<KeyboardShortcut command enter />} label="open report" />
                 <HintBarItem shortcut={<KeyboardShortcut escape />} label="back" />
             </footer>
         </div>
