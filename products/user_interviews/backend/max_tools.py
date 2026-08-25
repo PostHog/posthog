@@ -10,8 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.serializers import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 
 from ee.hogai.tool import MaxTool
 

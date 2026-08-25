@@ -19324,7 +19324,7 @@ export namespace Schemas {
     export interface FileDownloadHogQLRequest {
       file: FileDownloadDestinationFileConfig;
       model: FileDownloadHogQLRequestModel;
-      /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
     }
 
@@ -38805,7 +38805,7 @@ export namespace Schemas {
       model: FileDownloadBatchExportOnDemandModelEnum;
       include?: string[];
       exclude?: string[];
-      /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query?: string;
       /** Start of the data interval to export */
       data_interval_start?: string;
@@ -85396,6 +85396,33 @@ export namespace Schemas {
       results: _MetricEventSample[];
     }
 
+    export interface _MetricsOverviewService {
+      /** Service that reported metrics inside the window. */
+      service_name: string;
+      /** Distinct metric names this service reported in the window. */
+      metric_names: number;
+      /** Distinct series (metric + label-set combinations) this service reported in the window. */
+      series: number;
+      /** When this service's newest datapoint arrived, ISO 8601. */
+      last_seen: string;
+    }
+
+    export interface _MetricsOverviewResponse {
+      /**
+         * When the newest datapoint arrived across all series, ISO 8601. Unlike the counts this ignores the window, so it still answers 'when did ingestion stop'. Null when nothing was ever ingested.
+         * @nullable
+         */
+      last_seen: string | null;
+      /** Distinct metric names reported inside the window. */
+      metric_names: number;
+      /** Distinct series (metric + label-set combinations) reported inside the window. */
+      series: number;
+      /** Length of the rollup window in seconds, so consumers can label the counts. */
+      lookback_seconds: number;
+      /** Per-service rollup for the window, largest series count first. Capped at the 500 largest. */
+      services: _MetricsOverviewService[];
+    }
+
     /**
      * * `exact` - exact
      * * `is_not` - is_not
@@ -92661,6 +92688,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.
+     */
+    owner_id?: number;
     /**
      * Optional substring filter applied to skill names and descriptions.
      */

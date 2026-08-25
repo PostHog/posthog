@@ -208,6 +208,7 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
             created = create_and_run_task(
                 team=team,
                 title=ONBOARDING_SESSION_TITLE,
+                title_manually_set=True,
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
