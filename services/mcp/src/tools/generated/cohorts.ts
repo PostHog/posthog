@@ -43,7 +43,13 @@ const cohortsAddPersonsToStaticCohortPartialUpdate = (): ToolBase<
     },
 })
 
-const CohortsCreateSchema = CohortsCreateBody.omit({ _create_in_folder: true, _create_static_person_ids: true })
+const CohortsCreateSchema = CohortsCreateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).extend(
+    {
+        filters: CohortsCreateBody.shape['filters'].describe(
+            "Define dynamic cohort membership using exactly two group levels so the cohort editor can display and edit every condition. Set `properties` to the outer group. Every item in `properties.values` must be an inner AND/OR group, and every item in an inner group's `values` must be a leaf filter. Never put another group inside an inner group. For mixed boolean logic, use disjunctive normal form: an outer OR of inner AND groups, duplicating shared leaf filters when needed. For example, `(A OR B) AND C` becomes `(A AND C) OR (B AND C)`."
+        ),
+    }
+)
 
 const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Schemas.Cohort>> =>
     withUiApp('cohort', {
@@ -128,7 +134,12 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
 
 const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true })
     .extend(CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape)
-    .extend({ id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']) })
+    .extend({
+        filters: CohortsPartialUpdateBody.shape['filters'].describe(
+            "Define dynamic cohort membership using exactly two group levels so the cohort editor can display and edit every condition. Set `properties` to the outer group. Every item in `properties.values` must be an inner AND/OR group, and every item in an inner group's `values` must be a leaf filter. Never put another group inside an inner group. For mixed boolean logic, use disjunctive normal form: an outer OR of inner AND groups, duplicating shared leaf filters when needed. For example, `(A OR B) AND C` becomes `(A AND C) OR (B AND C)`."
+        ),
+        id: z.preprocess(castStringToInt, CohortsPartialUpdateParams.shape['id']),
+    })
 
 const cohortsPartialUpdate = (): ToolBase<typeof CohortsPartialUpdateSchema, WithPostHogUrl<Schemas.Cohort>> =>
     withUiApp('cohort', {

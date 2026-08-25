@@ -92,6 +92,15 @@ tools:
             {"name": "Viewed pricing last 7d", "is_static": true, "query": {"kind": "ActorsQuery", "source": {"kind":
             "InsightActorsQuery", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event":
             "$pageview"}], "dateRange": {"date_from": "-7d"}}}}}
+        param_overrides:
+            filters:
+                description: >-
+                    Define dynamic cohort membership using exactly two group levels so the cohort editor can display and
+                    edit every condition. Set `properties` to the outer group. Every item in `properties.values` must be
+                    an inner AND/OR group, and every item in an inner group's `values` must be a leaf filter. Never put
+                    another group inside an inner group. For mixed boolean logic, use disjunctive normal form: an outer
+                    OR of inner AND groups, duplicating shared leaf filters when needed. For example, `(A OR B) AND C`
+                    becomes `(A AND C) OR (B AND C)`.
         exclude_params:
             - groups
             - deleted
@@ -172,6 +181,17 @@ tools:
             ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
             returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything
             beyond a handful (~20) of people.
+        param_overrides:
+            filters:
+                description: >-
+                    Define dynamic cohort membership using exactly two group levels so the cohort editor can display and
+                    edit every condition. Set `properties` to the outer group. Every item in `properties.values` must be
+                    an inner AND/OR group, and every item in an inner group's `values` must be a leaf filter. Never put
+                    another group inside an inner group. For mixed boolean logic, use disjunctive normal form: an outer
+                    OR of inner AND groups, duplicating shared leaf filters when needed. For example, `(A OR B) AND C`
+                    becomes `(A AND C) OR (B AND C)`.
+            id:
+                cast: string-int
         exclude_params:
             - groups
             - version
@@ -184,9 +204,6 @@ tools:
             - last_error_message
             - count
             - experiment_set
-        param_overrides:
-            id:
-                cast: string-int
         ui_app: cohort
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
