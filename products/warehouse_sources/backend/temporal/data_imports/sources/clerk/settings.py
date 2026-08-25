@@ -83,7 +83,13 @@ CLERK_ENDPOINTS: dict[str, ClerkEndpointConfig] = {
         name="enterprise_connections", path="/enterprise_connections", is_wrapped_response=True
     ),
     "oauth_applications": ClerkEndpointConfig(
-        name="oauth_applications", path="/oauth_applications", is_wrapped_response=True
+        name="oauth_applications",
+        path="/oauth_applications",
+        is_wrapped_response=True,
+        # Clerk answers 404 resource_not_found for the OAuth applications list on instances that
+        # haven't switched the feature on — the same feature-off signal the Restrictions endpoints
+        # give. Skip zero rows instead of failing the schema every run.
+        gated_feature="OAuth applications",
     ),
     "machines": ClerkEndpointConfig(name="machines", path="/machines", is_wrapped_response=True),
     # /api_keys and /m2m_tokens cap `limit` at 100 rather than 500.
