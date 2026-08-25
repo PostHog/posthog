@@ -207,27 +207,29 @@ function ReportChatConversation({
     <EmbeddedSessionView
       task={task}
       threadActions={({ sendPrompt, isPromptPending }) => (
-        <div className="flex items-center gap-2 border-border border-t px-3 py-3">
+        <div className="flex items-center gap-2 border-border border-t px-3 py-2">
           <Button
             type="button"
             variant="primary"
-            className="h-9 flex-1 rounded-lg px-4 text-[13px]"
+            size="lg"
+            className="flex-1 rounded-lg"
             loading={sendingPrompt === workPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
             onClick={() => void sendSuggestedPrompt(workPrompt, sendPrompt)}
           >
-            <GitPullRequestIcon size={15} />
+            <GitPullRequestIcon />
             {workLabel}
           </Button>
           <Button
             type="button"
             variant="outline"
-            className="h-9 flex-1 rounded-lg px-4 text-[13px]"
+            size="lg"
+            className="flex-1 rounded-lg"
             loading={sendingPrompt === canvasPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
             onClick={() => void sendSuggestedPrompt(canvasPrompt, sendPrompt)}
           >
-            <ShapesIcon size={15} />
+            <ShapesIcon />
             Visualize in a Canvas
           </Button>
         </div>
@@ -352,14 +354,16 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
               key={label}
               type="button"
               variant={variant}
-              className="h-10 justify-start rounded-lg px-4 text-[13px]"
+              size="lg"
+              left
+              className="rounded-lg px-3"
               // Once the composer holds a typed draft or a quoted passage, the
               // one-click chips step aside — firing a chip must not silently
               // discard what the user wrote or highlighted.
               disabled={isDiscussing || starterDraft.trim().length > 0}
               onClick={() => ask(prompt)}
             >
-              <Icon size={16} />
+              <Icon />
               {label}
             </Button>
           ))}
