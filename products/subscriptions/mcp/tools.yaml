@@ -35,7 +35,8 @@ tools:
             runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
 
             Delivery is set by `target_type` — `email`, `slack`, or `teams` (a Microsoft Teams webhook URL in
-            `target_value`).
+            `target_value`). A Teams webhook URL is only ever read back as its host. Omit `target_value` to keep
+            the stored URL, or send a full URL to replace it.
 
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
             rejected.
@@ -189,7 +190,8 @@ tools:
         title: Get subscription
         description:
             'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard, or
-            ai_prompt), target (`target_type`/`target_value`), schedule, enabled state, and AI-summary settings.
+            ai_prompt), target (`target_type`/`target_value`, host-only for a Teams webhook), schedule, enabled
+            state, and AI-summary settings.
             Metadata only — for the send history and delivered reports, use `subscriptions-deliveries-list` /
             `subscriptions-deliveries-retrieve`.'
         response:

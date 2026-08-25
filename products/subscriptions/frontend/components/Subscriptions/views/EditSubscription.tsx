@@ -450,9 +450,10 @@ function EditSubscriptionForm({
         lastDeliveryLoading,
         summaryQuota,
         testDeliveryLoading,
+        storedTeamsWebhookHost,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -754,11 +755,27 @@ function EditSubscriptionForm({
                                     </>
                                 }
                             >
-                                <LemonInput
-                                    placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
-                                    autoComplete="off"
-                                    data-attr="subscription-teams-webhook-url"
-                                />
+                                {storedTeamsWebhookHost ? (
+                                    <div className="flex gap-2 items-center p-1 rounded border border-dashed">
+                                        <span className="flex-1 p-1 text-secondary">
+                                            Posting to {storedTeamsWebhookHost}. The saved URL is not shown here.
+                                        </span>
+                                        <LemonButton
+                                            onClick={replaceTeamsWebhook}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="subscription-teams-webhook-replace"
+                                        >
+                                            Replace
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <LemonInput
+                                        placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                                        autoComplete="off"
+                                        data-attr="subscription-teams-webhook-url"
+                                    />
+                                )}
                             </LemonField>
                         ) : null}
 

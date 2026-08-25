@@ -700,6 +700,60 @@ describe('subscriptionLogic', () => {
 
         expect(capturedBody?.target_type).toBe('teams')
         expect(capturedBody?.target_value).toBe(TEAMS_WEBHOOK_URL)
+        // Without target_type on the create event, Teams adoption is invisible in analytics.
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription created',
+            expect.objectContaining({ target_type: 'teams', subscription_id: 44 })
+        )
+    })
+
+    it('saves an existing Microsoft Teams subscription without resending the hidden URL', async () => {
+        // The API only ever returns the host, so sending it back would replace the stored URL with
+        // something nothing could deliver to. Omitting it tells the backend to keep what it has.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    target_type: 'teams',
+                    target_value: 'prod-12.westeurope.logic.azure.com',
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, fixtureSubscriptionResponse(1, { target_type: 'teams' })]
+                },
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.storedTeamsWebhookHost).toBe('prod-12.westeurope.logic.azure.com')
+        existingLogic.actions.setSubscriptionValue('title', 'Renamed')
+        existingLogic.actions.submitSubscription()
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.target_value).toBeUndefined()
+    })
+
+    it('asks for a URL again once the Teams webhook is being replaced', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    target_type: 'teams',
+                    target_value: 'prod-12.westeurope.logic.azure.com',
+                }),
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        existingLogic.actions.replaceTeamsWebhook()
+        existingLogic.actions.setSubscriptionValue('target_value', '')
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.storedTeamsWebhookHost).toBeNull()
+        expect(existingLogic.values.subscriptionValidationErrors.target_value).toBe('A webhook URL is required')
     })
 
     it('drops a stale prompt when saving a non-AI subscription', async () => {

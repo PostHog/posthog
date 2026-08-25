@@ -8,18 +8,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 from asgiref.sync import sync_to_async
 from temporalio.exceptions import ApplicationError
 
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.temporal.subscriptions.delivery_common import (
-    _WEBHOOK_TIMEOUT_SECONDS,
-    deliver_webhook,
-    recipient_label,
-)
-from products.exports.backend.temporal.subscriptions.retry_policy import SUBSCRIPTION_DELIVER_START_TO_CLOSE_TIMEOUT
+from products.exports.backend.temporal.subscriptions.delivery_webhook import _WEBHOOK_SEND_CAPACITY, deliver_webhook
 from products.exports.backend.temporal.subscriptions.types import RecipientResult
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -32,9 +28,9 @@ WEBHOOK_URL = (
 WEBHOOK_HOST = "prod-25.westeurope.logic.azure.com"
 CARD = {"type": "message", "attachments": []}
 
-_PINNED_SESSION = "products.exports.backend.temporal.subscriptions.delivery_common.pinned_session"
+_PINNED_SESSION = "products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session"
 _VALIDATE_URL = "posthog.security.pinned_requests.validate_url_and_pin_ips"
-_CAPTURE_FAILED = "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+_CAPTURE_FAILED = "products.exports.backend.temporal.subscriptions.delivery_webhook._capture_delivery_failed_event"
 _DISABLED_EMAIL = "ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"
 
 
@@ -58,17 +54,11 @@ def _destination_responds(status: int) -> Iterator[MagicMock]:
         yield request
 
 
-async def test_a_stuck_send_times_out_before_temporal_abandons_the_activity() -> None:
-    # Past the activity timeout Temporal retries a send it can no longer observe, and the channel
-    # gets the card twice. Neither value can drift into that order without failing here.
-    assert sum(_WEBHOOK_TIMEOUT_SECONDS) < SUBSCRIPTION_DELIVER_START_TO_CLOSE_TIMEOUT.total_seconds()
-
-
 @pytest.mark.parametrize("target_value", ["https://[::1", "", "not a url"])
 async def test_a_target_value_with_no_parseable_host_still_gets_a_label(target_value) -> None:
     # The label is what every delivery receipt and log line names the destination by, so a stored
     # value that no longer parses has to degrade to a placeholder rather than raise mid-delivery.
-    assert recipient_label(_unsaved_teams_subscription(target_value)) == "webhook"
+    assert _unsaved_teams_subscription(target_value).recipient_label == "webhook"
 
 
 @override_settings(DEBUG=False)
@@ -87,6 +77,63 @@ async def test_a_url_that_stops_resolving_stays_retryable() -> None:
     assert error.value.non_retryable is False
     assert recipient_results[0].error is not None
     assert recipient_results[0].error["type"] == "webhook_url_blocked"
+
+
+async def test_a_stored_url_outside_the_microsoft_hosts_is_never_posted_to() -> None:
+    # The serializer is not the only writer of target_value, so the host allowlist runs again here.
+    subscription = _unsaved_teams_subscription("https://evil.example.com/workflows/abc")
+    recipient_results: list[RecipientResult] = []
+
+    with patch(_PINNED_SESSION) as pinned_session, patch(_CAPTURE_FAILED):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_webhook(subscription, recipient_results, body=CARD)
+
+    assert pinned_session.call_count == 0
+    assert error.value.non_retryable is False
+    assert recipient_results[0].error is not None
+    assert recipient_results[0].error["type"] == "webhook_url_blocked"
+
+
+async def test_a_worker_out_of_send_slots_refuses_the_send_instead_of_queueing_it() -> None:
+    # Every slot taken means every thread is inside a send that has not returned. Queueing behind
+    # them would hold this delivery past the activity timeout with nothing to show for it.
+    subscription = _unsaved_teams_subscription()
+    recipient_results: list[RecipientResult] = []
+
+    held = 0
+    while _WEBHOOK_SEND_CAPACITY.acquire(blocking=False):
+        held += 1
+    try:
+        with patch(_PINNED_SESSION) as pinned_session, patch(_CAPTURE_FAILED):
+            with pytest.raises(ApplicationError) as error:
+                await deliver_webhook(subscription, recipient_results, body=CARD)
+    finally:
+        for _ in range(held):
+            _WEBHOOK_SEND_CAPACITY.release()
+
+    assert pinned_session.call_count == 0
+    assert error.value.non_retryable is False
+    assert recipient_results[0].error is not None
+    assert recipient_results[0].error["type"] == "webhook_send_capacity_exhausted"
+
+
+async def test_a_destination_that_stops_answering_stays_retryable() -> None:
+    subscription = _unsaved_teams_subscription()
+    recipient_results: list[RecipientResult] = []
+
+    with patch(_PINNED_SESSION) as pinned_session, patch(_CAPTURE_FAILED):
+        pinned_session.return_value.__enter__.return_value.request.side_effect = requests.ReadTimeout(
+            f"Read timed out for {WEBHOOK_URL}"
+        )
+        with pytest.raises(ApplicationError) as error:
+            await deliver_webhook(subscription, recipient_results, body=CARD)
+
+    assert error.value.non_retryable is False
+    assert recipient_results[0].error is not None
+    assert recipient_results[0].error["type"] == "webhook_request_failed"
+    # The exception text carries the URL, so only its class name may reach the receipt.
+    assert recipient_results[0].error["message"] == "Webhook request failed: ReadTimeout"
+    assert "supersecret" not in str(error.value.details)
 
 
 @pytest.mark.parametrize("status", [200, 202])

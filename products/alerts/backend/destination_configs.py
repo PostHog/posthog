@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
-from urllib.parse import urlparse
 
 from django.db import models
-
-from posthog.security.url_validation import has_authority_bypass_chars
 
 
 class DestinationType(models.TextChoices):
@@ -33,46 +29,6 @@ DESTINATION_REQUIRED_FIELDS: dict[DestinationType, tuple[str, ...]] = {
     DestinationType.WEBHOOK: ("webhook_url",),
     DestinationType.TEAMS: ("webhook_url",),
 }
-
-
-# Hosts that hand out a Microsoft Teams incoming webhook. Every dot is escaped and the host is
-# anchored at both ends, so a registrable lookalike such as `evilpowerautomate.com` cannot match.
-# The equivalents in posthog/cdp/templates/microsoft_teams live inside a Hog source string and
-# leave the dots unescaped, which is why they are not shared with this.
-_TEAMS_LOGIC_APPS_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+logic\.azure\.com$")
-_TEAMS_CONNECTOR_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+webhook\.office\.com$")
-_TEAMS_POWER_AUTOMATE_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+(?:powerautomate\.com|flow\.microsoft\.com)$")
-_TEAMS_POWER_PLATFORM_HOST = re.compile(r"^(?:[a-z0-9-]+\.)+environment\.api\.powerplatform\.com$")
-
-
-def is_microsoft_teams_webhook_url(url: str) -> bool:
-    """Whether a URL is one of the Microsoft Teams webhook shapes we are willing to post to.
-
-    Checks the scheme, host and path only, with no name resolution, so it is cheap enough for a
-    save path. Anything that then delivers to the URL must still run the full SSRF validation,
-    because DNS can change between the save and the send.
-    """
-    if has_authority_bypass_chars(url):
-        return False
-    try:
-        parsed = urlparse(url)
-        port = parsed.port
-    except ValueError:
-        return False
-    if parsed.scheme != "https" or port not in (None, 443):
-        return False
-
-    host = (parsed.hostname or "").lower()
-    path = parsed.path
-    if _TEAMS_LOGIC_APPS_HOST.match(host):
-        return path.startswith("/workflows/") and "/triggers/manual/paths/invoke" in path
-    if _TEAMS_CONNECTOR_HOST.match(host):
-        return path.startswith("/webhookb2/") and "/IncomingWebhook/" in path
-    if _TEAMS_POWER_AUTOMATE_HOST.match(host):
-        return bool(path.strip("/"))
-    if _TEAMS_POWER_PLATFORM_HOST.match(host):
-        return path.startswith("/powerautomate/automations/direct/") and "/workflows/" in path
-    return False
 
 
 class AlertDestinationData(TypedDict):

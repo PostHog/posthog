@@ -112,10 +112,22 @@ const MISSING_TARGET_VALUE_ERROR: Record<SubscriptionTargetType, string> = {
     [TargetTypeEnumApi.Teams]: 'A webhook URL is required',
 }
 
-function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
+function isTeamsWebhookKept(target_type: string, storedTeamsWebhookHost: string | null): boolean {
+    return target_type === TargetTypeEnumApi.Teams && storedTeamsWebhookHost !== null
+}
+
+function validateTargetValue(
+    target_type: string,
+    target_value: string | undefined,
+    webhookKept: boolean
+): string | undefined {
     if (!isSupportedTargetType(target_type)) {
         // `target_type` reports its own error, and there is nothing to say about a value for a
         // destination this form cannot render.
+        return undefined
+    }
+    // The saved webhook URL is never sent to the browser, so an untouched field means "keep it".
+    if (webhookKept) {
         return undefined
     }
     // Submit sends the trimmed value, so validate the same string the backend will receive.
@@ -223,6 +235,7 @@ export interface subscriptionLogicValues {
     previewImageUrl: string | null
     previewLoading: boolean
     showSubscriptionErrors: boolean
+    storedTeamsWebhookHost: string | null
     subscription: SubscriptionType
     subscriptionAllErrors: Record<string, any>
     subscriptionChanged: boolean
@@ -361,6 +374,9 @@ export interface subscriptionLogicActions {
         }
         payload?: any
     }
+    replaceTeamsWebhook: () => {
+        value: true
+    }
     resetSubscription: (values?: SubscriptionType) => {
         values?: SubscriptionType
     }
@@ -456,6 +472,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
         applyDefaultSelectedInsights: (selectedIds: number[]) => ({ selectedIds }),
+        replaceTeamsWebhook: true,
         selectAiExamplePrompt: (prompt: string, label: string, window?: AIWindowConfigApi) => ({
             prompt,
             label,
@@ -464,6 +481,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     }),
 
     reducers({
+        // The host the API returned for a saved Teams subscription. Null once the user chooses to
+        // replace the URL, which is what puts the input back on screen and the validation back on.
+        storedTeamsWebhookHost: [
+            null as string | null,
+            {
+                loadSubscriptionSuccess: (_, { subscription }) =>
+                    subscription?.target_type === TargetTypeEnumApi.Teams ? (subscription.target_value ?? null) : null,
+                replaceTeamsWebhook: () => null,
+            },
+        ],
         lastDeliveryLoadFailed: [
             false,
             {
@@ -559,7 +586,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    forms(({ props, actions, cache }) => ({
+    forms(({ props, actions, cache, values }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
             errors: (subscription) => ({
@@ -572,18 +599,23 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 target_type: isSupportedTargetType(subscription.target_type) ? undefined : 'Unsupported target type',
                 prompt: validatePrompt(subscription.resource_type, subscription.prompt),
                 ...validateAiWindow(subscription),
-                target_value: validateTargetValue(subscription.target_type, subscription.target_value),
+                target_value: validateTargetValue(
+                    subscription.target_type,
+                    subscription.target_value,
+                    isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
+                ),
                 dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
             }),
             submit: async (subscription, breakpoint) => {
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
+                const webhookKept = isTeamsWebhookKept(subscription.target_type, values.storedTeamsWebhookHost)
                 const payload = {
                     ...subscription,
-                    // `new URL()` ignores surrounding whitespace, so an untrimmed webhook URL
-                    // validates but would be stored with the stray characters.
-                    target_value: subscription.target_value?.trim(),
+                    // Omitting it tells the backend to keep the stored URL. Sending the host back
+                    // is rejected, since it is not a URL anything could deliver to.
+                    target_value: webhookKept ? undefined : subscription.target_value?.trim(),
                     bysetpos: subscription.frequency === 'monthly' ? subscription.bysetpos : null,
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,

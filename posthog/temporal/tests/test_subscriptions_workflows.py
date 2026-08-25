@@ -522,7 +522,7 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
-@patch("products.exports.backend.temporal.subscriptions.delivery_common.pinned_session")
+@patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session")
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @pytest.mark.asyncio
@@ -2459,7 +2459,7 @@ async def test_deliver_ai_subscription_posts_the_report_to_teams(team, user):
     )
     delivery = await _create_ai_delivery(sub, report="# Report")
 
-    with patch("products.exports.backend.temporal.subscriptions.delivery_common.pinned_session") as mock_session:
+    with patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session") as mock_session:
         mock_post = mock_session.return_value.__enter__.return_value.request
         mock_post.return_value = MagicMock(status_code=202)
         result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))

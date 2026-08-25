@@ -5,7 +5,7 @@ from parameterized import parameterized
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS, TRUNCATION_MARKER
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET, build_teams_subscription_card
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
@@ -79,6 +79,21 @@ class TestTeamsSubscriptionCard(APIBaseTest):
         assert block["type"] == "TextBlock"
         assert "Query timed out" in block["text"]
 
+    def test_a_first_delivery_says_the_channel_is_now_subscribed(self) -> None:
+        content = self._card_content(is_new_subscription=True)
+
+        assert content["body"][0]["text"].startswith(
+            "This channel has been subscribed to the Insight **My Test subscription** on PostHog!"
+        )
+
+    def test_a_summary_skipped_over_budget_says_so_in_subtle_text(self) -> None:
+        content = self._card_content(summary_skipped_over_budget=True)
+        notice = content["body"][1]
+
+        assert notice["isSubtle"] is True
+        assert "Your organization has reached its AI credit usage limit." in notice["text"]
+        assert "[Billing settings](" in notice["text"]
+
     def test_change_summary_is_placed_above_the_charts(self) -> None:
         content = self._card_content(change_summary="Signups doubled")
 
@@ -122,4 +137,4 @@ class TestTeamsSubscriptionCard(APIBaseTest):
         summary = content["body"][1]["text"]
 
         assert len(summary.encode("utf-8")) <= TEAMS_CARD_TEXT_BUDGET
-        assert summary.endswith("... (truncated)")
+        assert summary.endswith(TRUNCATION_MARKER)

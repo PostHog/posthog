@@ -97,7 +97,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
         target_value: zod
             .string()
             .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams.'
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. Omit the field to keep the stored URL, or send a full URL to replace it.'
             ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
@@ -271,7 +271,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
         target_value: zod
             .string()
             .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams.'
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. Omit the field to keep the stored URL, or send a full URL to replace it.'
             ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
@@ -447,7 +447,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams.'
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. Omit the field to keep the stored URL, or send a full URL to replace it.'
             ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])

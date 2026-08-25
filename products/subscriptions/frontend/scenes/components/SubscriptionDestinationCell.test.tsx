@@ -6,16 +6,20 @@ import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/
 
 import { SubscriptionDeliveryDestinationCell, SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 
-const TEAMS_WEBHOOK_URL =
-    'https://prod-12.westeurope.logic.azure.com/workflows/00000000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=not-a-real-signature'
+const TEAMS_WEBHOOK_PATH =
+    '/workflows/00000000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=not-a-real-signature'
 const TEAMS_WEBHOOK_HOST = 'prod-12.westeurope.logic.azure.com'
+const TEAMS_WEBHOOK_URL = `https://${TEAMS_WEBHOOK_HOST}${TEAMS_WEBHOOK_PATH}`
 
 describe('SubscriptionDestinationCell', () => {
-    it('shows a subscription webhook by host and nothing that authorizes a post', () => {
+    it.each([
+        ['a webhook URL', TEAMS_WEBHOOK_URL],
+        // The canonical Azure form carries :443. Keeping it here would label the same destination
+        // differently from the delivery history, which shows the bare host.
+        ['a webhook URL with an explicit port', `https://${TEAMS_WEBHOOK_HOST}:443${TEAMS_WEBHOOK_PATH}`],
+    ])('shows %s by host and nothing that authorizes a post', (_label, targetValue) => {
         const { container } = render(
-            <SubscriptionDestinationCell
-                sub={{ target_type: 'teams', target_value: TEAMS_WEBHOOK_URL } as SubscriptionApi}
-            />
+            <SubscriptionDestinationCell sub={{ target_type: 'teams', target_value: targetValue } as SubscriptionApi} />
         )
 
         expect(container.textContent).toBe(TEAMS_WEBHOOK_HOST)

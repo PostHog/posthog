@@ -22,7 +22,6 @@ from products.alerts.backend.destination_configs import (
     AlertDestinationValidationError,
     DestinationType,
     build_alert_destination_config,
-    is_microsoft_teams_webhook_url,
     validate_destination_data,
 )
 from products.alerts.backend.destinations import (
@@ -216,7 +215,6 @@ __all__ = [
     "get_alert_team_id",
     "insight_alerts_prefetch",
     "insight_ids_with_alerts",
-    "is_microsoft_teams_webhook_url",
     "serialize_insight_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",

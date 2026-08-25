@@ -11,11 +11,12 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
+from posthog.security.url_validation import is_microsoft_teams_webhook_url
+
 from products.alerts.backend.facade.api import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
-    is_microsoft_teams_webhook_url,
     validate_destination_data,
 )
 from products.billing_alerts.backend.facade import api as billing_alerts_api

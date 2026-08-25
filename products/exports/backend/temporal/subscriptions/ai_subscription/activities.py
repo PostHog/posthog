@@ -30,10 +30,9 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
-    deliver_webhook,
-    recipient_label,
     strip_null_bytes,
 )
+from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_webhook
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
@@ -300,7 +299,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         # PromptRejectedError messages are handcrafted rejections (empty/too long/no creator), safe to show.
         recipient_results = [
             RecipientResult(
-                recipient=recipient_label(subscription),
+                recipient=subscription.recipient_label,
                 status="failed",
                 error={"message": str(exc), "type": "PromptRejectedError"},
                 human_readable_error=str(exc),

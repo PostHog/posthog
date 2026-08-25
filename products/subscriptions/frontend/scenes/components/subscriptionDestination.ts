@@ -40,7 +40,9 @@ function webhookDestination(host: string): SubscriptionDestination {
 
 function webhookHost(url: string): string {
     try {
-        return new URL(url).host
+        // `hostname`, not `host`: an explicit `:443` would make this cell disagree with the
+        // delivery history, where the backend records the bare host for the same destination.
+        return new URL(url).hostname
     } catch {
         return 'Invalid URL'
     }
@@ -55,7 +57,6 @@ export function subscriptionDestination(targetType: string, targetValue: string)
             return slackDestination(targetValue)
         case TargetTypeEnumApi.Teams:
         default:
-            // Teams stores the webhook URL here, and so does the retired `webhook` target type.
             return webhookDestination(webhookHost(targetValue))
     }
 }
@@ -74,7 +75,6 @@ export function deliveryDestination(targetType: string, targetValue: string): Su
         case TargetTypeEnumApi.Teams:
             return webhookDestination(targetValue)
         default:
-            // The retired `webhook` target type snapshotted the whole URL.
             return webhookDestination(webhookHost(targetValue))
     }
 }

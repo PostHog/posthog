@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -232,10 +233,20 @@ class TestBuildAITeamsCard:
         assert len(report_blocks) == 3
         assert all(len(b["text"]) <= TEAMS_TEXT_BLOCK_LIMIT for b in report_blocks)
 
-    def test_report_over_the_card_budget_is_shortened_with_a_link_out(self) -> None:
-        body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
+    @pytest.mark.parametrize(
+        "filler",
+        [
+            "x",
+            # Three bytes per character, so a report that fits by character count is far over the
+            # byte count Teams measures the payload in.
+            "詳",
+        ],
+    )
+    def test_report_over_the_card_budget_is_shortened_with_a_link_out(self, filler: str) -> None:
+        body = self._body("\n\n".join(filler * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
 
-        assert len([b for b in body if set(b["text"]) == {"x"}]) == TEAMS_REPORT_BLOCK_COUNT
+        assert sum(len(b["text"].encode("utf-8")) for b in body) <= TEAMS_CARD_TEXT_BUDGET
+        assert len([b for b in body if set(b["text"]) == {filler}]) <= TEAMS_REPORT_BLOCK_COUNT
         assert "This report was shortened to fit." in body[-2]["text"]
 
     def test_external_links_in_the_report_are_stripped(self) -> None:

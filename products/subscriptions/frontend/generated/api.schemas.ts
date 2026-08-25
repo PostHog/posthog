@@ -211,7 +211,7 @@ export interface SubscriptionApi {
      * * `slack` - Slack
      * * `teams` - Microsoft Teams */
     target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. */
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. Omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -360,7 +360,7 @@ export interface PatchedSubscriptionApi {
      * * `slack` - Slack
      * * `teams` - Microsoft Teams */
     target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. */
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. Omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *

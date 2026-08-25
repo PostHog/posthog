@@ -22,9 +22,8 @@ from products.exports.backend.temporal.subscriptions.delivery_common import (
     auto_disable_and_return,
     deliver_email,
     deliver_slack,
-    deliver_webhook,
-    recipient_label,
 )
+from products.exports.backend.temporal.subscriptions.delivery_webhook import deliver_webhook
 from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_initial_content_snapshot,
     build_insight_delivery_snapshot,
@@ -249,7 +248,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAb
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliveryAbort(
         failed_recipient=RecipientResult(
-            recipient=recipient_label(subscription),
+            recipient=subscription.recipient_label,
             status="failed",
             error={"message": reason.description, "type": reason.key},
             human_readable_error=reason.description,
@@ -489,7 +488,7 @@ async def _deliver_insight_dashboard_subscription(
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
         recipient_results.append(
             RecipientResult(
-                recipient=recipient_label(subscription),
+                recipient=subscription.recipient_label,
                 status="failed",
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
                 human_readable_error=NO_ASSETS_HUMAN_READABLE_REASON,
@@ -578,10 +577,7 @@ async def create_delivery_record(inputs: CreateDeliveryRecordInputs) -> uuid.UUI
                 "trigger_type": inputs.trigger_type,
                 "scheduled_at": scheduled_at,
                 "target_type": subscription.target_type,
-                # The snapshot is read-only history the API hands back in list responses, so a
-                # webhook target is recorded by host. The subscription's own target_value stays
-                # whole, because the edit form has to load the URL back.
-                "target_value": recipient_label(subscription),
+                "target_value": subscription.recipient_label,
                 "content_snapshot": content_snapshot,
                 "status": SubscriptionDelivery.Status.STARTING,
             },

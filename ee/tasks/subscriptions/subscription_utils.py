@@ -22,13 +22,14 @@ UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in products/subscriptions/frontend/components/Subscriptions/insightSelectorLogic.ts.
 MAX_INSIGHTS = 10
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
+# Marks text every channel had to cut short. Shared so email, Slack and Teams read the same.
+TRUNCATION_MARKER = "... (truncated)"
 # Bounds one failed asset's error text so a run where several fail cannot push a message past the
 # destination's payload limit on its own.
 _MAX_ASSET_ERROR_LENGTH = 2000
 # Locally rendered assets live on a localhost URL that Slack and Microsoft cannot fetch, so the
 # message links a public placeholder instead of an image that would render broken. Keep this on a
-# domain we control, because a third-party placeholder can be retired without warning. This is the
-# square app icon the repo already ships, served from the repository itself.
+# domain we control, because a third-party placeholder can be retired without warning.
 DEBUG_PLACEHOLDER_IMAGE_URL = (
     "https://raw.githubusercontent.com/PostHog/posthog/master/frontend/public/icons/android-chrome-512x512.png"
 )
@@ -81,7 +82,7 @@ def failed_asset_details(asset: ExportedAsset) -> FailedAssetDetails:
     if asset.exception:
         error_text = subscription_asset_error_message(asset)
         if len(error_text) > _MAX_ASSET_ERROR_LENGTH:
-            error_text = error_text[:_MAX_ASSET_ERROR_LENGTH] + "... (truncated)"
+            error_text = error_text[:_MAX_ASSET_ERROR_LENGTH] + TRUNCATION_MARKER
     else:
         error_text = ASSET_GENERATION_FAILED_MESSAGE
     return FailedAssetDetails(insight_name=insight_name, error_text=error_text)
@@ -92,9 +93,6 @@ def subscription_support_url(resource_url: str) -> str:
 
 
 def summary_skipped_over_budget_message(billing_settings_link: str) -> str:
-    """Shown in place of the AI summary when the organization is over its AI credit budget.
-    `billing_settings_link` is the caller's own markup for a link to billing settings, because Slack
-    mrkdwn and Adaptive Card markdown spell a link differently."""
     return (
         "AI summary skipped. Your organization has reached its AI credit usage limit. "
         f"Increase the limit in {billing_settings_link} to resume summaries."

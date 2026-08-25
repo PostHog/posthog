@@ -42,12 +42,12 @@ from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
+from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
-from products.alerts.backend.facade.api import is_microsoft_teams_webhook_url
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
@@ -73,7 +73,7 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
-from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -370,7 +370,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "target_value": {
                 "help_text": (
                     "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, "
-                    "or a Microsoft Teams webhook URL for teams."
+                    "or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as "
+                    "its host, because the URL authorizes a post to the channel by itself. Omit the field to "
+                    "keep the stored URL, or send a full URL to replace it."
                 )
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
@@ -574,9 +576,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             raise ValidationError(f"{base}.")
 
         if target_type == Subscription.SubscriptionTarget.TEAMS:
-            # Scheme and host only. The delivery activity runs the full SSRF validation, because a
-            # resolver timeout here would add latency to every save and fail some of them outright.
-            target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else "")
+            submitted = (attrs.get("target_value") or "").strip()
+            # Reads return the host, so a client that sends back what it read would otherwise
+            # overwrite the stored URL with a value that can never deliver.
+            if self.instance and submitted and submitted == self.instance.recipient_label:
+                raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
+            target_value = submitted or (self.instance.target_value if self.instance else "")
             if not is_microsoft_teams_webhook_url(target_value):
                 raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
 
@@ -809,6 +814,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     ]
                 }
             )
+
+    def to_representation(self, instance: Subscription) -> dict:
+        data = super().to_representation(instance)
+        # A Teams webhook URL authorizes a post to the channel on its own, so read access to a
+        # subscription must not hand it out. Same host-only value the delivery snapshot carries.
+        if instance.target_type == Subscription.SubscriptionTarget.TEAMS:
+            data["target_value"] = instance.recipient_label
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]

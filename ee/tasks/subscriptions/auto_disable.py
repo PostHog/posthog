@@ -82,7 +82,6 @@ def target_type_label(target_type: str | None) -> str:
     try:
         return Subscription.SubscriptionTarget(target_type).label
     except ValueError:
-        # A legacy or removed target still has to render something in the rejection message.
         return target_type
 
 
