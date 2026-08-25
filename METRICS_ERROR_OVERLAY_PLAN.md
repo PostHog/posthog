@@ -302,3 +302,29 @@ to prove this overlay. Verification instead:
    marker is the one open item if a human wants to eyeball the actual
    chart rendering — it needs a port-free `hogli start` and a team with
    `METRICS` feature-flagged on and real metrics ingested.
+
+## Open design questions (deferred)
+
+Manual verification against seeded data surfaced a design question worth
+settling before this goes past PoC, not a bug: the PoC currently renders
+trace exemplars and error-spike markers as the same kind of visual element
+(a small circle) in the same position (pinned to the plot baseline),
+distinguished only by color.
+
+- **Same element type or not?** A shared dot shape reads as "these are the
+  same kind of thing, just colored differently," which may undersell that
+  one pivots to a trace and the other to an error-tracking issue with very
+  different downstream context. A distinct shape or icon per kind (not just
+  color) could make the two pivots more discoverable at a glance, especially
+  for a colorblind user for whom blue-vs-red is not a reliable signal.
+- **Baseline placement or not?** Both marker kinds sit at the bottom of the
+  chart regardless of the metric value at that timestamp, which keeps them
+  from occluding the series lines but also decouples them from "what the
+  metric was doing" at that moment. Placing a marker at (or near) the
+  series value itself would tie it more directly to the spike/anomaly it
+  represents, at the cost of more collision handling against the plotted
+  lines and against each other.
+
+Neither question blocks the PoC's purpose (proving the query path and the
+click-through exist); both are worth a real design pass before this
+overlay ships beyond a feature-flagged alpha.
