@@ -58,9 +58,9 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 ## Rule 4 — Business logic in kea, not React hooks
 
-Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
+Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics`.
 
-**Cleanup in a logic goes through disposables.** If a `*Logic.ts` adds a `setInterval`, `setTimeout`, `addEventListener`, or any other resource that needs teardown, prefer `cache.disposables.add(() => ..., 'key')` over `cache.foo = setInterval(...)` plus `beforeUnmount` cleanup — the plugin handles teardown and auto-pauses on hidden tabs. `add`/`dispose` are no-ops after unmount, so call them without `?.` or a null check. When an async continuation must also skip its own work after an unmount, branch on `cache.disposables.isDisposed`. Invoke `/using-kea-disposables` before making the change.
+**Cleanup in a logic goes through disposables.** Any resource needing teardown (`setInterval`, `setTimeout`, `addEventListener`, …) goes through `cache.disposables.add(...)`, not `beforeUnmount` cleanup. Invoke `/using-kea-disposables` for the mechanics before adding one.
 
 ## Rule 5 — Structure and abstraction
 
@@ -74,7 +74,7 @@ Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Lo
 
 ## Feature flags in stories
 
-If a story renders a component gated on a feature flag, set the flag via the `featureFlags` story parameter — not by calling `featureFlagLogic.setFeatureFlags` imperatively, which is silently dropped in the visual-regression runtime. For a multivariate flag use the record form, e.g. `parameters: { featureFlags: { [FEATURE_FLAGS.MY_FLAG]: 'test_b' } }`. Invoke `/setting-feature-flags-in-storybook` before making the change.
+If a story renders a flag-gated component, set the flag via the `featureFlags` story parameter — an imperative `featureFlagLogic.setFeatureFlags` call is silently dropped in the visual-regression runtime. Invoke `/setting-feature-flags-in-storybook` for the mechanics.
 
 ## Typecheck & typegen cadence (don't over-run these)
 

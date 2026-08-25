@@ -7,6 +7,6 @@ paths:
   - 'products/desktop/packages/api-client/src/mcp-gateway.ts'
 ---
 
-The MCP store UI is implemented twice against the same backend, and the feature set always changes for
-both apps together. Read ["Keep the desktop UI in sync"](../../products/mcp_store/README.md#keep-the-desktop-ui-in-sync)
+The MCP store UI is implemented twice against the same backend. Read
+["Keep the desktop UI in sync"](../../products/mcp_store/README.md#keep-the-desktop-ui-in-sync)
 for the directory mapping and what a change here owes the other app.

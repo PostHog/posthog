@@ -8,7 +8,7 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 
 ## Before you edit a `@workflow.defn` body
 
-- [Version a workflow before you edit its body](./README.md#version-a-workflow-before-you-edit-its-body) — adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers breaks in-flight executions with "Non Deterministic Error". Read this before touching a workflow command sequence; activity implementations and activity input dataclasses are safe to edit without it.
+- [Version a workflow before you edit its body](./README.md#version-a-workflow-before-you-edit-its-body) — adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers breaks in-flight executions with "Non Deterministic Error"; activity implementations and activity input dataclasses are safe to edit freely.
 
 ## Writing or modifying tests in this tree
 
