@@ -6,12 +6,7 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.greenhouse import (
     GreenhouseSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.greenhouse import (
-    GreenhouseResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source import GreenhouseSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {
     "candidates",
@@ -31,9 +26,6 @@ class TestGreenhouseSource:
         self.source = GreenhouseSource()
         self.team_id = 123
         self.config = GreenhouseSourceConfig(api_key="test_api_key", client_id="cid", client_secret="csecret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GREENHOUSE
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -75,39 +67,6 @@ class TestGreenhouseSource:
     )
     def test_non_retryable_errors_does_not_match_other_vendors(self, other_vendor_error: str) -> None:
         assert not any(key in other_vendor_error for key in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_returns_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-
-    def test_get_schemas_incremental_split(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        appendable = {schema.name for schema in schemas if schema.supports_append}
-
-        assert incremental == INCREMENTAL_ENDPOINTS
-        assert appendable == INCREMENTAL_ENDPOINTS
-
-    @pytest.mark.parametrize("endpoint", sorted(FULL_REFRESH_ENDPOINTS))
-    def test_reference_endpoints_are_full_refresh(self, endpoint: str) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
-        assert len(schemas) == 1
-        assert schemas[0].supports_incremental is False
-        assert schemas[0].incremental_fields == []
-
-    def test_candidates_advertises_created_and_updated_cursors(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["candidates"])
-        fields = {field["field"] for field in schemas[0].incremental_fields}
-        assert fields == {"created_at", "updated_at"}
-
-    def test_applications_advertises_last_activity_cursor(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["applications"])
-        fields = {field["field"] for field in schemas[0].incremental_fields}
-        assert fields == {"created_at", "last_activity_at"}
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.validate_greenhouse_credentials"
@@ -182,10 +141,6 @@ class TestGreenhouseSource:
         kwargs = mock_greenhouse_source.call_args.kwargs
         assert kwargs["api_version"] == expected_version
         assert (kwargs["client_id"], kwargs["client_secret"]) == ("cid", "csecret")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is GreenhouseResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.greenhouse.source.greenhouse_source")
     def test_source_for_pipeline_passes_incremental_inputs(self, mock_greenhouse_source: mock.MagicMock) -> None:

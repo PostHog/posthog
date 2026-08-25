@@ -14,6 +14,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { experimentLogic } from '../experimentLogic'
+import { hasEnded } from '../experimentStatus'
 
 /**
  * Hook to check if experiment data is stale and trigger refresh if needed.
@@ -65,14 +66,21 @@ function useStaleDataCheck({
     }, [lastRefresh, enabled, intervalSeconds, onRefresh])
 }
 
-export const ExperimentLastRefreshText = ({ lastRefresh }: { lastRefresh: string | null }): JSX.Element => {
-    const colorClass = lastRefresh
-        ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-            ? 'text-danger'
-            : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-              ? 'text-warning'
-              : ''
-        : ''
+export const ExperimentLastRefreshText = ({
+    lastRefresh,
+    showStaleness = true,
+}: {
+    lastRefresh: string | null
+    showStaleness?: boolean
+}): JSX.Element => {
+    const colorClass =
+        showStaleness && lastRefresh
+            ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
+                ? 'text-danger'
+                : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
+                  ? 'text-warning'
+                  : ''
+            : ''
 
     return <span className={colorClass}>{lastRefresh ? <TZLabel time={lastRefresh} /> : 'a while ago'}</span>
 }
@@ -100,13 +108,16 @@ export const ExperimentReloadAction = ({
     onClick: () => void
     progress?: { completed: number; total: number }
 }): JSX.Element => {
-    const { autoRefresh } = useValues(experimentLogic)
+    const { autoRefresh, experiment } = useValues(experimentLogic)
     const { setAutoRefresh, setPageVisibility, stopAutoRefreshInterval } = useActions(experimentLogic)
+
+    // Completed experiments have final results: no staleness warning, no auto refresh
+    const ended = hasEnded(experiment)
 
     // Check if data is stale on mount or when page becomes visible
     useStaleDataCheck({
         lastRefresh,
-        enabled: autoRefresh.enabled,
+        enabled: autoRefresh.enabled && !ended,
         intervalSeconds: autoRefresh.interval,
         onRefresh: onClick,
     })
@@ -147,55 +158,63 @@ export const ExperimentReloadAction = ({
                     icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                     data-attr="refresh-experiment"
                     disabledReason={isRefreshing ? 'Loading...' : null}
-                    sideAction={{
-                        'data-attr': 'refresh-experiment-dropdown',
-                        dropdown: {
-                            closeOnClickInside: false,
-                            placement: 'bottom-end',
-                            overlay: (
-                                <LemonMenuOverlay
-                                    items={[
-                                        {
-                                            label: () => (
-                                                <LemonSwitch
-                                                    onChange={(checked) =>
-                                                        setAutoRefresh(checked, autoRefresh.interval)
-                                                    }
-                                                    label="Auto refresh while on page"
-                                                    checked={autoRefresh.enabled}
-                                                    fullWidth
-                                                    className="mt-1 mb-2"
-                                                />
-                                            ),
-                                        },
-                                        ...(autoRefresh.enabled
-                                            ? [
+                    sideAction={
+                        ended
+                            ? undefined
+                            : {
+                                  'data-attr': 'refresh-experiment-dropdown',
+                                  dropdown: {
+                                      closeOnClickInside: false,
+                                      placement: 'bottom-end',
+                                      overlay: (
+                                          <LemonMenuOverlay
+                                              items={[
                                                   {
-                                                      title: 'Refresh interval',
-                                                      items: [
-                                                          {
-                                                              label: () => (
-                                                                  <LemonRadio
-                                                                      value={autoRefresh.interval}
-                                                                      options={options}
-                                                                      onChange={(value: number) => {
-                                                                          setAutoRefresh(true, value)
-                                                                      }}
-                                                                      className="mx-2 mb-1"
-                                                                  />
-                                                              ),
-                                                          },
-                                                      ],
+                                                      label: () => (
+                                                          <LemonSwitch
+                                                              onChange={(checked) =>
+                                                                  setAutoRefresh(checked, autoRefresh.interval)
+                                                              }
+                                                              label="Auto refresh while on page"
+                                                              checked={autoRefresh.enabled}
+                                                              fullWidth
+                                                              className="mt-1 mb-2"
+                                                          />
+                                                      ),
                                                   },
-                                              ]
-                                            : []),
-                                    ]}
-                                />
-                            ),
-                        },
-                    }}
+                                                  ...(autoRefresh.enabled
+                                                      ? [
+                                                            {
+                                                                title: 'Refresh interval',
+                                                                items: [
+                                                                    {
+                                                                        label: () => (
+                                                                            <LemonRadio
+                                                                                value={autoRefresh.interval}
+                                                                                options={options}
+                                                                                onChange={(value: number) => {
+                                                                                    setAutoRefresh(true, value)
+                                                                                }}
+                                                                                className="mx-2 mb-1"
+                                                                            />
+                                                                        ),
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ]
+                                                      : []),
+                                              ]}
+                                          />
+                                      ),
+                                  },
+                              }
+                    }
                 >
-                    {isRefreshing ? loadingText : <ExperimentLastRefreshText lastRefresh={lastRefresh} />}
+                    {isRefreshing ? (
+                        loadingText
+                    ) : (
+                        <ExperimentLastRefreshText lastRefresh={lastRefresh} showStaleness={!ended} />
+                    )}
                 </LemonButton>
                 <LemonBadge
                     size="small"
@@ -204,7 +223,7 @@ export const ExperimentReloadAction = ({
                             <IconRefresh className="mr-0" /> {humanFriendlyDuration(autoRefresh.interval)}
                         </>
                     }
-                    visible={autoRefresh.enabled}
+                    visible={autoRefresh.enabled && !ended}
                     position="top-right"
                     status="muted"
                 />

@@ -50,6 +50,7 @@ from posthog.hogql.resolver_utils import (
     lookup_field_by_name,
     lookup_table_by_name,
     suggest_field_names,
+    suggested_field_fix,
 )
 from posthog.hogql.type_system import (
     infer_array_access_constant_type,
@@ -2312,6 +2313,9 @@ class Resolver(CloningVisitor):
 
             suggestions = suggest_field_names(scope, name, self.context)
             suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            # The message lists every close match, but a quick fix can only substitute one, so it
+            # offers the best of them. `get_close_matches` returns them in descending similarity.
+            fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -2321,13 +2325,14 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}")
+                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}", node=node, fix=fix)
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
                     end=node.end,
                     message=f"Unable to resolve field: {name}{suggestion_suffix}",
+                    fix=fix,
                 )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.

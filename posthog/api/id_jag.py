@@ -269,18 +269,19 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     id_jag_email = unverified_claims.get("email") or unverified_claims.get("sub") or ""
 
-    org_domain, error = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_email, issuer)
-    if org_domain is None or error:
+    resolution = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_email, issuer)
+    if resolution.organization_domain is None or resolution.identity_provider_config is None or resolution.error:
         # Do not echo the specific reason — see GENERIC_ID_JAG_REJECTION.
         logger.info(
             "id_jag_token_rejected",
-            reason=error or "ID-JAG configuration is invalid",
+            reason=resolution.error or "ID-JAG configuration is invalid",
             issuer=issuer,
             stage="pre_signature_domain_lookup",
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    idp_config = org_domain.idp_config
+    org_domain = resolution.organization_domain
+    idp_config = resolution.identity_provider_config
     expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
     provider_name = org_domain.domain
 
