@@ -44,12 +44,22 @@ impl<'a> MakeWriter<'a> for BrokenPipeSafeStderr {
 
 /// Backs [`safe_eprintln!`]. Writes a line to stderr, dropping a broken pipe.
 pub fn write_stderr_line(args: std::fmt::Arguments<'_>) {
-    let _ = writeln!(IgnoreBrokenPipe(io::stderr()), "{args}");
+    write_line(IgnoreBrokenPipe(io::stderr()), args, "stderr");
 }
 
 /// Backs [`safe_println!`]. Writes a line to stdout, dropping a broken pipe.
 pub fn write_stdout_line(args: std::fmt::Arguments<'_>) {
-    let _ = writeln!(IgnoreBrokenPipe(io::stdout()), "{args}");
+    write_line(IgnoreBrokenPipe(io::stdout()), args, "stdout");
+}
+
+/// Writes one line, dropping a broken pipe but panicking on any other write
+/// error. A real failure such as a full disk must surface the way the std
+/// `println!`/`eprintln!` macros would, so the command does not report success
+/// after failing to emit its output.
+fn write_line<W: Write>(mut writer: W, args: std::fmt::Arguments<'_>, target: &str) {
+    if let Err(e) = writeln!(writer, "{args}") {
+        panic!("failed printing to {target}: {e}");
+    }
 }
 
 /// `eprintln!` that drops broken-pipe errors instead of panicking.
@@ -99,6 +109,25 @@ mod tests {
         assert_eq!(
             writer.flush().unwrap_err().kind(),
             io::ErrorKind::PermissionDenied
+        );
+    }
+
+    #[test]
+    fn write_line_drops_broken_pipe() {
+        write_line(
+            IgnoreBrokenPipe(FailingWriter(io::ErrorKind::BrokenPipe)),
+            format_args!("hello"),
+            "test",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "failed printing to test")]
+    fn write_line_panics_on_other_errors() {
+        write_line(
+            IgnoreBrokenPipe(FailingWriter(io::ErrorKind::PermissionDenied)),
+            format_args!("hello"),
+            "test",
         );
     }
 }
