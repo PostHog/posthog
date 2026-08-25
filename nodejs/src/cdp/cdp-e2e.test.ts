@@ -10,7 +10,7 @@ import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -609,7 +609,7 @@ describe('CDP Consumer loop', () => {
                 return ActualKafkaProducerWrapper.create(...args)
             })
 
-            await resetKafka()
+            await ensureKafkaTopics(TEST_KAFKA_TOPICS)
             await resetTestDatabase()
             hub = await createHub()
 
