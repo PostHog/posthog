@@ -21,7 +21,7 @@ import {
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
-import { createMarketingAnalyticsOrderBy, isDraftConversionGoalColumn } from './utils'
+import { createMarketingAnalyticsOrderBy, goalSumsAProperty, isDraftConversionGoalColumn } from './utils'
 
 export type ExternalTable = {
     name: string
@@ -157,17 +157,29 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                           )
                           .flat()
 
-                // ROAS divides revenue-goal value by spend, so it needs both a revenue goal and a
+                // ROAS and CAC both divide against spend, so each needs a goal flagged for it and a
                 // Cost column at this drill-down level.
-                const roasColumn =
-                    featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETURN_METRICS] &&
+                const returnMetricsAvailable =
+                    !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RETURN_METRICS] &&
                     costAvailable &&
-                    !config.excludesConversionGoals &&
-                    conversionGoals.some((goal) => goal.counts_as_revenue)
+                    !config.excludesConversionGoals
+                // Match the backend's eligibility, or a requested column the backend omits just
+                // vanishes from the table. ROAS needs a goal whose value is money, so a counting
+                // revenue goal doesn't qualify. CAC takes any customer goal: a summing one
+                // contributes its paired count column rather than its value.
+                const roasColumn =
+                    returnMetricsAvailable &&
+                    conversionGoals.some((goal) => goal.counts_as_revenue && goalSumsAProperty(goal))
                         ? [MarketingAnalyticsConstants.Roas]
                         : []
+                const cacColumn =
+                    returnMetricsAvailable && conversionGoals.some((goal) => goal.counts_as_customer)
+                        ? [`${MarketingAnalyticsConstants.CostPer} ${MarketingAnalyticsConstants.Customer}`]
+                        : []
 
-                const selectColumns = [...baseColumns, ...conversionGoalColumns, ...roasColumn].filter(isNotNil)
+                const selectColumns = [...baseColumns, ...conversionGoalColumns, ...roasColumn, ...cacColumn].filter(
+                    isNotNil
+                )
                 return selectColumns
             },
         ],

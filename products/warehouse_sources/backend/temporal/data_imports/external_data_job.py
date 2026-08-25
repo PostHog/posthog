@@ -159,6 +159,17 @@ Any_Source_Errors: dict[str, str | None] = {
     # it here so every other source stops retrying too. The enriched message names the offending column
     # and shows example cells, so keep the raw error rather than replacing it with a generic one.
     "must be real number, not str": None,
+    # Raised by botocore (`is_valid_endpoint_url`) when the object storage endpoint URL has a
+    # hostname it rejects — most often an underscore, invalid in a DNS hostname but common in a
+    # self-hosted deployment's OBJECT_STORAGE_ENDPOINT (e.g. a docker service name). The endpoint is
+    # fixed for the deployment, so every retry replays the identical ValueError. Batch exports already
+    # classifies this the same way (InvalidS3EndpointError). Match the stable "Invalid endpoint:"
+    # prefix, not the URL itself, which can carry deployment host detail.
+    "Invalid endpoint: ": (
+        "The object storage endpoint URL isn't valid. Its hostname contains characters that S3 "
+        "clients reject, such as an underscore. Fix the endpoint URL in your object storage settings, "
+        "then re-enable the sync."
+    ),
 }
 
 

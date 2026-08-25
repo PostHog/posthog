@@ -26,8 +26,6 @@ keep the dependency map returned by `canvas-source-retrieve` unchanged.
   active.
 - Use Zod at untrusted boundaries, including declared external API responses and parsed CSV rows.
 - Use lodash-es named imports so the builder can remove unused helpers.
-- Lucide does not include brand or logo icons such as `Github`. Use a generic icon such as
-  `GitBranch`, or render the brand name as text.
 - React Markdown does not enable raw HTML by default. Do not add plugins or renderers that execute
   HTML from untrusted content.
 - Papa Parse processes text already available to the canvas. Loading a remote CSV still requires its

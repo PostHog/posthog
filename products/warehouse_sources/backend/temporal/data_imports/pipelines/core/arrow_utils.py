@@ -587,6 +587,48 @@ def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed
             existing["is_nullable"] = observed["is_nullable"]
 
 
+BINARY_ID_COLUMN_NAMES = {"id", "uuid", "guid"}
+
+
+def _is_id_like_column(column_name: str, primary_keys: Sequence[str] | None) -> bool:
+    lowered = column_name.lower()
+    if lowered in BINARY_ID_COLUMN_NAMES or lowered.endswith("_id"):
+        return True
+    return any(lowered == key.lower() for key in (primary_keys or []))
+
+
+class BinaryColumnReporter:
+    """Logs each binary column's outcome once per instance lifetime (one sync), because
+    `_process_batch` runs per batch and logging there directly would repeat the same line
+    for every batch in the sync logs."""
+
+    def __init__(self, logger: FilteringBoundLogger) -> None:
+        self._logger = logger
+        self._reported_columns: set[str] = set()
+
+    def _once(self, column_name: str) -> bool:
+        if column_name in self._reported_columns:
+            return False
+        self._reported_columns.add(column_name)
+        return True
+
+    def converted(self, column_name: str) -> None:
+        if self._once(column_name):
+            self._logger.info(f"Column '{column_name}' has a binary data type. Its values were synced as hex strings.")
+
+    def dropped(self, column_name: str) -> None:
+        if self._once(column_name):
+            self._logger.warning(
+                f"Column '{column_name}' was not synced because its binary data type is not supported."
+            )
+
+    def conversion_failed(self, column_name: str, error: Exception) -> None:
+        if self._once(column_name):
+            self._logger.warning(
+                f"Column '{column_name}' was not synced because its binary values could not be converted to hex strings: {error}"
+            )
+
+
 def _convert_uuid_to_string(row: dict) -> dict:
     return {key: str(value) if isinstance(value, uuid.UUID) else value for key, value in row.items()}
 
@@ -601,22 +643,36 @@ def _json_dumps(obj: Any) -> str:
             return str(obj)
 
 
-def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_iterator(
+    data_iterator: Iterator[dict],
+    schema: Optional[pa.Schema] = None,
+    *,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(batch, schema)
+    processed_batch = _process_batch(batch, schema, primary_keys=primary_keys, binary_reporter=binary_reporter)
 
     return processed_batch
 
 
-def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_py_list(
+    table_data: list[Any],
+    schema: Optional[pa.Schema] = None,
+    *,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
-    return table_from_iterator(iter(table_data), schema=schema)
+    return table_from_iterator(
+        iter(table_data), schema=schema, primary_keys=primary_keys, binary_reporter=binary_reporter
+    )
 
 
 def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -> pa.Schema:
@@ -936,7 +992,13 @@ def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str
     return serialized_rows, dict_columns
 
 
-def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def _process_batch(
+    table_data: list[dict],
+    schema: Optional[pa.Schema] = None,
+    *,
+    primary_keys: Optional[Sequence[str]] = None,
+    binary_reporter: Optional[BinaryColumnReporter] = None,
+) -> pa.Table:
     table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
 
     # Support both given schemas and inferred schemas
@@ -1049,9 +1111,32 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 adjusted_field = arrow_schema.field(field_index).with_type(pa.timestamp("us")).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
-            # Remove any binary columns
+            # Binary columns can't be queried, so they are dropped; id-like ones are kept as hex
+            # strings because they are usually the table's key, and losing the key breaks joins
+            # and incremental merges on the synced table.
             if pa.types.is_binary(field.type):
-                drop_column_names.add(field_name)
+                if _is_id_like_column(str(field_name), primary_keys):
+                    try:
+                        hex_array = pa.array(
+                            [None if s is None else s.hex() for s in _to_list_array(columnar_table_data[field_name])]
+                        )
+                    except (AttributeError, TypeError, ValueError) as e:
+                        if binary_reporter:
+                            binary_reporter.conversion_failed(str(field_name), e)
+                        drop_column_names.add(field_name)
+                    else:
+                        columnar_table_data[field_name] = hex_array
+                        py_type = str
+                        unique_types_in_column = {str}
+                        arrow_schema = arrow_schema.set(
+                            field_index, arrow_schema.field(field_index).with_type(pa.string())
+                        )
+                        if binary_reporter:
+                            binary_reporter.converted(str(field_name))
+                else:
+                    if binary_reporter:
+                        binary_reporter.dropped(str(field_name))
+                    drop_column_names.add(field_name)
 
             # Ensure duration columns have the correct arrow type
             col = columnar_table_data[field_name]
@@ -1236,11 +1321,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # If str and dict are shared - then turn everything into a json string
+        # If str and dict are shared - then turn everything into a json string. A column can also
+        # carry a third type alongside them (e.g. an int, as with a free-form field that varies per
+        # row) — JSON-dump anything that isn't already a string rather than only dict/list, so that
+        # third type doesn't reach pa.array() unconverted and raise ArrowTypeError.
         if len(unique_types_in_column) > 1 and str in unique_types_in_column and dict in unique_types_in_column:
             json_array = pa.array(
                 [
-                    None if s is None else _json_dumps(s) if isinstance(s, dict | list) else s
+                    None if s is None else s if isinstance(s, str) else _json_dumps(s)
                     for s in _to_list_array(columnar_table_data[field_name])
                 ]
             )
@@ -1281,9 +1369,32 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # Remove any binary columns
+        # Same keep-or-drop rule as the schema-typed binary branch above; this one catches
+        # columns whose binary type is only visible from the Python values (e.g. inferred
+        # schemas, or a declared type the values don't match).
         if issubclass(py_type, bytes):
-            drop_column_names.add(field_name)
+            if _is_id_like_column(str(field_name), primary_keys):
+                try:
+                    hex_array = pa.array(
+                        [None if s is None else s.hex() for s in _to_list_array(columnar_table_data[field_name])]
+                    )
+                except (AttributeError, TypeError, ValueError) as e:
+                    if binary_reporter:
+                        binary_reporter.conversion_failed(str(field_name), e)
+                    drop_column_names.add(field_name)
+                else:
+                    columnar_table_data[field_name] = hex_array
+                    py_type = str
+                    if arrow_schema:
+                        arrow_schema = arrow_schema.set(
+                            field_index, arrow_schema.field(field_index).with_type(pa.string())
+                        )
+                    if binary_reporter:
+                        binary_reporter.converted(str(field_name))
+            else:
+                if binary_reporter:
+                    binary_reporter.dropped(str(field_name))
+                drop_column_names.add(field_name)
 
     if len(drop_column_names) != 0:
         for column in drop_column_names:

@@ -105,7 +105,7 @@ describe("combineGithubRepositories", () => {
       result({ integrationId: 2, repos: ["a/x", "a/z"] }),
     ];
 
-    const combined = combineGithubRepositories(results);
+    const combined = combineGithubRepositories(results, [1, 2]);
 
     expect(combined.repositoryMap).toEqual({
       "a/x": 1,
@@ -113,13 +113,27 @@ describe("combineGithubRepositories", () => {
       "a/z": 2,
     });
     expect(combined.isPending).toBe(false);
+    expect(combined.failedIntegrationIds).toEqual([]);
   });
 
   it("reports pending when any result is pending", () => {
-    const combined = combineGithubRepositories([
-      result<TeamRepositoriesResult>(undefined, { isPending: true }),
-    ]);
+    const combined = combineGithubRepositories(
+      [result<TeamRepositoriesResult>(undefined, { isPending: true })],
+      [1],
+    );
     expect(combined.isPending).toBe(true);
+  });
+
+  it("tallies failed integration ids so the row can flag the failure", () => {
+    const results: RepositoryQueryResult<TeamRepositoriesResult>[] = [
+      result({ integrationId: 1, repos: ["a/x"] }),
+      result<TeamRepositoriesResult>(undefined, { isError: true }),
+    ];
+
+    const combined = combineGithubRepositories(results, [1, 2]);
+
+    expect(combined.repositoryMap).toEqual({ "a/x": 1 });
+    expect(combined.failedIntegrationIds).toEqual([2]);
   });
 });
 

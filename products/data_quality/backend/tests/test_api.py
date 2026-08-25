@@ -12,6 +12,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
@@ -20,8 +21,6 @@ from products.data_quality.backend.presentation.serializers import DataQualitySu
 from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
@@ -346,6 +345,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=response.json()["id"])
         assert suite_run.status == "running"
         assert response.json()["workflow_id"] == suite_run.workflow_id
+        # The handle is only pollable if it carries the subject: the nested routes filter on it.
+        polled = self.client.get(f"{self._suite_runs_url()}/{suite_run.id}/")
+        assert polled.status_code == status.HTTP_200_OK
+        listed = self.client.get(f"{self._suite_runs_url()}/")
+        assert str(suite_run.id) in {row["id"] for row in listed.json()["results"]}
 
     def test_run_all_records_the_subject_on_the_report(self) -> None:
         self._create_check()

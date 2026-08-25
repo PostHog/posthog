@@ -1415,6 +1415,12 @@ class TestSelfCaptureBrowserFlagToken(TestCase):
         # is the first one. Cascade deletes roll back with the test transaction.
         User.objects.all().delete()
         Organization.objects.all().delete()
+        # POSTHOG_SELF_TEAM_ID steers the browser token as well as the flag provider, so set the
+        # environment per test instead of inheriting whatever the ambient one holds.
+        env_patch = patch.dict(os.environ, {}, clear=False)
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
     @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
     def test_browser_token_uses_dogfood_flags_team_not_self_capture_team(self):
@@ -1438,6 +1444,40 @@ class TestSelfCaptureBrowserFlagToken(TestCase):
 
         assert context["js_posthog_api_key"] == first_team.api_token
         assert first_team.api_token != recent_team.api_token
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_honors_explicit_self_team_id(self):
+        # A deploy that pins POSTHOG_SELF_TEAM_ID bootstraps flags from that team, so the browser
+        # token has to follow the pin. Reading the first team by PK instead hands posthog-js the
+        # token of whichever team is oldest, which on a long-lived deploy is a seed team that holds
+        # no internal flag definitions.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        pinned_team = Team.objects.create(organization=organization, name="Pinned")
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = str(pinned_team.id)
+        context = get_context_for_template("head.html", request)
+
+        assert context["js_posthog_api_key"] == pinned_team.api_token
+        assert pinned_team.api_token != first_team.api_token
+
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_browser_token_unset_when_pinned_team_is_absent(self):
+        # The provider still pins flag definitions to the missing id, so falling back to another
+        # team's token would recreate the mismatch the pin exists to remove.
+        organization = Organization.objects.create(name="Org")
+        Team.objects.create(organization=organization, name="First")
+
+        request = RequestFactory().get("/?no-preloaded-app-context=1")
+        request.user = AnonymousUser()
+
+        os.environ["POSTHOG_SELF_TEAM_ID"] = "987654321"
+        context = get_context_for_template("head.html", request)
+
+        assert context.get("js_posthog_api_key") is None
 
 
 VALID_PRELOAD_MANIFEST = {

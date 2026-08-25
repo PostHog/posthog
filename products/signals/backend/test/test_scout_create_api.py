@@ -64,7 +64,9 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert config.enabled is False
         assert config.emit is False
         assert config.run_cron_schedule == "30 9 * * 1-5"
-        assert config.output_destinations == payload["config"]["output_destinations"]
+        assert config.output_destinations == {
+            "slack": {**payload["config"]["output_destinations"]["slack"], "thread_reports": False}
+        }
         assert response.json()["config"]["description"] == payload["description"]
 
     def test_create_stores_normalized_tags_from_the_config_block(self) -> None:

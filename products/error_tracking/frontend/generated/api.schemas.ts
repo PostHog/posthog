@@ -312,6 +312,61 @@ export interface WorkflowVariablePropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export type BehavioralEventSourceApi = (typeof BehavioralEventSourceApi)[keyof typeof BehavioralEventSourceApi]
+
+export const BehavioralEventSourceApi = {
+    Events: 'events',
+    Actions: 'actions',
+} as const
+
+export type TimeUnitTypeApi = (typeof TimeUnitTypeApi)[keyof typeof TimeUnitTypeApi]
+
+export const TimeUnitTypeApi = {
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Year: 'year',
+} as const
+
+export type InlineBehavioralTypeApi = (typeof InlineBehavioralTypeApi)[keyof typeof InlineBehavioralTypeApi]
+
+export const InlineBehavioralTypeApi = {
+    PerformedEvent: 'performed_event',
+    PerformedEventMultiple: 'performed_event_multiple',
+} as const
+
+export interface BehavioralPropertyFilterApi {
+    /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+    event_filters?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | HogQLPropertyFilterApi
+          )[]
+        | null
+    event_type: BehavioralEventSourceApi
+    /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+    /** Event name, or action id when event_type is 'actions' */
+    key: string
+    label?: string | null
+    /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+    negation?: boolean | null
+    /** Count comparison for performed_event_multiple, defaults to exact */
+    operator?: PropertyOperatorApi | null
+    /** Count threshold for performed_event_multiple */
+    operator_value?: number | null
+    time_interval?: TimeUnitTypeApi | null
+    /** Relative time window size, paired with time_interval */
+    time_value?: number | null
+    /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+    type?: 'behavioral'
+    value: InlineBehavioralTypeApi
+}
+
 export interface PropertyGroupFilterValueApi {
     type: FilterLogicalOperatorApi
     values: (
@@ -339,6 +394,7 @@ export interface PropertyGroupFilterValueApi {
         | RevenueAnalyticsPropertyFilterApi
         | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
+        | BehavioralPropertyFilterApi
     )[]
 }
 
@@ -942,6 +998,8 @@ export interface ErrorTrackingIssueDetailApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -1356,6 +1414,8 @@ export interface ErrorTrackingIssueListItemApi {
     description?: string | null
     /** Issue status. */
     status?: string
+    /** Issue severity, or null when no severity is assigned. */
+    severity?: ErrorTrackingIssueSeverityApi | null
     /**
      * First seen timestamp.
      * @nullable
@@ -1943,6 +2003,39 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     skip_on_conflict?: boolean
 }
 
+/**
+ * Form fields to include in the multipart POST, before the file part.
+ */
+export type ErrorTrackingSymbolSetPresignedPostApiFields = { [key: string]: string }
+
+export interface ErrorTrackingSymbolSetPresignedPostApi {
+    /** S3 endpoint URL to send the multipart POST to. */
+    url: string
+    /** Form fields to include in the multipart POST, before the file part. */
+    fields: ErrorTrackingSymbolSetPresignedPostApiFields
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadEntryApi {
+    /** ID of the symbol set the upload belongs to. */
+    symbol_set_id: string
+    /** Presigned POST for the upload. Uses the S3 transfer-acceleration endpoint when configured. */
+    presigned_url: ErrorTrackingSymbolSetPresignedPostApi
+    /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
+    fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPostApi
+}
+
+/**
+ * Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted.
+ */
+export type ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap = {
+    [key: string]: ErrorTrackingSymbolSetBulkStartUploadEntryApi
+}
+
+export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
+    /** Map of chunk ID to upload details. Chunks skipped because their content is unchanged are omitted. */
+    id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
+}
+
 export type ErrorTrackingAssignmentRulesListParams = {
     /**
      * Number of results to return per page.
@@ -1986,10 +2079,9 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles / keys in the provider.
-     * @minLength 1
+     * Text to match against existing issue titles / keys in the provider. GitHub matches it as an exact phrase. Leave blank for recent issues.
      */
-    search: string
+    search?: string
 }
 
 export type ErrorTrackingFingerprintsListParams = {

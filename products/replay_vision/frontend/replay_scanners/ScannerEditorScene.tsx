@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -29,6 +30,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -442,6 +445,11 @@ function EditorFooter({
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
+    // The backend rejects scanner creation without org AI consent, so the popover interposes at
+    // Save instead of letting the request 400.
+    const needsConsent = isNew && !dataProcessingAccepted
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
     const prevStep = previous === 'template' && !isNew ? null : previous
@@ -507,16 +515,33 @@ function EditorFooter({
                             Next: {STEP_LABELS[nextStep]}
                         </LemonButton>
                     ) : (
-                        <LemonButton
-                            type="primary"
-                            loading={isSubmitting}
-                            disabledReason={saveDisabledReason}
-                            onClick={onSave}
-                            data-attr="vision-editor-save"
-                            data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                        <AIConsentPopoverWrapper
+                            placement="top-end"
+                            showArrow
+                            ignoreDismissal
+                            hideTrainingDisclaimer
+                            hidden={!consentRequested}
+                            onApprove={() => {
+                                setConsentRequested(false)
+                                onSave()
+                            }}
+                            onDismiss={() => setConsentRequested(false)}
                         >
-                            {isNew ? 'Create scanner' : 'Save changes'}
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                loading={isSubmitting}
+                                disabledReason={saveDisabledReason}
+                                onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                data-attr="vision-editor-save"
+                                data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                            >
+                                {needsConsent
+                                    ? 'Allow AI analysis and create scanner'
+                                    : isNew
+                                      ? 'Create scanner'
+                                      : 'Save changes'}
+                            </LemonButton>
+                        </AIConsentPopoverWrapper>
                     )}
                 </div>
             </div>

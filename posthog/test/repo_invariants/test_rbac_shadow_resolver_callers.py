@@ -1,7 +1,7 @@
 from pathlib import Path
 
 RESOLVER_NAMES = ("resolve_object_access", "resolve_resource_access")
-ALLOWED = {Path("posthog/rbac/user_access_control.py")}
+ALLOWED = {Path("products/access_control/backend/facade/user_access_control.py")}
 SCANNED_ROOTS = ("posthog", "ee", "products")
 
 

@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -164,13 +165,13 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return cast(RetentionQueryRunner, self.source_runner).group_type_index
 
         if isinstance(self.source_runner, FunnelCorrelationQueryRunner):
-            assert isinstance(self.query, FunnelCorrelationActorsQuery)
-            assert isinstance(self.query.source, FunnelCorrelationQuery)
+            if not isinstance(self.query.source, FunnelCorrelationQuery):
+                raise ExposedHogQLError("Funnel correlation actors query requires a FunnelCorrelationQuery source")
             return self.query.source.source.source.aggregation_group_type_index
 
         if isinstance(self.source_runner, FunnelsQueryRunner):
-            assert isinstance(self.query, FunnelsActorsQuery)
-            assert isinstance(self.query.source, FunnelsQuery)
+            if not isinstance(self.query.source, FunnelsQuery):
+                raise ExposedHogQLError("Funnels actors query requires a FunnelsQuery source")
             return self.query.source.aggregation_group_type_index
 
         if isinstance(self.source_runner, LifecycleQueryRunner):

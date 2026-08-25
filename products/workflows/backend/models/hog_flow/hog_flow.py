@@ -43,7 +43,17 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
 # kind), so the rejection message can say which mistake was made. Mirrors HogFlowTriggerSchema in
 # nodejs/src/cdp/schema/hogflow.ts.
 TRIGGER_TYPES: Final[frozenset[str]] = frozenset(
-    {"event", "schedule", "manual", "batch", "tracking_pixel", "webhook", "data-warehouse-table", "slack-message"}
+    {
+        "event",
+        "schedule",
+        "manual",
+        "batch",
+        "tracking_pixel",
+        "webhook",
+        "data-warehouse-table",
+        "data-warehouse-view",
+        "slack-message",
+    }
 )
 
 # Billable action types that are subject to rate limiting and quota tracking
@@ -68,6 +78,7 @@ PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
 # ROW_SCOPED_TRIGGER_TYPES.
 ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-table",
+    "data-warehouse-view",
     "slack-message",
 }
 
@@ -113,6 +124,10 @@ class HogFlow(UUIDTModel):
     trigger_masking = models.JSONField(null=True, blank=True)
     conversion = models.JSONField(null=True, blank=True)
     exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
+
+    # Optional email pacing for deliverability: {"count": <int>, "period": "minute" | "hour"}.
+    # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
+    email_sending_rate_limit = models.JSONField(null=True, blank=True)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)

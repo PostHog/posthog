@@ -431,7 +431,7 @@ function useOpenSpaceTask(): (spaceId: string, taskId: string) => void {
     // asks for the channel pane opens on the right one.
     setCurrentChannel(spaceId);
     void navigate({
-      to: "/website/$channelId/tasks/$taskId",
+      to: "/spaces/$channelId/tasks/$taskId",
       params: { channelId: spaceId, taskId },
     });
   };
@@ -489,6 +489,7 @@ const SpaceTaskRow = memo(function SpaceTaskRow({
       id: item.id,
       title: item.title,
       isPinned: item.pinned,
+      task: item.task ?? undefined,
       // Ticks the space the session is already in, inside "File to…".
       channelId: spaceId,
       onAddToCommandCenter: actions.commandCenterAssigner(item.id),
@@ -769,8 +770,8 @@ function useChannelActions(channel: Channel): {
         success: true,
       });
       // If we're inside the channel being deleted, fall back to the index.
-      if (pathname.startsWith(`/website/${channel.id}`)) {
-        void navigate({ to: "/website" });
+      if (pathname.startsWith(`/spaces/${channel.id}`)) {
+        void navigate({ to: "/spaces" });
       }
       return true;
     } catch (error) {
@@ -968,7 +969,7 @@ const ChannelSection = memo(
     const noun = spacesLayout ? "space" : "channel";
     const pathname = useRouterState({ select: (s) => s.location.pathname });
     const openChannel = useOpenChannel();
-    const base = `/website/${channel.id}`;
+    const base = `/spaces/${channel.id}`;
     // Highlight the row whenever any of the channel's routes is open.
     const isActive = pathname === base || pathname.startsWith(`${base}/`);
     // Lifted so the hover button group stays visible while the menu is open.
@@ -1318,10 +1319,10 @@ function useOpenPersonalChannel(): {
   const openPersonalChannel = () => {
     const channelId = ensureChannelId();
     if (!channelId) return;
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channelId);
     if (!spacesLayout) {
-      void navigate({ to: "/website/$channelId", params: { channelId } });
+      void navigate({ to: "/spaces/$channelId", params: { channelId } });
     }
   };
 
@@ -1343,11 +1344,11 @@ function useOpenChannel(): (channel: Channel) => void {
       surface: "sidebar",
       channel_id: channel.id,
     });
-    showChannelPane();
+    showChannelPane({ animate: true });
     setCurrentChannel(channel.id);
     if (!spacesLayout) {
       void navigate({
-        to: "/website/$channelId",
+        to: "/spaces/$channelId",
         params: { channelId: channel.id },
       });
     }
@@ -1371,16 +1372,15 @@ const PersonalChannelRow = memo(function PersonalChannelRow({
   const { channels } = useChannels();
   const { ensureChannelId, openPersonalChannel } = useOpenPersonalChannel();
 
-  // Personal channels are provisioned lazily server-side when the channel list
-  // is fetched; `undefined` just means the list hasn't loaded it yet.
+  // Startup provisions #me, so `undefined` means the list has not loaded yet.
   const meChannel = channels.find((c) => c.channelType === "personal");
   const isUnread = useIsChannelUnread()(meChannel?.id);
   const unreadSessions = useUnreadSessionCount()(meChannel?.id);
   const blockedSessions = useBlockedSessionCount()(meChannel?.id);
   const isActive =
     !!meChannel &&
-    (pathname === `/website/${meChannel.id}` ||
-      pathname.startsWith(`/website/${meChannel.id}/`));
+    (pathname === `/spaces/${meChannel.id}` ||
+      pathname.startsWith(`/spaces/${meChannel.id}/`));
 
   const newTask = () => {
     const channelId = ensureChannelId();
@@ -1941,7 +1941,7 @@ export function ChannelsList() {
   const body = (
     <Flex direction="column" className="h-full min-h-0">
       {channelsLayout && (
-        <Box className="shrink-0 px-2 pt-1">
+        <Box className="shrink-0 px-2 pt-2">
           <AutocompleteInput
             ref={searchRef}
             placeholder="Search spaces…"

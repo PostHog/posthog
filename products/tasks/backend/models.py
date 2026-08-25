@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
+from django.utils.functional import Promise
 
 from pydantic import BaseModel
 
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
@@ -80,6 +81,19 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 def _task_ownership_version(state: dict | None) -> str | None:
     value = (state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
     return value if isinstance(value, str) else None
+
+
+def _has_pending_user_input(state: dict[str, Any]) -> bool:
+    return bool(state.get("pending_user_message") or state.get("pending_user_artifact_ids"))
+
+
+def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = False) -> None:
+    if not _has_pending_user_input(state):
+        return
+    existing = state.get("pending_user_message_id")
+    if not refresh and isinstance(existing, str) and existing:
+        return
+    state["pending_user_message_id"] = str(uuid.uuid4())
 
 
 class TaskOwnershipChangedError(RuntimeError):
@@ -203,6 +217,11 @@ class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
 
 
+def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(Task.OriginProduct.choices)
+
+
 class Task(DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
@@ -241,6 +260,7 @@ class Task(DeletedMetaFields, models.Model):
         # minted server-side by products/signals so the origin proves the run is entitled
         # through the generally-available Inbox rather than PostHog Desktop.
         SIGNALS_CHAT = "signals_chat", "Signals Chat"
+        TASK_ANALYSIS = "task_analysis", "Task Analysis"
         # A workflow's "Create AI task" action. Unattended like LOOP; the run executes as
         # the workflow's creator.
         WORKFLOW = "workflow", "Workflow"
@@ -253,7 +273,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct)
+    origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
     client_provenance = models.CharField(
         max_length=32,
         choices=TaskClientProvenance,
@@ -580,9 +600,8 @@ class Task(DeletedMetaFields, models.Model):
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
             is_resume = bool(resume_from_run_id)
-            has_pending = bool(
-                (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
-            )
+            has_pending = _has_pending_user_input(extra_state or {})
+            stamp_pending_user_message_id(state)
             task_run = TaskRun.objects.create(
                 task=task,
                 team=task.team,
@@ -719,6 +738,7 @@ class Task(DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        runtime: str = "acp",
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
@@ -772,6 +792,7 @@ class Task(DeletedMetaFields, models.Model):
             created_by=created_by,
             repository=repository,
             github_integration=github_integration,
+            runtime=runtime,
         )
         authorship_mode = get_pr_authorship_mode(
             task_stub,
@@ -838,6 +859,7 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
             channel=channel,
             internal=internal,
+            runtime=runtime,
             json_schema=resolve_schema(output_schema) if output_schema else None,
             state=initial_state,
             hog_flow_id=hog_flow_id,
@@ -1017,7 +1039,7 @@ class Task(DeletedMetaFields, models.Model):
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        user_id: int,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -1033,8 +1055,10 @@ class Task(DeletedMetaFields, models.Model):
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
+        client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        runtime: str = "acp",
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
@@ -1077,8 +1101,10 @@ class Task(DeletedMetaFields, models.Model):
             origin_key=origin_key,
             sandbox_environment_id=sandbox_environment_id,
             internal=internal,
+            client_provenance=client_provenance,
             output_schema=output_schema,
             interaction_origin=interaction_origin,
+            runtime=runtime,
             runtime_adapter=runtime_adapter,
             model=model,
             reasoning_effort=reasoning_effort,
@@ -1689,7 +1715,7 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # ownership; the loop is still team- and owner-scoped via `team`/`created_by`).
     origin_product = models.CharField(
         max_length=32,
-        choices=Task.OriginProduct.choices,
+        choices=task_origin_product_choices,
         default=Task.OriginProduct.USER_CREATED,
         help_text="Which product or flow created this loop.",
     )
@@ -1961,6 +1987,19 @@ class TaskRun(models.Model):
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
         indexes = [
+            GinIndex(
+                OpClass(KeyTransform("verified_pr_urls", "state"), name="jsonb_path_ops"),
+                name="task_run_verified_pr_urls_idx",
+            ),
+            GinIndex(
+                OpClass(KeyTransform("head_branches", "output"), name="jsonb_path_ops"),
+                name="task_run_head_branches_idx",
+            ),
+            models.Index(
+                fields=["branch"],
+                name="task_run_branch_idx",
+                condition=models.Q(branch__isnull=False),
+            ),
             # Partial functional index backing the per-PR-webhook lookup
             # `filter(output__pr_url=...)`. The equality lookup implies the key is
             # present, so the `IS NOT NULL` condition keeps the index off the many
@@ -2106,8 +2145,13 @@ class TaskRun(models.Model):
         def _mutator(state: dict[str, Any]) -> None:
             for key in remove_keys or []:
                 state.pop(key, None)
-            if updates:
-                state.update(updates)
+            if not updates:
+                return
+            state.update(updates)
+            if "pending_user_message_id" in updates:
+                return
+            if "pending_user_message" in updates or "pending_user_artifact_ids" in updates:
+                stamp_pending_user_message_id(state, refresh=True)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
@@ -2193,6 +2237,26 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
+
+    def signal_client_activity(self) -> None:
+        from products.tasks.backend.redis import get_tasks_cache
+
+        cache_key = f"tasks:task_run:client_activity:{self.id}"
+        if not get_tasks_cache().add(cache_key, True, timeout=60):
+            return
+
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
+        except Exception as e:
+            logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
 
     @property
     def log_url(self) -> str:
@@ -2383,7 +2447,12 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Capture an analytics event for this run. Returns False when it never reached capture.
+
+        The exception stays swallowed — no caller wants a failed analytics call to fail their
+        work — but the outcome is reported so callers tracking event loss can count it.
+        """
         try:
             # The override lets the PR webhook attribute pr_merged to the GitHub user who
             # actually merged, rather than the task's assigned user.
@@ -2427,6 +2496,8 @@ class TaskRun(models.Model):
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
+            return False
+        return True
 
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
@@ -2909,7 +2980,7 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
     origin_product = models.CharField(
         max_length=20,
-        choices=Task.OriginProduct,
+        choices=task_origin_product_choices,
         null=True,
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",
@@ -3398,6 +3469,17 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+class DesktopBetaTermsAcceptance(models.Model):
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        db_constraint=False,
+    )
+    accepted_by_user_id = models.BigIntegerField()
+    accepted_at = models.DateTimeField(auto_now_add=True)
 
 
 # How long a single beacon keeps a device "present" before the row is treated as stale.

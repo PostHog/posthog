@@ -100,6 +100,10 @@ import { extractCanvasInstructions } from "@posthog/ui/features/sessions/compone
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import {
+  extractOnboardingBrief,
+  ONBOARDING_BRIEF_LABEL,
+} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
+import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
@@ -534,14 +538,24 @@ function UserBubble({
     () => extractCustomInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterCustomInstructions = customInstructions
+    ? customInstructions.stripped
+    : afterCanvasInstructions;
+  const onboardingBrief = useMemo(
+    () => extractOnboardingBrief(afterCustomInstructions),
+    [afterCustomInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
   // Provenance is never flag-gated: a peer message must not read as the user's.
   const showHeaderChips =
-    !!peerAgentMessage || showChannelContextTag || showCanvasInstructionsTag;
+    !!peerAgentMessage ||
+    showChannelContextTag ||
+    showCanvasInstructionsTag ||
+    !!onboardingBrief;
   const taskId = useSessionTaskId();
   const openChannelContextInSplit = usePanelLayoutStore(
     (s) => s.openChannelContextInSplit,
@@ -583,6 +597,12 @@ function UserBubble({
                   label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
                 />
               )}
+              {onboardingBrief && (
+                <MentionChip
+                  icon={<FileText size={12} />}
+                  label={ONBOARDING_BRIEF_LABEL}
+                />
+              )}
               {showChannelContextTag && channelContext && (
                 <MentionChip
                   icon={<FileText size={12} />}
@@ -618,53 +638,56 @@ function UserBubble({
               )}
             </ChatMessageHeader>
           )}
-          <ChatBubble
-            align={peerAgentMessage ? "start" : "end"}
-            variant={peerAgentMessage ? "outline" : "default"}
-            className={cn(
-              "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
-              keyboardFocused && "ring-[3px]",
-            )}
-          >
-            <ChatBubbleContent>
-              <div
-                ref={textRef}
-                className={cn(
-                  "[&_p]:my-0",
-                  !isExpanded && "max-h-[5lh] overflow-hidden",
-                  // Fade the clamped text out at the bottom so it reads as "continues below". Only
-                  // when actually overflowing — a short collapsed message shouldn't fade. The mask is
-                  // paint-only, so it doesn't affect the overflow measurement above.
-                  !isExpanded &&
-                    isOverflowing &&
-                    "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
-                )}
-              >
-                {containsFileMentions ? (
-                  parseFileMentions(displayContent)
-                ) : (
-                  <ChatMarkdown content={displayContent} />
-                )}
-              </div>
-              {attachments.length > 0 && !containsFileMentions && (
-                <div className="mt-1.5">
-                  <UserMessageAttachments attachments={attachments} />
-                </div>
+          {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
+          {(!!displayContent || attachments.length > 0) && (
+            <ChatBubble
+              align={peerAgentMessage ? "start" : "end"}
+              variant={peerAgentMessage ? "outline" : "default"}
+              className={cn(
+                "rounded-lg ring-(--gray-11) ring-0 ring-inset transition-shadow",
+                keyboardFocused && "ring-[3px]",
               )}
-              {isOverflowing && (
-                <button
-                  type="button"
-                  onClick={() => setIsExpanded((v) => !v)}
-                  className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
+            >
+              <ChatBubbleContent>
+                <div
+                  ref={textRef}
+                  className={cn(
+                    "[&_p]:my-0",
+                    !isExpanded && "max-h-[5lh] overflow-hidden",
+                    // Fade the clamped text out at the bottom so it reads as "continues below". Only
+                    // when actually overflowing — a short collapsed message shouldn't fade. The mask is
+                    // paint-only, so it doesn't affect the overflow measurement above.
+                    !isExpanded &&
+                      isOverflowing &&
+                      "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
+                  )}
                 >
-                  Show {isExpanded ? "less" : "more"}
-                  <CaretDown
-                    className={cn("size-3", isExpanded && "rotate-180")}
-                  />
-                </button>
-              )}
-            </ChatBubbleContent>
-          </ChatBubble>
+                  {containsFileMentions ? (
+                    parseFileMentions(displayContent)
+                  ) : (
+                    <ChatMarkdown content={displayContent} />
+                  )}
+                </div>
+                {attachments.length > 0 && !containsFileMentions && (
+                  <div className="mt-1.5">
+                    <UserMessageAttachments attachments={attachments} />
+                  </div>
+                )}
+                {isOverflowing && (
+                  <button
+                    type="button"
+                    onClick={() => setIsExpanded((v) => !v)}
+                    className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
+                  >
+                    Show {isExpanded ? "less" : "more"}
+                    <CaretDown
+                      className={cn("size-3", isExpanded && "rotate-180")}
+                    />
+                  </button>
+                )}
+              </ChatBubbleContent>
+            </ChatBubble>
+          )}
           {timestamp != null && (
             <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}
