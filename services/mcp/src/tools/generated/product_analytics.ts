@@ -17,7 +17,14 @@ import {
     InsightsTrendingRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AssistantInsightVizNode = z.object({
@@ -336,7 +343,7 @@ const InsightUpdateSchema = z.preprocess(
         })
 )
 
-const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Schemas.Insight>> => ({
+const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithAgentNote<WithPostHogUrl<Schemas.Insight>>> => ({
     name: 'insight-update',
     schema: InsightUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof InsightUpdateSchema>) => {
@@ -374,7 +381,10 @@ const insightUpdate = (): ToolBase<typeof InsightUpdateSchema, WithPostHogUrl<Sc
             'hogql',
             'types',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
+            "If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a recurring delivery of that dashboard as a next step. Describe it the way a person would recognize it, for example 'a weekly email every Monday morning with these charts attached', or the same thing posted to a Slack channel. First call subscriptions-list to check whether that dashboard already has one, and do not offer a second. To create it, use subscriptions-create with `dashboard` set to the dashboard's id, `dashboard_export_insights` listing the charts to include (max 6), and `target_type` of `email` or `slack`. Say nothing about subscriptions when this update left `dashboards` alone or only removed the insight from a dashboard. If the user already declined a subscription earlier in this conversation, do not offer again.\n"
+        )
     },
 })
 

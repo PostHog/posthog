@@ -183,6 +183,15 @@ tools:
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results.
+        agent_note: >
+            If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
+            recurring delivery of that dashboard as a next step. Describe it the way a person would recognize it, for
+            example 'a weekly email every Monday morning with these charts attached', or the same thing posted to a
+            Slack channel. First call subscriptions-list to check whether that dashboard already has one, and do not
+            offer a second. To create it, use subscriptions-create with `dashboard` set to the dashboard's id,
+            `dashboard_export_insights` listing the charts to include (max 6), and `target_type` of `email` or `slack`.
+            Say nothing about subscriptions when this update left `dashboards` alone or only removed the insight from a
+            dashboard. If the user already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - query
         include_params:

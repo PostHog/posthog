@@ -38,16 +38,21 @@ import {
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
+    withAgentNote,
     omitResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithAgentNote,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DashboardCreateSchema = DashboardsCreateQueryParams.omit({ format: true }).extend(DashboardsCreateBody.shape)
 
-const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUrl<Schemas.Dashboard>> => ({
+const dashboardCreate = (): ToolBase<
+    typeof DashboardCreateSchema,
+    WithAgentNote<WithPostHogUrl<Schemas.Dashboard>>
+> => ({
     name: 'dashboard-create',
     schema: DashboardCreateSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardCreateSchema>) => {
@@ -139,7 +144,10 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
             'tiles.*.insight.timezone',
             'tiles.*.insight.resolved_date_range',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`),
+            "If this dashboard was created from a template (`use_template`) or by duplicating another dashboard (`use_dashboard`), it already has charts on it, so consider offering the user a recurring delivery as a next step. Describe it the way a person would recognize it, for example 'a weekly email every Monday morning with these charts attached', or the same thing posted to a Slack channel. First call subscriptions-list to check whether this dashboard already has one, and do not offer a second. To create it, use subscriptions-create with `dashboard` set to this dashboard's id, `dashboard_export_insights` listing the charts to include (max 6), and `target_type` of `email` or `slack`. A dashboard created empty has nothing to deliver yet, so say nothing about subscriptions until it has tiles. If the user already declined a subscription earlier in this conversation, do not offer again.\n"
+        )
     },
 })
 
