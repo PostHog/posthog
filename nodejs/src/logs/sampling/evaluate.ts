@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import type RE2 from 're2'
 
+import { decodeLogAttributeValue } from '~/logs/attribute-value'
 import type { LogRecord } from '~/logs/log-record-avro'
 
 import { type FilterGroupNode, matchFilterGroup } from './filter-group-match'
@@ -95,12 +96,16 @@ function hash01FromTraceId(traceId: Buffer | null): number {
     return h.readUInt32BE(0) / 0xffffffff
 }
 
+/**
+ * Attribute map values are JSON-encoded on the Avro wire (a string arrives as
+ * `"/healthz"`, quotes included), while rule patterns and thresholds are plain.
+ * Decode at the read so anchored path regexes match, `parseInt` on a string-typed
+ * status code returns a number instead of NaN, and `eq` predicates compare like
+ * against like. This is the same decoding `filter-group-match` applies.
+ */
 function getAttribute(record: LogRecord, key: string): string | undefined {
-    const a = record.attributes
-    if (!a) {
-        return undefined
-    }
-    return a[key]
+    const raw = record.attributes?.[key]
+    return raw === undefined ? undefined : decodeLogAttributeValue(raw)
 }
 
 function pathForMatching(record: LogRecord): string {

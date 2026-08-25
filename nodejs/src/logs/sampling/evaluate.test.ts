@@ -737,4 +737,56 @@ describe('evaluateLogRecord', () => {
             })
         })
     })
+
+    describe('wire-encoded attribute values', () => {
+        // Capture JSON-encodes attribute values onto the Avro wire, so a string
+        // attribute reaches these rules as `"beta"` — quotes included. The two
+        // consumers below read the same attribute map but do different things with
+        // the value, so each fails its own way when the quotes survive.
+        it('an anchored path pattern matches a decoded attribute', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'p',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { patterns: ['^beta$'], match_attribute_key: 'ph.probe.suite' },
+                },
+            ])
+            const rec = baseRecord()
+            rec.attributes = { 'ph.probe.suite': '"beta"' }
+            expect(evaluateLogRecord(rules, rec).decision).toBe(SAMPLING_DECISION_DROP)
+        })
+
+        it('always_keep status_gte parses a string-typed status code', () => {
+            // An SDK that sends the status as a string encodes it as `"503"`, which
+            // parseInt reads as NaN. The rule then fails to keep the errors it names.
+            const rules = compileRuleSet([
+                {
+                    id: 'keep-errors',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'drop' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                        always_keep: { status_gte: 500 },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.attributes = { 'http.status_code': '"503"' }
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: 'keep',
+                ruleId: 'keep-errors',
+            })
+        })
+    })
 })
