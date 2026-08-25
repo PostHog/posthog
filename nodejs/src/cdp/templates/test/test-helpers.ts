@@ -167,6 +167,7 @@ const createGlobals = (
 
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
+    private compiledBytecode?: HogFunctionTemplateCompiled['bytecode']
     private hogExecutor: HogExecutorAsyncService
     private nativeExecutor: NativeDestinationExecutorService
     private mockHub: PluginsServerConfig
@@ -257,7 +258,7 @@ export class TemplateTester {
 
         this.template = {
             ...this._template,
-            bytecode: await compileHog(this._template.code),
+            bytecode: (this.compiledBytecode ??= await compileHog(this._template.code)),
         }
 
         this.hogExecutor = this.createHogExecutor()
