@@ -4459,6 +4459,9 @@ class TestOauthIntegrationRevokeOnDisconnect:
         mock_post.assert_called_once_with(
             "https://example.my.salesforce.com/services/oauth2/revoke",
             data={"token": "sf-refresh"},
+            # Salesforce takes the token in the body and needs no client authentication, so the
+            # `auth` argument (used by kinds like eBay that require HTTP Basic) stays unset.
+            auth=None,
             timeout=10,
             allow_redirects=False,
         )
@@ -4479,6 +4482,7 @@ class TestOauthIntegrationRevokeOnDisconnect:
         mock_post.assert_called_once_with(
             "https://example--sandbox.sandbox.my.salesforce.com/services/oauth2/revoke",
             data={"token": "sf-refresh"},
+            auth=None,
             timeout=10,
             allow_redirects=False,
         )

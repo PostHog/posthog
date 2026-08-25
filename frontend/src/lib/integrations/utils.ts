@@ -9,6 +9,7 @@ import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconCustomerIO from 'public/services/customer-io.png'
 import IconDatabricks from 'public/services/databricks.png'
+import IconEbay from 'public/services/ebay.png'
 import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
@@ -110,6 +111,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
+    ebay: IconEbay,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -160,6 +162,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'S3-compatible storage'
         case 'youtube-analytics':
             return 'YouTube Analytics'
+        case 'ebay':
+            return 'eBay'
         default:
             return capitalizeFirstLetter(kind)
     }

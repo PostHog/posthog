@@ -107,6 +107,10 @@ class OauthConfig:
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
     token_revoke_url: str | None = None
+    # Sent as `redirect_uri` instead of our own callback URL. eBay is the only provider that
+    # needs this: it identifies the callback by an opaque "RuName" it issues per keyset, and it
+    # rejects the raw URL. The RuName still resolves to our callback — it just names it indirectly.
+    redirect_uri_override: str | None = None
 
 
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
@@ -254,6 +258,7 @@ class OauthIntegration:
         "stripe",
         "resend",
         "youtube-analytics",
+        "ebay",
     ]
     integration: model.Integration
 
@@ -738,6 +743,45 @@ class OauthIntegration:
                 id_path="resend_account_id",
                 name_path="resend_account_name",
             )
+        elif kind == "ebay":
+            if not settings.EBAY_APP_CLIENT_ID or not settings.EBAY_APP_CLIENT_SECRET or not settings.EBAY_APP_RU_NAME:
+                raise NotImplementedError("eBay app not configured")
+
+            # eBay names the callback by the "RuName" it issues for the keyset rather than by URL,
+            # and rejects the raw callback URL in both the authorize request and the token exchange.
+            # The token endpoint takes the credentials as HTTP Basic (see the ebay branches in
+            # integration_from_oauth_response and _post_token_refresh); user access tokens last 2h
+            # and refresh tokens 18 months, and neither carries an account identifier, so the seller
+            # is identified with a follow-up call to the Identity API.
+            #
+            # Only production is supported. eBay issues an entirely separate keyset and RuName for
+            # its sandbox, so one PostHog app cannot serve both, and the Identity API used below is
+            # documented as non-functional there.
+            return OauthConfig(
+                authorize_url="https://auth.ebay.com/oauth2/authorize",
+                token_url="https://api.ebay.com/identity/v1/oauth2/token",
+                # Revoking the refresh token tears down the whole grant, so a disconnect stops the
+                # seller's data being reachable even by someone holding a copy of the token. eBay
+                # authenticates the revocation with the same HTTP Basic keyset as the token
+                # endpoint — see the ebay branch in revoke_token.
+                token_revoke_url="https://api.ebay.com/identity/v1/oauth2/revoke",
+                token_info_url="https://apiz.ebay.com/commerce/identity/v1/user/",
+                token_info_config_fields=["userId", "username"],
+                client_id=settings.EBAY_APP_CLIENT_ID,
+                client_secret=settings.EBAY_APP_CLIENT_SECRET,
+                redirect_uri_override=settings.EBAY_APP_RU_NAME,
+                scope=" ".join(
+                    [
+                        "https://api.ebay.com/oauth/api_scope",
+                        "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+                        "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
+                        "https://api.ebay.com/oauth/api_scope/sell.finances",
+                        "https://api.ebay.com/oauth/api_scope/sell.inventory.readonly",
+                    ]
+                ),
+                id_path="userId",
+                name_path="username",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -788,7 +832,7 @@ class OauthIntegration:
             query_params = {
                 "client_id": oauth_config.client_id,
                 "scope": scope,
-                "redirect_uri": cls.redirect_uri(kind),
+                "redirect_uri": oauth_config.redirect_uri_override or cls.redirect_uri(kind),
                 "response_type": "code",
                 "state": urlencode(state_payload),
                 **(oauth_config.additional_authorize_params or {}),
@@ -884,6 +928,21 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 timeout=10,
+            )
+        # eBay takes the credentials as HTTP Basic, and the redirect_uri it expects is the RuName
+        # issued for our keyset rather than the callback URL itself.
+        elif kind == "ebay":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": oauth_config.redirect_uri_override,
+                    "grant_type": "authorization_code",
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
+                allow_redirects=False,
             )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
@@ -1095,6 +1154,15 @@ class OauthIntegration:
             except Exception:
                 logger.exception("Failed to decode LinkedIn JWT")
 
+        # eBay's token response has no account identifier, so the seller is named by the Identity
+        # API call configured above. Surface a reconnect message when that came back empty, rather
+        # than the generic "failed to extract integration ID" exception the user can't act on.
+        if kind == "ebay" and not integration_id:
+            raise ValidationError(
+                "Could not read your eBay account details. Reconnect and make sure you allow PostHog to view your "
+                "basic account information."
+            )
+
         # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
         if kind == "stripe" and integration_id:
             try:
@@ -1251,7 +1319,15 @@ class OauthIntegration:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
 
         data = {"token": token}
-        if self.integration.kind == "resend":
+        auth: HTTPBasicAuth | None = None
+        if self.integration.kind == "ebay":
+            # eBay requires client authentication on revocation, as HTTP Basic (the same way its
+            # token endpoint does) rather than in the body. Without it the endpoint rejects the
+            # request and the grant survives the disconnect. The hint tells the provider which
+            # token type it received (RFC 7009).
+            auth = HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret)
+            data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
+        elif self.integration.kind == "resend":
             # Resend registers PostHog as a confidential client (token_endpoint_auth_method=
             # client_secret_post) and requires client authentication on revocation. Without it
             # the endpoint rejects the request and the grant survives the disconnect. The hint
@@ -1266,6 +1342,7 @@ class OauthIntegration:
         response = requests.post(
             revoke_url,
             data=data,
+            auth=auth,
             timeout=10,
             allow_redirects=False,
         )
@@ -1359,6 +1436,17 @@ class OauthIntegration:
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+            )
+        elif kind == "ebay":
+            # eBay takes the credentials as HTTP Basic here too. `scope` is omitted deliberately:
+            # it is optional and must be a subset of what was consented to, so leaving it out keeps
+            # grants issued before a scope change refreshable.
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
                 timeout=10,
             )
         else:
