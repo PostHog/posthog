@@ -988,6 +988,7 @@ class TestCDCExtractActivity:
     ):
         source = _make_source()
         MockSourceModel.objects.get.return_value = source
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
 
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
@@ -3568,3 +3569,137 @@ class TestFailureVisibilityCooldown:
 
         rows_this_run = ExternalDataJob.objects.filter(schema=schema, workflow_run_id="run-2").count()
         assert rows_this_run == (1 if expect_new_row else 0)
+
+
+class TestBufferedIngressCapture:
+    # Capture for a flipped source: eligible schemas are delivered by buffer alone, ineligible ones
+    # keep today's transforms and sourcebatch dispatch, and a buffer failure must fail the run —
+    # the slot is about to advance past those changes.
+
+    def _run(self, MockBufferWriter, events, schemas, source, capture: dict | None = None):
+        with (
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections"),
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob") as MockJob,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource"
+            ) as MockSourceModel,
+            patch.object(CDCExtractActivity, "_get_cdc_schemas") as mock_get_schemas,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter"
+            ) as mock_get_adapter,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter"
+            ) as MockS3Writer,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer"
+            ) as MockProducer,
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.is_shadow_write_enabled",
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.complete_schema_run"
+            ) as mock_complete,
+        ):
+            MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
+            mock_reader, mock_s3, mock_producer, _mock_job = _setup_mocks(
+                mock_activity,
+                MockProducer,
+                MockS3Writer,
+                mock_get_adapter,
+                mock_get_schemas,
+                MockSourceModel,
+                MockJob,
+                MagicMock(),
+                source,
+                schemas,
+                events,
+            )
+            mock_get_adapter.return_value.parse_cdc_config.return_value.ingest_mode = "buffered"
+            if capture is not None:
+                capture["reader_ref"] = mock_reader
+                capture["complete_schema_run"] = mock_complete
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+        return mock_reader, mock_s3, mock_producer
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_buffered_schema_is_delivered_by_buffer_alone(self, MockBufferWriter):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1, "name": "Alice"}),
+            _make_event(op="U", position="0/200", columns={"id": 1, "name": "Bob"}),
+        ]
+
+        mock_reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [schema], source)
+
+        buffered = MockBufferWriter.return_value.write_batch.call_args.kwargs["table"]
+        assert buffered.column(CDC_SEQ_COLUMN).to_pylist() == [0x100, 0x200]
+        # Raw stream, seq intact — the loader dedupes and resolves positions.
+        assert buffered.num_rows == 2
+        # No legacy delivery: no S3 batch, no sourcebatch row, so no ExternalDataJob to bill.
+        mock_s3.write_batch.assert_not_called()
+        mock_producer.send_batch_notification.assert_not_called()
+        # The point of the whole design: durable buffer releases the customer's WAL immediately.
+        mock_reader.confirm_position.assert_called_once_with("0/200")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_an_ineligible_schema_on_a_flipped_source_keeps_the_legacy_path(self, MockBufferWriter):
+        source = _make_source()
+        companion = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
+
+        _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [companion], source)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
+        mock_s3.write_batch.assert_called_once()
+        mock_producer.send_batch_notification.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
+        # The opposite of the shadow lane's policy: swallowing here would advance the slot past
+        # changes that reached nothing, losing them for good.
+        MockBufferWriter.return_value.write_batch.side_effect = Exception("s3 down")
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="s3 down"):
+            captured["reader"] = self._run(MockBufferWriter, events, [schema], source, capture=captured)
+
+        captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_source_column_named_like_seq_fails_the_buffered_run(self, MockBufferWriter):
+        # The batcher skips its append on the collision, so the file's name, ordering, and retry
+        # cleanup would all derive from customer data — cleanup can then delete unconsumed files.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="_ph_cdc_seq"):
+            self._run(MockBufferWriter, events, [schema], source, capture=captured)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
+        captured["reader_ref"].confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_capture_does_not_repaint_a_buffered_schema_healthy(self, MockBufferWriter):
+        # The scheduled sync owns a buffered schema's status; capture repainting COMPLETED every
+        # tick would erase a failing consumer run within a minute and hide a buffer backlog.
+        source = _make_source()
+        buffered = _make_schema("users", cdc_mode="streaming", source=source)
+        legacy = _make_schema("events", cdc_mode="streaming", cdc_table_mode="cdc_only", source=source)
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1}),
+            _make_event(op="I", position="0/100", table="events", columns={"id": 1}),
+        ]
+        captured: dict = {}
+
+        self._run(MockBufferWriter, events, [buffered, legacy], source, capture=captured)
+
+        repainted = [call.args[0].name for call in captured["complete_schema_run"].call_args_list]
+        assert repainted == ["events"]
