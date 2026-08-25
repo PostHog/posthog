@@ -495,7 +495,7 @@ jobs:
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: ${{ matrix.shard_count }}
-                  LOG_LEVEL: info
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
                   # Emit JUnit XML for the Trunk upload below.
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.lane }}-${{ matrix.shard }}.xml
@@ -525,7 +525,7 @@ jobs:
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: info
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-nodejs-postgres-parity.xml
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
@@ -782,7 +782,7 @@ jobs:
                   PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: info
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
               run: |
                   if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.serial.test.ts ] || [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
                     cd nodejs && pnpm run test:rust-ingestion-e2e

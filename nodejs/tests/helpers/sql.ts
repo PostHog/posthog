@@ -413,7 +413,9 @@ export const createTeam = async (
     return id
 }
 
-export async function createTestTeamFixture(postgres: PostgresRouter): Promise<{ organizationId: string; team: Team }> {
+export async function createTestTeamFixture(
+    postgres: PostgresRouter
+): Promise<{ organizationId: string; team: Team; userId: number }> {
     const organizationId = await createOrganization(postgres)
     const teamId = await createTeam(postgres, organizationId)
     const team = await getTeam(postgres, teamId)
@@ -422,7 +424,10 @@ export async function createTestTeamFixture(postgres: PostgresRouter): Promise<{
         throw new Error(`Test team ${teamId} was not created`)
     }
 
-    return { organizationId, team }
+    const userId = await createUser(postgres, new UUIDT().toString())
+    await createOrganizationMembership(postgres, organizationId, userId)
+
+    return { organizationId, team, userId }
 }
 
 export const createAction = async (
@@ -457,6 +462,9 @@ export const createAction = async (
 export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const uuid = new UUIDT().toString()
     const user = await insertRow(pg, 'posthog_user', {
+        // Tests also insert fixed user IDs, which do not advance Postgres's sequence.
+        // Use a collision-resistant test ID rather than the stale sequence value.
+        id: Math.round(Math.random() * 1000000000),
         uuid: uuid,
         password: 'gibberish',
         first_name: 'PluginTest',

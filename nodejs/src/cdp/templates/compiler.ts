@@ -32,6 +32,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         }
 
         const file = cacheFile(hog)
+        let cacheMiss = false
         if (!CACHE_REWRITE) {
             try {
                 const bytecode = parseJSON(await readFile(file, 'utf-8')) as HogBytecode
@@ -41,12 +42,13 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
                 if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
                     throw error
                 }
+                cacheMiss = true
             }
         }
 
         if (CACHE_REQUIRED) {
             throw new Error(
-                `Missing compiled Hog bytecode fixture: ${file}. Run this test file locally with HOG_BYTECODE_CACHE_REWRITE=1 and commit the generated fixture.`
+                `Missing compiled Hog bytecode fixture: ${file}. Run this test file locally and commit the generated fixture.`
             )
         }
 
@@ -78,7 +80,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         const output = parseJSON(await readFile(outputFile, 'utf-8'))
 
         cache.set(hog, output)
-        if (CACHE_REWRITE) {
+        if (CACHE_REWRITE || cacheMiss) {
             await mkdir(CACHE_DIR, { recursive: true })
             await writeFile(file, JSON.stringify(output) + '\n')
         }
