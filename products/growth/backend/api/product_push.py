@@ -11,9 +11,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.products import Products
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.schema_enums import ProductKey
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.growth.backend.models import ProductPushCampaign
 from products.growth.backend.product_push.selection import PUSH_PRODUCT_PATHS, project_uses_product
 

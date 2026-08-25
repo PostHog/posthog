@@ -17,6 +17,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Te
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
@@ -33,8 +34,6 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
-
-from ee.models.rbac.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
