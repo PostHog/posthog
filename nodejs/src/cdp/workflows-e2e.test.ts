@@ -1533,7 +1533,8 @@ describe('Workflows E2E (postgres-v2)', () => {
             await matcher.processBatch([
                 createGlobals({ event: 'cal_booking', properties: { trigger_event: 'OTHER' } }),
             ])
-            await new Promise((r) => setTimeout(r, 500))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
             // Right event and property — wakes.
             await matcher.processBatch([
@@ -1882,7 +1883,6 @@ describe('Workflows E2E (postgres-v2)', () => {
             // The same conversion event firing again must NOT increment the count — the run already converted.
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
-            await new Promise((resolve) => setTimeout(resolve, 500))
             expect(conversionCount()).toBe(1)
 
             // Measurement-only: the run stays parked and the after-delay step never runs early.
