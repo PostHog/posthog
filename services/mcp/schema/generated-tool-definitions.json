@@ -3633,6 +3633,48 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-severity-rules-create": {
+        "description": "Create an error tracking severity rule for the current project. Provide `filters` and the `severity` to assign when a newly created issue first matches this rule. Supported severities are `low`, `medium`, `high`, and `critical`. Use `order_key` to set the evaluation priority. Lower values run first, and only the first matching rule applies. Rules do not change existing issues.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking severity rule",
+        "title": "Create error tracking severity rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-severity-rules-list": {
+        "description": "List error tracking severity rules for the current project. Returns rules in evaluation order with their filters, assigned severity, order key, and disabled state. Read the existing rules before creating or updating one because only the first matching rule applies.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking severity rules",
+        "title": "List error tracking severity rules",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-severity-rules-update": {
+        "description": "Update an error tracking severity rule by ID. Include `filters`, `severity`, or both. Omitted fields keep their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the update.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking severity rule",
+        "title": "Update error tracking severity rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-suppression-rules-create": {
         "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
@@ -5130,7 +5172,7 @@
         }
     },
     "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Start file download export",

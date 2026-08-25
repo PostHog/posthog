@@ -17,8 +17,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
