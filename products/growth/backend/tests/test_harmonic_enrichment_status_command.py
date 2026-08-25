@@ -50,8 +50,10 @@ class TestHarmonicEnrichmentStatusCommand(BaseTest):
         self._fetch(payload={"companyFound": True, "enrichmentUrn": "urn:harmonic:enrichment:aaa"})
         # A miss sentinel carrying a urn is still selected.
         self._fetch(payload={"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:bbb"})
-        # No urn at all: skipped.
+        # No urn key at all: skipped.
         self._fetch(payload={"companyFound": True})
+        # A hit with no pending refresh archives enrichmentUrn as JSON null (key present): skipped.
+        self._fetch(payload={"companyFound": True, "enrichmentUrn": None})
         # A urn, but outside the default 7-day window: skipped.
         self._fetch(payload={"companyFound": True, "enrichmentUrn": "urn:harmonic:enrichment:ccc"}, days_ago=10)
 
@@ -88,3 +90,28 @@ class TestHarmonicEnrichmentStatusCommand(BaseTest):
             call_command("harmonic_enrichment_status", stdout=out)
 
         mock_session_cls.assert_not_called()
+
+    def test_limit_is_spent_on_matching_rows_not_null_urn_rows(self):
+        # More recent row has no pending refresh (JSON-null urn); an older row carries a real
+        # urn. A --limit applied before the null-urn exclusion would spend its one slot on the
+        # non-matching row and starve the real one.
+        self._fetch(payload={"companyFound": True, "enrichmentUrn": None})
+        self._fetch(payload={"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:zzz"}, days_ago=1)
+
+        entries = [{"entity_urn": "urn:harmonic:enrichment:zzz", "status": "QUEUED", "enriched_entity_urn": None}]
+        session_cm, session = _mock_session(entries)
+        out = io.StringIO()
+        with patch(f"{_COMMAND_MODULE}.aiohttp.ClientSession", return_value=session_cm):
+            call_command("harmonic_enrichment_status", "--limit=1", stdout=out)
+
+        session.get.assert_called_once()
+        sent_urns = [value for key, value in session.get.call_args.kwargs["params"] if key == "urns"]
+        assert sent_urns == ["urn:harmonic:enrichment:zzz"]
+
+    def test_non_list_status_body_raises(self):
+        self._fetch(payload={"companyFound": True, "enrichmentUrn": "urn:harmonic:enrichment:aaa"})
+
+        session_cm, _ = _mock_session({"error": "not a list"})
+        with patch(f"{_COMMAND_MODULE}.aiohttp.ClientSession", return_value=session_cm):
+            with self.assertRaises(ValueError):
+                call_command("harmonic_enrichment_status")

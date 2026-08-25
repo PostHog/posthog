@@ -32,15 +32,14 @@ UNQUERIED_STATUS = "NOT_QUERIED"
 
 def _rows_with_urn(since_days: int, limit: int) -> list[OrganizationEnrichmentFetch]:
     cutoff = timezone.now() - dt.timedelta(days=since_days)
-    queryset = OrganizationEnrichmentFetch.objects.filter(fetched_at__gte=cutoff).order_by("-fetched_at", "-id")
-    rows: list[OrganizationEnrichmentFetch] = []
-    for fetch in queryset.iterator():
-        payload = fetch.payload
-        if isinstance(payload, dict) and payload.get("enrichmentUrn"):
-            rows.append(fetch)
-        if len(rows) >= limit:
-            break
-    return rows
+    # __isnull=False selects rows with the key present; a hit with no pending refresh archives
+    # "enrichmentUrn": null, so exclude() is also needed to drop those JSON nulls.
+    queryset = (
+        OrganizationEnrichmentFetch.objects.filter(fetched_at__gte=cutoff, payload__enrichmentUrn__isnull=False)
+        .exclude(payload__enrichmentUrn=None)
+        .order_by("-fetched_at", "-id")[:limit]
+    )
+    return [fetch for fetch in queryset if isinstance(fetch.payload, dict) and fetch.payload.get("enrichmentUrn")]
 
 
 async def _fetch_statuses(urns: list[str], api_key: str) -> dict[str, dict[str, Any]]:
@@ -58,6 +57,8 @@ async def _fetch_statuses(urns: list[str], api_key: str) -> dict[str, dict[str, 
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
+            if not isinstance(data, list):
+                raise ValueError(f"unexpected enrichment_status body: {type(data).__name__}")
             for entry in data:
                 if isinstance(entry, dict) and isinstance(entry.get("entity_urn"), str):
                     statuses[entry["entity_urn"]] = entry

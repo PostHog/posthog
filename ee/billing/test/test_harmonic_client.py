@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
+from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient
 
@@ -142,13 +143,19 @@ async def test_strict_not_found_surfaces_the_tracking_urn():
     assert result.enrichment_urn == "urn:harmonic:enrichment:abc"
 
 
+@parameterized.expand(
+    [
+        ("no_pending_refresh", None),
+        ("pending_refresh", "urn:harmonic:enrichment:refresh"),
+    ]
+)
 @pytest.mark.asyncio
 @patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
-async def test_strict_found_with_null_urn_surfaces_no_urn():
-    client = _client_with_responses(_found({"name": "PostHog"}, urn=None))
+async def test_strict_found_surfaces_the_refresh_urn(_name, urn):
+    client = _client_with_responses(_found({"name": "PostHog"}, urn=urn))
     result = await client.enrich_company_by_domain_strict("posthog.com")
     assert result.company == {"name": "PostHog"}
-    assert result.enrichment_urn is None
+    assert result.enrichment_urn == urn
 
 
 @pytest.mark.asyncio
