@@ -3,13 +3,24 @@ import inspect
 import pytest
 from unittest.mock import patch
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
+
+import psycopg.errors
 
 from posthog.temporal.common.utils import (
     close_db_connections,
     make_sync_retryable_with_exponential_backoff,
     retry_on_db_connection_drop,
 )
+
+
+def _read_only_error() -> InternalError:
+    # A writer failover leaves a write raising ReadOnlySqlTransaction (SQLSTATE 25006), which
+    # Django wraps as InternalError with the psycopg error chained on __cause__.
+    cause = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    wrapped = InternalError("cannot execute UPDATE in a read-only transaction")
+    wrapped.__cause__ = cause
+    return wrapped
 
 
 def test_make_sync_retryable_with_exponential_backoff_called_max_attempts():
@@ -201,7 +212,8 @@ CLOSE_DB_CONNECTIONS_TARGET = "posthog.temporal.common.utils._close_db_connectio
 
 
 @pytest.mark.parametrize(
-    "error", [OperationalError("the connection is closed"), InterfaceError("connection already closed")]
+    "error",
+    [OperationalError("the connection is closed"), InterfaceError("connection already closed"), _read_only_error()],
 )
 def test_retry_on_db_connection_drop_retries_once_then_succeeds(error):
     calls = 0
@@ -221,7 +233,8 @@ def test_retry_on_db_connection_drop_retries_once_then_succeeds(error):
 
 
 @pytest.mark.parametrize(
-    "error", [OperationalError("the connection is closed"), InterfaceError("connection already closed")]
+    "error",
+    [OperationalError("the connection is closed"), InterfaceError("connection already closed"), _read_only_error()],
 )
 def test_retry_on_db_connection_drop_raises_after_second_failure(error):
     calls = 0
@@ -237,15 +250,19 @@ def test_retry_on_db_connection_drop_raises_after_second_failure(error):
     assert calls == 2
 
 
-def test_retry_on_db_connection_drop_does_not_retry_unrelated_errors():
+@pytest.mark.parametrize(
+    "error",
+    [ValueError("not a connection error"), InternalError("some other internal error")],
+)
+def test_retry_on_db_connection_drop_does_not_retry_unrelated_errors(error):
     calls = 0
 
     def operation():
         nonlocal calls
         calls += 1
-        raise ValueError("not a connection error")
+        raise error
 
-    with pytest.raises(ValueError):
+    with pytest.raises(type(error)):
         retry_on_db_connection_drop(operation)
 
     assert calls == 1

@@ -8,6 +8,7 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
+from posthog.db_read_only import drop_read_only_transaction_exceptions
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.utils import (
     _build_flag_provider,
@@ -67,6 +68,9 @@ class PostHogConfig(AppConfig):
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
         posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
+        # Drop transient read-only transaction errors (Aurora writer failover) so one failover
+        # does not mint a fresh batch of error tracking issues.
+        posthoganalytics.before_send = drop_read_only_transaction_exceptions  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
             "service": settings.OTEL_SERVICE_NAME,

@@ -12,6 +12,7 @@ from typing import Optional, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
@@ -41,6 +42,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
+from posthog.db_read_only import is_read_only_transaction_error
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
@@ -1279,6 +1281,30 @@ class SocialAuthExceptionMiddleware:
         if error_detail.startswith(self._AUTH_FAILED_PREFIX):
             return error_detail[len(self._AUTH_FAILED_PREFIX) :].strip()
         return error_detail
+
+
+class DatabaseReadOnlyAdminMiddleware:
+    """Turn a transient read-only database error during a Django admin write into a retry message.
+
+    An Aurora writer failover briefly serves a read-only session, so an admin save raises
+    ``ReadOnlySqlTransaction`` (SQLSTATE 25006). Without this a staff member gets a 500 and loses
+    the edit. Catch it on ``/admin/`` paths, show a retry message, and send them back to the form.
+    """
+
+    def __init__(self, get_response: Callable):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        return self.get_response(request)
+
+    def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
+        if not request.path.startswith("/admin/") or not is_read_only_transaction_error(exception):
+            return None
+        messages.error(
+            request,
+            "The database was briefly read-only, likely during a failover, so your change was not saved. Please try again.",
+        )
+        return redirect(request.get_full_path())
 
 
 class ActiveOrganizationMiddleware:

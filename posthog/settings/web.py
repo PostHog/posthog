@@ -192,6 +192,8 @@ MIDDLEWARE = [
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # Below MessageMiddleware so it can add a retry message; catches read-only DB errors on /admin/.
+    "posthog.middleware.DatabaseReadOnlyAdminMiddleware",
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",

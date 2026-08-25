@@ -12,8 +12,16 @@ from django.conf import settings
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 
+from posthog.db_read_only import is_read_only_transaction_error
+
 P = ParamSpec("P")
 T = TypeVar("T")
+
+
+def _is_transient_db_error(err: django.db.Error) -> bool:
+    """A blip a fresh connection can clear: a dropped/stale connection, or a writer that a
+    failover left serving a read-only session (SQLSTATE 25006)."""
+    return isinstance(err, django.db.OperationalError | django.db.InterfaceError) or is_read_only_transaction_error(err)
 
 
 def close_stale_db_connections() -> None:
@@ -162,11 +170,12 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
 
     Long-lived Temporal workers pool their connections through pgbouncer, so a pool
     recycle, failover, or deploy can leave a stale pooled connection that raises
-    ``OperationalError`` / ``InterfaceError`` the first time it's used. Evict the dead
-    connection and retry once, so a transient blip at an activity's early connect-time
-    reads succeeds on a fresh connection instead of escaping as error-tracking noise.
-    A second failure propagates — that's a genuinely degraded DB, left to the caller's
-    retry posture.
+    ``OperationalError`` / ``InterfaceError`` the first time it's used. A writer failover
+    can also leave the pooled connection pointed at a now read-only instance, so the write
+    raises ``ReadOnlySqlTransaction`` (SQLSTATE 25006). Evict the connection and retry once,
+    so a transient blip at an activity's early connect-time reads succeeds on a fresh
+    connection instead of escaping as error-tracking noise. A second failure propagates —
+    that's a genuinely degraded DB, left to the caller's retry posture.
 
     Pass a zero-arg callable that *produces* the awaitable (not the awaitable itself),
     so the retry can issue a fresh query:
@@ -175,7 +184,9 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
     """
     try:
         return await operation()
-    except (django.db.OperationalError, django.db.InterfaceError):
+    except django.db.Error as err:
+        if not _is_transient_db_error(err):
+            raise
         await sync_to_async(_close_db_connections)()
         return await operation()
 
@@ -187,8 +198,9 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     Django ORM code (e.g. under ``@asyncify``). See that function for the full rationale:
     a long-lived worker pools connections through pgbouncer, so a pool recycle / failover
     / deploy can leave a stale pooled connection that raises ``OperationalError`` /
-    ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
-    failure propagates, left to the caller's retry posture.
+    ``InterfaceError`` on first use, or a writer failover can leave it pointed at a read-only
+    instance so a write raises ``ReadOnlySqlTransaction`` (SQLSTATE 25006). Evict the
+    connection and retry once; a second failure propagates, left to the caller's retry posture.
 
     The single retry leans on the activity's outer Temporal retry policy. Code without
     one (e.g. a Celery task) needs multi-attempt backoff instead; see
@@ -201,7 +213,9 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     """
     try:
         return operation()
-    except (django.db.OperationalError, django.db.InterfaceError):
+    except django.db.Error as err:
+        if not _is_transient_db_error(err):
+            raise
         _close_db_connections()
         return operation()
 

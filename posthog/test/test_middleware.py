@@ -9,14 +9,17 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import InternalError
 from django.http import HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
+    SimpleTestCase,
 )
 from django.urls import reverse
 
 import structlog
+import psycopg.errors
 from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
@@ -25,7 +28,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import DatabaseReadOnlyAdminMiddleware, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -2348,3 +2351,36 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
         assert "mcp_session_id" not in ctx
         assert "mcp_conversation_id" not in ctx
         span.set_attribute.assert_not_called()
+
+
+def _read_only_error() -> InternalError:
+    cause = psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction")
+    wrapped = InternalError("cannot execute UPDATE in a read-only transaction")
+    wrapped.__cause__ = cause
+    return wrapped
+
+
+class TestDatabaseReadOnlyAdminMiddleware(SimpleTestCase):
+    def _process(self, path, exception):
+        middleware = DatabaseReadOnlyAdminMiddleware(lambda r: HttpResponse())
+        request = RequestFactory().post(path)
+        with patch("posthog.middleware.messages") as mock_messages:
+            response = middleware.process_exception(request, exception)
+        return response, mock_messages
+
+    def test_admin_read_only_redirects_with_message(self):
+        path = "/admin/posthog/organization/1/change/"
+        response, mock_messages = self._process(path, _read_only_error())
+        assert isinstance(response, HttpResponseRedirect)
+        assert response.url == path
+        mock_messages.error.assert_called_once()
+
+    def test_non_admin_read_only_is_not_handled(self):
+        response, mock_messages = self._process("/api/projects/1/", _read_only_error())
+        assert response is None
+        mock_messages.error.assert_not_called()
+
+    def test_admin_unrelated_error_is_not_handled(self):
+        response, mock_messages = self._process("/admin/posthog/organization/1/change/", ValueError("boom"))
+        assert response is None
+        mock_messages.error.assert_not_called()
