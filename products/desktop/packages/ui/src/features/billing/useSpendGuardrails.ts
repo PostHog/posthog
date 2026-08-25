@@ -28,11 +28,21 @@ export function useSpendGuardrails(): void {
     // this effect and re-evaluate the same fetch.
     const { spendNoticesSeen, markSpendNoticeSeen } =
       useSettingsStore.getState();
+    const stoppedPeriods = new Set<string>();
     for (const crossing of crossings) {
+      if (crossing.level === "stop") stoppedPeriods.add(crossing.period);
       const key = spendLimitNoticeKey(crossing);
       if (spendNoticesSeen[key]) continue;
       markSpendNoticeSeen(key, crossing.anchor, todayIso);
       showSpendNotice(crossing);
+    }
+    // The stop notice never auto-dismisses, so clear it once its period is no
+    // longer stopped (line raised or cleared); otherwise it keeps saying the
+    // composer is paused after it has re-enabled.
+    for (const period of ["day", "month"] as const) {
+      if (!stoppedPeriods.has(period)) {
+        toast.dismiss(`spend-limit-${period}-stop`);
+      }
     }
   }, [totals, spendLimits]);
 }
