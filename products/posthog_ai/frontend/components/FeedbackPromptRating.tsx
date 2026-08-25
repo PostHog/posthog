@@ -1,33 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, memo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { feedbackPromptLogic } from '../feedbackPromptLogic'
-import { FeedbackRating } from '../utils'
+import { FeedbackPromptLogicProps, feedbackPromptLogic } from '../logics/feedbackPromptLogic'
+import { FeedbackPromptRating as Rating } from '../utils/feedbackEvents'
 
-export interface FeedbackDisplayProps {
-    conversationId: string
-}
+/** The prompt's Good / Okay / Bad / Dismiss row, with 1 / 2 / 3 / x keyboard shortcuts while open. */
+export const FeedbackPromptRating = memo(function FeedbackPromptRating(props: FeedbackPromptLogicProps): JSX.Element {
+    const { isPromptVisible } = useValues(feedbackPromptLogic(props))
+    const { submitRating } = useActions(feedbackPromptLogic(props))
 
-// Duplicated for the sandbox runtime in products/posthog_ai/frontend/components/FeedbackPromptRating.tsx; this copy is deleted with the LangGraph runtime.
-export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.Element | null {
-    const { isPromptVisible } = useValues(feedbackPromptLogic({ conversationId }))
-    const { submitRating } = useActions(feedbackPromptLogic({ conversationId }))
-
-    // Global keyboard shortcuts - capture phase intercepts before input fields
+    // Capture phase, so the shortcuts win over a focused composer.
     useEffect(() => {
         if (!isPromptVisible) {
             return
         }
-
-        const keyToRating: Record<string, FeedbackRating> = {
-            '1': 'good',
-            '2': 'okay',
-            '3': 'bad',
-            x: 'dismissed',
-        }
-
+        const keyToRating: Record<string, Rating> = { '1': 'good', '2': 'okay', '3': 'bad', x: 'dismissed' }
         const handleGlobalKeyDown = (e: KeyboardEvent): void => {
             const rating = keyToRating[e.key]
             if (rating) {
@@ -36,7 +25,6 @@ export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.E
                 submitRating(rating)
             }
         }
-
         window.addEventListener('keydown', handleGlobalKeyDown, true)
         return () => window.removeEventListener('keydown', handleGlobalKeyDown, true)
     }, [isPromptVisible, submitRating])
@@ -57,4 +45,4 @@ export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.E
             </LemonButton>
         </div>
     )
-}
+})
