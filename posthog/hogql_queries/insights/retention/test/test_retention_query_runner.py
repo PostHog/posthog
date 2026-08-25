@@ -6961,6 +6961,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertEqual(result[0][1], [0, 2])
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_retention_breakdown_person_property_is_stable(self):
         # This test reproduces the bug where a person's breakdown value splits between
         # empty string and actual value, causing major countries to drop from top breakdown list
@@ -7044,6 +7045,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
                     "Taiwan cohort should have 2 people, not split due to property timing",
                 )
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_retention_breakdown_uses_most_recent_property_value(self):
         # This test validates that when a user's breakdown property changes over time,
         # they are counted using their most recent property value for ranking purposes.
