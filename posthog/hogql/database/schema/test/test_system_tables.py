@@ -1,5 +1,6 @@
 import json
 import uuid
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
@@ -32,6 +33,7 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
+from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.canvas.backend.models import Canvas
@@ -290,6 +292,11 @@ def _create_cohort(team: Team, label: str) -> Cohort:
 
 def _create_annotation(team: Team, label: str) -> Annotation:
     return Annotation.objects.create(team=team, content=f"annotation_{label}")
+
+
+def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
+    # autoresearch is sealed: the row is planted through its facade, so only the id comes back.
+    return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -866,6 +873,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_pipelines", _create_autoresearch_pipeline),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),
