@@ -60,6 +60,7 @@ import {
     weekdayOptions,
     WEEKDAYS,
     AI_PROMPT_MAX_LENGTH,
+    isFreeTierCreateAtLimit,
 } from '../utils'
 
 // Shown wherever AI subscriptions are gated off (org hasn't approved AI data
@@ -195,11 +196,6 @@ interface EditSubscriptionProps {
     dashboard?: DashboardType<any> | null
     onCancel: () => void
     onDelete: () => void
-}
-
-// A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
-export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
-    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
 export function EditSubscription(props: EditSubscriptionProps): JSX.Element {

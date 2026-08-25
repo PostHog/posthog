@@ -246,6 +246,9 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             # Mirrors the frontend converter: dropping it would make a saved playlist count
             # every recording instead of the exposed population it displays.
             experiment_exposure=filters.get("experiment_exposure"),
+            # Also mirrors the frontend converter: a playlist pinned to specific recordings
+            # would otherwise count and render every recording that matches the rest of the filters.
+            session_ids=filters.get("session_ids"),
         )
     except ValidationError as e:
         # we were seeing errors here and it was hard to debug

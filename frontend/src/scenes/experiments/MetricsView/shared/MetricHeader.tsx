@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -264,7 +265,14 @@ export const MetricHeader = ({
                         </div>
                     </div>
                     {!readOnly && (
-                        <div className="flex flex-shrink-0 gap-1">
+                        <div
+                            className={clsx(
+                                'flex flex-shrink-0 gap-1 transition-opacity',
+                                menuVisible
+                                    ? 'opacity-100'
+                                    : 'opacity-0 group-hover/metric-cell:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'
+                            )}
+                        >
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"

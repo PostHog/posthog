@@ -740,6 +740,7 @@ const queryErrorTrackingIssuesList = (): ToolBase<
                         'name',
                         'description',
                         'status',
+                        'severity',
                         'first_seen',
                         'last_seen',
                         'library',

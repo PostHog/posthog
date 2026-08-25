@@ -65,6 +65,10 @@ type PendingFlagListener = {
 // Subscribers added before initializePostHog runs.
 const pendingFlagListeners = new Set<PendingFlagListener>();
 
+// A build with no project key: flags keep their defaults and no remote answer
+// is coming, which counts as resolved for anything waiting on them.
+let flagsUnavailable = false;
+
 const SESSION_IDLE_TIMEOUT_SECONDS = 36_000;
 
 export function initializePostHog(sessionId?: string) {
@@ -74,7 +78,16 @@ export function initializePostHog(sessionId?: string) {
   const uiHost =
     import.meta.env.VITE_POSTHOG_UI_HOST || "https://us.i.posthog.com";
 
-  if (!apiKey || isInitialized) {
+  if (!apiKey) {
+    // Settle the waiters instead of leaving them pending forever — a gate that
+    // waits for "flags resolved" would never open in a keyless build.
+    flagsUnavailable = true;
+    for (const listener of pendingFlagListeners) listener.callback();
+    pendingFlagListeners.clear();
+    return;
+  }
+
+  if (isInitialized) {
     return;
   }
 
@@ -122,7 +135,7 @@ export function initializePostHog(sessionId?: string) {
   isInitialized = true;
 
   // Dev-only: expose the posthog instance so flags can be toggled from the
-  // renderer console, e.g. `posthog.featureFlags.override({ "agent-platform": true })`
+  // renderer console, e.g. `posthog.featureFlags.override({ "mcp-gateway": true })`
   // (and `posthog.featureFlags.override(false)` to clear). The module build
   // doesn't attach to window otherwise.
   if (import.meta.env.DEV) {
@@ -386,6 +399,11 @@ export function onFeatureFlagsLoaded(callback: () => void): () => void {
     return posthog.onFeatureFlags(callback);
   }
 
+  if (flagsUnavailable) {
+    callback();
+    return () => {};
+  }
+
   const listener: PendingFlagListener = { callback, unsubscribe: null };
   pendingFlagListeners.add(listener);
   return () => {
@@ -407,6 +425,20 @@ export function getFeatureFlagPayload(flagKey: string): unknown {
   }
 
   return posthog.getFeatureFlagPayload(flagKey);
+}
+
+/**
+ * Matched variant of a multivariate flag; undefined when uninitialized or
+ * unmatched. posthog-js returns `true` for a boolean flag rather than a variant
+ * name, so only string values pass through.
+ */
+export function getFeatureFlagVariant(flagKey: string): string | undefined {
+  if (!isInitialized) {
+    return undefined;
+  }
+
+  const value = posthog.getFeatureFlag(flagKey);
+  return typeof value === "string" ? value : undefined;
 }
 
 /**
@@ -441,6 +473,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
 export const posthogFeatureFlags: FeatureFlags = {
   isEnabled: isFeatureFlagEnabled,
   getPayload: getFeatureFlagPayload,
+  getVariant: getFeatureFlagVariant,
   onFlagsLoaded: onFeatureFlagsLoaded,
 };
 

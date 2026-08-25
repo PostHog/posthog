@@ -16,9 +16,10 @@ from django.core.cache import cache
 from django.template import Context, Engine
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
-from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
+from posthoganalytics.ai.openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.request import Request
@@ -222,7 +223,7 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
     system_prompt = load_prompt_template("explain_system.djt", {})
     user_prompt = load_prompt_template("explain_user.djt", log_data)
 
-    client = AsyncOpenAI(timeout=EXPLAIN_TIMEOUT)
+    client = AsyncOpenAI(posthog_client=posthoganalytics.default_client, timeout=EXPLAIN_TIMEOUT)
 
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
@@ -230,7 +231,7 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
     ]
 
     try:
-        response = await client.chat.completions.create(
+        response = await client.chat.completions.create(  # type: ignore[call-overload]
             model="gpt-4.1",
             messages=messages,
             response_format=cast(
@@ -244,6 +245,13 @@ async def explain_log_with_openai(log_data: dict, team_id: int) -> LogExplanatio
                     },
                 },
             ),
+            posthog_privacy_mode=True,
+            posthog_distinct_id=f"team-{team_id}",
+            posthog_properties={
+                "ai_product": "logs",
+                "ai_feature": "explain-log",
+                "team_id": team_id,
+            },
         )
 
         content = response.choices[0].message.content

@@ -41,14 +41,15 @@ BLOCKED_IP_RANGES = [
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
 CONTENT_BLOCK_STREAM_ERROR = "API Error: Content block not found"
 CONTENT_BLOCK_STREAM_USER_ERROR = "The model response could not be completed. Please retry the task."
+TURN_ENDED_WITHOUT_RESPONSE_ERROR = "[ede_diagnostic] result_type=user"
 
 
 def is_retryable_agent_rpc_error(error: str) -> bool:
-    return CONTENT_BLOCK_STREAM_ERROR in error
+    return CONTENT_BLOCK_STREAM_ERROR in error or TURN_ENDED_WITHOUT_RESPONSE_ERROR in error
 
 
 def user_facing_agent_error(error: str | None) -> str:
-    if error and is_retryable_agent_rpc_error(error):
+    if error and CONTENT_BLOCK_STREAM_ERROR in error:
         return CONTENT_BLOCK_STREAM_USER_ERROR
     return error or "Failed to send message to sandbox"
 
@@ -305,6 +306,30 @@ def send_user_message(
         task_run,
         method="user_message",
         params=params,
+        auth_token=auth_token,
+        timeout=timeout,
+    )
+
+
+def send_set_config_option(
+    task_run: Any,
+    config_id: str,
+    value: str,
+    auth_token: str | None = None,
+    timeout: int = COMMAND_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Change one option on the agent-server's live session (`model`, `effort`, `mode`).
+
+    The agent applies the change to the session it is already holding, so the run keeps
+    its conversation history and the new setting takes effect from the next turn. Only
+    options the session currently offers are accepted — a model belonging to a runtime
+    this sandbox isn't running comes back as an RPC error, since the harness is the
+    process the sandbox was started with.
+    """
+    return send_agent_command(
+        task_run,
+        method="set_config_option",
+        params={"configId": config_id, "value": value},
         auth_token=auth_token,
         timeout=timeout,
     )

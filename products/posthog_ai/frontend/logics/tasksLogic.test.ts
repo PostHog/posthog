@@ -37,9 +37,18 @@ describe('tasksLogic', () => {
     afterEach(resumeKeaLoadersErrors)
 
     let logic: ReturnType<typeof tasksLogic.build>
+    let listRequestUrls: URL[]
 
     beforeEach(() => {
-        useMocks({ get: { '/api/projects/:team_id/tasks/': () => [200, { results: [], count: 0 }] } })
+        listRequestUrls = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/tasks/': ({ request }) => {
+                    listRequestUrls.push(new URL(request.url))
+                    return [200, { results: [], count: 0 }]
+                },
+            },
+        })
         initKeaTests()
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
@@ -77,21 +86,23 @@ describe('tasksLogic', () => {
     })
 
     describe('taskListParams', () => {
-        it('defaults to "for you", scoping the list to the current user', () => {
+        it('defaults to "for you"', () => {
             expect(logic.values.assigneeFilter).toBe('for_you')
-            expect(logic.values.taskListParams).toEqual({
-                search: undefined,
-                created_by: userLogic.values.user?.id,
-            })
         })
 
-        it('scopes to the Signals Scout origin for team scouts', () => {
-            logic.actions.setAssigneeFilter('team_scouts')
+        // "For you" and "my scouts" both scope to the current user, so they have to split on origin
+        // as well as creator, otherwise the two filters return the same rows.
+        it.each([
+            [
+                'for_you' as const,
+                { created_by: MOCK_DEFAULT_USER.id, exclude_origin_product: OriginProduct.SIGNALS_SCOUT },
+            ],
+            ['my_scouts' as const, { created_by: MOCK_DEFAULT_USER.id, origin_product: OriginProduct.SIGNALS_SCOUT }],
+            ['team_scouts' as const, { origin_product: OriginProduct.SIGNALS_SCOUT }],
+        ])('maps the %s filter to its query params', (assigneeFilter, expected) => {
+            logic.actions.setAssigneeFilter(assigneeFilter)
 
-            expect(logic.values.taskListParams).toEqual({
-                search: undefined,
-                origin_product: OriginProduct.SIGNALS_SCOUT,
-            })
+            expect(logic.values.taskListParams).toEqual({ search: undefined, ...expected })
         })
 
         it('composes the search term with the active assignee filter', () => {
@@ -100,7 +111,22 @@ describe('tasksLogic', () => {
             expect(logic.values.taskListParams).toEqual({
                 search: 'checkout bug',
                 created_by: userLogic.values.user?.id,
+                exclude_origin_product: OriginProduct.SIGNALS_SCOUT,
             })
+        })
+    })
+
+    describe('loadTasks', () => {
+        // Regression coverage: `taskLogic` reloads every mounted list after an update or delete
+        // without knowing what each one shows. Defaulting those parameterless calls to `{}` swapped
+        // the active filter for the whole visible set, so "For you" silently filled with scout tasks.
+        it('reloads with the active filter when called with no params', async () => {
+            logic.actions.loadTasks()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(listRequestUrls).toHaveLength(1)
+            expect(listRequestUrls[0].searchParams.get('exclude_origin_product')).toBe(OriginProduct.SIGNALS_SCOUT)
+            expect(listRequestUrls[0].searchParams.get('created_by')).toBe(String(MOCK_DEFAULT_USER.id))
         })
     })
 

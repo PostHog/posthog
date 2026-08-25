@@ -54,6 +54,18 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
 
         assert self._list() == ["mine"]
 
+    def test_excludes_ignored_accounts_from_list_and_count(self):
+        create_account(team_id=self.team.id, name="Tracked", external_id="tracked")
+        create_account(
+            team_id=self.team.id,
+            name="Ignored",
+            external_id="ignored",
+            ignored_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert self._list() == ["tracked"]
+        assert count_accounts_for_audience(self.team, AccountAudienceFilters()) == 1
+
     def test_tag_filter_narrows(self):
         tagged = create_account(team_id=self.team.id, name="Tagged", external_id="tagged")
         create_account(team_id=self.team.id, name="Untagged", external_id="untagged")

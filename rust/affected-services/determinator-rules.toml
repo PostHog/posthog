@@ -28,10 +28,19 @@ mark-changed = "all"
 globs = [".sqlx/**"]
 mark-changed = "all"
 
-# Proto files trigger the two build-script crates that read them.
+# Proto files trigger every build-script crate that reads them. The
+# proto_build_scripts_are_in_determinator_rules test fails if a crate compiles
+# protos and is missing here, so keep this list complete rather than counted.
 [[path-rule]]
 globs = ["../proto/**"]
-mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
+mark-changed = [
+    "personhog-proto",
+    "kafka-assigner-proto",
+    "cymbal-proto",
+    "ingestion-worker-proto",
+    "prometheus-rw-proto",
+    "usage-ingestion-proto",
+]
 
 # Hypercache contract: Python serializer changes may break Rust deserialization.
 # Must come BEFORE the catch-all rule below.

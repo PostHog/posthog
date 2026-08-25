@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductItemCategory } from '../../frontend/src/queries/schema/schema-general'
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'VisualReview',
@@ -85,6 +85,10 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             href: urls.visualReviewRuns(),
             iconType: 'visual_review' as FileSystemIconType,
+            iconColor: [
+                'var(--color-product-visual-review-light)',
+                'var(--color-product-visual-review-dark)',
+            ] as FileSystemIconColor,
             flag: FEATURE_FLAGS.VISUAL_REVIEW,
             tags: ['alpha'],
             sceneKey: 'VisualReviewIndex',

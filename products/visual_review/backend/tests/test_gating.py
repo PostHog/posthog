@@ -20,10 +20,10 @@ import pytest
 
 from parameterized import parameterized
 
-from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.logic import approvals, artifact_store, repos, runs, toleration
 from products.visual_review.backend.models import QuarantinedIdentifier, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -61,8 +61,8 @@ class TestGatingInvariants:
         self.team = team
         self.user = user
         self.mocker = mocker
-        self.repo = logic.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test-gating")
-        mocker.patch("products.visual_review.backend.logic._post_commit_status")
+        self.repo = repos.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test-gating")
+        mocker.patch("products.visual_review.backend.logic.ci_status._post_commit_status")
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
 
     def _build_run(self, result: str, action: str | None, purpose: str = "review") -> Run:
@@ -81,11 +81,11 @@ class TestGatingInvariants:
             baseline = {"target": "same_hash"}
 
         self.mocker.patch(
-            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            "products.visual_review.backend.logic.baselines._resolve_baselines_with_merge_base",
             return_value=(baseline, 0),
         )
 
-        run, _ = logic.create_run(
+        run, _ = runs.create_run(
             CreateRunInput(
                 repo_id=self.repo.id,
                 run_type=RunType.STORYBOOK,
@@ -97,10 +97,10 @@ class TestGatingInvariants:
             ),
             team_id=self.team.id,
         )
-        logic.complete_run(run.id)
+        runs.complete_run(run.id)
         run.refresh_from_db()
         if run.status == RunStatus.PROCESSING:
-            logic.finish_processing(run.id)
+            runs.finish_processing(run.id)
             run.refresh_from_db()
 
         if action == "quarantine":
@@ -113,19 +113,19 @@ class TestGatingInvariants:
             )
         elif action == "tolerate":
             snapshot = run.snapshots.get(identifier="target")
-            logic.mark_snapshot_as_tolerated(run.id, snapshot.id, self.user.id, self.team.id)
+            toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, self.user.id, self.team.id)
         elif action == "approve":
             snapshot = run.snapshots.get(identifier="target")
             if result == "removed":
                 snapshot.review_state = ReviewState.APPROVED
                 snapshot.save(update_fields=["review_state"])
             else:
-                logic.get_or_create_artifact(
+                artifact_store.get_or_create_artifact(
                     repo_id=self.repo.id,
                     content_hash=snapshot.current_hash,
                     storage_path=f"p/{snapshot.current_hash}",
                 )
-                logic.approve_snapshots(
+                approvals.approve_snapshots(
                     run_id=run.id,
                     user_id=self.user.id,
                     approved_snapshots=[{"identifier": "target", "new_hash": snapshot.current_hash}],
@@ -136,21 +136,21 @@ class TestGatingInvariants:
     @parameterized.expand(GATE_CASES)
     def test_gate_outcome(self, _name, result, action, expected_gate_passes, expected_changed_count):
         run = self._build_run(result, action)
-        recompute_result = logic.recompute_run(run.id, team_id=self.team.id)
+        recompute_result = runs.recompute_run(run.id, team_id=self.team.id)
         gate_passes = recompute_result["unresolved"] == 0
         assert gate_passes is expected_gate_passes
 
     @parameterized.expand(GATE_CASES)
     def test_raw_counts_reflect_classifier_truth(self, _name, result, action, _expected_gate, expected_changed_count):
         run = self._build_run(result, action)
-        logic.recompute_run(run.id, team_id=self.team.id)
+        runs.recompute_run(run.id, team_id=self.team.id)
         run.refresh_from_db()
         assert run.changed_count == expected_changed_count
 
     @parameterized.expand(GATE_CASES)
     def test_result_not_mutated_by_action_or_recompute(self, _name, result, action, _expected_gate, _expected_changed):
         run = self._build_run(result, action)
-        logic.recompute_run(run.id, team_id=self.team.id)
+        runs.recompute_run(run.id, team_id=self.team.id)
 
         snapshot = run.snapshots.get(identifier="target")
         snapshot.refresh_from_db()
@@ -159,9 +159,9 @@ class TestGatingInvariants:
     @parameterized.expand(GATE_CASES)
     def test_recompute_is_idempotent(self, _name, result, action, _expected_gate, _expected_changed):
         run = self._build_run(result, action)
-        logic.recompute_run(run.id, team_id=self.team.id)
+        runs.recompute_run(run.id, team_id=self.team.id)
 
-        second = logic.recompute_run(run.id, team_id=self.team.id)
+        second = runs.recompute_run(run.id, team_id=self.team.id)
         assert second["counts_changed"] is False
 
     def test_observe_run_summary_never_gates(self):

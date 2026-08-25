@@ -177,17 +177,43 @@ pub async fn build_components(
         .expect("failed to create redis client"),
     );
 
-    // The dynamic custom-threshold refresh loop is owned by the common limiter:
-    // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
-    // source into the limiter, which spawns and manages the refresh task itself.
-    let global_rate_limiter_token_distinctid = if config.global_rate_limit_enabled {
-        let limiter = GlobalRateLimiter::try_from_config(&config, redis_client.clone())
-            .await
-            .expect("failed to create global rate limiter");
-        Some(Arc::new(limiter))
+    // Each global limiter gets its own Redis client, from the same source: the
+    // dedicated rate-limiter Redis when GLOBAL_RATE_LIMIT_REDIS_URL is set,
+    // otherwise the shared one. A client owns one MultiplexedConnection, and
+    // each limiter drives its own tick loop against it under a per-command
+    // timeout, so sharing one would let a slow drain on either limiter eat the
+    // other's budget. Key prefixes already keep their counts apart; this keeps
+    // their pipelines apart too. Neither is built unless its limiter is on, so
+    // a deployment running neither opens no connection.
+    let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
+    let rate_limiter_redis = if config.global_rate_limit_enabled {
+        Some(
+            GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+                .await
+                .expect("failed to create rate limiter redis client"),
+        )
     } else {
         None
     };
+    let ai_byte_limiter_redis = if ai_byte_limit_enabled {
+        Some(
+            GlobalRateLimiter::build_redis_client(&config, redis_client.clone())
+                .await
+                .expect("failed to create AI byte limiter redis client"),
+        )
+    } else {
+        None
+    };
+
+    // The dynamic custom-threshold refresh loop is owned by the common limiter:
+    // when GLOBAL_RATE_LIMIT_CUSTOM_THRESHOLD_KEY is set, `build()` wires a Redis
+    // source into the limiter, which spawns and manages the refresh task itself.
+    let global_rate_limiter_token_distinctid = rate_limiter_redis.as_ref().map(|redis| {
+        Arc::new(
+            GlobalRateLimiter::new_token_distinct_id(&config, vec![redis.clone()])
+                .expect("failed to create global rate limiter"),
+        )
+    });
 
     // add new "scoped" quota limiters here as new quota tracking buckets are added
     // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
@@ -327,6 +353,21 @@ pub async fn build_components(
             None
         };
 
+    // Unlike the governor-backed overflow limiters above, this one needs no
+    // metrics or state-cleanup tasks of its own: the global rate limiter owns
+    // its background tick loop, its cache eviction, and its own metric series
+    // (scoped `<mode>_ai_bytes`).
+    if ai_byte_limit_enabled {
+        warn_if_ai_byte_budget_below_max_event(&config);
+    }
+    warn_if_ai_ceiling_exceeds_producer_cap(&config);
+    let ai_byte_rate_limiter = ai_byte_limiter_redis.as_ref().map(|redis| {
+        Arc::new(
+            GlobalRateLimiter::new_ai_bytes(&config, vec![redis.clone()])
+                .expect("failed to create AI byte rate limiter"),
+        )
+    });
+
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
@@ -358,12 +399,14 @@ pub async fn build_components(
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
+        config.ai_max_event_bytes,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
+        ai_byte_rate_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
@@ -391,7 +434,7 @@ pub async fn build_components(
 /// `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` means AI events never
 /// overflow. Import mode refuses an armed valve at boot: non-AI import events
 /// can't overflow because historical rerouting takes precedence no matter how
-/// the deployment is configured, but nothing structural protects `$ai_*`
+/// the deployment is configured, but nothing structural protects AI
 /// imports, so an armed valve would silently break the imports-never-overflow
 /// guarantee.
 fn ai_events_overflow_valve(config: &Config) -> bool {
@@ -407,7 +450,64 @@ fn ai_events_overflow_valve(config: &Config) -> bool {
     armed
 }
 
-/// Builds the v1 sink router. The dedicated `$ai_*` topics are
+/// The AI byte budget this deployment enforces, or `0` to skip building the
+/// limiter entirely. Import is exempt — backfills are never throttled, matching
+/// the other limiters — and not building the limiter is the whole exemption, so
+/// neither pipeline's charge step needs capture-mode awareness of its own.
+fn ai_byte_limit_per_second(config: &Config) -> u64 {
+    if matches!(config.capture_mode, CaptureMode::Import) {
+        return 0;
+    }
+    config.ai_byte_limit_per_second
+}
+
+/// Warns when the per-event ceiling is at or above what the producer will
+/// send. Above the cap the ceiling stops being a guard: capture reads the
+/// body, builds the event, and the producer refuses it anyway, so the only
+/// thing the higher ceiling buys is a later failure. Both sides come from
+/// config, so the check stays correct when either knob moves.
+fn ai_ceiling_exceeds_producer_cap(config: &Config) -> bool {
+    let ceiling = config.ai_max_event_bytes;
+    // `0` disables the ceiling, so there is no ordering to be wrong about.
+    ceiling != 0 && ceiling >= config.kafka.kafka_producer_message_max_bytes as u64
+}
+
+fn warn_if_ai_ceiling_exceeds_producer_cap(config: &Config) {
+    if ai_ceiling_exceeds_producer_cap(config) {
+        warn!(
+            ai_max_event_bytes = config.ai_max_event_bytes,
+            kafka_producer_message_max_bytes = config.kafka.kafka_producer_message_max_bytes,
+            "AI_MAX_EVENT_BYTES is at or above KAFKA_PRODUCER_MESSAGE_MAX_BYTES; \
+             events between the producer cap and the ceiling are built and then \
+             refused by the producer"
+        );
+    }
+}
+
+/// Warns when a token sending full-size AI events would be limited on nearly
+/// every one of them, because the window budget cannot fit even a single event
+/// at the deployment's ceiling. Both sides come from config, so the check stays
+/// correct when either knob moves.
+fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
+    let max_event_bytes = config.ai_max_event_bytes;
+    if max_event_bytes == 0 {
+        return;
+    }
+    let window_secs = config.global_rate_limit_window_interval_secs;
+    let window_budget = ai_byte_limit_per_second(config).saturating_mul(window_secs);
+    if window_budget < max_event_bytes {
+        warn!(
+            ai_byte_limit_per_second = config.ai_byte_limit_per_second,
+            window_secs,
+            window_budget,
+            max_event_bytes,
+            "AI_BYTE_LIMIT_PER_SECOND yields a window budget below AI_MAX_EVENT_BYTES; \
+             a token sending full-size events will be limited on nearly every event"
+        );
+    }
+}
+
+/// Builds the v1 sink router. The dedicated AI topics are
 /// deployment-level config (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` and `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`),
 /// so they are injected into every sink config here; the overwrite is
 /// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
@@ -867,6 +967,44 @@ mod tests {
         );
     }
 
+    /// Signature shared by the limiter constructors under test.
+    type LimiterBuilder = fn(
+        &Config,
+        Vec<Arc<dyn common_redis::Client + Send + Sync>>,
+    ) -> anyhow::Result<GlobalRateLimiter>;
+
+    /// A zero window gives every bucket an infinite leak rate, so the limiter
+    /// admits everything. Building one must fail at boot rather than run as a
+    /// limiter that never limits.
+    #[rstest]
+    #[case::ai_bytes(GlobalRateLimiter::new_ai_bytes)]
+    #[case::token_distinct_id(GlobalRateLimiter::new_token_distinct_id)]
+    fn limiters_reject_a_zero_window(#[case] build: LimiterBuilder) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        // `GlobalRateLimiter` is not `Debug`, so unwrap the error by hand.
+        let err = match build(&config, vec![]) {
+            Ok(_) => panic!("a zero window must not build a limiter"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS"),
+            "the error must name the offending setting, got: {err}"
+        );
+    }
+
     #[test]
     #[should_panic(expected = "imports must never overflow")]
     fn ai_events_overflow_valve_rejects_armed_valve_in_import_mode() {
@@ -1081,6 +1219,64 @@ mod tests {
         create_sink(&config, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
+    }
+
+    /// The ceiling only guards anything while it sits under the producer's cap.
+    /// A deployment that raises the producer keeps its headroom; one that never
+    /// touched it gets told the default is too high for its broker.
+    #[rstest::rstest]
+    #[case::default_ceiling_on_a_default_producer(8_388_608, 1_000_000, true)]
+    #[case::default_ceiling_under_a_raised_producer(8_388_608, 10_485_760, false)]
+    #[case::equal_still_warns(1_000_000, 1_000_000, true)]
+    #[case::disabled_ceiling_never_warns(0, 1_000_000, false)]
+    fn ai_ceiling_is_checked_against_the_producer_cap(
+        #[case] ceiling: u64,
+        #[case] producer_cap: u32,
+        #[case] expected: bool,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion_ai"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.ai_max_event_bytes = ceiling;
+        config.kafka.kafka_producer_message_max_bytes = producer_cap;
+
+        assert_eq!(ai_ceiling_exceeds_producer_cap(&config), expected);
+    }
+
+    /// Import deployments never build the AI byte limiter, however the knob is
+    /// set — that omission is the entire import exemption, so a rate leaking
+    /// through here would start throttling backfills.
+    #[rstest::rstest]
+    #[case::events_keeps_the_configured_rate(CaptureMode::Events, 5_000, 5_000)]
+    #[case::ai_keeps_the_configured_rate(CaptureMode::Ai, 5_000, 5_000)]
+    #[case::import_is_exempt(CaptureMode::Import, 5_000, 0)]
+    #[case::unset_stays_unset(CaptureMode::Events, 0, 0)]
+    fn ai_byte_limit_per_second_by_mode(
+        #[case] mode: CaptureMode,
+        #[case] configured: u64,
+        #[case] expected: u64,
+    ) {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode.as_tag()),
+            ("KAFKA_HOSTS", "localhost:9092"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let mut config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+        config.ai_byte_limit_per_second = configured;
+
+        assert_eq!(ai_byte_limit_per_second(&config), expected);
     }
 
     /// Absent gauge means warnings are off on purpose; `0` means an operator

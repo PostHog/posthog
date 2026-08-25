@@ -133,9 +133,10 @@ If your source uses OAuth (SourceFieldOauthConfig):
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
+2. **Integration Kind**: Add your integration to the `posthog/models/integration/` package.
+   Its `__init__.py` only re-exports the public surface, so edit the defining modules below.
 
-   **a) Add to `IntegrationKind` enum:**
+   **a) Add to the `IntegrationKind` enum in `model.py`:**
 
    ```python
    class IntegrationKind(models.TextChoices):
@@ -143,7 +144,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
        YOUR_SOURCE = "your-source"
    ```
 
-   **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to the `OauthIntegration.supported_kinds` list in `oauth.py`:**
 
    ```python
    supported_kinds = [
@@ -152,7 +153,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
    ]
    ```
 
-   **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in the `oauth_config_for_kind()` method, also in `oauth.py`:**
 
    ```python
    elif kind == "your-source":

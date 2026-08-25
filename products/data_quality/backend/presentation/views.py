@@ -232,7 +232,15 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
         # (relationships target, custom_sql table), so gate on every subject it references too.
         check = self.get_object()
         self._require_referenced_subject_access(check.check_type, check.config)
-        suite_run = api.start_check_suite(team=self.team, user=cast(User, request.user), check_ids=[str(check.id)])
+        # The subject is stamped alongside check_ids so the handle stays reachable through this
+        # subject's nested suite-run routes, which filter on it. check_ids still decides what runs.
+        suite_run = api.start_check_suite(
+            team=self.team,
+            user=cast(User, request.user),
+            subject_type=self.subject_type,
+            subject_uuids=[self.subject_uuid],
+            check_ids=[str(check.id)],
+        )
         return Response(DataQualitySuiteRunSerializer(suite_run).data)
 
     @extend_schema(

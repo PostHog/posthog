@@ -16,7 +16,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
-from posthog.rbac.user_access_control import restricted_visible_membership_ids
+from posthog.rbac.subject_access_control import restricted_visible_membership_ids
 
 from ee.models.rbac.role import Role, RoleMembership
 

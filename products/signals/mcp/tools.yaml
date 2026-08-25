@@ -59,7 +59,8 @@ tools:
         title: Delete an artefact
         description: >
             Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status
-            type (e.g. priority_judgment) reverts the report's canonical status to the previous version.
+            type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run`
+            artefacts are an append-only work log and cannot be deleted.
     inbox-report-artefacts-list:
         operation: signals_report_artefacts_list
         enabled: true

@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -31,7 +31,6 @@ else:
 
 try:
     from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import RoleMembership
 except ImportError:
     pass
 
@@ -51,7 +50,6 @@ AccessControlLevelNone = Literal["none"]
 AccessControlLevelMember = Literal[AccessControlLevelNone, "member", "admin"]
 AccessControlLevelResource = Literal[AccessControlLevelNone, "viewer", "editor", "manager"]
 AccessControlLevel = Literal[AccessControlLevelMember, AccessControlLevelResource]
-InheritedAccessLevelReason = Literal["role_override", "project_default", "organization_admin"]
 
 NO_ACCESS_LEVEL = "none"
 ACCESS_CONTROL_LEVELS_MEMBER: tuple[AccessControlLevelMember, ...] = get_args(AccessControlLevelMember)
@@ -75,6 +73,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "hog_flow",
     "insight",
     "llm_analytics",
+    "evaluation",
     "tagger",
     "llm_skill",
     "ai_observability_clusters",
@@ -105,7 +104,6 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
     "warehouse_table": "warehouse_objects",
     "warehouse_view": "warehouse_objects",
-    "evaluation": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
@@ -114,9 +112,6 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
-    # Saved ticket views (the `conversation` scope) share the Support product's
-    # single "ticket" RBAC resource, so admins configure one control instead of two.
-    "conversation": "ticket",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
@@ -239,13 +234,6 @@ def access_level_satisfied_for_resource(
     return ordered_access_levels(resource).index(current_level) >= ordered_access_levels(resource).index(required_level)
 
 
-@dataclass(frozen=True)
-class EffectiveAccessResult:
-    effective_access_level: AccessControlLevel | None
-    inherited_access_level: AccessControlLevel | None
-    inherited_access_level_reason: InheritedAccessLevelReason | None
-
-
 @frozen
 class ResolvedAccess:
     """An access level plus which rule supplied it, so callers can attribute a resolution
@@ -289,181 +277,6 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
-
-
-def get_effective_access_level_for_role(
-    resource: APIScopeObject,
-    default_level: AccessControlLevel | None,
-    role_level: AccessControlLevel | None,
-) -> EffectiveAccessResult:
-    """Compute effective access for a role from role override and default."""
-    effective: AccessControlLevel | None = None
-    inherited: AccessControlLevel | None = None
-    inherited_reason: InheritedAccessLevelReason | None = None
-
-    if default_level is None:
-        effective = role_level
-    elif role_level is None:
-        effective = default_level
-        inherited = default_level
-        inherited_reason = "project_default"
-    elif role_level and default_level:
-        inherited = default_level
-        inherited_reason = "project_default"
-
-        levels = ordered_access_levels(resource)
-        effective = role_level if levels.index(role_level) > levels.index(default_level) else default_level
-
-    return EffectiveAccessResult(
-        effective_access_level=effective,
-        inherited_access_level=inherited,
-        inherited_access_level_reason=inherited_reason,
-    )
-
-
-def get_effective_access_level_for_member(
-    resource: APIScopeObject,
-    default_level: AccessControlLevel | None,
-    role_levels: list[AccessControlLevel],
-    member_level: AccessControlLevel | None,
-    is_org_admin: bool,
-) -> EffectiveAccessResult:
-    """Compute effective access for a member from member override, default, and role levels."""
-    effective: AccessControlLevel | None = None
-    inherited: AccessControlLevel | None = None
-    inherited_reason: InheritedAccessLevelReason | None = None
-
-    if is_org_admin:
-        highest = highest_access_level(resource)
-        effective = highest
-        inherited = highest
-        inherited_reason = "organization_admin"
-    elif default_level and not role_levels and not member_level:
-        effective = default_level
-        inherited = default_level
-        inherited_reason = "project_default"
-    elif default_level is None and not role_levels and member_level:
-        effective = member_level
-    else:
-        levels = ordered_access_levels(resource)
-
-        inherited = default_level
-        inherited_reason = "project_default" if default_level else None
-
-        # checking if any role level is higher than the default level
-        for rl in role_levels:
-            if inherited is None or levels.index(rl) > levels.index(inherited):
-                inherited = rl
-                inherited_reason = "role_override"
-
-        # checking if the member level is higher than the default and role levels
-        if member_level and levels.index(member_level) > levels.index(cast(AccessControlLevel, inherited)):
-            effective = member_level
-        else:
-            effective = inherited
-
-    return EffectiveAccessResult(
-        effective_access_level=effective,
-        inherited_access_level=inherited,
-        inherited_access_level_reason=inherited_reason,
-    )
-
-
-def get_project_scoped_visible_membership_ids(
-    organization: Organization, requesting_membership: OrganizationMembership
-) -> Optional[set[str]]:
-    """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
-    project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
-    project the requester has access to. Returns None when every member is visible, so callers can
-    skip filtering without materializing the roster."""
-    # Without the entitlement, stale AccessControl rules in the DB must be ignored, not enforced —
-    # every project falls back to its default access, so every member is visible.
-    if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-        return None
-
-    team_ids = list(organization.teams.values_list("id", flat=True))
-    role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-
-    default_by_team: dict[int, AccessControlLevel] = {}
-    member_overrides: dict[tuple[int, str], AccessControlLevel] = {}
-    role_overrides: dict[tuple[int, str], AccessControlLevel] = {}
-    for ac in AccessControl.objects.filter(team_id__in=team_ids, resource="project"):
-        if ac.organization_member_id is None and ac.role_id is None:
-            default_by_team[ac.team_id] = ac.access_level
-        elif ac.organization_member_id:
-            member_overrides[(ac.team_id, str(ac.organization_member_id))] = ac.access_level
-        elif ac.role_id and role_based_access:
-            role_overrides[(ac.team_id, str(ac.role_id))] = ac.access_level
-
-    # A member's effective access can differ from the team default only if a rule mentions them —
-    # directly, or via a role they hold. Everyone else has exactly the default outcome, so only
-    # rule-mentioned candidates need individual evaluation.
-    candidate_role_ids: dict[str, list[str]] = defaultdict(list)
-    referenced_role_ids = {role_id for (_, role_id) in role_overrides}
-    if referenced_role_ids:
-        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids):
-            if rm.organization_member_id:
-                candidate_role_ids[str(rm.organization_member_id)].append(str(rm.role_id))
-    candidate_ids = {membership_id for (_, membership_id) in member_overrides} | set(candidate_role_ids)
-
-    def has_scoped_access(team_id: int, membership_id: str) -> bool:
-        result = get_effective_access_level_for_member(
-            resource="project",
-            default_level=default_by_team.get(team_id, default_access_level("project")),
-            role_levels=[
-                role_overrides[(team_id, rid)]
-                for rid in candidate_role_ids.get(membership_id, [])
-                if (team_id, rid) in role_overrides
-            ],
-            member_level=member_overrides.get((team_id, membership_id)),
-            is_org_admin=False,
-        )
-        return result.effective_access_level not in (None, NO_ACCESS_LEVEL)
-
-    requester_id = str(requesting_membership.id)
-    accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
-
-    open_team_accessible = any(
-        default_by_team.get(team_id, default_access_level("project")) != NO_ACCESS_LEVEL
-        for team_id in accessible_team_ids
-    )
-    if open_team_accessible:
-        # An open team makes every non-candidate visible; a candidate is hidden only if every
-        # accessible team denies them (dead branch under max-wins, real under more-specific-wins).
-        hidden = {
-            membership_id
-            for membership_id in candidate_ids
-            if all(not has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids)
-        }
-        if not hidden:
-            return None
-        all_ids = {
-            str(membership_id)
-            for membership_id in OrganizationMembership.objects.filter(organization=organization).values_list(
-                "id", flat=True
-            )
-        }
-        return (all_ids - hidden) | {requester_id}
-
-    # Only private teams are accessible: non-candidates have the "none" default everywhere.
-    visible = {requester_id}
-    for membership_id in candidate_ids:
-        if any(has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids):
-            visible.add(membership_id)
-    return visible
-
-
-def restricted_visible_membership_ids(organization: Organization, user: User) -> Optional[set[str]]:
-    """Membership ids `user` may see when the org restricts member list visibility, or None when
-    unrestricted (the setting is enabled, or the user is an org admin)."""
-    if organization.members_can_see_org_members:
-        return None
-    membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
-    if membership is None:
-        return set()
-    if membership.level >= OrganizationMembership.Level.ADMIN:
-        return None
-    return get_project_scoped_visible_membership_ids(organization, membership)
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
@@ -725,6 +538,12 @@ class UserAccessControl:
         org_membership = self._organization_membership
         return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
 
+    def _is_creator(self, obj: Model) -> bool:
+        """Whether the principal created the object, which grants them the highest access to it.
+        Creator is a property of the principal, so a subclass that resolves for someone other than
+        the requesting user must override this."""
+        return getattr(obj, "created_by", None) == self._user
+
     # ------------------------------------------------------------
     # Access control helpers
     # ------------------------------------------------------------
@@ -800,7 +619,14 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
+        filters: dict[str, Any] = {"resource": resource, "resource_id": resource_id}
+        # A create request has no team yet, so fall back to the organization scope like the queryset
+        # variant does - otherwise serializing the create response raises AttributeError on team.id.
+        if self._team:
+            filters["team_id"] = self._team.id
+        elif self._organization_id:
+            filters["team__organization_id"] = str(self._organization_id)
+        return filters
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
         """
@@ -917,7 +743,7 @@ class UserAccessControl:
             return None
 
         # Creators always have highest access
-        if getattr(obj, "created_by", None) == self._user:
+        if self._is_creator(obj):
             return highest_access_level(resource)
 
         # Org admins always have highest access
@@ -984,7 +810,7 @@ class UserAccessControl:
         4. The user has "manager" access to the resource
         """
 
-        if getattr(obj, "created_by", None) == self._user:
+        if self._is_creator(obj):
             # TODO: Should this always be the case, even for projects?
             return True
 
@@ -1017,7 +843,7 @@ class UserAccessControl:
             return None
 
         # Check if user is the creator
-        if getattr(obj, "created_by", None) == self._user:
+        if self._is_creator(obj):
             return AccessSource.CREATOR
 
         # Check if user is org admin
@@ -1137,6 +963,13 @@ class UserAccessControl:
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
             # If there is no team, then there can't be any access controls on this resource
+            return False
+
+        # A resource that carries no resource-level controls has no such rules to find, whatever
+        # rows exist. Answering True for one sends the object walk to `access_level_for_resource`,
+        # which returns the built-in default for these resources — that would override the rules
+        # written about the object itself, e.g. a project's own default.
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return False
 
         # Inheriting children (e.g. warehouse_view -> warehouse_objects) intentionally
@@ -1715,8 +1548,7 @@ class UserAccessControl:
         if not resource:
             return None
 
-        is_creator = getattr(obj, "created_by", None) == self._user
-        resolved, access = self._object_access_level_precheck(resource, is_creator, explicit=explicit)
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj), explicit=explicit)
         if resolved:
             return access.access_level if access else None
 

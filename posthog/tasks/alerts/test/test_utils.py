@@ -22,7 +22,7 @@ from posthog.tasks.alerts.utils import (
 
 from products.alerts.backend.destinations import ActiveAlertDestination
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAlertUtils:

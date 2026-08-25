@@ -42,7 +42,9 @@ jobs:
                         - 'posthog/personhog_client/proto/generated/**'
                         - 'bin/generate_personhog_proto.sh'
                         - 'nodejs/src/common/generated/personhog/**'
+                        - 'nodejs/src/common/generated/ingestion-worker/**'
                         - 'nodejs/buf.gen.yaml'
+                        - 'nodejs/buf.gen.ingestion-worker.yaml'
                         - 'nodejs/package.json'
                         - '.github/workflows/ci-proto.yml'
 
@@ -157,16 +159,18 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Regenerate Node proto stubs
-              run: pnpm --dir nodejs run generate:personhog-proto
+              run: |
+                  pnpm --dir nodejs run generate:personhog-proto
+                  pnpm --dir nodejs run generate:ingestion-worker-proto
 
             - name: Check for diff
               run: |
                   # Intent-to-add so brand-new generated files show up in git diff
-                  git add -N nodejs/src/common/generated/personhog/
-                  if ! git diff --exit-code nodejs/src/common/generated/personhog/; then
+                  git add -N nodejs/src/common/generated/personhog/ nodejs/src/common/generated/ingestion-worker/
+                  if ! git diff --exit-code nodejs/src/common/generated/personhog/ nodejs/src/common/generated/ingestion-worker/; then
                     echo ""
                     echo "ERROR: Generated Node proto stubs are out of date."
-                    echo "Run 'pnpm run generate:personhog-proto' in nodejs/ and commit the result."
+                    echo "Run 'pnpm run generate:personhog-proto' and 'pnpm run generate:ingestion-worker-proto' in nodejs/ and commit the result."
                     exit 1
                   fi
                   echo "Generated Node proto stubs are up to date."

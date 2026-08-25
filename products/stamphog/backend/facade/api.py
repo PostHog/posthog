@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar, overload
-from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
@@ -18,7 +17,8 @@ from django.utils import timezone
 
 import structlog
 
-from ..models import DigestChannel, DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
+from ..logic.review_trigger import derive_review_trigger
+from ..models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
 from . import contracts
 from .enums import (
     TERMINAL_STATUSES,
@@ -106,27 +106,14 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
     )
 
 
-def _digest_channel_to_dto(obj: DigestChannel) -> contracts.DigestChannelDTO:
-    return contracts.DigestChannelDTO(
-        id=obj.id,
-        team_id=obj.team_id,
-        audience_key=obj.audience_key,
-        slack_integration_id=obj.slack_integration_id,
-        slack_channel_id=obj.slack_channel_id,
-        slack_channel_name=obj.slack_channel_name,
-        enabled=obj.enabled,
-        resolution_source=ChannelResolutionSource(obj.resolution_source),
-        last_digest_at=obj.last_digest_at,
-        created_at=obj.created_at,
-        updated_at=obj.updated_at,
-    )
-
-
 def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
     return contracts.DigestRunDTO(
         id=obj.id,
         team_id=obj.team_id,
-        digest_channel_id=obj.digest_channel_id,
+        audience_key=obj.audience_key,
+        slack_channel_id=obj.slack_channel_id,
+        slack_channel_name=obj.slack_channel_name,
+        resolution_source=ChannelResolutionSource(obj.resolution_source),
         status=DigestRunStatus(obj.status),
         pr_count=obj.pr_count,
         summary=obj.summary,
@@ -147,16 +134,12 @@ _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
 def _derive_trigger(obj: ReviewRun) -> ReviewTrigger:
-    """Why stamphog looked at this PR: inbox provenance first, then the repo's review mode.
-
-    Inbox provenance outranks the repo mode: a self-driving run is dispatched from the inbox
-    whether or not the repo also reviews every PR event.
-    """
-    if (obj.output or {}).get("inbox_review"):
-        return ReviewTrigger.SELF_DRIVING
-    if obj.pull_request.repo_config.review_mode == ReviewMode.LABEL:
-        return ReviewTrigger.LABEL
-    return ReviewTrigger.ALL
+    """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
+    the reviewer invocation has to answer the same question before a run exists to read."""
+    return derive_review_trigger(
+        has_inbox_review=bool((obj.output or {}).get("inbox_review")),
+        review_mode=obj.pull_request.repo_config.review_mode,
+    )
 
 
 def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
@@ -250,11 +233,6 @@ def create_review_run(
         delivery_id=delivery_id,
     )
     return _review_run_to_dto(obj)
-
-
-def get_digest_channel(team_id: int, digest_channel_id: str) -> contracts.DigestChannelDTO | None:
-    obj = DigestChannel.objects.for_team(team_id).filter(id=digest_channel_id).first()
-    return _digest_channel_to_dto(obj) if obj is not None else None
 
 
 def get_digest_run(team_id: int, digest_run_id: str) -> contracts.DigestRunDTO | None:
@@ -392,55 +370,11 @@ def list_pull_requests(
     return LazyDTOList(qs, _pull_request_to_dto)
 
 
-# --- Digest channels ---
-
-
-def list_digest_channels(team_id: int) -> LazyDTOList[contracts.DigestChannelDTO]:
-    qs = DigestChannel.objects.for_team(team_id).order_by("audience_key")
-    return LazyDTOList(qs, _digest_channel_to_dto)
-
-
-def create_digest_channel(team_id: int, **fields: object) -> contracts.DigestChannelDTO:
-    # team_id is injected rather than supplied, so the unique (team, audience_key) constraint can't
-    # be pre-validated by the caller — catch it here so a duplicate audience is a domain error
-    # rather than a 500.
-    try:
-        obj = DigestChannel.objects.for_team(team_id).create(team_id=team_id, **fields)
-    except IntegrityError:
-        raise contracts.DuplicateAudienceError(str(fields.get("audience_key", "")))
-    return _digest_channel_to_dto(obj)
-
-
-def update_digest_channel(team_id: int, channel_id: str, **fields: object) -> contracts.DigestChannelDTO:
-    # audience_key is the bucket this channel is bound to. Editing it re-points the channel at a
-    # different audience — and can effectively re-open an audience a human opted out of, since the
-    # disabled tombstone row keying off the old audience_key would no longer match.
-    fields.pop("audience_key", None)
-    obj = DigestChannel.objects.for_team(team_id).get(id=channel_id)
-    for name, value in fields.items():
-        setattr(obj, name, value)
-    obj.save()
-    return _digest_channel_to_dto(obj)
-
-
-def disable_digest_channel(team_id: int, channel_id: str) -> None:
-    """Soft-disable rather than removing the row.
-
-    The (team_id, audience_key) row is the tombstone that stops auto_provision_channel from
-    recreating and re-posting a digest someone opted out of (see logic/channel_resolution.py —
-    auto-provisioning skips any existing row, disabled included). A hard delete would let the next
-    daily beat resurrect the channel and re-send the digest.
-    """
-    obj = DigestChannel.objects.for_team(team_id).get(id=channel_id)
-    obj.enabled = False
-    obj.save(update_fields=["enabled", "updated_at"])
-
-
 # --- Digest runs ---
 
 
-def list_digest_runs(team_id: int, *, digest_channel_id: UUID | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
+def list_digest_runs(team_id: int, *, slack_channel_id: str | None = None) -> LazyDTOList[contracts.DigestRunDTO]:
     qs = DigestRun.objects.for_team(team_id).order_by("-created_at")
-    if digest_channel_id is not None:
-        qs = qs.filter(digest_channel_id=digest_channel_id)
+    if slack_channel_id is not None:
+        qs = qs.filter(slack_channel_id=slack_channel_id)
     return LazyDTOList(qs, _digest_run_to_dto)

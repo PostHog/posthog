@@ -41,6 +41,7 @@ from posthog.hogql.direct_connection import (
     raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import (
+    DirectQueryPrincipal,
     DirectQueryRequest,
     DirectSQLAdapter,
     ensure_single_direct_statement,
@@ -494,6 +495,11 @@ class HogQLQueryExecutor:
                 timings=self.timings,
                 query_type=self.query_type,
                 debug=bool(self.debug),
+                principal=(
+                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    if isinstance(self.user, User) and self.user.pk is not None
+                    else None
+                ),
                 cancellation_token=cancellation_token,
             )
         )

@@ -1,5 +1,7 @@
 import { combineUrl } from 'kea-router'
 
+import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
+
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { matchingActorsUrl } from './matchingActorsUrl'
@@ -23,6 +25,8 @@ describe('matchingActorsUrl', () => {
         expect(parsed.pathname).toBe('/persons')
         expect(parsed.hashParams.q.source.kind).toBe('ActorsQuery')
         expect(parsed.hashParams.q.source.properties).toEqual([personProperty])
+        // Without this the backend picks its own columns and the list shows raw UUIDs
+        expect(parsed.hashParams.q.source.select).toContain(PERSON_DISPLAY_NAME_COLUMN_NAME)
     })
 
     it('links a group-targeted condition to that group type list with the filters', () => {

@@ -39,7 +39,7 @@ from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS,
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 _PropertyFilterUnion = PolymorphicProxySerializer(
     component_name="ActionStepPropertyFilter",

@@ -103,6 +103,7 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
         CREATE INDEX IF NOT EXISTS sb_failed_changed_idx ON {BATCH_TABLE} (state_changed_at)
             WHERE latest_state = 'failed'
     """)
+    conn.execute(f"CREATE INDEX IF NOT EXISTS sb_job_id_idx ON {BATCH_TABLE} (job_id)")
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1527,6 +1528,23 @@ class TestClaimGates:
         finally:
             await conn.execute("SET enable_seqscan = on")
         assert "sb_claimable_idx" in plan
+
+    @pytest.mark.asyncio
+    async def test_job_scoped_queries_use_the_job_id_index(self, conn):
+        # supersede_other_runs runs on every fresh run's first batch; without this
+        # index each call seq-scans every retained partition.
+        await _insert_batch(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute(
+                f"EXPLAIN (FORMAT TEXT) SELECT count(*) FROM {BATCH_TABLE} b "
+                "WHERE b.created_at > now() - interval '14 days' AND b.job_id = %s",
+                ["job-1"],
+            )
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+        assert "sb_job_id_idx" in plan
 
 
 @pytest.mark.django_db(transaction=True)

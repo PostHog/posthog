@@ -24,6 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.subject_access_control import SubjectAccessControl
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     NO_ACCESS_LEVEL,
@@ -32,8 +33,6 @@ from posthog.rbac.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
     default_access_level,
-    get_effective_access_level_for_member,
-    get_effective_access_level_for_role,
     highest_access_level,
     minimum_access_level,
     model_to_resource,
@@ -69,18 +68,6 @@ def resource_with_levels(draw, n: int = 1):
     resource = draw(resources_st)
     level = st.sampled_from(ordered_access_levels(resource))
     return (resource, *(draw(level) for _ in range(n)))
-
-
-@st.composite
-def member_level_inputs(draw):
-    resource = draw(resources_st)
-    level = st.sampled_from(ordered_access_levels(resource))
-    return (
-        resource,
-        draw(st.none() | level),  # project default
-        draw(st.lists(level, max_size=4)),  # role overrides
-        draw(st.none() | level),  # member override
-    )
 
 
 def _max_level(levels: list[AccessControlLevel], order: list[AccessControlLevel]) -> Optional[AccessControlLevel]:
@@ -120,57 +107,6 @@ class TestAccessLevelHelpersProperties(TestCase):
             assert a == b
         if access_level_satisfied_for_resource(resource, a, b) and access_level_satisfied_for_resource(resource, b, c):
             assert access_level_satisfied_for_resource(resource, a, c)
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_org_admin_member_always_gets_highest(self, data):
-        resource, default_level, role_levels, member_level = data
-        result = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=True
-        )
-        assert result.effective_access_level == highest_access_level(resource)
-        assert result.inherited_access_level == highest_access_level(resource)
-        assert result.inherited_access_level_reason == "organization_admin"
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_member_level_is_max_of_inputs(self, data):
-        resource, default_level, role_levels, member_level = data
-        result = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=False
-        )
-        provided = [level for level in [default_level, *role_levels, member_level] if level is not None]
-        assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-
-    @given(data=member_level_inputs())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_member_level_is_monotonic(self, data):
-        resource, default_level, role_levels, member_level = data
-        levels = ordered_access_levels(resource)
-        base = get_effective_access_level_for_member(
-            resource, default_level, role_levels, member_level, is_org_admin=False
-        )
-        for extra in levels:
-            extended = get_effective_access_level_for_member(
-                resource, default_level, [*role_levels, extra], member_level, is_org_admin=False
-            )
-            assert extended.effective_access_level is not None
-            if base.effective_access_level is not None:
-                assert levels.index(extended.effective_access_level) >= levels.index(base.effective_access_level)
-
-    @given(data=resource_with_levels(n=2), has_default=st.booleans(), has_role=st.booleans())
-    @settings(max_examples=500, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
-    def test_effective_role_level_is_max_of_inputs(self, data, has_default, has_role):
-        resource, default_level, role_level = data
-        default_arg = default_level if has_default else None
-        role_arg = role_level if has_role else None
-        result = get_effective_access_level_for_role(resource, default_arg, role_arg)
-
-        provided = [level for level in [default_arg, role_arg] if level is not None]
-        assert result.effective_access_level == _max_level(provided, ordered_access_levels(resource))
-        # The inherited reason is "project_default" exactly when a default level is present,
-        # regardless of whether a role override is also present.
-        assert (result.inherited_access_level_reason == "project_default") == (default_arg is not None)
 
 
 # ------------------------------------------------------------
@@ -810,6 +746,28 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         assert resource_access and resource_access.access_level == highest_access_level(effective)
         assert uac.get_user_access_level(obj) == highest_access_level(resource)
         assert uac.check_can_modify_access_levels_for_object(obj) is True
+
+    @given(team_rows=project_rows(), subject_kind=st.sampled_from(["member", "role"]), role_based_access=st.booleans())
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_seeded_subject_agrees_with_its_own_query(self, team_rows, subject_kind, role_based_access):
+        # A subject seeded from a wide pool narrows it in memory (`_applies_to_subject`) where the
+        # unseeded subject narrows in the query (`_filter_options`). The two are written separately
+        # and must never drift: same rows visible, same project resolution.
+        self._set_role_based_access(role_based_access)
+        self._materialize_project_rows(team_rows)
+        subject_kwargs = (
+            {"member": self._membership(self.other_user)}
+            if subject_kind == "member"
+            else {"role_id": str(self.role_a.id)}
+        )
+
+        queried = SubjectAccessControl(self.user, self.team, **subject_kwargs)
+        seeded = SubjectAccessControl(self.user, self.team, **subject_kwargs)
+        seeded.preload_access_controls()
+
+        assert {ac.id for ac in seeded._cached_access_controls} == {ac.id for ac in queried._cached_access_controls}
+        assert seeded.get_user_access_level(self.team) == queried.get_user_access_level(self.team)
+        assert seeded.has_project_scoped_access(self.team) == queried.has_project_scoped_access(self.team)
 
     @given(
         team_rows=project_rows(),

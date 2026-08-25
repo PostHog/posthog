@@ -21,8 +21,9 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 # 2. Configure the YAML – enable tools, add scopes, annotations, descriptions
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
-# 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
+# 3. For read/list tools backed by PostHog database rows, add a HogQL system table
+#    in posthog/hogql/database/schema/system.py and a model reference in
+#    products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -78,8 +79,13 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ## SQL-first MCP: HogQL system tables
 
-Every list/get endpoint exposed as an MCP tool must have a corresponding HogQL system table.
+Most list/get endpoints exposed as MCP tools should have a corresponding HogQL system table.
 This lets agents query PostHog data via SQL in addition to (or instead of) the REST API tools.
+
+Exceptions are OK when the tool intentionally proxies service-owned data,
+aggregates data that is not represented as a team-scoped PostHog table,
+or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
+For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -374,6 +380,19 @@ see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blo
   without it, drf-spectacular can't discover the request body
   and the generated tool gets an empty schema with zero parameters.
   `ModelViewSet` with `serializer_class` works automatically.
+
+### Root-router viewsets
+
+Viewsets mounted at root URLs (no `team_id`/`project_id` in the path) set
+`param_derived_from_user_current_team` and are excluded from the OpenAPI schema by default,
+which means they are invisible to frontend type generation and MCP tool scaffolding.
+If your viewset is one of these and you want to expose it,
+set `force_include_in_api_docs = True` on the class. See `ee/api/billing.py` for an example.
+This flag only controls schema inclusion.
+Runtime access still comes from the viewset's `scope_object`,
+`scope_object_read_actions`, `scope_object_write_actions`,
+and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
+Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
 
 ## HogQL query schemas (WIP)
 

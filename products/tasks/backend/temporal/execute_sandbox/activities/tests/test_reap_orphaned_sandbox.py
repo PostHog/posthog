@@ -93,6 +93,7 @@ class TestReapOrphanedSandbox:
         ):
             sandbox = sandbox_cls.get_by_id.return_value
             sandbox.read_cpu_usage_usec.return_value = 12_345_678
+            sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
 
             async_to_sync(activity_environment.run)(
                 reap_orphaned_sandbox,
@@ -105,6 +106,7 @@ class TestReapOrphanedSandbox:
             "sb-orphan",
             reason="reaped",
             cpu_usage_usec=12_345_678,
+            billed_cpu_usage_usec=15_000_000,
             cpu_usage_measured_at=ANY,
         )
 

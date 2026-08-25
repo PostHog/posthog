@@ -12,20 +12,29 @@ import { getPrVisualConfig } from "@posthog/core/git-interaction/prStatus";
 import { parseGithubUrl } from "@posthog/git/utils";
 import {
   ButtonGroup,
+  ButtonGroupSeparator,
+  cn,
   DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Button as QButton,
   DropdownMenu as QDropdownMenu,
   DropdownMenuItem as QDropdownMenuItem,
+  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { PrActionType } from "@posthog/shared";
-import { ChevronDownIcon } from "@radix-ui/react-icons";
-import { Button, DropdownMenu, Flex, Spinner, Text } from "@radix-ui/themes";
 import { ChevronDown } from "lucide-react";
-import { Tooltip } from "../../../primitives/Tooltip";
+import type { ReactNode } from "react";
 import { toast } from "../../../primitives/toast";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
 import { getPrActionIcon, getPrVisualIcon } from "../prIcon";
+import { prBadgeToneProps } from "../prTone";
 import { useCloudPrSummaries, useCloudPrUrls } from "../useCloudPrUrl";
 import {
   type GitMenuAction,
@@ -289,6 +298,7 @@ function PrBadgeControl({
   onOtherPrSelect,
 }: PrBadgeControlProps) {
   const config = getPrVisualConfig(prState, merged, draft);
+  const tone = prBadgeToneProps(config);
   const lifecycleItems = config.actions;
   const hasMenuItems = gitItems.length + lifecycleItems.length > 0;
   const hasDropdown = hasMenuItems || !!branchName || otherPrs.length > 0;
@@ -304,113 +314,103 @@ function PrBadgeControl({
   };
 
   return (
-    <Flex align="center" gap="0">
+    <ButtonGroup>
       <PRBadgeLink
         prUrl={prUrl}
         prState={prState}
         merged={merged}
         draft={draft}
         isPrPending={isPrPending}
-        attachedRight={hasDropdown}
         otherCount={otherPrs.length}
       />
       {hasDropdown && (
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger>
-            <Button
-              size="1"
-              variant="soft"
-              color={config.color}
-              disabled={isPrPending}
-              style={{
-                borderTopLeftRadius: 0,
-                borderBottomLeftRadius: 0,
-                borderLeft: `1px solid var(--${config.color}-6)`,
-                paddingLeft: "6px",
-                paddingRight: "6px",
-              }}
-            >
-              <ChevronDownIcon />
-            </Button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Content size="1" align="end">
+        <>
+          {/* quill's group only collapses corners, and both halves share one
+              fill, so without a seam the trigger disappears into the badge. */}
+          <ButtonGroupSeparator />
+          <ChevronMenu
+            label="Pull request actions"
+            disabled={isPrPending}
+            // The trigger wears the badge's own lifecycle colour: the group is
+            // one control, and a neutral half beside a green one reads as two.
+            variant={tone.variant}
+            className={tone.className}
+          >
             {gitItems.map((item) => (
               <GitDropdownItem
                 key={item.id}
                 action={item}
                 onSelect={onGitSelect}
-                renderAs="radix"
               />
             ))}
             {gitItems.length > 0 && lifecycleItems.length > 0 && (
-              <DropdownMenu.Separator />
+              <DropdownMenuSeparator />
             )}
             {lifecycleItems.map((action) => (
-              <DropdownMenu.Item
+              <QDropdownMenuItem
                 key={action.id}
-                onSelect={() => onPrSelect(action.id)}
+                onClick={() => onPrSelect(action.id)}
               >
-                <Flex align="center" gap="2">
-                  {getPrActionIcon(action.id)}
-                  <Text size="1">{action.label}</Text>
-                </Flex>
-              </DropdownMenu.Item>
+                {getPrActionIcon(action.id)}
+                {action.label}
+              </QDropdownMenuItem>
             ))}
             {otherPrs.length > 0 && (
               <>
-                {hasMenuItems && <DropdownMenu.Separator />}
-                <DropdownMenu.Sub>
-                  <DropdownMenu.SubTrigger>
-                    <Flex align="center" gap="2">
-                      <GitPullRequest size={12} weight="bold" />
-                      <Text size="1">Other PRs</Text>
-                    </Flex>
-                  </DropdownMenu.SubTrigger>
-                  <DropdownMenu.SubContent>
+                {hasMenuItems && <DropdownMenuSeparator />}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <GitPullRequest size={12} weight="bold" />
+                    Other PRs
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
                     {otherPrs.map((otherPr) => (
-                      <DropdownMenu.Item
+                      <QDropdownMenuItem
                         key={otherPr.url}
-                        onSelect={() => onOtherPrSelect(otherPr.url)}
+                        onClick={() => onOtherPrSelect(otherPr.url)}
                       >
-                        <Flex align="center" gap="2">
-                          <OtherPrStateIcon visual={otherPr.visual} />
-                          <Text size="1">
-                            {otherPr.label}
-                            {otherPr.summary && <Text> {otherPr.summary}</Text>}
-                            {otherPr.visual && (
-                              <Text color={otherPr.visual.color}>
-                                {" "}
-                                · {otherPr.visual.label}
-                              </Text>
-                            )}
-                            {otherPr.repoLabel && (
-                              <Text color="gray"> · {otherPr.repoLabel}</Text>
-                            )}
-                          </Text>
-                        </Flex>
-                      </DropdownMenu.Item>
+                        <OtherPrStateIcon visual={otherPr.visual} />
+                        <span>
+                          {otherPr.label}
+                          {otherPr.summary && ` ${otherPr.summary}`}
+                          {otherPr.visual && (
+                            <span
+                              style={{
+                                color: `var(--${otherPr.visual.color}-11)`,
+                              }}
+                            >
+                              {" "}
+                              · {otherPr.visual.label}
+                            </span>
+                          )}
+                          {otherPr.repoLabel && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              · {otherPr.repoLabel}
+                            </span>
+                          )}
+                        </span>
+                      </QDropdownMenuItem>
                     ))}
-                  </DropdownMenu.SubContent>
-                </DropdownMenu.Sub>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
               </>
             )}
             {branchName && (
               <>
                 {(hasMenuItems || otherPrs.length > 0) && (
-                  <DropdownMenu.Separator />
+                  <DropdownMenuSeparator />
                 )}
-                <DropdownMenu.Item onSelect={copyBranchName}>
-                  <Flex align="center" gap="2">
-                    <Copy size={12} weight="bold" />
-                    <Text size="1">Copy branch name</Text>
-                  </Flex>
-                </DropdownMenu.Item>
+                <QDropdownMenuItem onClick={copyBranchName}>
+                  <Copy size={12} weight="bold" />
+                  Copy branch name
+                </QDropdownMenuItem>
               </>
             )}
-          </DropdownMenu.Content>
-        </DropdownMenu.Root>
+          </ChevronMenu>
+        </>
       )}
-    </Flex>
+    </ButtonGroup>
   );
 }
 
@@ -431,7 +431,7 @@ interface GitActionControlProps {
   onSelect: (id: GitMenuActionId) => void;
 }
 
-function GitActionControl({
+export function GitActionControl({
   primaryAction,
   actions,
   isBusy,
@@ -439,25 +439,38 @@ function GitActionControl({
 }: GitActionControlProps) {
   const allDisabled = actions.every((a) => !a.enabled);
   const showDropdown = actions.length > 1;
-  const variant = allDisabled ? "default" : "primary";
   const isPrimaryDisabled = !primaryAction.enabled || isBusy;
 
+  // Outlined rather than solid: the git action is one of several things the
+  // header offers, not the header's call to action, and "Continue in cloud"
+  // sits right beside it.
   const primaryButton = (
     <QButton
-      variant={variant}
+      size="sm"
+      variant="outline"
       disabled={isPrimaryDisabled}
       onClick={() => onSelect(primaryAction.id)}
-      className="bg-primary text-primary-foreground not-disabled:hover:bg-primary/80 hover:text-primary-foreground/80"
     >
-      {isBusy ? <Spinner size="1" /> : getGitActionIcon(primaryAction.id)}
+      {isBusy ? (
+        <Spinner className="size-3" />
+      ) : (
+        getGitActionIcon(primaryAction.id)
+      )}
       {primaryAction.label}
     </QButton>
   );
 
   const wrappedPrimaryButton =
     !primaryAction.enabled && primaryAction.disabledReason ? (
-      <Tooltip content={primaryAction.disabledReason} side="bottom">
-        <span style={{ display: "inline-flex" }}>{primaryButton}</span>
+      <Tooltip>
+        {/* A disabled button takes no pointer events, so the span is what the
+            tooltip listens on. */}
+        <TooltipTrigger render={<span className="inline-flex" />}>
+          {primaryButton}
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          {primaryAction.disabledReason}
+        </TooltipContent>
       </Tooltip>
     ) : (
       primaryButton
@@ -470,30 +483,69 @@ function GitActionControl({
   return (
     <ButtonGroup>
       {wrappedPrimaryButton}
-      <QDropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <QButton
-              className="bg-primary not-disabled:hover:bg-primary/80"
-              variant={variant}
-              disabled={isBusy}
-            />
-          }
-        >
-          <ChevronDown size={12} />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {actions.map((action) => (
-            <GitDropdownItem
-              key={action.id}
-              action={action}
-              onSelect={onSelect}
-              renderAs="quill"
-            />
-          ))}
-        </DropdownMenuContent>
-      </QDropdownMenu>
+      <ChevronMenu
+        label={`More ${primaryAction.label.toLowerCase()} actions`}
+        disabled={isBusy}
+        variant="outline"
+      >
+        {actions.map((action) => (
+          <GitDropdownItem
+            key={action.id}
+            action={action}
+            onSelect={onSelect}
+          />
+        ))}
+      </ChevronMenu>
     </ButtonGroup>
+  );
+}
+
+/**
+ * The second half of a split control: a chevron that opens the rest of what the
+ * button beside it can do.
+ *
+ * `w-auto` because quill pins a menu to its anchor's width, and this anchor is
+ * a chevron the width of a glyph — every label came out cut off at the menu's
+ * 8rem floor.
+ */
+function ChevronMenu({
+  label,
+  disabled,
+  variant,
+  className,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  variant?: "outline" | "primary";
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <QDropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <QButton
+            size="sm"
+            aria-label={label}
+            variant={variant}
+            disabled={disabled}
+            // quill keeps a disabled button focusable, so it carries
+            // `aria-disabled` rather than `:disabled` and a tint's hover rules
+            // still fire. No pointer, no hover.
+            className={cn(
+              "px-1.5 aria-disabled:pointer-events-none",
+              className,
+            )}
+          />
+        }
+      >
+        <ChevronDown size={12} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto">
+        {children}
+      </DropdownMenuContent>
+    </QDropdownMenu>
   );
 }
 
@@ -502,45 +554,22 @@ function GitActionControl({
 function GitDropdownItem({
   action,
   onSelect,
-  renderAs,
 }: {
   action: GitMenuAction;
   onSelect: (id: GitMenuActionId) => void;
-  renderAs: "quill" | "radix";
 }) {
-  const icon = getGitActionIcon(action.id);
-  const label = action.label;
-
-  if (renderAs === "radix") {
-    const item = (
-      <DropdownMenu.Item
-        disabled={!action.enabled}
-        onSelect={() => onSelect(action.id)}
-      >
-        <Flex align="center" gap="2">
-          {icon}
-          <Text size="1">{label}</Text>
-        </Flex>
-      </DropdownMenu.Item>
-    );
-    return !action.enabled && action.disabledReason ? (
-      <Tooltip content={action.disabledReason} side="left">
-        <span>{item}</span>
-      </Tooltip>
-    ) : (
-      item
-    );
-  }
-
   const itemContent = (
     <>
-      {icon} {label}
+      {getGitActionIcon(action.id)} {action.label}
     </>
   );
   if (!action.enabled && action.disabledReason) {
     return (
-      <Tooltip content={action.disabledReason} side="left">
-        <QDropdownMenuItem disabled>{itemContent}</QDropdownMenuItem>
+      <Tooltip>
+        <TooltipTrigger render={<span className="flex" />}>
+          <QDropdownMenuItem disabled>{itemContent}</QDropdownMenuItem>
+        </TooltipTrigger>
+        <TooltipContent side="left">{action.disabledReason}</TooltipContent>
       </Tooltip>
     );
   }

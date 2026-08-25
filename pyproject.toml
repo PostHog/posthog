@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    "granian[uvloop,reload,pname]==2.7.6",
+    "granian[uvloop,reload,pname]==2.8.2",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.2.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.39.1",
+    "posthoganalytics==7.43.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -204,7 +204,7 @@ dependencies = [
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
     "limits==5.8.0",
-    "deltalite==0.1.6",
+    "deltalite==0.1.7",
 ]
 
 [dependency-groups]
@@ -295,7 +295,12 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+# TEMPORARY, remove before merging: granian 2.8.2 was published 2026-08-23 and
+# the rolling 7-day cutoff hides it until 2026-08-30. We need 2.8.2 rather than
+# 2.8.1 because it fixes a lost-wakeup race in workers shutdown, which our
+# multi-worker pools hit constantly via worker recycling. Drop this entry and
+# re-lock once the cutoff passes; the resolved version does not change.
+exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]
@@ -461,7 +466,7 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/desktop/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/desktop/.*|products/stamphog/packages/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"
@@ -509,6 +514,7 @@ exclude = [
 
 [tool.importlinter]
 root_packages = ["products"]
+include_external_packages = true
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.
@@ -527,6 +533,13 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destination_configs",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destinations",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.validation",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.insight_alert_state_machine",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.models.alert",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
@@ -593,6 +606,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.anomaly_scan",
+    "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.series_bands",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
@@ -656,6 +670,115 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
+]
+
+# routes.py is the one module core reads to assemble a product's API router, so it is the
+# only way a view becomes reachable over HTTP. Restricting what it may import gives the chain
+# core -> routes -> presentation -> facade as three import edges: a ViewSet outside
+# presentation/ cannot be routed, and the contract above already keeps presentation/ from
+# reaching past the facade. Grandfathered edges below are products whose views still live in
+# backend/api/; `hogli product:isolate:move` relocates them and the line comes out.
+[[tool.importlinter.contracts]]
+name = "routes must only import presentation"
+type = "forbidden"
+source_modules = ["products.*.backend.routes"]
+forbidden_modules = [
+    "products.*.backend",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    "products.**.backend.routes -> products.**.backend.presentation.**",
+    # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
+    "products.actions.backend.routes -> products.actions.backend.api.action",
+    "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
+    "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
+    "products.approvals.backend.routes -> products.approvals.backend.api",
+    "products.batch_exports.backend.routes -> products.batch_exports.backend.api.batch_export",
+    "products.batch_exports.backend.routes -> products.batch_exports.backend.api.file_download",
+    "products.business_knowledge.backend.routes -> products.business_knowledge.backend.api",
+    "products.cdp.backend.routes -> products.cdp.backend.api.hog_function",
+    "products.cdp.backend.routes -> products.cdp.backend.api.hog_function_template",
+    "products.cdp.backend.routes -> products.cdp.backend.api.plugin",
+    "products.cdp.backend.routes -> products.cdp.backend.api.plugin_log_entry",
+    "products.cohorts.backend.routes -> products.cohorts.backend.api.staff_tools",
+    "products.conversations.backend.routes -> products.conversations.backend.api",
+    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard",
+    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_templates",
+    "products.early_access_features.backend.routes -> products.early_access_features.backend.api",
+    "products.exports.backend.routes -> products.exports.backend.api.exports",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.feature_flag",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.flag_value",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.organization_feature_flag",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.scheduled_change",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.staff_cache",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.staff_team_config",
+    "products.feature_flags.backend.routes -> products.feature_flags.backend.api.staff_teams",
+    "products.field_notes.backend.routes -> products.field_notes.backend.api",
+    "products.growth.backend.routes -> products.growth.backend.api.ai_enrichment",
+    "products.growth.backend.routes -> products.growth.backend.api.identity_matching",
+    "products.growth.backend.routes -> products.growth.backend.api.product_push",
+    "products.links.backend.routes -> products.links.backend.api",
+    "products.live_debugger.backend.routes -> products.live_debugger.backend.api",
+    "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.batch_imports",
+    "products.managed_migrations.backend.routes -> products.managed_migrations.backend.api.support_batch_imports",
+    "products.marketing_analytics.backend.routes -> products.marketing_analytics.backend.api",
+    "products.messaging.backend.routes -> products.messaging.backend.api.message_categories",
+    "products.messaging.backend.routes -> products.messaging.backend.api.message_preferences",
+    "products.messaging.backend.routes -> products.messaging.backend.api.message_suppression",
+    "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
+    "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",
+    "products.product_tours.backend.routes -> products.product_tours.backend.api",
+    "products.pulse.backend.routes -> products.pulse.backend.api.brief",
+    "products.reminders.backend.routes -> products.reminders.backend.api.reminder",
+    "products.replay_vision.backend.routes -> products.replay_vision.backend.api",
+    "products.revenue_analytics.backend.routes -> products.revenue_analytics.backend.api",
+    "products.review_hog.backend.routes -> products.review_hog.backend.api",
+    "products.signals.backend.routes -> products.signals.backend.views",
+    "products.signals.backend.routes -> products.signals.backend.scout_chat",
+    "products.signals.backend.routes -> products.signals.backend.scout_harness.views",
+    "products.skills.backend.routes -> products.skills.backend.api.community_skills",
+    "products.skills.backend.routes -> products.skills.backend.api.marketplace_views",
+    "products.skills.backend.routes -> products.skills.backend.api.skills",
+    "products.surveys.backend.routes -> products.surveys.backend.api.survey",
+    "products.web_analytics.backend.routes -> products.web_analytics.backend.api",
+    "products.web_analytics.backend.routes -> products.web_analytics.backend.api.heatmaps_api",
+    "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_achievements",
+    "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_filter_preset",
+    "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions",
+    "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
+    "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
+    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
+]
+
+# The facade is the layer below presentation. A facade that imports its product's presentation
+# inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
+# DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is
+# forced — without it import-linter rejects the wildcard modules as having shared descendants),
+# so DRF reached through an internal module stays green: this enforces the layering norm, not a
+# transitive guarantee. See products/architecture.md § Wiring couplings.
+[[tool.importlinter.contracts]]
+name = "facade must not import presentation or DRF"
+type = "forbidden"
+source_modules = ["products.*.backend.facade"]
+forbidden_modules = [
+    "products.*.backend.presentation",
+    "rest_framework",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    # TODO: existing violations — move the presentation-shaped code out of the facade, or the
+    # facade-shaped code out of presentation, and drop the line
+    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert",
+    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert_schedule_restriction",
+    "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
+    "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
+    "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
+    "products.billing_alerts.backend.facade.api -> rest_framework",
+    "products.dashboards.backend.facade.api -> rest_framework",
+    "products.experiments.backend.facade.api -> rest_framework",
+    "products.feature_flags.backend.facade.api -> rest_framework",
+    "products.tasks.backend.facade.api -> rest_framework",
+    "products.tasks.backend.facade.client_provenance -> rest_framework",
 ]
 
 [tool.ty.rules]

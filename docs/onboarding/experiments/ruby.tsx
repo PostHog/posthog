@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getRubySteps as getRubyStepsPA } from '../product-analytics/ruby'
+import { getRubyInstallSteps } from '../product-analytics/ruby'
 import { StepDefinition } from '../steps'
 
 export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getRubyStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -41,7 +38,7 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getRubyInstallSteps(ctx), ...experimentSteps]
 }
 
 export const RubyInstallation = createInstallation(getRubySteps)

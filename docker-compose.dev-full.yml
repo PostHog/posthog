@@ -279,10 +279,10 @@ services:
             file: docker-compose.base.yml
             service: jaeger
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
+            service: dynamodb
 
 networks:
     otel_network:
