@@ -138,7 +138,8 @@ passes a member holding an object-level grant on any one skill, and the `name/<s
 whichever skill the URL names, so edit access alone reaches every skill in the project.
 
 A skill with no current owners is publishable by nobody, and answers `403`. Owners leave the set when
-a member loses project access, and a skill can be created with an explicit empty owner list, so the
+a member loses project access (removal from the organization also deletes their owner rows, so
+rejoining does not restore ownership), and a skill can be created with an explicit empty owner list, so the
 alternative is a fallback to edit access for exactly the skills that have nobody to answer for them.
 Adding an owner is the remedy. There is no exemption for project or organization admins; an admin who
 wants to publish adds themselves as an owner first.

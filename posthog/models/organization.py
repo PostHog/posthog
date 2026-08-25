@@ -862,6 +862,28 @@ def pause_loops_on_membership_removal(sender, instance: OrganizationMembership, 
     transaction.on_commit(lambda: pause_loops_for_removed_member(user_id, organization_id))
 
 
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
+def retire_skill_ownership_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    # Skill ownership is the claim that lets a member publish a skill publicly. A row that outlives the
+    # membership would grant that again the moment the member rejoins, without anyone assigning it.
+    # Deferred import keeps the skills product off the model import path, like the hooks above.
+    from products.skills.backend.models.skills import LLMSkillOwner  # noqa: PLC0415
+
+    deleted_count, _ = (
+        LLMSkillOwner.objects.unscoped()
+        .filter(user_id=instance.user_id, team__organization_id=instance.organization_id)
+        .delete()
+    )
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed skill ownership for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
 @receiver(models.signals.pre_save, sender=OrganizationMembership)
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed
