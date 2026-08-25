@@ -287,11 +287,13 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
-    if not filters:
+    # Total over untrusted input: callers scan raw client filters before DRF validation, so
+    # malformed shapes must yield [] here and get their structured 400 from the serializer.
+    if not isinstance(filters, dict):
         return []
     try:
         return [int(action["id"]) for action in filters.get("actions", [])]
-    except KeyError:
+    except (KeyError, TypeError, ValueError):
         return []
 
 
@@ -322,8 +324,12 @@ def collect_property_cohort_ids(node: Any) -> set[int]:
 
 
 def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
-    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation."""
-    if not filters:
+    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation.
+
+    Total over untrusted input, like filter_action_ids: callers scan raw client filters
+    before DRF validation, so a malformed shape yields [] instead of raising.
+    """
+    if not isinstance(filters, dict):
         return []
 
     ids = collect_property_cohort_ids(filters.get("properties") or [])

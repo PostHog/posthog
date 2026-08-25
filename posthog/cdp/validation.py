@@ -947,14 +947,15 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         if not cohort_ids:
             return set()
 
-        cohorts = {
-            cohort.pk: cohort
-            for cohort in Cohort.objects.filter(pk__in=cohort_ids, team__project_id=team.project_id, deleted=False)
-        }
+        # Scoped to the environment, not the project: the runtime queries cohort_membership with
+        # the workflow's team_id, and membership rows are keyed by the cohort's own team_id. A
+        # sibling environment's cohort would validate but never have rows under this team, so
+        # every person would evaluate as a non-member.
+        cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=cohort_ids, team=team, deleted=False)}
         for cohort_id in cohort_ids:
             cohort = cohorts.get(cohort_id)
             if cohort is None:
-                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this project.")
+                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
             if cohort.is_static:
                 raise serializers.ValidationError(
                     f"Cohort {cohort_id} is a static cohort. Conditions can only use realtime cohorts."

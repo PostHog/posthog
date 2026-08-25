@@ -426,6 +426,18 @@ class BytecodeCompiler(Visitor):
 
         # Did not find a local nor an upvalue, must be a global.
 
+        # `cohort_ids` is the reserved global visit_compare_operation passes into the generated
+        # inCohort/notInCohort calls. When cohort membership is compilable, the runtime injects the
+        # person's real memberships under that name, so an authored read (e.g. `42 in cohort_ids`)
+        # would test membership of a cohort the allowlist never validated. Reject it outside the
+        # generated call.
+        if (
+            self.cohort_membership_supported
+            and node.chain[0] == "cohort_ids"
+            and not self._compiling_cohort_membership_call
+        ):
+            raise QueryError("cohort_ids is reserved here. Use a cohort property filter instead.")
+
         chain = []
         for element in reversed(node.chain):
             chain.extend([Operation.STRING, element])

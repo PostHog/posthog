@@ -1141,9 +1141,11 @@ class TestHogFlowAPI(APIBaseTest):
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
-    def _create_behavioral_cohort(self, cohort_type: Optional[CohortType], backfilled: bool) -> Cohort:
+    def _create_behavioral_cohort(
+        self, cohort_type: Optional[CohortType], backfilled: bool, team: Optional[Team] = None
+    ) -> Cohort:
         cohort_kwargs: dict[str, Any] = {
-            "team": self.team,
+            "team": team or self.team,
             "name": "power-users",
             "filters": {
                 "properties": {
@@ -1219,7 +1221,11 @@ class TestHogFlowAPI(APIBaseTest):
             ("static_cohort", "static", "is a static cohort"),
             ("dynamic_behavioral_cohort", "dynamic", "isn't ready for realtime evaluation"),
             ("realtime_not_backfilled", "realtime_unbackfilled", "isn't ready for realtime evaluation"),
-            ("missing_cohort", "missing", "doesn't exist in this project"),
+            ("missing_cohort", "missing", "doesn't exist in this environment"),
+            # Eligible on its own team, but the runtime reads cohort_membership with the
+            # workflow's team_id, where a sibling environment's cohort has no rows: it would
+            # silently evaluate everyone as a non-member, so validation must reject it.
+            ("sibling_environment_cohort", "sibling_environment", "doesn't exist in this environment"),
         ]
     )
     @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
@@ -1232,6 +1238,9 @@ class TestHogFlowAPI(APIBaseTest):
             cohort_id = self._create_behavioral_cohort(None, backfilled=False).id
         elif cohort_kind == "realtime_unbackfilled":
             cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False).id
+        elif cohort_kind == "sibling_environment":
+            sibling_team = Team.objects.create(organization=self.organization, project=self.project, name="sibling env")
+            cohort_id = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True, team=sibling_team).id
         else:
             cohort_id = 999999
         hog_flow = self._hog_flow_with_condition_filters(
@@ -1280,6 +1289,39 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Cohort membership can't be evaluated in real-time filters" in response.json()["detail"]
 
+    def test_hog_flow_grandfathers_stored_cohort_conditions_after_flag_dial_down(self):
+        # The flag polices new adoption only. An active flow's stored cohort condition must keep
+        # saving after a flag dial-down (or an internal re-save with no request to evaluate the
+        # flag against), while a newly added cohort condition still needs the flag.
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        other_cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch", {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
+        )
+        with patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True):
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        stored_actions = created.json()["actions"]
+
+        with patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=False):
+            resave = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "renamed", "actions": stored_actions},
+            )
+            assert resave.status_code == 200, resave.json()
+
+            edited_actions = deepcopy(stored_actions)
+            edited_actions[1]["config"]["conditions"].append(
+                {"filters": {"properties": [{"key": "id", "type": "cohort", "value": other_cohort.id}]}}
+            )
+            new_adoption = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": edited_actions},
+            )
+            assert new_adoption.status_code == 400, new_adoption.json()
+            assert "Cohort membership can't be evaluated" in new_adoption.json()["detail"]
+
     @parameterized.expand(
         [
             ("expression_only", False),
@@ -1300,6 +1342,41 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "Can't call inCohort() directly" in response.json()["detail"]
+
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_rejects_authored_reads_of_the_cohort_ids_global(self, _mock_flag):
+        # An eligible cohort leaf turns cohort support on and makes the runtime inject the
+        # person's real memberships as the `cohort_ids` global. An authored read of that global
+        # (`999999 in cohort_ids`) would then test membership of a cohort the eligibility
+        # validation never cleared, so the compiler must reject it.
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        properties: list[dict[str, Any]] = [
+            {"key": "id", "type": "cohort", "value": cohort.id},
+            {"key": "999999 in cohort_ids", "type": "hogql"},
+        ]
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", {"properties": properties})
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "cohort_ids is reserved" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("filters_is_a_string", "not-a-dict"),
+            ("action_id_not_an_integer", {"actions": [{"id": "not-an-integer"}]}),
+            ("action_entry_not_a_dict", {"actions": ["bogus"]}),
+        ]
+    )
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_conditional_branch_malformed_filters_get_a_400(self, _name, filters, _mock_flag):
+        # The cohort-support scan reads raw client filters before DRF validation, so malformed
+        # shapes must fall through to the serializer's structured 400 instead of raising a 500.
+        hog_flow = self._hog_flow_with_condition_filters("conditional_branch", filters)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
 
     @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
