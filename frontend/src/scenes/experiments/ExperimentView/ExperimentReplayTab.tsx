@@ -47,6 +47,10 @@ import { VariantTag } from './VariantTag'
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
 
+// Unchanged from the earlier cross-sell wording, so a dismissal there still holds. Someone who
+// turned down scanners for this experiment did not ask to be told again in purple.
+const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
+
 // What the unfiltered list is, said once above it. The second sentence carries the part that
 // isn't guessable: exposure is resolved per person, matching who the analysis counts, so
 // sessions appear even when the exposure event fired server-side or in an earlier session.
@@ -317,18 +321,17 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     />
                 ) : (
                     <LemonBanner
-                        type="info"
+                        type="ai"
                         className="mb-2"
-                        dismissKey="experiment-replay-vision-scanner-cross-sell"
+                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
                         action={{
-                            children: 'Set up a scanner',
+                            children: 'Set up scanner for this experiment',
                             to: scannerSetupUrl,
                             onClick: () => scannerCrossSellClicked(),
                             'data-attr': 'experiment-recordings-scanner-cross-sell',
                         }}
                     >
-                        Replay vision can watch new recordings from this experiment for you. Scanners check each session
-                        and report what they find.
+                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
                     </LemonBanner>
                 ))}
             <div className="mb-2 flex flex-wrap gap-2">
