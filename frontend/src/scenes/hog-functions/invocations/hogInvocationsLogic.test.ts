@@ -9,10 +9,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import {
+    type HogInvocationsFilters,
     buildSearchClause,
     hogInvocationsLogic,
     isRerunnableHogFunctionType,
     parentClauseFor,
+    withRunningLookback,
 } from './hogInvocationsLogic'
 
 describe('hogInvocationsLogic', () => {
@@ -80,6 +82,27 @@ describe('hogInvocationsLogic', () => {
         it('is false when the type is unknown', () => {
             expect(isRerunnableHogFunctionType(undefined)).toBe(false)
             expect(isRerunnableHogFunctionType(null)).toBe(false)
+        })
+    })
+
+    describe('withRunningLookback', () => {
+        it('widens the window to the table retention when the filter is exactly Running', () => {
+            // A running invocation writes one row at its creation time and none more until it finishes,
+            // so the default 24h window hides a workflow parked on a delay for longer than a day — even
+            // under the Running filter. Widening to the 30d retention is what makes it appear.
+            const widened = withRunningLookback({ date_from: '-24h', status: ['running'] })
+            expect(widened.date_from).toBe('-30d')
+            // date_to is cleared so the window anchors to now — a past date_to would re-clip the row.
+            expect(widened.date_to).toBeUndefined()
+        })
+
+        it.each<[string, HogInvocationsFilters]>([
+            ['no status filter', { date_from: '-24h' }],
+            ['a single non-running status', { date_from: '-24h', status: ['failed'] }],
+            ['running alongside another status', { date_from: '-24h', status: ['running', 'succeeded'] }],
+        ])('leaves the window untouched for %s', (_label, filters) => {
+            // Only the exact Running filter widens — everything else keeps the fast default window.
+            expect(withRunningLookback(filters)).toEqual(filters)
         })
     })
 
