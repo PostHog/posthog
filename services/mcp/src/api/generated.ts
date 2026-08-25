@@ -72171,6 +72171,7 @@ export namespace Schemas {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -72197,6 +72198,7 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
       SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
       ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
@@ -72254,6 +72256,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
@@ -89984,6 +89987,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
@@ -91429,6 +91433,7 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
+       * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
        * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
@@ -107023,6 +107028,7 @@ export namespace Schemas {
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
      * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
@@ -107165,6 +107171,7 @@ export namespace Schemas {
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
       SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
       ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
