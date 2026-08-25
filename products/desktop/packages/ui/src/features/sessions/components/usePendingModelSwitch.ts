@@ -12,6 +12,9 @@ export interface PendingModelSwitch {
 }
 
 interface UsePendingModelSwitchInput {
+  /** The session the queued switch belongs to. The view can swap sessions
+   *  without remounting, so a queued switch clears when this changes. */
+  taskId: string | undefined;
   sessionModelOption: SessionConfigOption | undefined;
   /** The dialog only guards mid-session, once the transcript has content. */
   hasSessionEvents: boolean;
@@ -36,6 +39,7 @@ interface UsePendingModelSwitchResult {
  * unchanged.
  */
 export function usePendingModelSwitch({
+  taskId,
   sessionModelOption,
   hasSessionEvents,
   onApply,
@@ -45,6 +49,16 @@ export function usePendingModelSwitch({
   );
   const [pendingModelSwitch, setPendingModelSwitch] =
     useState<PendingModelSwitch | null>(null);
+
+  // A switch queued for one session must not linger over another. Navigating
+  // to a different task does not remount this view, so drop the pending switch
+  // when the task changes; otherwise confirming would write the old session's
+  // choice to the new one and the dialog would show the wrong labels.
+  const [trackedTaskId, setTrackedTaskId] = useState(taskId);
+  if (taskId !== trackedTaskId) {
+    setTrackedTaskId(taskId);
+    setPendingModelSwitch(null);
+  }
 
   const interceptModelSwitch = useCallback(
     (configId: string, value: string) => {
