@@ -617,7 +617,6 @@ def _build_sandbox_tags(
     return {key: str(value) for key, value in tags.items() if value is not None}
 
 
-@activity.defn
 def _requested_sandbox_template(value: str | None) -> SandboxTemplate:
     """The template the run's state asks for. Unknown values and ``VM_BASE`` are fatal."""
     try:
@@ -647,6 +646,7 @@ def _effective_sandbox_template(*, use_vm_sandbox: bool, requested: SandboxTempl
     return SandboxTemplate.VM_BASE
 
 
+@activity.defn
 @asyncify
 def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> PrepareSandboxForRepositoryOutput:
     ctx = input.context
