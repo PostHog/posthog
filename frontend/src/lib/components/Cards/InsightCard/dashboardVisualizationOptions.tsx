@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { ChartSettings, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { ChartSettings, DataVisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -12,8 +12,8 @@ import { SqlVisualizationPicker } from './SqlVisualizationPicker'
 // than the display: it drops a breakdown the picked type cannot draw, and a box plot drops the
 // formulas too. That is fine in the editor, where you see it before saving, but a card saves with no
 // undo onto an insight every dashboard shares. A SQL insight has no such side effects.
-export function shouldShowSqlVisualizationPicker(query: Node | null, canPersist: boolean): boolean {
-    return canPersist && !!query && isDataVisualizationNode(query)
+export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): DataVisualizationNode | null {
+    return canPersist && query && isDataVisualizationNode(query) ? query : null
 }
 
 // The chart type section of a dashboard card's "Display options" menu, so switching how a SQL insight
@@ -35,14 +35,13 @@ export function useDashboardVisualizationOptions({
     /** Present only when the viewer can save; also the gate for showing the picker at all. */
     persistVisualizationType?: (display: ChartDisplayType, chartSettings: ChartSettings) => void
 }): LemonMenuItems {
-    const show = shouldShowSqlVisualizationPicker(query, !!persistVisualizationType)
+    const sqlQuery = sqlQueryForVisualizationPicker(query, !!persistVisualizationType)
 
     // Dashboard date and property filters reach a HogQL query only through a {filters} placeholder,
     // which substitutes into a WHERE clause, so they change rows and never the columns the axes name.
     // A variable can appear in the SELECT list, so an overridden one can. The override map is
     // dashboard-wide, so only a variable this insight actually uses counts.
-    const insightVariables = query && isDataVisualizationNode(query) ? query.source.variables : undefined
-    const overriddenVariable = Object.keys(insightVariables ?? {}).find((key) => variablesOverride?.[key])
+    const overriddenVariable = Object.keys(sqlQuery?.source.variables ?? {}).find((key) => variablesOverride?.[key])
 
     // Keyed on the response arrays rather than insightData itself: that object is rebuilt on every
     // refresh tick, and a new label identity would remount the picker and close its open dropdown.
@@ -51,7 +50,7 @@ export function useDashboardVisualizationOptions({
     const rowCount = Array.isArray(insightData?.result) ? insightData.result.length : 0
 
     return useMemo<LemonMenuItems>(() => {
-        if (!show || !persistVisualizationType || !query || !isDataVisualizationNode(query)) {
+        if (!sqlQuery || !persistVisualizationType) {
             return []
         }
         return [
@@ -61,7 +60,7 @@ export function useDashboardVisualizationOptions({
                     {
                         label: () => (
                             <SqlVisualizationPicker
-                                query={query}
+                                query={sqlQuery}
                                 columns={columns}
                                 types={types}
                                 rowCount={rowCount}
@@ -79,5 +78,5 @@ export function useDashboardVisualizationOptions({
                 ],
             },
         ]
-    }, [show, query, columns, types, rowCount, loading, saving, overriddenVariable, persistVisualizationType])
+    }, [sqlQuery, columns, types, rowCount, loading, saving, overriddenVariable, persistVisualizationType])
 }
