@@ -144,13 +144,10 @@ function promptToMessages(prompt: unknown): unknown[] | null {
     return null
 }
 
-// Vercel AI Gateway reports the actual charged cost for a request under
-// ai.response.providerMetadata.gateway.cost — a USD value the SDK sends as a
-// string. It reflects the real bill (BYOK rates, discounts, cached tokens,
-// per-request provider fallback), which PostHog's token-times-pricing-table
-// estimate cannot match. Read it so the estimate is skipped for gateway traffic.
-// The OTel attribute arrives as a JSON string, but accept an object too in case
-// a collector already parsed it.
+// Vercel AI Gateway reports the real charged cost at
+// providerMetadata.gateway.cost, which the token-based estimate cannot match
+// under BYOK rates, discounts, or per-request fallback. The OTel attribute
+// arrives as a JSON string, but accept a parsed object too.
 function extractGatewayCost(providerMetadata: unknown): number | undefined {
     let parsed = providerMetadata
     if (typeof parsed === 'string') {
@@ -381,11 +378,9 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
 
-    // Trust the gateway's reported total over PostHog's estimate. Only the total
-    // is available here — the gateway does not break it into input/output — so
-    // flag the event as passthrough. The cost pipeline then keeps this total,
-    // skips the token-based estimate, and leaves the input/output split unset
-    // rather than estimated. Respect a total the caller already set.
+    // Prefer the gateway's reported total over the token estimate. Only a total
+    // is available, so flag passthrough and let the pipeline skip estimation.
+    // Respect a total the caller already set.
     if (props['$ai_total_cost_usd'] === undefined) {
         const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
         if (gatewayCost !== undefined) {

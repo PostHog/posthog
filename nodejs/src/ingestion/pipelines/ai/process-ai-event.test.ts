@@ -753,6 +753,11 @@ describe('processAiEvent()', () => {
             const result = processAiEvent(event)
 
             expect(result.properties!.$ai_total_cost_usd).toBe(0.5)
+            // Without the passthrough flag, a supplied total does not skip the
+            // estimate: the input/output split is still computed from the model.
+            expect(result.properties!.$ai_input_cost_usd).toBe(20)
+            expect(result.properties!.$ai_output_cost_usd).toBe(10)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
         })
 
         it('preserves user-provided request_cost when model-based calculation happens', () => {
@@ -806,8 +811,6 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
-        // A caller with an authoritative total (an LLM gateway) sets the flag to
-        // keep it and skip the token-based estimate, leaving the split unset.
         it.each([true, 'true'])('passes the total through when $ai_cost_passthrough is %p', (flag) => {
             event.properties!.$ai_cost_passthrough = flag
             event.properties!.$ai_total_cost_usd = 0.000372
@@ -820,8 +823,6 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
         })
 
-        // Without a usable total there is nothing to trust, so the flag must not
-        // label an empty cost as passthrough — fall back to the model estimate.
         it('ignores $ai_cost_passthrough when no usable total is present', () => {
             event.properties!.$ai_cost_passthrough = true
 
@@ -831,7 +832,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
         })
 
-        // The flag reader must not fall for string truthiness: "false" is off.
+        // "false" must read as off, not as a truthy string.
         it('treats a non-truthy $ai_cost_passthrough as off', () => {
             event.properties!.$ai_cost_passthrough = 'false'
 

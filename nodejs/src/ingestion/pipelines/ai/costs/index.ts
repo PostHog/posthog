@@ -107,8 +107,7 @@ const isString = (property: unknown): property is string => {
     return typeof property === 'string'
 }
 
-// A caller may send this alongside a total it already knows to be authoritative,
-// so the property bag can carry it as a real boolean or a serialized string.
+// Accept a boolean or its serialized string form.
 const isCostPassthrough = (value: unknown): boolean => value === true || value === 'true'
 
 /**
@@ -150,11 +149,8 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         return event
     }
 
-    // A caller that already knows the real cost (an LLM gateway that reports its
-    // charged total) sets $ai_cost_passthrough to keep that total and skip the
-    // token-based estimate, leaving the input/output split unset rather than
-    // estimated. Without a usable total there is nothing to trust, so fall through
-    // to estimation instead of labeling an empty cost as passthrough.
+    // $ai_cost_passthrough keeps a caller-reported total and skips estimation.
+    // Require a usable total, so an empty cost is never labeled passthrough.
     if (isCostPassthrough(event.properties['$ai_cost_passthrough'])) {
         const total = event.properties['$ai_total_cost_usd']
         if (typeof total === 'number') {
