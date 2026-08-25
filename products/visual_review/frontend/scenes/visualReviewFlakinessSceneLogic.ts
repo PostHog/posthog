@@ -171,7 +171,7 @@ export interface visualReviewFlakinessSceneLogicValues {
     loadError: string | null
     overview: FlakinessOverviewApi | null
     overviewLoading: boolean
-    pendingQuarantineKey: string | null
+    pendingQuarantineKeys: string[]
     repoId: string
     statCounts: Record<FlakinessPreset, number>
     thumbnailBasePath: string | null
@@ -210,8 +210,12 @@ export interface visualReviewFlakinessSceneLogicActions {
         runType: string
         sourceRunId: string | null
     }
-    quarantineSettled: () => {
-        value: true
+    quarantineSettled: (
+        identifier: string,
+        runType: string
+    ) => {
+        identifier: string
+        runType: string
     }
     setPreset: (preset: FlakinessPreset) => {
         preset: FlakinessPreset
@@ -288,26 +292,31 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             sourceRunId,
         }),
         unquarantineIdentifier: (identifier: string, runType: string) => ({ identifier, runType }),
-        quarantineSettled: true,
+        quarantineSettled: (identifier: string, runType: string) => ({ identifier, runType }),
     }),
     reducers({
         // The loader resets `overview` to null on failure, which is
         // indistinguishable from an empty repo. Hold the error so the scene can
         // tell "nothing to show" from "we could not look".
-        pendingQuarantineKey: [
-            null as string | null,
-            {
-                quarantineIdentifier: (_state, { identifier, runType }) => `${runType}::${identifier}`,
-                unquarantineIdentifier: (_state, { identifier, runType }) => `${runType}::${identifier}`,
-                quarantineSettled: () => null,
-            },
-        ],
         loadError: [
             null as string | null,
             {
                 loadOverview: () => null,
                 loadOverviewSuccess: () => null,
                 loadOverviewFailure: (_state: string | null, { error }: { error: string }) => error || 'Unknown error',
+            },
+        ],
+        pendingQuarantineKeys: [
+            [] as string[],
+            {
+                quarantineIdentifier: (state, { identifier, runType }) => [...state, `${runType}::${identifier}`],
+                unquarantineIdentifier: (state, { identifier, runType }) => [...state, `${runType}::${identifier}`],
+                // Drop one occurrence, not every match, because the same row can
+                // legitimately be in flight twice.
+                quarantineSettled: (state, { identifier, runType }) => {
+                    const index = state.indexOf(`${runType}::${identifier}`)
+                    return index === -1 ? state : [...state.slice(0, index), ...state.slice(index + 1)]
+                },
             },
         ],
         filters: [
@@ -424,7 +433,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Could not quarantine that snapshot. Try again.')
             } finally {
-                actions.quarantineSettled()
+                actions.quarantineSettled(identifier, runType)
             }
         },
         unquarantineIdentifier: async ({ identifier, runType }) => {
@@ -438,7 +447,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Could not lift that quarantine. Try again.')
             } finally {
-                actions.quarantineSettled()
+                actions.quarantineSettled(identifier, runType)
             }
         },
     })),

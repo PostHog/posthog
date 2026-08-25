@@ -58,6 +58,33 @@ describe('visualReviewFlakinessSceneLogic', () => {
         })
     })
 
+    describe('while quarantine writes are in flight', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({
+                get: { [FLAKINESS_URL]: overview },
+                post: { '/api/projects/:team_id/visual_review/repos/:id/quarantine/:runType/': { ok: true } },
+            })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        // The sibling checkbox submits the light and dark identifiers together,
+        // so one row can have two writes running. Tracking a single key let the
+        // first response re-enable a row whose own write was still going.
+        it('keeps a row pending until every one of its writes settles', async () => {
+            logic.actions.quarantineIdentifier('story--dark', 'storybook', 'flaky', null, null)
+            logic.actions.quarantineIdentifier('story--dark', 'storybook', 'flaky', null, null)
+            expect(logic.values.pendingQuarantineKeys).toEqual(['storybook::story--dark', 'storybook::story--dark'])
+
+            logic.actions.quarantineSettled('story--dark', 'storybook')
+            expect(logic.values.pendingQuarantineKeys).toEqual(['storybook::story--dark'])
+
+            logic.actions.quarantineSettled('story--dark', 'storybook')
+            expect(logic.values.pendingQuarantineKeys).toEqual([])
+        })
+    })
+
     describe('when the overview fails to load', () => {
         beforeEach(() => {
             initKeaTests()

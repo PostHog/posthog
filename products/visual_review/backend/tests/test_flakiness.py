@@ -11,6 +11,7 @@ Coverage:
 - The history scan is bounded to identifiers that can produce a row.
 - A variant's first occurrence counts, not just later matches of it.
 - A quarantine without a current baseline is still listed.
+- Recency is scoped to the default branch and to the row's own run type.
 """
 
 from datetime import timedelta
@@ -105,7 +106,18 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         age: timedelta = timedelta(days=1),
         expires_at=None,
         diff_percentage: float | None = None,
+        source_run: Run | None = None,
     ) -> ToleratedHash:
+        # `diffing.py` always records the run that minted a variant, and the
+        # aggregate reads recency through it, so a fixture without one does not
+        # model anything real.
+        minting_run = source_run
+        if minting_run is None:
+            minting_run = self._mk_default_branch_run(age=age)
+            # The minting run rendered this snapshot, which is why it produced a
+            # variant. Without the row the run can win the universe query while
+            # carrying no snapshots, which no real run does.
+            _mk_snapshot(minting_run, identifier=identifier, baseline_hash=baseline_hash)
         row = ToleratedHash.objects.create(
             repo=self.repo,
             team_id=self.team.id,
@@ -115,30 +127,36 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
             reason=reason,
             expires_at=expires_at,
             diff_percentage=diff_percentage,
+            source_run=minting_run,
         )
         ToleratedHash.objects.filter(id=row.id).update(created_at=timezone.now() - age)
         row.refresh_from_db()
-        if reason == ToleratedReason.AUTO_THRESHOLD:
-            self._mk_match(row, age=age)
         return row
 
-    def _mk_match(self, tolerated: ToleratedHash, *, age: timedelta) -> Run:
-        """A superseded run that rendered `tolerated` and matched it.
+    def _mk_default_branch_run(self, *, age: timedelta) -> Run:
+        """A completed master run aged into the past.
 
-        A variant only exists because a run produced it, so a fixture that
-        creates the row alone cannot exercise recency. Superseded, because
-        `unique_latest_run_per_group` allows one current run per group and the
-        test's own master run holds that slot.
+        Superseded, because `unique_latest_run_per_group` allows one current run
+        per group and the test's own master run holds that slot.
         """
         run = _mk_run(self.repo, superseded_by=self.master_run)
         Run.objects.filter(id=run.id).update(created_at=timezone.now() - age)
+        run.refresh_from_db()
+        return run
+
+    def _mk_match(self, tolerated: ToleratedHash, *, age: timedelta) -> Run:
+        """A run that rendered `tolerated` again and matched it.
+
+        Repeat matches are the only evidence a snapshot still flakes once every
+        variant it produces is already recorded.
+        """
+        run = self._mk_default_branch_run(age=age)
         _mk_snapshot(
             run,
             identifier=tolerated.identifier,
             baseline_hash=tolerated.baseline_hash,
             tolerated_hash_match=tolerated,
         )
-        run.refresh_from_db()
         return run
 
     def _entry(self, identifier: str):
@@ -216,6 +234,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         for index in range(3):
             variant = self._mk_variant(identifier="cycling", alternate_hash=f"a-{index}", age=old)
             self._mk_match(variant, age=timedelta(hours=6))
+        assert all(t.created_at < timezone.now() - old + timedelta(hours=1) for t in ToleratedHash.objects.all())
 
         entry = self._entry("cycling")
 
@@ -255,14 +274,7 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         # occurrence. That would report a snapshot that started flaking today
         # as settled, which is the opposite of what the tile promises.
         _mk_snapshot(self.master_run, identifier="just-started")
-        row = ToleratedHash.objects.create(
-            repo=self.repo,
-            team_id=self.team.id,
-            identifier="just-started",
-            baseline_hash=CURRENT_BASELINE,
-            alternate_hash="first",
-            reason=ToleratedReason.AUTO_THRESHOLD,
-        )
+        row = self._mk_variant(identifier="just-started", alternate_hash="first")
         assert not RunSnapshot.objects.filter(tolerated_hash_match=row).exists()
 
         entry = self._entry("just-started")
@@ -302,6 +314,57 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         assert entry is not None
         assert entry.variant_count == 1
+
+    def test_a_variant_minted_on_a_pr_branch_does_not_count_as_recent(self):
+        # diffing.py mints from PR runs too. A PR rendering a variant is a
+        # property of that branch, not evidence the default branch is unstable.
+        _mk_snapshot(self.master_run, identifier="pr-only")
+        pr_run = _mk_run(self.repo, branch="feat/something", superseded_by=self.master_run)
+        self._mk_variant(identifier="pr-only", alternate_hash="from-pr", source_run=pr_run)
+
+        entry = self._entry("pr-only")
+
+        assert entry is not None
+        assert entry.variant_count == 1
+        assert entry.last_flaked_at is None
+        assert entry.flakiness_state == FlakinessState.SETTLED
+
+    def test_recency_does_not_leak_between_run_types(self):
+        # Matching ignores run type, but a row does not. A recent storybook
+        # flake says nothing about the playwright row for the same identifier.
+        playwright_run = _mk_run(self.repo, run_type=RunType.PLAYWRIGHT)
+        _mk_snapshot(playwright_run, identifier="shared")
+        _mk_snapshot(self.master_run, identifier="shared")
+        self._mk_variant(identifier="shared", alternate_hash="a", age=timedelta(hours=2))
+
+        result = vr_api.get_flakiness_overview(self.repo.id)
+        by_type = {e.run_type: e for e in result.entries if e.identifier == "shared"}
+
+        # Both rows exist and both count the variant, because the classifier
+        # would match it either way. Only the run type that actually rendered it
+        # recently is unstable.
+        assert by_type[RunType.STORYBOOK].flakiness_state == FlakinessState.UNSTABLE
+        assert by_type[RunType.PLAYWRIGHT].variant_count == 1
+        assert by_type[RunType.PLAYWRIGHT].last_flaked_at is None
+        assert by_type[RunType.PLAYWRIGHT].flakiness_state == FlakinessState.SETTLED
+
+    def test_a_quarantine_survives_a_repo_with_no_completed_default_run(self):
+        # Quarantining does not wait for a first master run, and somebody is
+        # relying on the snapshot being skipped meanwhile.
+        Run.objects.filter(repo=self.repo).update(status=RunStatus.PENDING)
+        QuarantinedIdentifier.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="muted-early",
+            run_type=RunType.STORYBOOK,
+            reason="Flaky since the first run",
+        )
+
+        result = vr_api.get_flakiness_overview(self.repo.id)
+
+        assert [e.identifier for e in result.entries] == ["muted-early"]
+        assert result.totals.tracked == 0
+        assert result.totals.quarantined == 1
 
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")

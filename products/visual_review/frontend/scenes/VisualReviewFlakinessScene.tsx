@@ -150,7 +150,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         filters,
         thumbnailBasePath,
         loadError,
-        pendingQuarantineKey,
+        pendingQuarantineKeys,
     } = useValues(visualReviewFlakinessSceneLogic)
     const {
         loadOverview,
@@ -374,10 +374,11 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                     key: 'actions',
                                     width: 150,
                                     render: (_, entry: DecoratedEntry) => {
-                                        const pending =
-                                            pendingQuarantineKey === `${entry.run_type}::${entry.identifier}`
-                                                ? 'Saving…'
-                                                : null
+                                        const pending = pendingQuarantineKeys.includes(
+                                            `${entry.run_type}::${entry.identifier}`
+                                        )
+                                            ? 'Saving…'
+                                            : null
                                         return (
                                             <div className="flex gap-1 justify-end">
                                                 <QuarantineAction
