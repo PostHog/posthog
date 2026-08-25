@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 
+from ee.models.rbac.access_control import AccessControl
 from parameterized import parameterized
 from rest_framework import status
 
@@ -19,8 +20,6 @@ from products.data_quality.backend.models import DataQualityCheck, DataQualityCh
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
