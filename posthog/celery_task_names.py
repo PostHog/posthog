@@ -17,8 +17,13 @@ VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME = (
     "posthog.tasks.hypercache_verification.verify_and_fix_flag_definitions_cache_task"
 )
 
+AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME = (
+    "posthog.tasks.stripe_marketplace_token_audit.audit_stripe_marketplace_tokens_task"
+)
+
 LIVENESS_ALERTED_TASK_NAMES = (
     VERIFY_FLAGS_CACHE_TASK_NAME,
     VERIFY_TEAM_METADATA_CACHE_TASK_NAME,
     VERIFY_FLAG_DEFINITIONS_CACHE_TASK_NAME,
+    AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME,
 )

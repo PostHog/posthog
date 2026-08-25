@@ -17,6 +17,7 @@ import structlog
 from celery import shared_task
 from prometheus_client import Gauge
 
+from posthog.celery_task_names import AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
@@ -28,6 +29,7 @@ class MarketplaceTokensOnOrchestratorApp(Exception):
 
 
 @shared_task(
+    name=AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME,
     bind=True,
     base=PushGatewayTask,
     ignore_result=True,

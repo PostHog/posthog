@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 
+from posthog.celery_task_names import AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME, LIVENESS_ALERTED_TASK_NAMES
 from posthog.models import Team
 from posthog.models.integration import Integration, StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -123,6 +124,10 @@ class TestStripeMarketplaceTokenAudit(BaseTest):
 
         self.assertEqual(capture.call_count, 1)
         self.assertEqual(capture.call_args[0][1]["teams"], [self.team.pk])
+
+    def test_task_name_is_pinned_for_the_liveness_alert(self) -> None:
+        self.assertEqual(audit_stripe_marketplace_tokens_task.name, AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME)
+        self.assertIn(AUDIT_STRIPE_MARKETPLACE_TOKENS_TASK_NAME, LIVENESS_ALERTED_TASK_NAMES)
 
     def test_skips_when_the_orchestrator_application_row_is_absent(self) -> None:
         self.orchestrator.delete()
