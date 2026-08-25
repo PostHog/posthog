@@ -206,7 +206,7 @@ export function PropertyGroupFilters({
                                                                               addFilter(newBehavioralFilter())
                                                                           }
                                                                       >
-                                                                          Performed event
+                                                                          Performed
                                                                       </LemonButton>
                                                                   )
                                                                 : null
