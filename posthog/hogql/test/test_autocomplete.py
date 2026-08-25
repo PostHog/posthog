@@ -223,7 +223,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select , (select id from persons) as blah from events"
         results = self._select(query=query, start=7, end=7)
 
-        keys = list(EventsTable().fields.keys())
+        keys = [key for key, field in EventsTable().fields.items() if not field.hidden]
 
         for index, key in enumerate(keys):
             assert results.suggestions[index].label == key

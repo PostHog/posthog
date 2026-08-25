@@ -104,3 +104,20 @@ describe("DashboardsService.getBuilds", () => {
     expect(lifecycle.builds[0].buildStatus).toBe("ready");
   });
 });
+
+describe("DashboardsService.file", () => {
+  it("patches the canvas channel", async () => {
+    const { api, calls } = fakeApi({
+      "canvases/c1/": apiCanvas({ channel: "chan-2" }),
+    });
+    const service = new DashboardsService(api);
+
+    const canvas = await service.file({ id: "c1", channelId: "chan-2" });
+
+    expect(canvas.channelId).toBe("chan-2");
+    expect(calls[0]).toMatchObject({ path: "canvases/c1/" });
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual({
+      channel_id: "chan-2",
+    });
+  });
+});

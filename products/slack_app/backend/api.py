@@ -805,14 +805,18 @@ def parse_rules_command(text: str) -> RulesCommand | None:
 
     # `project workspace <id>` sets the workspace-wide default and must be tested
     # before the generic `project` branch. Trailing text after the id is ignored.
+    # `[`*_]*` lets the id keep the Slack code or emphasis formatting the picker
+    # message wraps it in, so a pasted `452770` still parses.
     project_workspace_match = re.fullmatch(
-        r"project\s+workspace\s+(\d+)(?:\s+.*)?", cleaned, flags=re.IGNORECASE | re.DOTALL
+        r"project\s+workspace\s+[`*_]*(\d+)[`*_]*(?:\s+.*)?", cleaned, flags=re.IGNORECASE | re.DOTALL
     )
     if project_workspace_match is not None:
         return RulesCommand(action="project_set_workspace", project_team_id=int(project_workspace_match.group(1)))
 
     # Trailing text after the id is tolerated but ignored — we only act on the id.
-    project_match = re.fullmatch(r"project(?:\s+(\d+)(?:\s+.*)?)?", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    project_match = re.fullmatch(
+        r"project(?:\s+[`*_]*(\d+)[`*_]*(?:\s+.*)?)?", cleaned, flags=re.IGNORECASE | re.DOTALL
+    )
     if project_match is not None:
         team_id_str = project_match.group(1)
         if team_id_str is None:
@@ -2788,11 +2792,7 @@ def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
     at all lives on the Slack event envelope — see ``posthog_code_event_handler``
     — so this only needs to answer the persistence question.
     """
-    return SlackChannel.objects.filter(
-        slack_workspace_id=slack_workspace_id,
-        slack_channel_id=channel_id,
-        approved_at__isnull=False,
-    ).exists()
+    return SlackChannel.approval_granted(slack_workspace_id, channel_id)
 
 
 def _post_channel_approval_prompt(

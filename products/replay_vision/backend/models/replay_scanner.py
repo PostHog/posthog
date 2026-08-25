@@ -22,6 +22,28 @@ if TYPE_CHECKING:
 SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
 
+def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None) -> "RecordingsQuery":
+    """Set a recordings query's exposure filter from an `experiment_targeting` blob.
+
+    Shared by the scanner (live query) and the backfill snapshot (frozen copy of the blob), so the
+    two derive the exposure filter identically. No targeting *clears* the filter rather than leaving
+    it in place: a `query` blob saved before the write-guard (or with targeting later removed) can
+    still carry an `experiment_exposure` that nothing access-checks, and the sweep now runs the query
+    as the creator — so an untouched blob would run an exposure filter no one authorized.
+    """
+    from posthog.schema import RecordingsQueryExperimentExposureFilter  # noqa: PLC0415
+
+    exposure = None
+    if targeting and targeting.get("experiment_id") is not None:
+        exposure = RecordingsQueryExperimentExposureFilter(
+            experiment_id=targeting["experiment_id"],
+            variant=targeting.get("variant") or None,
+        )
+    # Shallow copy replacing only the one field: the caller's query is left untouched, and the
+    # unrelated nested filters are shared by reference rather than deep-copied since nothing mutates them.
+    return query.model_copy(update={"experiment_exposure": exposure})
+
+
 class ScannerType(models.TextChoices):
     MONITOR = "monitor", "Monitor"
     CLASSIFIER = "classifier", "Classifier"
@@ -298,6 +320,7 @@ class ReplayScanner(UUIDModel):
         "scanner_type",
         "scanner_config",
         "query",
+        "experiment_targeting",
         "sampling_rate",
         "sampling_mode",
         "provider",
@@ -305,7 +328,7 @@ class ReplayScanner(UUIDModel):
         "emits_signals",
     )
     # Fields the persisted volume estimate is computed from; changing them marks the estimate stale.
-    _ESTIMATE_FIELDS = frozenset({"query", "sampling_rate", "sampling_mode"})
+    _ESTIMATE_FIELDS = frozenset({"query", "experiment_targeting", "sampling_rate", "sampling_mode"})
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
@@ -374,6 +397,16 @@ class ReplayScanner(UUIDModel):
         from posthog.schema import RecordingsQuery  # noqa: PLC0415
 
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
+
+    def targeted_recordings_query(self) -> "RecordingsQuery":
+        """The query every scan and estimate must run: the persisted filter plus the exposure
+        filter derived from `experiment_targeting`.
+
+        Derived here rather than persisted into `query` so the experiment can only ever enter
+        through `experiment_targeting`, the field the API access-checks on write and redacts on
+        read. The serializer rejects `experiment_exposure` inside `query` for the same reason.
+        """
+        return apply_experiment_targeting(self.recordings_query(), self.experiment_targeting)
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

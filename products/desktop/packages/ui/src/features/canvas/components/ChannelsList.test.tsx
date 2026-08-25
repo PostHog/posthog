@@ -142,7 +142,7 @@ vi.mock("@posthog/ui/features/canvas/components/RenameChannelModal", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useRouterState: () => "/website",
+  useRouterState: () => "/spaces",
 }));
 
 import {
@@ -235,6 +235,7 @@ describe("ChannelsList", () => {
     await user.click(screen.getByText("engineering"));
 
     expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    expect(useChannelPaneStore.getState().animateTransition).toBe(true);
     expect(mocks.navigate).not.toHaveBeenCalled();
   });
 

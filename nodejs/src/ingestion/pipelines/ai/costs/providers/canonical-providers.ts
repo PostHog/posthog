@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-21 10:08:31 UTC
+// Generated at: 2026-08-25 10:09:06 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -72,6 +72,7 @@ export type CanonicalProvider =
     | 'fireworks-us'
     | 'friendli'
     | 'gmicloud-bf16'
+    | 'gmicloud-fp4'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-flex'
@@ -105,6 +106,8 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'minimax-highspeed'
     | 'mistral'
+    | 'mistral-eu'
+    | 'mistral-us'
     | 'mistral-zdr'
     | 'modal-mxfp4'
     | 'modal-nvfp4'
@@ -127,12 +130,12 @@ export type CanonicalProvider =
     | 'nextbit-int4'
     | 'novita'
     | 'novita-bf16'
+    | 'novita-fast'
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
     | 'novita-int4'
     | 'nvidia'
-    | 'nvidia-bf16'
     | 'nvidia-nvfp4'
     | 'open-inference-bf16'
     | 'open-inference-fp4'
@@ -140,6 +143,7 @@ export type CanonicalProvider =
     | 'openai-default'
     | 'openai-default-flex'
     | 'openai-default-priority'
+    | 'openai-fast'
     | 'openai-flex'
     | 'openai-priority'
     | 'parasail-bf16'
@@ -174,6 +178,7 @@ export type CanonicalProvider =
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
+    | 'thinkingmachines-nvfp4'
     | 'together'
     | 'upstage'
     | 'venice'

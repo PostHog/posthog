@@ -42,13 +42,18 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
-import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
+import {
+    createHogExecutionGlobals,
+    insertCohortMembership,
+    insertHogFunctionTemplate,
+    insertIntegration,
+} from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
@@ -356,6 +361,19 @@ describe('Workflows E2E (postgres-v2)', () => {
         config: { delay_duration: duration },
     })
 
+    // Waits for a date carried by the event rather than a fixed span. Bytecode is what the HogQL compiler
+    // emits for `properties.expires_at`, which is what HogFlowSerializer stores for this expression.
+    const delayUntilAction = (offset?: string) => ({
+        type: 'delay' as const,
+        config: {
+            delay_until: {
+                expression: 'properties.expires_at',
+                bytecode: ['_H', 1, 32, 'expires_at', 32, 'properties', 1, 2],
+                ...(offset ? { offset } : {}),
+            },
+        },
+    })
+
     const exitAction = () => ({ type: 'exit' as const, config: {} })
 
     // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
@@ -505,6 +523,89 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     })
 
+    describe('delay until a date carried by the data', () => {
+        const workflowWaitingUntil = async (offset?: string): Promise<void> => {
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayUntilAction(offset),
+                    function_1: fetchAction('https://example.com/reminder'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+        }
+
+        it('parks until the date on the event, then continues', async () => {
+            // A fixed duration cannot express this: the instant comes from the payload, so two runs of the
+            // same workflow park to different times.
+            const expiresAt = DateTime.utc().plus({ seconds: 3 })
+            await workflowWaitingUntil()
+            await triggerWorkflow(createGlobals({ properties: { expires_at: expiresAt.toISO() } } as any))
+            await waitForExpect(async () => {
+                const parked = (await queryCyclotronJobs()).filter(
+                    (j: any) => j[statusColumn] === 'available' && new Date(j.scheduled) > new Date()
+                )
+                expect(parked).toHaveLength(1)
+                // Parked to the instant from the data, not to some default span.
+                const scheduled = DateTime.fromJSDate(new Date(parked[0].scheduled)).toUTC()
+                expect(Math.abs(scheduled.diff(expiresAt).as('seconds'))).toBeLessThan(2)
+            }, 5000)
+
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/reminder', expect.anything())
+        })
+
+        it('continues straight away when the date has already passed', async () => {
+            // The guard against a reminder for something that already happened firing days late.
+            await workflowWaitingUntil()
+            await triggerWorkflow(
+                createGlobals({ properties: { expires_at: DateTime.utc().minus({ days: 5 }).toISO() } } as any)
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+        })
+
+        it('fires before the date when an offset asks for it', async () => {
+            // The shape a "remind me N days before" workflow needs, and the reason an offset exists rather
+            // than only a bare date: here the date is 1 hour out and the offset pulls the wait to now.
+            await workflowWaitingUntil('-1h')
+            await triggerWorkflow(
+                createGlobals({ properties: { expires_at: DateTime.utc().plus({ hours: 1 }).toISO() } } as any)
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+        })
+
+        it('aborts instead of sending when the date cannot be worked out', async () => {
+            // The outcome that matters: a "before it expires" message must not go out for someone with no
+            // expiry. on_error defaults to 'continue', which would do exactly that, so an unresolvable date
+            // aborts the run regardless of that setting.
+            await workflowWaitingUntil()
+            await triggerWorkflow(createGlobals({ properties: {} } as any))
+
+            // Waiting for a terminal state, not merely "not available": a job being worked on is also not
+            // available, so the looser check can pass in the window before the run would have sent.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.filter((j: any) => j[statusColumn] === 'failed')).toHaveLength(1)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
     describe('conditional branch workflow', () => {
         beforeEach(async () => {
             await createWorkflow({
@@ -545,6 +646,89 @@ describe('Workflows E2E (postgres-v2)', () => {
             }, 10000)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/branch-a', expect.anything())
+        })
+    })
+
+    describe('cohort condition workflow', () => {
+        const COHORT_ID = 4242
+        const PERSON_UUID = 'a5f478a1-1d34-4c8a-a0b5-6a3b62e3f8a1'
+
+        // What the Django serializer compiles for a cohort condition filter; the shape is pinned
+        // from the Python side by test_hog_flow_conditional_branch_cohort_filter_compiles
+        const cohortConditionFilters = (cohortId: number): Record<string, any> => ({
+            bytecode: ['_H', 1, 33, cohortId, 32, 'cohort_ids', 1, 1, 2, 'inCohort', 2],
+            properties: [{ key: 'id', type: 'cohort', value: cohortId }],
+        })
+
+        beforeEach(async () => {
+            await resetBehavioralCohortsDatabase(hub.postgres)
+            // The person's uuid is the key the cohort_membership lookup runs against
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: PERSON_UUID,
+                    team_id: team.id,
+                    properties: {},
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    branch: {
+                        type: 'conditional_branch',
+                        config: {
+                            conditions: [{ filters: cohortConditionFilters(COHORT_ID) }],
+                        },
+                    },
+                    function_member: fetchAction('https://example.com/in-cohort'),
+                    function_non_member: fetchAction('https://example.com/not-in-cohort'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'branch', type: 'continue' },
+                    { from: 'branch', to: 'function_member', type: 'branch', index: 0 },
+                    { from: 'branch', to: 'function_non_member', type: 'continue' },
+                    { from: 'function_member', to: 'exit', type: 'continue' },
+                    { from: 'function_non_member', to: 'exit', type: 'continue' },
+                ],
+            })
+            globals = createGlobals()
+        })
+
+        it.each([
+            ['a membership row', true, 'https://example.com/in-cohort'],
+            ['an in_cohort=false row (person left)', false, 'https://example.com/not-in-cohort'],
+        ])('routes a person with %s down the right branch', async (_name, inCohort, expectedUrl) => {
+            await insertCohortMembership(hub.postgres, {
+                team_id: team.id,
+                cohort_id: COHORT_ID,
+                person_id: PERSON_UUID,
+                in_cohort: inCohort,
+            })
+
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith(expectedUrl, expect.anything())
+        })
+
+        it('routes a person the pipeline never wrote a row for as a non-member', async () => {
+            await triggerWorkflow(globals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/not-in-cohort', expect.anything())
         })
     })
 
@@ -2289,6 +2473,10 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(parseJSON(options.body)).toEqual({
                 prompt: 'Investigate the error spike',
                 title: 'Error spike',
+                event: expect.objectContaining({
+                    event: '$pageview',
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                }),
                 idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}:function_1$/),
             })
 
@@ -3397,10 +3585,7 @@ describe('Workflows E2E (email queue)', () => {
             }
             const data = await metric.get()
             return data.values
-                .filter(
-                    (v: any) =>
-                        v.labels.result === 'denied' && v.labels.limiter === limiterName && v.labels.key === bucketKey
-                )
+                .filter((v: any) => v.labels.result === 'denied' && v.labels.limiter === limiterName)
                 .reduce((sum: number, v: any) => sum + v.value, 0)
         }
         const deniedBefore = await readDeniedCount()

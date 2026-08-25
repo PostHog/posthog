@@ -199,6 +199,19 @@ export const SavedPrewarmCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxtBodyUrlMax = 2048
+
+export const WebAnalyticsFetchLlmsTxtBody = /* @__PURE__ */ zod.object({
+    url: zod
+        .url()
+        .max(webAnalyticsFetchLlmsTxtBodyUrlMax)
+        .describe('Public HTTP or HTTPS URL of the llms.txt file to load.'),
+})
+
+/**
  * Clears a pending celebration for the given track and stage once the client has shown it, so it isn't celebrated again. Idempotent.
  * @summary Acknowledge an achievement celebration
  */

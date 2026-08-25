@@ -8,6 +8,7 @@ import { HogTransformationResult } from '~/common/hog-transformations/hog-transf
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import {
     EventIngestionRestrictionManager,
     EventIngestionRestrictionManagerComponent,
@@ -51,9 +52,10 @@ export interface ErrorTrackingConsumerOptions {
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
     /**
-     * When true, overflow redirects keep the original partition key. When
-     * false (default), the overflow producer emits with a null key. Applies
-     * to both restriction-driven force-overflow and rate-limit-to-overflow.
+     * When true (the default), overflow redirects keep the original partition
+     * key. When false, the overflow producer emits with a null key so Kafka
+     * spreads the load across the overflow topic's partitions. Applies to both
+     * restriction-driven force-overflow and rate-limit-to-overflow.
      */
     preservePartitionLocality: boolean
     pipeline: string
@@ -82,6 +84,7 @@ export interface ErrorTrackingConsumerDeps {
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
     personRepository: PersonReadRepository
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)
@@ -223,6 +226,7 @@ export class ErrorTrackingConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             topHog: this.topHog,
+            createEventUsageBatch: this.deps.createEventUsageBatch,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)

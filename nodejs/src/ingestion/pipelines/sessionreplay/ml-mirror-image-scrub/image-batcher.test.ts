@@ -1,14 +1,23 @@
-import { Message, TopicPartitionOffset } from 'node-rdkafka'
+import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
+import { gzipSync } from 'node:zlib'
 
-import { hashImageBytes, imageRef } from './content-ref'
+import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore } from './image-batcher'
-import { ImageShardStore, ScrubbedImage } from './image-shard-store'
+import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'
+import { ImageScrubConsumerMetrics } from './metrics'
 import { ScrubClient, ScrubPoisoned } from './scrub-client'
 
 const pt = (n: number): string => String(n).padStart(32, '0')
 const CONTENT_KEY = 'fedcba9876543210fedcba9876543210'
 
-function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffer, keyOverride?: string): Message {
+function msg(
+    partition: number,
+    offset: number,
+    pseudoTeam: string,
+    bytes: Buffer,
+    keyOverride?: string,
+    headers?: MessageHeader[]
+): Message {
     const ref = keyOverride ?? imageRef(pseudoTeam, hashImageBytes(CONTENT_KEY, bytes))
     return {
         topic: 'session_replay_image_scrub',
@@ -16,12 +25,15 @@ function msg(partition: number, offset: number, pseudoTeam: string, bytes: Buffe
         offset,
         key: Buffer.from(ref),
         value: bytes,
+        headers,
     } as unknown as Message
 }
 
 class FakeStore {
     public writes: ScrubbedImage[][] = []
+    public urlWrites: ScrubbedUrlImage[] = []
     public failNext = false
+    public failNextUrl = false
     // eslint-disable-next-line @typescript-eslint/require-await
     async writeShard(images: ScrubbedImage[]): Promise<{ shard: string; bytes: number }> {
         if (this.failNext) {
@@ -29,6 +41,14 @@ class FakeStore {
         }
         this.writes.push(images)
         return { shard: 'shard', bytes: images.reduce((n, i) => n + i.bytes.length, 0) }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/require-await
+    async writeUrlImage(image: ScrubbedUrlImage): Promise<void> {
+        if (this.failNextUrl) {
+            throw new Error('url s3 down')
+        }
+        this.urlWrites.push(image)
     }
 }
 
@@ -54,6 +74,8 @@ const options = {
 }
 
 describe('ImageBatcher', () => {
+    afterEach(() => jest.restoreAllMocks())
+
     it('scrubs a multi-team batch into one shard for the flush, storing offsets after', async () => {
         const store = new FakeStore()
         const offsets = new FakeOffsets()
@@ -85,6 +107,192 @@ describe('ImageBatcher', () => {
         expect(store.writes[0][0].hash).toBe(ref.split(':')[2])
     })
 
+    it('decodes and validates a URL image from its Kafka transport headers before scrubbing it', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const received: Buffer[] = []
+        const capturingClient = {
+            scrub: (bytes: Buffer) => {
+                received.push(bytes)
+                return Promise.resolve(bytes)
+            },
+        } as unknown as ScrubClient
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            capturingClient,
+            options,
+            0
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 0, pt(1), gzipSync(png), ref, [
+                    { 'content-type': Buffer.from('image/png') },
+                    { 'content-encoding': Buffer.from('gzip') },
+                ]),
+            ],
+            1
+        )
+
+        expect(received).toEqual([png])
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: png,
+                sourcePartition: 0,
+                sourceOffset: 0,
+            },
+        ])
+        expect(store.writes).toHaveLength(0)
+    })
+
+    it('submits every valid URL image for the conditional store to select the first completed write', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const newer = Buffer.concat([png, Buffer.from('newer')])
+        const older = Buffer.concat([png, Buffer.from('older')])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options,
+            0
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 12, pt(1), newer, ref, [{ 'content-type': Buffer.from('image/png') }]),
+                msg(0, 10, pt(1), older, ref, [{ 'content-type': Buffer.from('image/png') }]),
+            ],
+            1
+        )
+
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: newer,
+                sourcePartition: 0,
+                sourceOffset: 12,
+            },
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: older,
+                sourcePartition: 0,
+                sourceOffset: 10,
+            },
+        ])
+    })
+
+    it('uses a later valid URL image when an earlier candidate for the ref is invalid', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options,
+            0
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 10, pt(1), Buffer.from('not a png'), ref, [{ 'content-type': Buffer.from('image/png') }]),
+                msg(0, 11, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }]),
+            ],
+            1
+        )
+
+        expect(store.urlWrites).toEqual([
+            {
+                hash: ref.slice('imageurl:'.length),
+                bytes: png,
+                sourcePartition: 0,
+                sourceOffset: 11,
+            },
+        ])
+    })
+
+    it('scrubs a newer URL version after an earlier version was persisted by the same pod', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const first = Buffer.concat([png, Buffer.from('first')])
+        const second = Buffer.concat([png, Buffer.from('second')])
+        const store = new FakeStore()
+        const batcher = new ImageBatcher(
+            store as unknown as ImageShardStore,
+            new FakeOffsets(),
+            { scrub: (bytes: Buffer) => Promise.resolve(bytes) } as unknown as ScrubClient,
+            options,
+            0
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch([msg(0, 10, pt(1), first, ref, [{ 'content-type': Buffer.from('image/png') }])], 1)
+        await batcher.handleBatch([msg(0, 11, pt(1), second, ref, [{ 'content-type': Buffer.from('image/png') }])], 2)
+
+        expect(store.urlWrites.map((image) => [image.sourceOffset, image.bytes])).toEqual([
+            [10, first],
+            [11, second],
+        ])
+    })
+
+    it('bounds concurrent URL-image writes by the scrub worker limit', async () => {
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        let activeWrites = 0
+        let maximumActiveWrites = 0
+        const store = {
+            writeUrlImage: async () => {
+                activeWrites += 1
+                maximumActiveWrites = Math.max(maximumActiveWrites, activeWrites)
+                await Promise.resolve()
+                activeWrites -= 1
+            },
+            writeShard: () => Promise.resolve({ shard: 'unused', bytes: 0 }),
+        } as unknown as ImageShardStore
+        const batcher = new ImageBatcher(
+            store,
+            new FakeOffsets(),
+            { scrub: () => Promise.resolve(png) } as unknown as ScrubClient,
+            { ...options, scrubConcurrency: 2 },
+            0
+        )
+        const messages = Array.from({ length: 6 }, (_, index) => {
+            const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from(`https://example.com/${index}.png`)))
+            return msg(0, index, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }])
+        })
+
+        await batcher.handleBatch(messages, 1)
+
+        expect(maximumActiveWrites).toBe(2)
+    })
+
+    it('drops a URL image whose bytes do not match its Kafka content-type', async () => {
+        let scrubCalls = 0
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            {
+                scrub: () => {
+                    scrubCalls += 1
+                    return Promise.resolve(Buffer.from('scrubbed'))
+                },
+            } as unknown as ScrubClient,
+            options,
+            0
+        )
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await batcher.handleBatch(
+            [msg(0, 0, pt(1), Buffer.from([0xff, 0xd8, 0xff]), ref, [{ 'content-type': Buffer.from('image/png') }])],
+            1
+        )
+
+        expect(scrubCalls).toBe(0)
+    })
+
     it('does not store offsets when the shard write fails (at-least-once replay)', async () => {
         const store = new FakeStore()
         store.failNext = true
@@ -92,6 +300,28 @@ describe('ImageBatcher', () => {
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
 
         await expect(batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)).rejects.toThrow('s3 down')
+        expect(offsets.stored).toBe(0)
+    })
+
+    it('does not create a random inline shard before deterministic URL writes succeed', async () => {
+        const store = new FakeStore()
+        store.failNextUrl = true
+        const offsets = new FakeOffsets()
+        const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, scrubClient, options, 0)
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/image.png')))
+
+        await expect(
+            batcher.handleBatch(
+                [
+                    msg(0, 0, pt(1), Buffer.from('inline')),
+                    msg(0, 1, pt(1), png, ref, [{ 'content-type': Buffer.from('image/png') }]),
+                ],
+                1
+            )
+        ).rejects.toThrow('url s3 down')
+
+        expect(store.writes).toHaveLength(0)
         expect(offsets.stored).toBe(0)
     })
 
@@ -543,6 +773,51 @@ describe('ImageBatcher', () => {
         expect(parked[0].replayCount).toBe(1)
     })
 
+    it('preserves URL transport headers when it parks the original compressed bytes', async () => {
+        const parked: { headers: Record<string, string>; bytes: Buffer }[] = []
+        const poisonClient = {
+            scrub: () =>
+                Promise.reject(
+                    new ScrubPoisoned('cannot process', {
+                        reason: 'rejected',
+                        lastError: 'sidecar responded 500',
+                        attempts: 12,
+                        waitedMs: 60_000,
+                    })
+                ),
+        } as unknown as ScrubClient
+        const batcher = new ImageBatcher(
+            new FakeStore() as unknown as ImageShardStore,
+            new FakeOffsets(),
+            poisonClient,
+            options,
+            0,
+            {
+                park: (image) => Promise.resolve(void parked.push({ headers: image.headers, bytes: image.bytes })),
+            }
+        )
+        const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        const compressed = gzipSync(png)
+        const ref = urlRef(hashImageBytes(CONTENT_KEY, Buffer.from('https://example.com/poison.png')))
+
+        await batcher.handleBatch(
+            [
+                msg(0, 0, pt(1), compressed, ref, [
+                    { 'content-type': Buffer.from('image/png') },
+                    { 'content-encoding': Buffer.from('gzip') },
+                ]),
+            ],
+            1
+        )
+
+        expect(parked).toEqual([
+            {
+                bytes: compressed,
+                headers: { 'content-type': 'image/png', 'content-encoding': 'gzip' },
+            },
+        ])
+    })
+
     it('refuses to start when concurrency is too low for dead-lettering to be reachable', () => {
         // The poison gate can only ever count successes from slots running alongside the image it is
         // judging: the batch holding that image cannot finish, and the pod cannot poll for more work
@@ -612,11 +887,16 @@ describe('ImageBatcher', () => {
                 ),
         } as unknown as ScrubClient
         const batcher = new ImageBatcher(store as unknown as ImageShardStore, offsets, hangingClient, options, 0)
+        const startBatch = jest.spyOn(ImageScrubConsumerMetrics, 'startBatch')
+        const finishBatch = jest.spyOn(ImageScrubConsumerMetrics, 'finishBatch')
 
         const running = batcher.handleBatch([msg(0, 0, pt(1), Buffer.from('a'))], 1)
+        expect(startBatch).toHaveBeenCalledTimes(1)
+        expect(finishBatch).not.toHaveBeenCalled()
         batcher.stop()
 
         await expect(running).resolves.toBeUndefined()
+        expect(finishBatch).toHaveBeenCalledTimes(1)
         // Nothing finished, so nothing may be committed over: the image replays under the next owner.
         expect(offsets.received.flat()).toEqual([])
         expect(store.writes).toHaveLength(0)
