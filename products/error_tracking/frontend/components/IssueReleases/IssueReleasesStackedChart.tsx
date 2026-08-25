@@ -26,7 +26,7 @@ export function IssueReleasesStackedChart({ timeline }: { timeline: IssueRelease
         () =>
             listReleaseStrips(timeline, theme.colors).map((strip) => ({
                 key: strip.release.key,
-                label: strip.label,
+                label: strip.fullLabel,
                 color: strip.color,
                 data: strip.release.counts,
                 meta: strip,

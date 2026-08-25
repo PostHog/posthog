@@ -190,6 +190,7 @@ function storyReleaseRows(dateRange: { date_from?: string | null; date_to?: stri
     for (const release of STORY_RELEASES) {
         const start = Math.floor(release.from * bucketCount)
         const end = Math.ceil(release.to * bucketCount)
+        const series: [number, number][] = []
         for (let index = start; index < end; index++) {
             const progress = (index - start) / Math.max(1, end - start - 1)
             const jitter = 0.7 + ((index * 7) % 4) / 10
@@ -201,9 +202,11 @@ function storyReleaseRows(dateRange: { date_from?: string | null; date_to?: stri
             }[release.shape]
             const count = Math.round(release.peak * factor * jitter)
             if (count > 0) {
-                rows.push([bucketing.bucketStarts[index], release.namespace, release.version, release.build, count])
+                series.push([bucketing.bucketStarts[index], count])
             }
         }
+        const total = series.reduce((sum, [, count]) => sum + count, 0)
+        rows.push([release.namespace, release.version, release.build, series, total, STORY_RELEASES.length])
     }
     return rows
 }

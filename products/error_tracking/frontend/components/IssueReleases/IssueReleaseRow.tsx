@@ -109,7 +109,7 @@ export function IssueReleaseRow({
                     {humanFriendlyLargeNumber(release.total)}
                 </Text>
                 <Text size="xxs" variant="muted">
-                    {Math.round(share * 100)}%
+                    {share > 0 && share < 0.005 ? '<1%' : `${Math.round(share * 100)}%`}
                 </Text>
             </div>
         </div>

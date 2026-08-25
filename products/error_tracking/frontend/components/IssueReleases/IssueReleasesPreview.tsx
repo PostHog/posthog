@@ -2,7 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
-import { Button, Separator, Skeleton, Spinner, Text, ToggleGroup, ToggleGroupItem } from 'lib/ui/quill'
+import {
+    Button,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Separator,
+    Skeleton,
+    Spinner,
+    Text,
+    ToggleGroup,
+    ToggleGroupItem,
+} from 'lib/ui/quill'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,8 +27,8 @@ import { issueReleasesLogic } from './issueReleasesLogic'
 import { IssueReleasesStackedChart } from './IssueReleasesStackedChart'
 
 export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Element {
-    const { timeline, releasesLoading, releasesError } = useValues(issueReleasesLogic({ issueId }))
-    const { loadReleases } = useActions(issueReleasesLogic({ issueId }))
+    const { timeline, releasesLoading, releasesError, selectedNamespace } = useValues(issueReleasesLogic({ issueId }))
+    const { loadReleases, selectNamespace } = useActions(issueReleasesLogic({ issueId }))
     const { releasesViewMode } = useValues(issueFilterPreviewLogic)
     const { setReleasesViewMode } = useActions(issueFilterPreviewLogic)
     const hasReleases = timeline !== null && timeline.total > 0
@@ -23,8 +36,7 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
     return (
         <div className="flex flex-col">
             <IssueFilterPreviewHeader preview="releases" title="Releases">
-                <div className="flex items-center gap-3">
-                    <ReleasesSummary timeline={timeline} loading={releasesLoading} />
+                <div className="flex w-full items-center justify-between gap-3">
                     <ToggleGroup
                         size="sm"
                         aria-label="Releases view"
@@ -43,6 +55,12 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                             Stacked
                         </ToggleGroupItem>
                     </ToggleGroup>
+                    <ReleasesSummary
+                        timeline={timeline}
+                        loading={releasesLoading}
+                        selectedNamespace={selectedNamespace}
+                        onSelectNamespace={selectNamespace}
+                    />
                 </div>
             </IssueFilterPreviewHeader>
             <div className="flex min-h-40 flex-col px-3 pb-3 pt-2">
@@ -74,12 +92,18 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
     )
 }
 
+const ALL_APPS = '__all__'
+
 function ReleasesSummary({
     timeline,
     loading,
+    selectedNamespace,
+    onSelectNamespace,
 }: {
     timeline: IssueReleaseTimeline | null
     loading: boolean
+    selectedNamespace: string | null
+    onSelectNamespace: (namespace: string | null) => void
 }): JSX.Element | null {
     if (loading) {
         return (
@@ -88,22 +112,44 @@ function ReleasesSummary({
             </Skeleton>
         )
     }
-    if (timeline === null) {
+    if (timeline === null || (timeline.releaseCount === 0 && timeline.namespaces.length === 0)) {
         return null
     }
-    const releaseCount = timeline.groups.reduce((sum, group) => sum + group.releases.length, 0)
-    if (releaseCount === 0) {
-        return null
+    const releases = pluralize(timeline.releaseCount, 'release')
+    if (timeline.namespaces.length <= 1) {
+        const namespace = timeline.namespaces[0]
+        return (
+            <Text size="xs" variant="muted" className="truncate">
+                {namespace ? `${namespace} · ${releases}` : releases}
+            </Text>
+        )
     }
-    const namespaces = timeline.groups.map((group) => group.namespace).filter((namespace) => namespace !== null)
-    const label =
-        namespaces.length === 1
-            ? `${namespaces[0]} · ${pluralize(releaseCount + timeline.otherReleaseCount, 'release')}`
-            : `${pluralize(releaseCount + timeline.otherReleaseCount, 'release')} across ${pluralize(namespaces.length, 'app')}`
+    const appItems: Record<string, string> = {
+        [ALL_APPS]: pluralize(timeline.namespaces.length, 'app'),
+        ...Object.fromEntries(timeline.namespaces.map((namespace) => [namespace, namespace])),
+    }
     return (
-        <Text size="xs" variant="muted" className="truncate">
-            {label}
-        </Text>
+        <div className="flex min-w-0 items-center gap-2">
+            <Select
+                items={appItems}
+                value={selectedNamespace ?? ALL_APPS}
+                onValueChange={(value) => onSelectNamespace(value === ALL_APPS ? null : String(value))}
+            >
+                <SelectTrigger size="sm" aria-label="App" data-attr="error-tracking-issue-releases-app">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                    {Object.entries(appItems).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                            {label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Text size="xs" variant="muted" className="shrink-0">
+                {releases}
+            </Text>
+        </div>
     )
 }
 

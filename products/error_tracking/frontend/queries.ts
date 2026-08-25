@@ -30,6 +30,7 @@ import {
 } from '~/types'
 
 import { LIMIT_ITEMS } from './components/Breakdowns/consts'
+import { RELEASES_QUERY_LIMIT } from './components/IssueReleases/issueReleases'
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -389,15 +390,26 @@ export const errorTrackingIssueReleasesQuery = ({
         kind: NodeKind.HogQLQuery,
         query: `
             SELECT
-                toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond(${interval}))) AS bucket,
-                properties.$app_namespace AS namespace,
-                properties.$app_version AS version,
-                toString(properties.$app_build) AS build,
-                count() AS occurrences
-            FROM events
-            WHERE event = '$exception' AND issue_id = ${escapeHogQLString(issueId)} AND {filters}
-            GROUP BY bucket, namespace, version, build
-            ORDER BY bucket
+                namespace,
+                version,
+                build,
+                groupArray(tuple(bucket, occurrences)) AS series,
+                sum(occurrences) AS total,
+                count() OVER () AS release_count
+            FROM (
+                SELECT
+                    toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond(${interval}))) AS bucket,
+                    properties.$app_namespace AS namespace,
+                    properties.$app_version AS version,
+                    toString(properties.$app_build) AS build,
+                    count() AS occurrences
+                FROM events
+                WHERE event = '$exception' AND issue_id = ${escapeHogQLString(issueId)} AND {filters}
+                GROUP BY bucket, namespace, version, build
+            )
+            GROUP BY namespace, version, build
+            ORDER BY total DESC
+            LIMIT ${RELEASES_QUERY_LIMIT}
         `,
         filters: { dateRange, filterTestAccounts, properties },
         tags: { productKey: ProductKey.ERROR_TRACKING },

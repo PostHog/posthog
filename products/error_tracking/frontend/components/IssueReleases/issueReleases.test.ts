@@ -26,15 +26,33 @@ describe('issueReleases', () => {
         const bucketStarts = Array.from({ length: 4 }, (_, index) => index * HOUR)
         const bucketing = { bucketSeconds: HOUR, bucketStarts, rangeStart: 0, rangeEnd: 4 * HOUR }
         const rows: IssueReleasesQueryRow[] = [
-            [0, 'com.example.app', '1.0.0', '10', 5],
-            [HOUR, 'com.example.app', '1.0.0', '10', 3],
-            [0, 'com.example.app', '1.0.1', '11', 1],
-            [2 * HOUR, 'com.example.app', '1.1.0', '12', 7],
-            [3 * HOUR, 'com.example.app', '1.1.0', '12', 2],
-            [2 * HOUR, 'com.example.app', '1.0.2', null, 4],
-            [3 * HOUR, 'com.example.web', '2.0.0', null, 6],
-            [HOUR, null, null, null, 2],
-            [-HOUR, 'com.example.app', '0.9.0', '9', 100],
+            [
+                'com.example.app',
+                '1.0.0',
+                '10',
+                [
+                    [0, 5],
+                    [HOUR, 3],
+                ],
+                8,
+                7,
+            ],
+            ['com.example.app', '1.0.1', '11', [[0, 1]], 1, 7],
+            [
+                'com.example.app',
+                '1.1.0',
+                '12',
+                [
+                    [2 * HOUR, 7],
+                    [3 * HOUR, 2],
+                ],
+                9,
+                7,
+            ],
+            ['com.example.app', '1.0.2', null, [[2 * HOUR, 4]], 4, 7],
+            ['com.example.web', '2.0.0', null, [[3 * HOUR, 6]], 6, 7],
+            [null, null, null, [[HOUR, 2]], 2, 7],
+            ['com.example.app', '0.9.0', '9', [[-HOUR, 100]], 100, 7],
         ]
 
         const timeline = buildIssueReleaseTimeline(rows, bucketing, 3)
@@ -53,8 +71,19 @@ describe('issueReleases', () => {
         })
         expect(timeline.other).toMatchObject({ counts: [6, 3, 0, 0], total: 9 })
         expect(timeline.otherReleaseCount).toBe(2)
+        expect(timeline.releaseCount).toBe(6)
+        expect(timeline.namespaces).toEqual(['com.example.app', 'com.example.web'])
         expect(timeline.unattributed).toMatchObject({ counts: [0, 2, 0, 0], total: 2 })
         expect(timeline.total).toBe(30)
         expect(timeline.maxBucketValue).toBe(7)
+
+        const filtered = buildIssueReleaseTimeline(rows, bucketing, 3, 'com.example.web')
+        expect(filtered.groups).toEqual([
+            { namespace: 'com.example.web', releases: [expect.objectContaining({ version: '2.0.0' })] },
+        ])
+        expect(filtered.namespaces).toEqual(['com.example.app', 'com.example.web'])
+        expect(filtered.releaseCount).toBe(1)
+        expect(filtered.unattributed).toBeNull()
+        expect(filtered.total).toBe(6)
     })
 })
