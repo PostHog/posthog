@@ -176,7 +176,7 @@ const SKILL_AUTHOR_TASKS: Record<ReviewSkillKind, { title: string; prompt: strin
         title: 'Create a PostHog Review perspective',
         prompt: `I'd like to create a custom review perspective for PostHog Review in this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its review-perspective path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its review-perspective path.
 
 Ground yourself per that skill first, then ask me what my perspective should focus on and offer a few concrete directions the current set doesn't already cover. Once I pick, author the skill end to end and tell me how to switch it on.
 
@@ -186,7 +186,7 @@ If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP s
         title: 'Create a PostHog Review blind-spot check',
         prompt: `I'd like to create a custom PostHog Review blind-spot check for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its blind-spot-check path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its blind-spot-check path.
 
 Ground yourself per that skill first, then ask me what my sweep should emphasize and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
@@ -196,9 +196,9 @@ If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP s
         title: 'Create PostHog Review validation criteria',
         prompt: `I'd like to create custom PostHog Review validation criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its validation-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its validation-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar should differ — stricter, more lenient, or weighted toward specific concerns — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar should differ (stricter, more lenient, or weighted toward specific concerns) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-validation-criteria skill to learn the shape before authoring.`,
     },
@@ -206,9 +206,9 @@ If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP s
         title: 'Create PostHog Review resolution criteria',
         prompt: `I'd like to create custom PostHog Review resolution criteria for this PostHog project.
 
-Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its resolution-criteria path.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it. Follow its resolution-criteria path.
 
-Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ — more conservative, more eager, or weighted toward specific kinds of fixes — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
+Ground yourself per that skill first, then ask me how my bar for implementing review-thread asks should differ (more conservative, more eager, or weighted toward specific kinds of fixes) and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
 If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-resolution-criteria skill to learn the shape before authoring.`,
     },
