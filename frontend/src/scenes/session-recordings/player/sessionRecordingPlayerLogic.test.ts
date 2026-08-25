@@ -27,7 +27,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    INSTANT_SKIP_INACTIVITY_THRESHOLD_MS,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -255,6 +260,36 @@ describe('sessionRecordingPlayerLogic', () => {
                 sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }),
                 playerSettingsLogic,
             ])
+        })
+    })
+
+    describe('inactivity segment traversal', () => {
+        const START = 1682952380877
+        const inactiveSegment = (kind: 'gap' | 'window', durationMs: number): RecordingSegment =>
+            ({
+                kind,
+                isActive: false,
+                startTimestamp: START,
+                endTimestamp: START + durationMs,
+                durationMs,
+                windowId: kind === 'window' ? 1 : undefined,
+            }) as RecordingSegment
+
+        it.each([
+            ['seeks over a gap past the threshold', 'gap', INSTANT_SKIP_INACTIVITY_THRESHOLD_MS + 1, true],
+            ['fast-forwards a gap under the threshold', 'gap', 60_000, false],
+            ['fast-forwards a dense inactive window of any length', 'window', 35 * 3600 * 1000, false],
+        ] as const)('%s', async (_name, kind, durationMs, expectSeek) => {
+            logic.actions.setCurrentTimestamp(START)
+            const segment = inactiveSegment(kind, durationMs)
+            const expectation = expectLogic(logic, () => logic.actions.setCurrentSegment(segment))
+            if (expectSeek) {
+                await expectation.toDispatchActions([logic.actionCreators.seekToTimestamp(segment.endTimestamp)])
+            } else {
+                await expectation
+                    .toDispatchActions([logic.actionCreators.setSkippingInactivity(true)])
+                    .toNotHaveDispatchedActions(['seekToTimestamp'])
+            }
         })
     })
 

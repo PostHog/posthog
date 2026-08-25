@@ -288,6 +288,10 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     return newEvents
 }
 
+// Longer than any legit in-session idle span (the default session idle timeout is 30 minutes),
+// so a gap past this exists only in recordings with corrupted timestamps.
+export const INSTANT_SKIP_INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000
+
 /** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
 export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
     if (timestamp === undefined) {
@@ -2314,6 +2318,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // In video export mode with metadata footer, instantly seek past inactive segments
                 // to avoid timing drift from fast-forward animation duration
                 if (props.mode === SessionRecordingPlayerMode.Video && values.showMetadataFooter) {
+                    actions.seekToTimestamp(segment.endTimestamp)
+                    return
+                }
+                // fast-forwarding a multi-hour span saturates the main thread; only 'gap' segments
+                // are event-free, so only they are safe to jump with a seek
+                const remainingMs = segment.endTimestamp - (values.currentTimestamp ?? segment.startTimestamp)
+                if (segment.kind === 'gap' && remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS) {
                     actions.seekToTimestamp(segment.endTimestamp)
                     return
                 }
