@@ -1,4 +1,4 @@
-import { ApiError, isTransientServerError, shouldReportApiFailure } from './api-error'
+import { ApiError, isBackgroundLoadServerError, isTransientServerError, shouldReportApiFailure } from './api-error'
 
 describe('api-error', () => {
     describe('ApiError.fromResponse', () => {
@@ -79,6 +79,26 @@ describe('api-error', () => {
             ['a bare object shaped like an error', { status: 503 }],
         ])('does not classify %s as transient', (_, error) => {
             expect(isTransientServerError(error)).toBe(false)
+        })
+    })
+
+    describe('isBackgroundLoadServerError', () => {
+        it.each([
+            // Background loaders on a 5xx: collapse into one toast, don't report each.
+            ['a loader on a 500', 'loadCohorts', new ApiError('boom', 500), true],
+            ['a loader on a 503', 'loadSignalsConfig', new ApiError(undefined, 503), true],
+            ['a getter on a 502', 'getDashboardTemplates', new ApiError(undefined, 502), true],
+            ['a fetcher on a 504', 'fetchTeam', new ApiError(undefined, 504), true],
+            // Not a background load, so its own toast stands.
+            ['a write action on a 500', 'saveFeatureFlag', new ApiError('boom', 500), false],
+            // Not a server error, so the existing per-action handling applies.
+            ['a loader on a 400', 'loadCohorts', new ApiError('bad', 400), false],
+            ['a loader on a 404', 'loadCohorts', new ApiError(undefined, 404), false],
+            ['a loader with no status', 'loadCohorts', new ApiError('mystery'), false],
+            // `load`/`get`/`fetch` must be followed by an uppercase letter to count as a loader.
+            ['a lowercase near-match', 'loadingState', new ApiError('boom', 500), false],
+        ])('classifies %s', (_, actionKey, error, expected) => {
+            expect(isBackgroundLoadServerError(actionKey, error)).toBe(expected)
         })
     })
 

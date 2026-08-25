@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+from django.db import OperationalError
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -10,7 +13,7 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.exceptions import ExceptionContext, exception_handler, exception_reporting
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -70,3 +73,20 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             response["WWW-Authenticate"]
             == 'Bearer resource_metadata="https://us.posthog.com/.well-known/oauth-protected-resource"'
         )
+
+
+class TestExceptionReporting(SimpleTestCase):
+    def _context(self) -> ExceptionContext:
+        return {"request": RequestFactory().get("/api/users/@me/")}
+
+    def test_transient_db_error_is_not_reported(self) -> None:
+        error = OperationalError("query_wait_timeout")
+        with patch("posthog.exceptions.capture_exception") as mock_capture:
+            assert exception_reporting(error, self._context()) is None
+            mock_capture.assert_not_called()
+
+    def test_persistent_db_error_is_reported(self) -> None:
+        error = OperationalError('relation "foo" does not exist')
+        with patch("posthog.exceptions.capture_exception", return_value="event-id") as mock_capture:
+            assert exception_reporting(error, self._context()) == "event-id"
+            mock_capture.assert_called_once_with(error)
