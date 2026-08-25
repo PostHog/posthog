@@ -272,3 +272,42 @@ async def test_burst_guard_denies_emission_before_any_render() -> None:
     # The guard drops the emission before the team read, stacktrace render, or workflow start.
     aget.assert_not_awaited()
     emit_signal.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_signal_emission_charge_is_refunded_when_emit_fails() -> None:
+    allowed = BucketDecision(allowed=True, remaining=99, limit=SIGNAL_EMISSION_BUDGET.burst, retry_after=0, reset=1800)
+
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.consume",
+            return_value=allowed,
+        ),
+        patch("products.error_tracking.backend.temporal.lifecycle.side_effects.refund") as refund,
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(return_value=MagicMock()),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value={},
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.render_stacktrace",
+            return_value="stack",
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(side_effect=RuntimeError("emit failed")),
+        ),
+        pytest.raises(RuntimeError),
+    ):
+        await emit_issue_lifecycle_signal(
+            _inputs(),
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    # A retried attempt gives its token back, so a failing signal cannot drain the bucket over ten
+    # attempts and throttle later healthy signals. The exception still propagates so Temporal retries.
+    refund.assert_called_once_with("error_tracking_signal_emit_rate:42", SIGNAL_EMISSION_BUDGET)

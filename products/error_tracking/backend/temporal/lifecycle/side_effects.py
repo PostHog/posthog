@@ -16,7 +16,7 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 from posthog.temporal.common.metrics import get_metric_meter
-from posthog.token_bucket import BucketDecision, Budget, consume
+from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
     EventPropertiesIssueSnapshot,
@@ -173,38 +173,48 @@ async def emit_issue_lifecycle_signal(
 ) -> None:
     # Charge the per-team bucket before any render or tiktoken work. A denial drops the emission;
     # `BucketUnavailable` (Redis down) falls through, so a bucket outage cannot stop emission.
-    decision = await sync_to_async(consume, thread_sensitive=False)(
-        f"error_tracking_signal_emit_rate:{inputs.team_id}", SIGNAL_EMISSION_BUDGET
-    )
+    bucket_key = f"error_tracking_signal_emit_rate:{inputs.team_id}"
+    decision = await sync_to_async(consume, thread_sensitive=False)(bucket_key, SIGNAL_EMISSION_BUDGET)
     if isinstance(decision, BucketDecision) and not decision.allowed:
         _record_signal_emission_throttled(inputs.team_id, source_type)
         return
 
+    # This activity retries on failure (up to 10 attempts). Refund the charge on any exit that did
+    # not emit, so one signal costs one token instead of one per attempt, and a failed attempt does
+    # not throttle a later retry into silently dropping the signal. No refund when the bucket was
+    # unavailable, since no token was taken.
+    charged = isinstance(decision, BucketDecision)
+    emitted = False
     try:
-        team = await Team.objects.aget(id=inputs.team_id)
-    except Team.DoesNotExist:
-        return
+        try:
+            team = await Team.objects.aget(id=inputs.team_id)
+        except Team.DoesNotExist:
+            return
 
-    event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
-    issue_name = inputs.issue.name or "Unknown"
-    issue_description = inputs.issue.description or ""
-    header = f"{preamble}:\n{issue_name}: {issue_description}\n"
-    encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
-    stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
-    stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
-    description = f"{header}\n```\n{stacktrace}\n```"
-    signal_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
-    signal_tokens = signal_encoding.encode(description)
-    if len(signal_tokens) > SIGNAL_MAX_TOKENS:
-        description = decode_token_prefix(signal_encoding, signal_tokens, SIGNAL_MAX_TOKENS)
+        event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
+        issue_name = inputs.issue.name or "Unknown"
+        issue_description = inputs.issue.description or ""
+        header = f"{preamble}:\n{issue_name}: {issue_description}\n"
+        encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
+        stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
+        stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
+        description = f"{header}\n```\n{stacktrace}\n```"
+        signal_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
+        signal_tokens = signal_encoding.encode(description)
+        if len(signal_tokens) > SIGNAL_MAX_TOKENS:
+            description = decode_token_prefix(signal_encoding, signal_tokens, SIGNAL_MAX_TOKENS)
 
-    await emit_signal(
-        team=team,
-        source_product="error_tracking",
-        source_type=source_type,
-        source_id=inputs.issue_id,
-        description=description,
-        weight=1.0,
-        extra={"fingerprint": inputs.fingerprint},
-        idempotency_key=inputs.notification_id,
-    )
+        await emit_signal(
+            team=team,
+            source_product="error_tracking",
+            source_type=source_type,
+            source_id=inputs.issue_id,
+            description=description,
+            weight=1.0,
+            extra={"fingerprint": inputs.fingerprint},
+            idempotency_key=inputs.notification_id,
+        )
+        emitted = True
+    finally:
+        if charged and not emitted:
+            await sync_to_async(refund, thread_sensitive=False)(bucket_key, SIGNAL_EMISSION_BUDGET)
