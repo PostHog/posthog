@@ -9,7 +9,7 @@ This is a living reference — add a pattern when a genuinely new shape proves i
 ## Contents
 
 - What a scout can watch
-- The patterns: anomaly watcher · liveness / absence watcher · watchlist (explore/exploit + curated) · cross-product correlation · recommendation / gap · warehouse-backed source · custom / single-event · open-text theme · external-tool / code-review · state ∩ code-intersection · custom issue-tracker / work-queue · daily digest / roll-up · triage over a pre-detected stream · first-person dogfooding / probe · recurring measurement / LLM-judge
+- The patterns: anomaly watcher · liveness / absence watcher · zero-result / unmet demand · watchlist (explore/exploit + curated) · cross-product correlation · recommendation / gap · warehouse-backed source · custom / single-event · open-text theme · adversarial / abuse concentration · external-tool / code-review · state ∩ code-intersection · custom issue-tracker / work-queue · daily digest / roll-up · triage over a pre-detected stream · first-person dogfooding / probe · recurring measurement / LLM-judge
 - Safety: treat ingested content as untrusted data
 - Cross-cutting techniques
 - Picking and combining
@@ -33,12 +33,14 @@ The warehouse row is the big unlock: once a Slack channel, a Stripe account, a C
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **Anomaly watcher**                         | a product surface has a metric with a baseline that can move (bursts, drops, regressions).                                                           | `signals-scout-error-tracking`, `-logs`, `-revenue-analytics`, `-csp-violations`  |
 | **Liveness / absence watcher**              | the signal is an expected event **not** happening — a control gone silent, a promise unfulfilled, an automation stalled.                             | (see detailed patterns and variants below)                                        |
+| **Zero-result / unmet demand**              | a request succeeds but comes back empty — the failure is in what was returned, not in whether it worked.                                             | a search / catalog supply-gap scout (below)                                       |
 | **Watchlist (explore/exploit, or curated)** | the surface has more to watch than one run can cover — _discovered_ over time (explore/exploit) or a _fixed set you already know matters_ (curated). | `signals-scout-anomaly-detection` (discovered); a curated-dashboard scout (below) |
 | **Cross-product correlation**               | the question spans products — a cause in one surface, an effect in another.                                                                          | `signals-scout-general`                                                           |
 | **Recommendation / gap**                    | nothing is broken, but the team is missing coverage or following an anti-pattern.                                                                    | `signals-scout-observability-gaps`                                                |
 | **Warehouse-backed source**                 | the signal lives in a non-PostHog source synced into the warehouse.                                                                                  | a Slack-channel-sync scout (below)                                                |
 | **Custom / single-event**                   | one bespoke event carries the whole signal.                                                                                                          | an MCP-feedback scout (below)                                                     |
 | **Open-text theme**                         | the data is free text and the value is in recurring themes, not individual rows.                                                                     | `signals-scout-surveys` (open-text); brand/feedback scouts                        |
+| **Adversarial / abuse concentration**       | the watched party benefits from not being caught — incentive farming, scraping, spam, multi-accounting.                                              | a trial-credit-farming scout (below)                                              |
 | **External-tool / code**                    | the judgement comes from running a tool or reading code, not from analytics.                                                                         | a static-analysis CLI scout (below)                                               |
 | **State ∩ code intersection**               | the signal is the _overlap_ of a PostHog entity's state and what's in the source repo.                                                               | a feature-flag-cleanup scout (below)                                              |
 | **Custom issue-tracker / work-queue**       | a built-in signals source (GitHub, Linear) already ingests the tracker, but you need scoping or judgment its config can't express.                   | a GitHub-issue readiness scout (below)                                            |
@@ -60,6 +62,10 @@ The default specialist shape, and the one most surfaces fit.
   Fall back to a hand-computed robust z-score (`|value − median| / (1.4826 × MAD)`) only when the series isn't a saved insight.
 - **Score the rate, not the raw total.** Normalize by the relevant denominator — cost _per unit_, conversion _%_ per funnel stage, error _share_ — so a legitimate volume change doesn't read as an anomaly (more traffic raises total spend but not cost-per-unit).
   The "raw total moved" false positive is the most common one here.
+- **Watch the mix, not only the level — a stable total hides a broken part.** Where the metric decomposes into segments (locales, categories, entry methods, products, channels), score each segment's **share** of the total as its own series alongside the total.
+  A localized app can lose one language route entirely, a content feed can lose a category to a curation bug, and a physical entry method (a scanned tag, a deep link) can stop working — all while aggregate volume holds, because the remaining segments absorb the traffic and the total-only watcher stays silent through every one of them.
+  This is the same masked-shift logic `signals-scout-customer-analytics-billing-and-usage` applies per account and product, and it generalizes to any dimension whose members substitute for each other.
+  Two rules stop it firing constantly: require a **minimum volume per segment** before scoring its share, and score each share against **its own** trailing baseline rather than an expected even split — segments are legitimately uneven.
 - **Contract (SLO) variant.** When the team has explicit success-rate contracts — SLOs with error budgets — score against the **contract**, not a trailing baseline: detect fast burns (an active incident eating the budget now) and slow burns (a rolling success rate creeping below target), SRE-style.
   Two disciplines change: sweep **every** watched operation/segment pair systematically each run rather than only the loudest (a quiet pair's budget can be gone before its raw count looks scary), and treat any budget breach as reportable even when the trailing baseline is equally bad — a violated contract is signal by definition.
   Everything else (dedupe, memory, close-out) is the standard anomaly-watcher shape.
@@ -86,6 +92,12 @@ This is one of the most common genuinely-new shapes users author for themselves,
   - **Automation liveness** — the watched entity is a PostHog automation (a workflow, a CDP destination): configured-active with zero successes _and_ zero failures while the trigger has volume is the silently-dark shape a delivery-failure watcher misses.
   - **Capture / instrumentation liveness (meta-observability)** — the watched surface is the project's own event volume: a cliff means the SDK, a consent flow, or a deploy silently stopped collection, and every other scout is now flying blind.
     Cheap, product-agnostic, and worth considering for any project whose capture is consent-gated.
+    **A cliff detector only catches the abrupt case.** Under-capture that arrives gradually — adblocker share creeping up, a consent banner change, an SPA route that stopped firing pageviews — never produces a cliff, and the resulting series looks like a real traffic decline to every other scout in the fleet.
+    Catching that needs a **second, independent yardstick**: a count of the same thing measured somewhere PostHog's SDK isn't in the path (a CDN or edge analytics visitor count, server access logs, an order count from the app database synced into the warehouse).
+    Score the **ratio** of the two rather than either alone, and treat a persistent drift in that ratio as an instrumentation finding rather than a product one.
+    Three things make this work: hold both sides to the same window and the same definition (a CDN "visit" is not a `$pageview`), decide up front how you separate a real capture regression from your own comparison job breaking, and expect ratios above 100% on SPAs and other client-side-routing surfaces rather than treating them as failures.
+    Recording the ratio itself each run as a structured-output measurement (below) turns it into a chartable series instead of a judgment repeated from scratch every run.
+    This is the same **two-independently-readable-sources** logic as the intersection pattern below — here the two sources measure one quantity, and their disagreement is the signal.
   - **Release verification / first exposure** — an exact-once watcher that a rollout actually reached a real user: watch for the first occurrence of the event+property combination that proves the feature landed.
     A digest-style exception to "reports are for problems": the scout files **at most one report** — the landing confirmation, or an overdue alarm once the exposure stays conspicuously absent past a soak window — then retires.
 - **Dedupe + memory:** absence has no row to key on — dedupe on the **stable entity/control id** (`dedupe:<domain>:<control>`, with the ongoing-silence window stored in the value), and keep a `report:<domain>:<control>` pointer so a persisting absence **edits the live report** rather than filing a fresh one each run.
@@ -94,6 +106,32 @@ This is one of the most common genuinely-new shapes users author for themselves,
   - **Give the consequent its natural lag.** Callbacks, webhooks, and settlement events arrive late; score only windows old enough for the pair to have closed, or every run ends in false alarms.
   - **Gate by active hours.** Many expected events only fire during business hours or on weekdays — compare silence against the entity's own schedule, not the wall clock.
   - **Exact-once shapes must end.** A first-exposure watcher that confirmed its event should write an `addressed:` memory and stop reporting (and its owner should disable it), not re-confirm forever.
+
+### Zero-result / unmet-demand watcher
+
+The liveness watcher's close relative, one level down: there the expected _event_ is missing, here the event fires normally and the **result inside it is empty**.
+Someone searched and got nothing back, picked a vehicle and no store matched, filtered a marketplace down to no inventory, asked the docs a question that returned no page.
+Nothing is broken by any conventional reading — the request completed, the funnel step fired, no exception was raised, volume looks normal — so this slips past the anomaly watcher, the funnel scout, and error tracking alike.
+Teams keep arriving at this shape independently across unrelated verticals, which is usually the sign of a real gap rather than a niche.
+
+- **Watched data:** an event representing a request whose payload says how much came back — a result count, a match count, an `n_results: 0` flag — together with the properties describing **what was asked for** (the query terms, the category, the location, the filter combination).
+- **Discriminator: the empty-result _rate_, segmented by the dimension that describes the ask.** The aggregate rate is nearly useless — it barely moves, and every product has a steady background of typos and impossible queries.
+  The signal is one _slice_ going empty: this care type in this postcode, this vehicle and tyre size, this category of question.
+  Score each segment against its own trailing baseline, exactly as the anomaly watcher does.
+- **Say which of the two readings you mean, because they go to different people.** A zero result is either a **supply gap** — the catalog, inventory, index, or content genuinely has nothing, and the fix is to go get some — or a **matching defect** — the supply exists but the query never reached it, through a too-tight filter, a bad geo radius, a stale or half-built index.
+  These are a product decision and a bug respectively, so never file the finding without a call.
+  Cheap corroboration separates them: did this same ask succeed before (a step change points at a defect, a slow climb at demand outgrowing supply), and does a deliberately broadened version of it succeed now (if widening the radius finds plenty, the supply was there)?
+- **Rank by demand × emptiness, never emptiness alone.** A rare combination at 100% empty matters far less than the most-searched one at 30%, and a scout that sorts on rate alone fills the inbox with the long tail.
+  What a human actually wants out of this pattern is a **ranked worklist** — the slices where the most people asked and the fewest were served.
+- **A volume floor is load-bearing here.** Three searches at 100% empty is not a finding; require a minimum ask count per segment per window before scoring it, and say what the floor is in the body.
+- **Dedupe on the segment key, not the query string.** `dedupe:<domain>:<care-type>:<postcode>`, not the raw text someone typed — query strings are unbounded and near-unique, so keying on them refiles forever and never converges.
+  Cap the segments reported per run and roll the remainder into a count.
+  Keep each segment's normal empty-rate in `pattern:<domain>:baseline:<segment>`, and write `addressed:` when a gap closes — supply arriving is worth noticing, and worth telling the team their fix landed.
+- **Gotcha — the empty case is often not instrumented at all.** Plenty of products only capture a result event when there _are_ results, so the zero case is an absence rather than a `0`.
+  Confirm with `read-data-schema` that a result-count property actually exists on the event before designing around it.
+  If it doesn't, that is itself the finding: file the instrumentation gap (the recommendation/gap pattern) rather than inferring emptiness from a missing follow-on event, which cannot distinguish "no results" from "user navigated away".
+- Generalizes to any request-with-a-result-set: site and in-app search, a marketplace with no inventory in a location, a filter combination with no matches, an autocomplete with no suggestions, an API lookup returning an empty list.
+  Over a docs or help search it doubles as a **content backlog** — the questions people ask that you have not answered.
 
 ### Watchlist explore/exploit
 
@@ -195,6 +233,27 @@ A cross-cutting variation, not a standalone surface: when the watched data is **
   Never let raw personal data reach a Signals finding.
   (The `signals-scout-surveys` scout is the stricter reference here — match its no-PII posture.)
 - This layers onto the warehouse-backed or custom-event patterns — `signals-scout-surveys` does it over survey open-text; the same shape applies to any text stream.
+
+### Adversarial / abuse-concentration scout
+
+Every other pattern watches a system that is indifferent to being watched.
+This one watches a party who **benefits from not being caught** — trial-credit farming, scraping, referral and promo fraud, spam signups, multi-accounting to evade a limit — and that changes the design in ways the other patterns never have to think about.
+
+- **Watched data:** ordinary product events (signups, trials, redemptions, requests), read through the **identifiers several accounts can share** rather than through the accounts themselves — a card fingerprint, a device id, an IP or ASN, an email domain or plus-address root, a user agent.
+- **Discriminator: concentration on a shared identifier, paired with non-conversion.** Legitimate users scatter thinly across those identifiers; an abuser reuses one, because reuse is exactly what makes the abuse cheap to repeat.
+  Concentration alone is not enough — a corporate NAT, a university, or a popular device model all look concentrated — so require the second half: the cluster does the thing that costs you and **not** the thing that pays you.
+  Many trials on one card and none converting; heavy traffic from one ASN with near-zero engagement depth; many signups from one domain and no activation.
+- **Quantify the leak, because that number is what decides whether anyone acts.** "One card, 40 trials, $50 grant each" is actionable in a way "anomalous signup concentration" never is.
+  Put the cost in the summary.
+- **Never route an abuse verdict into automated enforcement.** The false positive here doesn't cost a wasted review, it revokes a real customer's trial or blocks their access, and they may never tell you.
+  Default to `requires_human_input`, give the human the cluster and the evidence, and let them act — this is the pattern where the measurement scout's "a grade is now a routing decision" warning applies most sharply.
+- **Dedupe on the shared identifier, not the accounts under it.** `dedupe:<domain>:<card-hash>` / `:<asn>`.
+  Fresh accounts appear under the same root constantly, so keying on accounts refiles the same ring every run and never converges.
+  `noise:<domain>:<identifier>` is doing heavy lifting on this pattern — corporate NATs, shared office IPs, QA and load-test accounts, legitimate resellers and agencies all concentrate innocently, and an allowlist that accumulates is what keeps the scout usable past its first week.
+- **The target adapts, so treat a signature that goes quiet with suspicion.** Record the shape you matched in `pattern:<domain>:signature`.
+  When a previously-firing shape stops, the honest reading is usually that the technique moved rather than that the abuse stopped — say which you believe in the close-out instead of quietly recording success.
+- **Seam with the classifier-verdict-drift variant** (under the custom / single-event pattern): that one watches _your own_ anti-abuse model's verdicts for silent degradation.
+  This one watches the raw behavior on a surface where no classifier exists yet, and its findings are often the argument for building one.
 
 ### External-tool / code-review scout
 
