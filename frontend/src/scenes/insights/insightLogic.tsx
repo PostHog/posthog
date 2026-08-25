@@ -192,6 +192,7 @@ export interface insightLogicActions {
             derived_name?: string | null | undefined
             description?: string | undefined
             disable_baseline?: boolean | undefined
+            events_retention_applied?: boolean | null | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
             id: number
@@ -236,6 +237,7 @@ export interface insightLogicActions {
             derived_name?: string | null | undefined
             description?: string | undefined
             disable_baseline?: boolean | undefined
+            events_retention_applied?: boolean | null | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
             id: number
@@ -357,6 +359,7 @@ export interface insightLogicActions {
             derived_name?: string | null | undefined
             description?: string | undefined
             disable_baseline?: boolean | undefined
+            events_retention_applied?: boolean | null | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
             id?: number | undefined
@@ -400,6 +403,7 @@ export interface insightLogicActions {
             derived_name?: string | null | undefined
             description?: string | undefined
             disable_baseline?: boolean | undefined
+            events_retention_applied?: boolean | null | undefined
             favorited?: boolean | undefined
             filter_override_context?: InsightFilterOverrideContextApi | null | undefined
             id?: number | undefined
