@@ -61,6 +61,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
+    { key: 'autoresearch', objectName: 'Autoresearch', objectPlural: 'autoresearch pipelines' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
