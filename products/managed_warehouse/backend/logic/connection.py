@@ -339,7 +339,12 @@ def ensure_managed_warehouse_direct_source(
         lifecycle = _locked_source_lifecycle(organization_id)
         if not lifecycle.desired_active or lifecycle.generation != expected_generation:
             return None
-        Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
+        # Deliberately NOT select_for_update: FOR UPDATE on a posthog_team row blocks the
+        # FK KEY SHARE lock every team-scoped INSERT takes, so holding it across this
+        # (network-bound) block queued 80+ writer connections twice an hour on the busiest
+        # teams (prod-us lock convoys, 2026-08-19..25). The lifecycle row lock above is the
+        # serialization anchor; a plain existence check is all the team row provides here.
+        Team.objects.only("id").get(id=team_id, organization_id=organization_id)
         return _ensure_managed_source_locked(
             team_id=team_id,
             convert_active_legacy=lifecycle.legacy_conversion_generation == expected_generation,
@@ -352,7 +357,9 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
     if not lifecycle_snapshot.desired_active:
         return
     with transaction.atomic():
-        team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
+        # Plain read on purpose — see ensure_managed_warehouse_direct_source for why the
+        # team row must never be select_for_update'd from these periodic sweeps.
+        team = Team.objects.only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
 
@@ -400,7 +407,10 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
     with transaction.atomic():
         if _lifecycle_snapshot(organization_id, lock=True) != lifecycle_snapshot:
             return
-        team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
+        # Plain read on purpose — this atomic block runs get_or_create loops and
+        # reconcile_postgres_schemas and was observed holding its locks for ~2 minutes;
+        # taking the team row here is what convoyed every writer for the team.
+        team = Team.objects.only("id").filter(id=team_id, organization_id=organization_id).first()
         if team is None:
             return
         source = (
