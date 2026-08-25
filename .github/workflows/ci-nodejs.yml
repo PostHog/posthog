@@ -268,7 +268,7 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
+        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
@@ -277,7 +277,19 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                include:
+                    - lane: parallel
+                      shard: 1
+                      shard_count: 1
+                    - lane: serial
+                      shard: 1
+                      shard_count: 3
+                    - lane: serial
+                      shard: 2
+                      shard_count: 3
+                    - lane: serial
+                      shard: 3
+                      shard_count: 3
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -465,7 +477,7 @@ jobs:
             - name: Prepare Node.js workspace
               env:
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: ${{ matrix.shard_count }}
               run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Test with Jest
@@ -482,22 +494,28 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: ${{ matrix.shard_count }}
                   LOG_LEVEL: info
-                  # Emit JUnit XML for the Trunk upload below (turbo passes JEST_JUNIT_* through).
+                  # Emit JUnit XML for the Trunk upload below.
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
-                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.shard }}.xml
+                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.lane }}-${{ matrix.shard }}.xml
                   # Trunk attributes flakes by test file; jest-junit's default suite name is the
                   # describe block, so make it the file path instead.
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
-              # Timings need a real Jest execution; a Turbo cache hit has no fresh JUnit XML.
-              run: bin/turbo run test --filter=@posthog/nodejs --force
+              run: |
+                  if [ -f nodejs/jest.serial.config.js ]; then
+                    cd nodejs && pnpm run test:${{ matrix.lane }}
+                  elif [ "${{ matrix.lane }}" = 'serial' ]; then
+                    bin/turbo run test --filter=@posthog/nodejs
+                  else
+                    echo "Parallel Jest config is not present on this branch; skipping."
+                  fi
 
             - name: Test postgres-parity (isolated DB)
               id: run-parity
               continue-on-error: true
-              if: (success() || failure()) && matrix.shard == 1
+              if: (success() || failure()) && matrix.lane == 'serial' && matrix.shard == 1
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
@@ -764,7 +782,7 @@ jobs:
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   LOG_LEVEL: info
               run: |
-                  if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
+                  if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.serial.test.ts ] || [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
                     cd nodejs && pnpm run test:rust-ingestion-e2e
                   else
                     echo "Rust ingestion service e2e test is not present on this branch; skipping."
