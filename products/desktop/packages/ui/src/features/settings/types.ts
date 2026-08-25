@@ -2,6 +2,7 @@ export type SettingsCategory =
   | "general"
   | "notifications"
   | "plan-usage"
+  | "cost-management"
   | "workspaces"
   | "worktrees"
   | "environments"
@@ -25,6 +26,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "general",
   "notifications",
   "plan-usage",
+  "cost-management",
   "workspaces",
   "worktrees",
   "environments",
@@ -56,6 +58,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   general: "General",
   notifications: "Notifications",
   "plan-usage": "Plan & usage",
+  "cost-management": "Cost management",
   workspaces: "Workspaces",
   worktrees: "Worktrees",
   environments: "Environments",
