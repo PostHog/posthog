@@ -9,7 +9,6 @@ import {
     SelectItem,
     SelectTrigger,
     SelectValue,
-    Separator,
     Skeleton,
     Spinner,
     Text,
@@ -22,7 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { IssueReleaseRow } from './IssueReleaseRow'
-import { IssueReleaseGroup, IssueReleaseTimeline, ReleaseBucketing, listReleaseStrips } from './issueReleases'
+import { IssueReleaseTimeline, ReleaseBucketing, listReleaseStrips } from './issueReleases'
 import { issueReleasesLogic } from './issueReleasesLogic'
 import { IssueReleasesStackedChart } from './IssueReleasesStackedChart'
 
@@ -156,50 +155,22 @@ function ReleasesSummary({
 function ReleaseTimeline({ timeline }: { timeline: IssueReleaseTimeline }): JSX.Element {
     const theme = useChartTheme()
     const strips = listReleaseStrips(timeline, theme.colors)
-    const stripsByKey = new Map(strips.map((strip) => [strip.release.key, strip]))
-    const showGroupTitles = timeline.groups.length > 1
-
-    const renderRow = (key: string): JSX.Element | null => {
-        const strip = stripsByKey.get(key)
-        if (!strip) {
-            return null
-        }
-        return (
-            <IssueReleaseRow
-                key={key}
-                release={strip.release}
-                kind={strip.kind}
-                label={strip.label}
-                color={strip.color}
-                bucketing={timeline.bucketing}
-                maxValue={timeline.maxBucketValue}
-                total={timeline.total}
-            />
-        )
-    }
 
     return (
         <div className="flex flex-col gap-px">
-            {timeline.groups.map((group) => (
-                <section key={group.namespace ?? ''} className="contents">
-                    {showGroupTitles && <ReleaseGroupTitle group={group} />}
-                    {group.releases.map((release) => renderRow(release.key))}
-                </section>
+            {strips.map((strip) => (
+                <IssueReleaseRow
+                    key={strip.release.key}
+                    release={strip.release}
+                    kind={strip.kind}
+                    label={strip.label}
+                    color={strip.color}
+                    bucketing={timeline.bucketing}
+                    maxValue={timeline.maxBucketValue}
+                    total={timeline.total}
+                />
             ))}
-            {timeline.other && renderRow(timeline.other.key)}
-            {timeline.unattributed && renderRow(timeline.unattributed.key)}
             <ReleaseTimelineAxis bucketing={timeline.bucketing} />
-        </div>
-    )
-}
-
-function ReleaseGroupTitle({ group }: { group: IssueReleaseGroup }): JSX.Element {
-    return (
-        <div className="flex h-8 items-center gap-3 px-1">
-            <Text size="xxs" variant="muted" weight="semibold" render={<h3 />} className="!mb-0 shrink-0">
-                {group.namespace ?? 'No app namespace'}
-            </Text>
-            <Separator className="min-w-0 flex-1" />
         </div>
     )
 }
