@@ -352,7 +352,6 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
               key={label}
               type="button"
               variant={variant}
-              left
               className="rounded-lg"
               // Once the composer holds a typed draft or a quoted passage, the
               // one-click chips step aside — firing a chip must not silently
