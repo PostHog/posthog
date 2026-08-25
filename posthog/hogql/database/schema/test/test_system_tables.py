@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -33,7 +34,7 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
-from products.autoresearch.backend.facade.models import AutoresearchPipeline
+from products.autoresearch.backend.facade.api import create_pipeline as create_autoresearch_pipeline
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -324,9 +325,13 @@ def _create_annotation(team: Team, label: str) -> Annotation:
     return Annotation.objects.create(team=team, content=f"annotation_{label}")
 
 
-def _create_autoresearch_pipeline(team: Team, label: str) -> AutoresearchPipeline:
+def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
+    # autoresearch is sealed, so the row is created through its facade; the test only reads the pk.
     with team_scope(team.pk):
-        return AutoresearchPipeline.objects.create(team=team, name=f"pipeline_{label}", target_event="$pageview")
+        pipeline = create_autoresearch_pipeline(
+            team.pk, fields={"name": f"pipeline_{label}", "target_event": "$pageview"}, created_by=None
+        )
+    return SimpleNamespace(pk=pipeline.id)
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
