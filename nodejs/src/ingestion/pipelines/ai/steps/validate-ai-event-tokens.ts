@@ -1,7 +1,7 @@
+import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { AI_EVENT_TYPES } from '~/ingestion/pipelines/ai/ai-event-types'
 import { PipelineEvent } from '~/types'
 
 const TOKEN_PROPERTIES = [

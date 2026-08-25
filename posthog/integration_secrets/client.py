@@ -40,6 +40,7 @@ from typing import Any
 
 from django.conf import settings
 
+import requests
 import structlog
 import posthoganalytics
 from prometheus_client import Counter
@@ -50,7 +51,12 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.settings.utils import get_list
 
 from .callers import IntegrationCaller
-from .errors import IntegrationServiceMisconfiguredError, SecretInRecoveryError, SecretMissingError
+from .errors import (
+    IntegrationServiceMisconfiguredError,
+    IntegrationServiceUnreachableError,
+    SecretInRecoveryError,
+    SecretMissingError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -189,13 +195,7 @@ class IntegrationSecretsClient:
         return self._fetch(keys, caller)
 
     def _fetch(self, keys: list[str], caller: IntegrationCaller) -> dict[str, SecretValue]:
-        response = internal_requests.post(
-            f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}",
-            headers=self._auth_headers(keys, caller),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        body: dict[str, Any] = response.json()
+        body = self._post(keys, caller)
 
         missing = set(body.get("missing") or [])
         secrets: dict[str, Any] = body.get("secrets") or {}
@@ -218,6 +218,36 @@ class IntegrationSecretsClient:
             INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="ok").inc()
 
         return resolved
+
+    def _post(self, keys: list[str], caller: IntegrationCaller) -> dict[str, Any]:
+        """The request itself, with every transport failure wearing this client's own type.
+
+        No `requests` exception may escape. Callers sit in the middle of talking to some third
+        party, so a bare `HTTPError` from here is indistinguishable from one raised by the API
+        they were actually calling — and the difference decides whose problem it is. A misrouted
+        `INTEGRATION_SERVICE_URL` answering 404 is our deploy error, not a dead endpoint of
+        theirs, and a caller reading the status code alone cannot tell.
+        """
+        # Minted outside the try: signing is local work, and a failure there is a bug in this
+        # process, not the service being unreachable. Catching it here would file it under the
+        # one label nobody investigates.
+        headers = self._auth_headers(keys, caller)
+        try:
+            response = internal_requests.post(
+                f"{settings.INTEGRATION_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}",
+                headers=headers,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            # ValueError covers a body that is not JSON. Modern `requests` raises its own
+            # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
+            # surfaces on older paths, and nothing else in this block raises one.
+            return response.json()
+        except (requests.RequestException, ValueError) as e:
+            INTEGRATION_SECRET_FETCH_COUNTER.labels(outcome="unreachable").inc()
+            raise IntegrationServiceUnreachableError(
+                f"The integration service did not answer a credential request: {e}"
+            ) from e
 
     def _auth_headers(self, keys: list[str], caller: IntegrationCaller) -> dict[str, str]:
         token = encode_jwt(
