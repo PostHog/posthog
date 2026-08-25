@@ -59,6 +59,11 @@ export interface visualReviewSettingsSceneLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
@@ -114,6 +119,11 @@ export interface visualReviewSettingsSceneLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'apns'
                 | 'aws-s3'
