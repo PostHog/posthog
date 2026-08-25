@@ -84,5 +84,12 @@ export function useAutoCompact({
           sendingRef.current = false;
         }
       });
-  }, [sessionKey, thresholdPercent, usage, isCompacting, isRunning, sendPrompt]);
+  }, [
+    sessionKey,
+    thresholdPercent,
+    usage,
+    isCompacting,
+    isRunning,
+    sendPrompt,
+  ]);
 }

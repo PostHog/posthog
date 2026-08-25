@@ -2,14 +2,20 @@ import type { ContextUsage } from "@posthog/core/sessions/contextUsage";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useAutoCompact, type AutoCompactArgs } from "./useAutoCompact";
+import { type AutoCompactArgs, useAutoCompact } from "./useAutoCompact";
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
 }));
 
 function usageAt(percentage: number): ContextUsage {
-  return { used: percentage, size: 100, percentage, cost: null, breakdown: null };
+  return {
+    used: percentage,
+    size: 100,
+    percentage,
+    cost: null,
+    breakdown: null,
+  };
 }
 
 function props(overrides: Partial<AutoCompactArgs> = {}): AutoCompactArgs {
