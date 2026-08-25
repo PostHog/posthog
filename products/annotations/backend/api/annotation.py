@@ -17,10 +17,10 @@ from products.product_analytics.backend.facade.models import Insight
 
 class AnnotationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    # Soft-deleted parents are accepted here: the frontend echoes both FKs back on every write, so a
-    # project-scoped annotation whose dashboard was deleted would otherwise be impossible to edit or
-    # delete. Annotations actually scoped to a deleted parent never reach validation — the scope-gated
-    # filter in AnnotationsViewSet.safely_get_queryset hides them first.
+    # Soft-deleted parents are accepted here because the frontend echoes both FKs back on every
+    # write, so a project-scoped annotation whose dashboard was deleted would otherwise be
+    # impossible to edit or delete. validate() still rejects a write whose own scope points at a
+    # soft-deleted parent.
     dashboard_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -111,14 +111,42 @@ class AnnotationSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
 
-        dashboard_id = attrs.get("dashboard_id")
-        if dashboard_id is not None:
-            if not Dashboard.objects_including_soft_deleted.filter(id=dashboard_id, team_id=team.id).exists():
-                raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
-
         scope = attrs.get("scope", None)
         if scope == Annotation.Scope.RECORDING.value:
             raise serializers.ValidationError("Recording scope is deprecated")
+
+        # Resolve the parents the annotation will have after this write. A key absent from `attrs`
+        # keeps the stored value, while a key present but null clears it, so membership is what
+        # distinguishes the two on a PATCH.
+        dashboard = None
+        if "dashboard_id" in attrs:
+            if attrs["dashboard_id"] is not None:
+                dashboard = Dashboard.objects_including_soft_deleted.filter(
+                    id=attrs["dashboard_id"], team_id=team.id
+                ).first()
+                if dashboard is None:
+                    raise serializers.ValidationError({"dashboard_id": "Dashboard not found."})
+        elif self.instance is not None:
+            dashboard = self.instance.dashboard
+
+        if "dashboard_item" in attrs:
+            insight = attrs["dashboard_item"]
+        else:
+            insight = getattr(self.instance, "dashboard_item", None)
+
+        # AnnotationsViewSet.safely_get_queryset hides an annotation whose own scope points at a
+        # soft-deleted parent, so accepting one here would strand a row that nothing can list, edit
+        # or delete. Project- and organization-scoped rows keep their pointers, which are only used
+        # to show where the annotation was created.
+        effective_scope = scope or getattr(self.instance, "scope", Annotation.Scope.INSIGHT.value)
+        if effective_scope == Annotation.Scope.INSIGHT.value and insight is not None and insight.deleted:
+            raise serializers.ValidationError(
+                {"dashboard_item": "This insight is deleted. Restore it, or pick a different scope."}
+            )
+        if effective_scope == Annotation.Scope.DASHBOARD.value and dashboard is not None and dashboard.deleted:
+            raise serializers.ValidationError(
+                {"dashboard_id": "This dashboard is deleted. Restore it, or pick a different scope."}
+            )
 
         return attrs
 
@@ -160,8 +188,8 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             # We never want deleted items to be included in the queryset… except when we want to restore an annotation
             # That's because annotations are restored with a PATCH request setting `deleted` to `False`
             queryset = queryset.filter(deleted=False)
-        # Annotations attached to a soft-deleted insight or dashboard are hidden
-        # across all actions — including `partial_update`, so they cannot be
+        # Annotations scoped to a soft-deleted insight or dashboard are hidden
+        # across all actions, including `partial_update`, so they cannot be
         # individually edited or restored while their parent is soft-deleted.
         # They reappear automatically when the parent is restored. Mirrors how
         # alerts behave (see posthog/temporal/alerts/activities.py).

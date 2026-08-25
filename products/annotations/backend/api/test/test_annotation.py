@@ -744,6 +744,36 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "dashboard_item"
         assert response.json()["code"] == "does_not_exist"
 
+    @parameterized.expand(
+        [
+            ("insight", Annotation.Scope.INSIGHT, "dashboard_item"),
+            ("dashboard", Annotation.Scope.DASHBOARD, "dashboard_id"),
+        ]
+    )
+    def test_creating_an_annotation_scoped_to_a_soft_deleted_parent_returns_400(
+        self, parent_kind: str, scope: str, attr: str
+    ) -> None:
+        parent: Insight | Dashboard = (
+            Insight.objects.create(team=self.team, name="My Insight")
+            if parent_kind == "insight"
+            else Dashboard.objects.create(team=self.team, name="My Dashboard")
+        )
+        parent.deleted = True
+        parent.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Rolled out the new checkout",
+                "scope": scope,
+                "date_marker": "2024-01-01T00:00:00.000000Z",
+                attr: parent.id,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+
     def test_creating_annotation_with_insight_from_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My Insight")
 
