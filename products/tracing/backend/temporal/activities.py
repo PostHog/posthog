@@ -190,6 +190,23 @@ def _evaluate_dispatch_and_save_one_alert(alert_id: str, now: datetime) -> str:
         return _evaluate_dispatch_and_save_scoped(alert, now)
 
 
+def _safe_next_allowed_check_at(
+    candidate: datetime,
+    *,
+    team_timezone: str,
+    schedule_restriction: dict | None,
+    fallback: datetime,
+    alert: TracingAlertConfiguration,
+    log_message: str,
+) -> datetime:
+    """`next_allowed_check_at`, falling back to `fallback` and logging on a bad schedule config."""
+    try:
+        return next_allowed_check_at(candidate, team_timezone=team_timezone, schedule_restriction=schedule_restriction)
+    except Exception as e:
+        logger.exception(log_message, alert_id=str(alert.id), team_id=alert.team_id, error=str(e))
+        return fallback
+
+
 def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: datetime) -> str:
     nca = alert.next_check_at if alert.next_check_at is not None else now
     date_to = nca
@@ -250,20 +267,14 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
     # suppresses the notification — this is a decision read, not the write, so it doesn't
     # need the row lock the persisting transaction below takes.
     fresh_alert = TracingAlertConfiguration.objects.select_related("team").get(id=alert.id)
-    try:
-        next_check_at_if_blocked = next_allowed_check_at(
-            now,
-            team_timezone=fresh_alert.team.timezone,
-            schedule_restriction=fresh_alert.schedule_restriction,
-        )
-    except Exception as e:
-        logger.exception(
-            "Skipping tracing alert with invalid quiet-hours configuration",
-            alert_id=str(fresh_alert.id),
-            team_id=fresh_alert.team_id,
-            error=str(e),
-        )
-        next_check_at_if_blocked = now
+    next_check_at_if_blocked = _safe_next_allowed_check_at(
+        now,
+        team_timezone=fresh_alert.team.timezone,
+        schedule_restriction=fresh_alert.schedule_restriction,
+        fallback=now,
+        alert=fresh_alert,
+        log_message="Skipping tracing alert with invalid quiet-hours configuration",
+    )
 
     if next_check_at_if_blocked > now:
         with transaction.atomic():
@@ -304,20 +315,14 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
             now,
             shard_offset_seconds=compute_shard_offset_seconds(current_alert.id, current_alert.check_interval_minutes),
         )
-        try:
-            current_alert.next_check_at = next_allowed_check_at(
-                next_check_at,
-                team_timezone=current_alert.team.timezone,
-                schedule_restriction=current_alert.schedule_restriction,
-            )
-        except Exception as e:
-            logger.exception(
-                "Ignoring invalid quiet-hours configuration while saving tracing alert",
-                alert_id=str(current_alert.id),
-                team_id=current_alert.team_id,
-                error=str(e),
-            )
-            current_alert.next_check_at = next_check_at
+        current_alert.next_check_at = _safe_next_allowed_check_at(
+            next_check_at,
+            team_timezone=current_alert.team.timezone,
+            schedule_restriction=current_alert.schedule_restriction,
+            fallback=next_check_at,
+            alert=current_alert,
+            log_message="Ignoring invalid quiet-hours configuration while saving tracing alert",
+        )
         update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
         if (
@@ -352,20 +357,6 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
     return "unchanged"
 
 
-def _produce_alert_internal_event(
-    alert: TracingAlertConfiguration,
-    event_name: str,
-    properties: dict,
-    now: datetime,
-) -> ProduceResult | None:
-    return produce_alert_internal_event(
-        team_id=alert.team_id,
-        event_name=event_name,
-        properties=properties,
-        timestamp=now,
-    )
-
-
 def _emit_alert_event(
     alert: TracingAlertConfiguration,
     event_name: str,
@@ -384,7 +375,9 @@ def _emit_alert_event(
         "service_names": alert.filters.get("serviceNames", []),
         "triggered_at": now.isoformat(),
     }
-    return _produce_alert_internal_event(alert, event_name, properties, now)
+    return produce_alert_internal_event(
+        team_id=alert.team_id, event_name=event_name, properties=properties, timestamp=now
+    )
 
 
 def _base_failure_properties(
@@ -406,14 +399,18 @@ def _emit_auto_disabled_event(
     alert: TracingAlertConfiguration, outcome: AlertCheckOutcome, now: datetime
 ) -> ProduceResult | None:
     properties = {**_base_failure_properties(alert, outcome, now), "last_error_message": outcome.error_message or ""}
-    return _produce_alert_internal_event(alert, "$tracing_alert_auto_disabled", properties, now)
+    return produce_alert_internal_event(
+        team_id=alert.team_id, event_name="$tracing_alert_auto_disabled", properties=properties, timestamp=now
+    )
 
 
 def _emit_alert_errored_event(
     alert: TracingAlertConfiguration, outcome: AlertCheckOutcome, now: datetime
 ) -> ProduceResult | None:
     properties = {**_base_failure_properties(alert, outcome, now), "error_message": outcome.error_message or ""}
-    return _produce_alert_internal_event(alert, "$tracing_alert_errored", properties, now)
+    return produce_alert_internal_event(
+        team_id=alert.team_id, event_name="$tracing_alert_errored", properties=properties, timestamp=now
+    )
 
 
 def _dispatch_notification(
