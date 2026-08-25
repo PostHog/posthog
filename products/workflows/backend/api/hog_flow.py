@@ -96,6 +96,8 @@ from products.messaging.backend.api.message_templates import DesignOperationSeri
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -535,6 +537,16 @@ _FIXED_TEMPLATE_IDS = {
     "function_sms": "template-twilio",
     "function_push": "template-native-push",
 }
+
+# The "Create AI task" step. Its inputs name things (connectors, a model, a repository) that
+# only make sense checked against live state, so it gets extra save-time checks beyond the
+# generic input-shape validation every function step goes through.
+_CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
+
+_REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+
+MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
+MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 100
 
 
 class _TriggerSourceTemplate(NamedTuple):
@@ -1215,6 +1227,75 @@ class HogFlowActionSerializer(serializers.Serializer):
                         }
                     )
 
+    def _validate_create_task_action(self, inputs: dict) -> None:
+        """Save-time checks for the "Create AI task" step beyond input shape: whether the
+        chosen connectors, model and repository are actually usable, and the parallel-run
+        limit is sane - so a misconfigured step fails here instead of only when it fires."""
+        connectors = (inputs.get("connectors") or {}).get("value")
+        if connectors:
+            get_team = self.context.get("get_team")
+            owner_id = self.context.get("workflow_owner_id")
+            # No team/owner to check against outside a request (internal re-saves) - nothing
+            # new is being authored there, so there is nothing to validate.
+            if get_team is not None and owner_id is not None:
+                try:
+                    validate_connectors(get_team().id, owner_id, connectors)
+                except WorkflowTaskConnectorsInvalid as e:
+                    raise serializers.ValidationError(
+                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                    )
+
+        repository = (inputs.get("repository") or {}).get("value")
+        if repository and not _REPOSITORY_SHAPE.fullmatch(repository):
+            raise serializers.ValidationError(
+                {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
+            )
+
+        model_value = (inputs.get("model") or {}).get("value") or {}
+        model = model_value.get("model")
+        reasoning_effort = model_value.get("reasoning_effort")
+        if model:
+            # An empty catalogue means the gateway is unreachable, not that no model is valid -
+            # skip rather than block every save during an outage (see available_model_choices).
+            available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+            if available:
+                choice = next((c for c in available if c.model == model), None)
+                if choice is None:
+                    raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+                if reasoning_effort and reasoning_effort not in choice.supported_efforts:
+                    raise serializers.ValidationError(
+                        {
+                            "inputs": {
+                                "model": (
+                                    f"Reasoning effort '{reasoning_effort}' is not supported for model "
+                                    f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
+                                )
+                            }
+                        }
+                    )
+
+        max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
+        if max_parallel_tasks is not None:
+            # Matches the runtime IntegerField's own leniency (a "5.0" from an API client
+            # coerces to 5 there) while still catching a fractional value or a bool, neither
+            # of which the runtime field accepts.
+            is_whole_number = (isinstance(max_parallel_tasks, int) and not isinstance(max_parallel_tasks, bool)) or (
+                isinstance(max_parallel_tasks, float) and max_parallel_tasks.is_integer()
+            )
+            if not is_whole_number or not (
+                MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS <= max_parallel_tasks <= MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "inputs": {
+                            "max_parallel_tasks": (
+                                f"Must be a whole number between {MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS} and "
+                                f"{MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS}."
+                            )
+                        }
+                    }
+                )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1430,6 +1511,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+                if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
+                    self._validate_create_task_action(data["config"]["inputs"])
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -2229,6 +2313,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+
+        # Who a "Create AI task" step runs as: the existing creator for an update, or the
+        # requesting user for a brand-new flow (matches the `created_by` a create() actually
+        # writes). None outside a request (internal re-saves), where connector checks are skipped.
+        owner = instance.created_by if instance else None
+        if owner is None:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                owner = user
+        self.context["workflow_owner_id"] = owner.id if owner else None
 
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
