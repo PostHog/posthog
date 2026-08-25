@@ -1,3 +1,4 @@
+import type { CostChecklistItemKind } from "@posthog/core/billing/costChecklist";
 import {
   EMPTY_SPEND_LIMITS,
   pruneSpendNoticesSeen,
@@ -5,6 +6,7 @@ import {
   type SpendLimitsPatch,
 } from "@posthog/core/billing/spendLimits";
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
+import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
@@ -249,8 +251,21 @@ interface SettingsStore {
   // Crossing notices already shown, keyed by period/level/anchor/amount so
   // each line notifies once per day or month at a given amount.
   spendNoticesSeen: Record<string, string>;
+  warnOnMidSessionModelSwitch: boolean;
+  // Cost management checklist items the user has acted on. Nothing here is a
+  // dismissal: an item lands here only once its change was made, and then
+  // stays as the checked record of it.
+  costChecklistDone: CostChecklistItemKind[];
+  /**
+   * Compact a session once the context window passes this percent, or null to
+   * leave compaction to the model. Off by default.
+   */
+  autoCompactPercent: number | null;
   setSpendLimits: (limits: SpendLimitsPatch) => void;
   markSpendNoticeSeen: (key: string, anchor: string, todayIso: string) => void;
+  setWarnOnMidSessionModelSwitch: (enabled: boolean) => void;
+  markCostChecklistDone: (kind: CostChecklistItemKind) => void;
+  setAutoCompactPercent: (percent: number | null) => void;
 
   // System / power / permissions
   allowBypassPermissions: boolean;
@@ -488,6 +503,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // Spend limits
       spendLimits: EMPTY_SPEND_LIMITS,
       spendNoticesSeen: {},
+      warnOnMidSessionModelSwitch: true,
       setSpendLimits: (limits) =>
         set((state) => ({
           spendLimits: {
@@ -502,6 +518,21 @@ export const useSettingsStore = create<SettingsStore>()(
             [key]: anchor,
           },
         })),
+      setWarnOnMidSessionModelSwitch: (enabled) =>
+        set({ warnOnMidSessionModelSwitch: enabled }),
+      costChecklistDone: [],
+      autoCompactPercent: null,
+      setAutoCompactPercent: (percent) =>
+        set({
+          autoCompactPercent:
+            percent === null ? null : clampAutoCompactPercent(percent),
+        }),
+      markCostChecklistDone: (kind) =>
+        set((state) =>
+          state.costChecklistDone.includes(kind)
+            ? state
+            : { costChecklistDone: [...state.costChecklistDone, kind] },
+        ),
 
       // System / power / permissions
       allowBypassPermissions: false,
@@ -657,6 +688,9 @@ export const useSettingsStore = create<SettingsStore>()(
         // Spend limits
         spendLimits: state.spendLimits,
         spendNoticesSeen: state.spendNoticesSeen,
+        warnOnMidSessionModelSwitch: state.warnOnMidSessionModelSwitch,
+        costChecklistDone: state.costChecklistDone,
+        autoCompactPercent: state.autoCompactPercent,
 
         // System / power / permissions
         allowBypassPermissions: state.allowBypassPermissions,

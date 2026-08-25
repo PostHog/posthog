@@ -39,6 +39,7 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
+import { ModelSwitchCacheDialog } from "@posthog/ui/features/sessions/components/ModelSwitchCacheDialog";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
@@ -54,7 +55,9 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
+import { usePendingModelSwitch } from "@posthog/ui/features/sessions/components/usePendingModelSwitch";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
+import { useAutoCompact } from "@posthog/ui/features/sessions/hooks/useAutoCompact";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
@@ -244,12 +247,32 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
-  const handleConfigOptionChange = useCallback(
+  const applyConfigOption = useCallback(
     (configId: string, value: string) => {
       if (!taskId) return;
       sessionService.setSessionConfigOption(taskId, configId, value);
     },
     [taskId, sessionService],
+  );
+
+  const {
+    pendingModelSwitch,
+    interceptModelSwitch,
+    confirmModelSwitch,
+    cancelModelSwitch,
+  } = usePendingModelSwitch({
+    sessionModelOption,
+    hasSessionEvents: events.length > 0,
+    onApply: applyConfigOption,
+  });
+
+  const handleConfigOptionChange = useCallback(
+    (configId: string, value: string) => {
+      if (!taskId) return;
+      if (interceptModelSwitch(configId, value)) return;
+      applyConfigOption(configId, value);
+    },
+    [taskId, interceptModelSwitch, applyConfigOption],
   );
 
   const sessionId = taskId ?? "default";
@@ -277,6 +300,16 @@ export function SessionView({
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
   const contextUsage = useContextUsage(events);
+  const isCompacting = useSessionSelector(
+    taskId,
+    (session) => session?.isCompacting ?? false,
+  );
+  useAutoCompact({
+    usage: contextUsage,
+    isCompacting,
+    isRunning,
+    sendPrompt: onSendPrompt,
+  });
   const sendInFlightRef = useRef(false);
   const composerSubmissionRef = useRef(0);
   const attachmentIdsRef = useRef<Set<string>>(new Set());
@@ -847,6 +880,15 @@ export function SessionView({
           </Flex>
         )}
       </ContextMenu.Trigger>
+      <ModelSwitchCacheDialog
+        open={pendingModelSwitch !== null}
+        fromModelId={pendingModelSwitch?.fromValue ?? ""}
+        fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
+        toModelId={pendingModelSwitch?.value ?? ""}
+        toModelLabel={pendingModelSwitch?.label ?? ""}
+        onConfirm={confirmModelSwitch}
+        onCancel={cancelModelSwitch}
+      />
       <ContextMenu.Content size="1">
         <ContextMenu.Item
           onSelect={() => {
