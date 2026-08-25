@@ -548,7 +548,8 @@ pub async fn serve(
     });
 
     let usage_reporter = UsageReporter::new(
-        &config.usage_ingestion_url,
+        &config.usage_ingestion_addr,
+        config.usage_ingestion_tls,
         config.usage_ingestion_teams.clone(),
         config.usage_ingestion_timeout_ms,
     )
