@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, memo } from 'react'
 
 import { IconDocument } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, lemonToast } from '@posthog/lemon-ui'
@@ -8,52 +8,41 @@ import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+import { FeedbackPromptLogicProps, feedbackPromptLogic } from '../logics/feedbackPromptLogic'
+import { runStreamLogic } from '../logics/runStreamLogic'
+import { MessageTemplate } from '../messages/MessageTemplate'
+import { FeedbackSessionKind, appendTicketMetadata } from '../utils/ticketMetadata'
 
-import { feedbackPromptLogic } from './feedbackPromptLogic'
-import { appendTicketMetadata } from './ticketUtils'
-import { captureFeedback } from './utils'
-
-interface FeedbackPromptProps {
-    conversationId: string
-    traceId: string | null
-}
-
-// Duplicated for the sandbox runtime in products/posthog_ai/frontend/components/FeedbackPromptDetails.tsx; this copy is deleted with the LangGraph runtime.
 /**
- * Detailed feedback form shown after user clicks "Bad" rating.
- * Allows text feedback submission or escalation to support ticket.
+ * The detailed form shown after a "Bad" rating on the periodic prompt: free-text feedback, or escalation
+ * to a support ticket through the in-app support form.
  */
-export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps): JSX.Element {
-    const { currentTriggerType } = useValues(feedbackPromptLogic({ conversationId }))
-    const { recordFeedbackShown, completeDetailedFeedback } = useActions(feedbackPromptLogic({ conversationId }))
+export const FeedbackPromptDetails = memo(function FeedbackPromptDetails({
+    sessionId,
+    sessionKind,
+    streamKey,
+}: FeedbackPromptLogicProps & { sessionKind: FeedbackSessionKind }): JSX.Element {
+    const logicProps = { sessionId, streamKey }
+    const { submitDetailedFeedback, completeDetailedFeedback } = useActions(feedbackPromptLogic(logicProps))
+    const { traceId } = useValues(runStreamLogic)
     const [feedbackText, setFeedbackText] = useState('')
     const [status, setStatus] = useState<'feedback' | 'ticket_preview' | 'done'>('feedback')
-    const [isSubmitting, setIsSubmitting] = useState(false)
     const [hasSubmittedTicket, setHasSubmittedTicket] = useState(false)
     const [isSupportModalOpen, setIsSupportModalOpen] = useState(false)
-
     const submitInFlightRef = useRef(false)
 
     const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
     const { resetSendSupportRequest } = useActions(supportLogic)
     const { user } = useValues(userLogic)
 
-    // Track when we're waiting for ticket submission to complete
     const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
-    // Track the ticket ID we had when starting submission to detect new tickets
     const [ticketIdBeforeSubmission, setTicketIdBeforeSubmission] = useState<string | null>(null)
-
-    // Store the final message text when submitting ticket
     const [ticketMessageText, setTicketMessageText] = useState<string>('')
 
     useEffect(() => {
-        // When ticket submission completes (lastSubmittedTicketId changes to a new value), capture the events
+        // The ticket id only exists once the send resolves; a new id means the submit succeeded.
         if (pendingTicketSubmission && lastSubmittedTicketId && lastSubmittedTicketId !== ticketIdBeforeSubmission) {
-            captureFeedback(conversationId, traceId, 'bad', currentTriggerType, ticketMessageText || undefined)
-
-            // The posthog_ai_support_ticket_created event (with $ai_feedback_rating) is captured in
-            // supportLogic once the ticket id resolves, so it fires on every submit path.
+            submitDetailedFeedback(ticketMessageText || undefined)
             submitInFlightRef.current = false
             setHasSubmittedTicket(true)
             setIsSupportModalOpen(false)
@@ -64,34 +53,22 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         lastSubmittedTicketId,
         pendingTicketSubmission,
         ticketIdBeforeSubmission,
+        submitDetailedFeedback,
         completeDetailedFeedback,
-        conversationId,
-        traceId,
-        currentTriggerType,
         ticketMessageText,
     ])
 
     function submitFeedback(): void {
-        if (isSubmitting) {
-            return
-        }
-        setIsSubmitting(true)
-        recordFeedbackShown()
-
-        captureFeedback(conversationId, traceId, 'bad', currentTriggerType, feedbackText)
-
+        submitDetailedFeedback(feedbackText)
         setStatus('done')
         setTimeout(completeDetailedFeedback, 2000)
-        setIsSubmitting(false)
     }
 
     function showTicketPreviewOrOpenModal(): void {
         if (feedbackText.trim().length > 0) {
-            // Show preview if user entered feedback
             setStatus('ticket_preview')
         } else {
-            // Skip preview and open modal directly if no feedback
-            void openSupportModalWithPrefill()
+            openSupportModalWithPrefill()
         }
     }
 
@@ -104,11 +81,10 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             email: '',
             kind: 'feedback',
             message: feedbackText,
-            ai_conversation_id: conversationId,
+            ai_conversation_id: sessionId,
             ai_trace_id: traceId,
             ai_feedback_rating: 'bad',
         })
-
         setIsSupportModalOpen(true)
     }
 
@@ -116,8 +92,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         if (submitInFlightRef.current || hasSubmittedTicket) {
             return
         }
-
-        const finalMessage = appendTicketMetadata(sendSupportRequest.message, { conversationId, traceId })
+        const finalMessage = appendTicketMetadata(sendSupportRequest.message, { sessionId, sessionKind, traceId })
         if (!finalMessage) {
             lemonToast.error('Please add a description before creating a ticket.')
             return
@@ -125,10 +100,8 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
 
         submitInFlightRef.current = true
         setTicketMessageText(sendSupportRequest.message)
-        const ticketIdBefore = supportLogic.values.lastSubmittedTicketId
-        setTicketIdBeforeSubmission(ticketIdBefore)
+        setTicketIdBeforeSubmission(supportLogic.values.lastSubmittedTicketId)
         setPendingTicketSubmission(true)
-        recordFeedbackShown()
         try {
             await supportLogic.asyncActions.submitSupportTicket({
                 ...sendSupportRequest,
@@ -139,18 +112,16 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
         } catch {
             // Failure is detected below via the unchanged ticket id
         }
-        // Success closes the modal via the effect watching lastSubmittedTicketId. If no ticket was
-        // created, the submit failed — clear the pending state so the modal doesn't hang (the error
-        // toast already showed and the text stays for a retry).
-        if (supportLogic.values.lastSubmittedTicketId === ticketIdBefore) {
+        // Success closes the modal via the effect above. An unchanged id means the submit failed: clear
+        // the pending state so the modal doesn't hang (the error toast already showed, the text stays).
+        if (supportLogic.values.lastSubmittedTicketId === ticketIdBeforeSubmission) {
             submitInFlightRef.current = false
             setPendingTicketSubmission(false)
         }
     }
 
     function handleSupportModalCancel(): void {
-        // The in-flight request cannot be aborted, so closing now would re-arm the submit
-        // controls and allow a duplicate ticket
+        // The in-flight request cannot be aborted; closing now would allow a duplicate ticket.
         if (submitInFlightRef.current) {
             return
         }
@@ -211,7 +182,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
                             autoFocus
                         />
                         <div className="flex gap-2">
-                            <LemonButton type="primary" size="small" onClick={submitFeedback} loading={isSubmitting}>
+                            <LemonButton type="primary" size="small" onClick={submitFeedback}>
                                 Submit
                             </LemonButton>
                             <LemonButton
@@ -261,4 +232,4 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             {supportModal}
         </>
     )
-}
+})
