@@ -1,22 +1,17 @@
 import { DateTime } from 'luxon'
 
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonMergeService } from './person-merge-service'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 
-jest.mock('~/ingestion/common/ingestion-warnings', () => ({
-    emitIngestionWarning: jest.fn(),
-}))
-
-const mockEmitIngestionWarning = emitIngestionWarning as jest.MockedFunction<typeof emitIngestionWarning>
-
 describe('PersonMergeService', () => {
-    const teamId = 123
+    let teamCounter = 1000
 
-    function person(uuid: string, isIdentified: boolean): InternalPerson {
+    function person(uuid: string, isIdentified: boolean, teamId: number): InternalPerson {
         return {
             id: uuid,
             uuid,
@@ -32,73 +27,81 @@ describe('PersonMergeService', () => {
         }
     }
 
-    function service(eventName: string): PersonMergeService {
-        const context = new PersonContext(
-            { uuid: 'event-uuid', event: eventName, distinct_id: 'target', properties: {} } as any,
-            { id: teamId } as any,
-            'target',
-            DateTime.now(),
-            true,
-            { produce: jest.fn().mockResolvedValue(undefined) } as any,
-            {} as any,
-            0,
-            createDefaultSyncMergeMode(),
-            false,
-            false
-        )
-        return new PersonMergeService(context)
-    }
-
     describe('mergePeople with an already identified source', () => {
-        let warningResolve: (emitted: boolean) => void
+        let teamId: number
+        let queueMessages: jest.Mock
 
         beforeEach(() => {
-            jest.clearAllMocks()
-            mockEmitIngestionWarning.mockReturnValue(
-                new Promise<boolean>((resolve) => {
-                    warningResolve = resolve
-                })
-            )
+            teamId = teamCounter++
+            queueMessages = jest.fn().mockResolvedValue(undefined)
         })
 
-        it('returns before the warning is acked and hands the ack back as kafkaAck', async () => {
-            const mergeInto = person('target-uuid', true)
-            const otherPerson = person('source-uuid', true)
-
-            const result = await service('$identify').mergePeople({
-                mergeInto,
-                mergeIntoDistinctId: 'target',
-                otherPerson,
+        function refuseMerge(targetDistinctId: string) {
+            const context = new PersonContext(
+                { uuid: 'event-uuid', event: '$identify', distinct_id: targetDistinctId, properties: {} } as any,
+                { id: teamId } as any,
+                targetDistinctId,
+                DateTime.now(),
+                true,
+                { queueMessages } as any,
+                {} as any,
+                0,
+                createDefaultSyncMergeMode(),
+                false,
+                false
+            )
+            return new PersonMergeService(context).mergePeople({
+                mergeInto: person('target-uuid', true, teamId),
+                mergeIntoDistinctId: targetDistinctId,
+                otherPerson: person('source-uuid', true, teamId),
                 otherPersonDistinctId: 'source',
             })
+        }
 
-            expect(result).toMatchObject({ success: true, person: mergeInto, needsPersonUpdate: true })
+        it('returns before the warning is acked and hands the ack back as kafkaAck', async () => {
+            let ackWarning!: () => void
+            queueMessages.mockReturnValue(new Promise<void>((resolve) => (ackWarning = resolve)))
+
+            const result = await refuseMerge('target')
+
+            expect(result).toMatchObject({ success: true, needsPersonUpdate: true })
             if (!result.success) {
                 throw new Error('unreachable')
             }
+            expect(result.person?.uuid).toBe('target-uuid')
+            expect(queueMessages).toHaveBeenCalledWith(INGESTION_WARNINGS_OUTPUT, [{ value: expect.any(Buffer) }])
 
             let acked = false
             void result.kafkaAck.then(() => (acked = true))
             await Promise.resolve()
             expect(acked).toBe(false)
 
-            warningResolve(true)
+            ackWarning()
             await result.kafkaAck
             expect(acked).toBe(true)
         })
 
-        it('rate limits the warning per target distinct id', async () => {
-            await service('$create_alias').mergePeople({
-                mergeInto: person('target-uuid', true),
-                mergeIntoDistinctId: 'target',
-                otherPerson: person('source-uuid', true),
-                otherPersonDistinctId: 'source',
-            })
+        it('emits one warning per target distinct id', async () => {
+            await refuseMerge('target-a')
+            await refuseMerge('target-a')
+            await refuseMerge('target-b')
 
-            expect(mockEmitIngestionWarning).toHaveBeenCalledTimes(1)
-            const warning = mockEmitIngestionWarning.mock.calls[0][2]
-            expect(warning).toMatchObject({ type: 'cannot_merge_already_identified', key: 'target' })
-            expect(warning.alwaysSend).toBeUndefined()
+            expect(queueMessages).toHaveBeenCalledTimes(2)
+            const emittedFor = queueMessages.mock.calls.map(
+                ([, [message]]) => parseJSON(parseJSON(message.value.toString()).details).distinctId
+            )
+            expect(emittedFor).toEqual(['target-a', 'target-b'])
+        })
+
+        it('does not fail the event when the warning produce fails', async () => {
+            queueMessages.mockRejectedValue(new Error('broker down'))
+
+            const result = await refuseMerge('target')
+
+            expect(result.success).toBe(true)
+            if (result.success) {
+                await expect(result.kafkaAck).resolves.toBeUndefined()
+            }
         })
     })
 })
