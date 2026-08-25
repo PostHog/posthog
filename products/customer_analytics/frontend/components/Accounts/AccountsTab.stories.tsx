@@ -90,7 +90,6 @@ function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unk
     }
 }
 
-// Hooli has no domain, so the table renders its lettermark next to the other rows' logos.
 const SAMPLE_ROWS: AccountRow[] = [
     [
         { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1', logo_domain: 'acme.example' },
@@ -291,9 +290,7 @@ function mockAccountsTableQuery(
     }
 }
 
-// Stands in for the logo.dev proxy, which streams real brand images — a story must not reach a
-// third party, and snapshots need the same bytes every run. Unknown domains 404 like the real
-// endpoint does, so the lettermark fallback stays reachable from a story.
+// Storybook must not call logo.dev, and stable bytes keep visual snapshots deterministic.
 const LOGO_SWATCHES: Record<string, string> = {
     'acme.example': '#8f68d4',
     'globex.example': '#dc9300',

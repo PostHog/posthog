@@ -106,10 +106,6 @@ from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
 _OBJECT_READ_LEVEL = "viewer"
 _OBJECT_WRITE_LEVEL = "editor"
 
-# The domain becomes a path segment of img.logo.dev/{domain} and part of the icon cache key.
-# Django's validator enforces real hostname grammar (label lengths, total length cap, no
-# schemes/paths/query junk), so the endpoint can't be steered off the logo host and callers
-# can't mint oversized cache keys.
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
@@ -1608,7 +1604,6 @@ class AccountViewSet(
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=False, required_scopes=["account:read"])
     def icon(self, request: Request, *args, **kwargs) -> HttpResponse:
-        # Canonicalized before validation so case variants share one cache entry downstream.
         domain = request.query_params.get("domain", "").strip().lower().rstrip(".")
         try:
             _ICON_DOMAIN_VALIDATOR(domain)
@@ -1617,8 +1612,7 @@ class AccountViewSet(
         theme = request.query_params.get("theme")
         return CDPIconsService().get_icon_http_response(
             domain,
-            # The theme is part of the icon cache key, so only known values pass through —
-            # arbitrary strings would let one caller mint unbounded cache entries.
+            # Bound cache keys to the themes logo.dev supports.
             theme=theme if theme in ("light", "dark") else None,
             # AccountLogo renders its own lettermark on 404 instead of logo.dev's monogram.
             fallback="404",

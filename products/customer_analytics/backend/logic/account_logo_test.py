@@ -1,9 +1,10 @@
 from parameterized import parameterized
 
-from products.customer_analytics.backend.logic.account_logo import normalize_logo_domain, resolve_logo_domain
+from products.customer_analytics.backend.domain import parse_company_domain
+from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 
 
-class TestNormalizeLogoDomain:
+class TestParseCompanyDomain:
     @parameterized.expand(
         [
             ("bare", "posthog.com", "posthog.com"),
@@ -19,7 +20,7 @@ class TestNormalizeLogoDomain:
         ]
     )
     def test_reduces_stored_value_to_bare_hostname(self, _name: str, raw: str, expected: str) -> None:
-        assert normalize_logo_domain(raw) == expected
+        assert parse_company_domain(raw) == expected
 
     @parameterized.expand(
         [
@@ -36,14 +37,14 @@ class TestNormalizeLogoDomain:
         ]
     )
     def test_returns_none_for_values_that_are_not_a_company_hostname(self, _name: str, raw: str | None) -> None:
-        assert normalize_logo_domain(raw) is None
+        assert parse_company_domain(raw) is None
 
 
 class TestResolveLogoDomain:
-    def test_prefers_the_domain_property_over_other_sources(self) -> None:
+    def test_prefers_the_website_domain_over_other_sources(self) -> None:
         assert (
             resolve_logo_domain(
-                domain_property="https://acme.example/",
+                website_domain="https://acme.example/",
                 email_domains=["mail.example"],
                 external_id="other.example",
             )
@@ -53,7 +54,7 @@ class TestResolveLogoDomain:
     def test_falls_back_through_sources_that_do_not_resolve(self) -> None:
         assert (
             resolve_logo_domain(
-                domain_property="not a domain",
+                website_domain="not a domain",
                 email_domains=["gmail.com", "acme.example"],
                 external_id="0192d900-d620-0000-46a9-f9a712425410",
             )
@@ -61,12 +62,12 @@ class TestResolveLogoDomain:
         )
 
     def test_uses_a_group_key_that_is_already_a_hostname(self) -> None:
-        assert resolve_logo_domain(domain_property=None, email_domains=[], external_id="acme.example") == "acme.example"
+        assert resolve_logo_domain(website_domain=None, email_domains=[], external_id="acme.example") == "acme.example"
 
     def test_returns_none_when_no_source_resolves(self) -> None:
         assert (
             resolve_logo_domain(
-                domain_property=None,
+                website_domain=None,
                 email_domains=[],
                 external_id="0192d900-d620-0000-46a9-f9a712425410",
             )

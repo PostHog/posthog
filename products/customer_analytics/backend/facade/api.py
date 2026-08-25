@@ -103,7 +103,7 @@ from products.customer_analytics.backend.logic import (
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
-from products.customer_analytics.backend.logic.account_logo import LOGO_DOMAIN_PROPERTY_NAME, resolve_logo_domain
+from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -184,6 +184,7 @@ if TYPE_CHECKING:
 
 def _to_account_properties(properties: _ModelAccountProperties) -> contracts.AccountProperties:
     return contracts.AccountProperties(
+        website_domain=properties.website_domain,
         stripe_customer_id=properties.stripe_customer_id,
         hubspot_deal_id=properties.hubspot_deal_id,
         billing_id=properties.billing_id,
@@ -3136,6 +3137,15 @@ def query_accounts_metrics(
     return results
 
 
+def _resolve_account_logo_domain(account: Account) -> str | None:
+    properties = account.properties
+    return resolve_logo_domain(
+        website_domain=properties.website_domain,
+        email_domains=properties.email_domains,
+        external_id=account.external_id,
+    )
+
+
 def query_accounts_table(
     *,
     team_id: int,
@@ -3176,30 +3186,6 @@ def query_accounts_table(
     has_more = len(fetched_accounts) > limit
     accounts = fetched_accounts[:limit]
     account_ids = [account.id for account in accounts]
-
-    # Read outside the selected columns: the logo renders on every row, whether or not the team
-    # put the Domain property on screen.
-    logo_domain_properties: dict[UUID, str] = {}
-    if account_ids:
-        logo_domain_properties = {
-            account_id: value_str
-            for account_id, value_str in CustomPropertyValue.objects.for_team(team_id)
-            .filter(
-                account_id__in=account_ids,
-                definition__name__iexact=LOGO_DOMAIN_PROPERTY_NAME,
-                definition__target_type=TargetType.ACCOUNT,
-                # Only text-typed variants hold a hostname; a numeric "domain" sibling would
-                # otherwise land here as None and mask a populated text value below.
-                value_str__isnull=False,
-                is_deleted=False,
-            )
-            # Names are unique per team only case-sensitively, so "Domain" and "domain" can
-            # coexist. Sorting plus the comprehension's last-write-wins keeps the
-            # lexicographically last case-variant — an arbitrary winner, but a stable one.
-            .order_by("definition__name")
-            .values_list("account_id", "value_str")
-            if value_str is not None
-        }
 
     tags_by_account: dict[UUID, list[str]] = {account_id: [] for account_id in account_ids}
     if selection.include_tags:
@@ -3287,11 +3273,7 @@ def query_accounts_table(
             id=account.id,
             name=account.name,
             external_id=account.external_id,
-            logo_domain=resolve_logo_domain(
-                domain_property=logo_domain_properties.get(account.id),
-                email_domains=account.properties.email_domains,
-                external_id=account.external_id,
-            ),
+            logo_domain=_resolve_account_logo_domain(account),
             account_fields=_account_table_field_values(account, selection.account_fields),
             tags=tags_by_account[account.id] if selection.include_tags else None,
             note_count=note_counts_by_account[account.id] if selection.include_note_count else None,

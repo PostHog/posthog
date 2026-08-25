@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.customer_analytics.backend.domain import parse_company_domain
 from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
 
 # Role assignments moved to the relationship tables. Stored rows may carry these keys until
@@ -20,6 +21,7 @@ RETIRED_ROLE_KEYS = ("csm", "account_executive", "account_owner")
 class AccountProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    website_domain: str | None = None
     # Email domains owned by this account's company, used to match inbound
     # touchpoints (calendar attendees, email senders) that don't resolve to a
     # known person. Personal/free domains don't belong here.
@@ -27,6 +29,16 @@ class AccountProperties(BaseModel):
     # Individual addresses pinned to this account, checked before the domain
     # fallback. For contacts on personal/free domains a domain rule can't cover.
     known_emails: list[str] = []
+
+    @field_validator("website_domain")
+    @classmethod
+    def normalize_website_domain(cls, raw_domain: str | None) -> str | None:
+        if raw_domain is None or not raw_domain.strip():
+            return None
+        domain = parse_company_domain(raw_domain)
+        if domain is None:
+            raise ValueError("website_domain must be a company hostname")
+        return domain
 
     @field_validator("email_domains")
     @classmethod

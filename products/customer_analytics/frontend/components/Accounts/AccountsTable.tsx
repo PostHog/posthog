@@ -45,7 +45,6 @@ import { AccountsEvents } from './constants'
 type AccountNameCell = { name: string; external_id: string | null; id: string; logo_domain: string | null }
 
 const COLUMN_WIDTHS = {
-    // Widened over the text-only cell to seat the logo without squeezing longer account names.
     name: '280px',
     tag_names: '280px',
     notebook_count: '80px',

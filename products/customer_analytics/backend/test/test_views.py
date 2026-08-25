@@ -566,7 +566,7 @@ class TestAccountViewSet(APIBaseTest):
             f"{self.endpoint_base}{account.id}/",
             {
                 "name": "Renamed",
-                "properties": {"sfdc_id": "001xx"},
+                "properties": {"sfdc_id": "001xx", "website_domain": "https://www.acme.example/about"},
             },
             format="json",
         )
@@ -575,6 +575,7 @@ class TestAccountViewSet(APIBaseTest):
         account.refresh_from_db()
         self.assertEqual(account.name, "Renamed")
         self.assertEqual(account.properties.sfdc_id, "001xx")
+        self.assertEqual(account.properties.website_domain, "acme.example")
 
     def test_update_does_not_accept_ignored_at(self):
         ignored_at = timezone.now()

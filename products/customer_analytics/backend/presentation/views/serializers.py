@@ -87,6 +87,11 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
+        "website_domain": {
+            "type": "string",
+            "nullable": True,
+            "description": "Primary company website hostname used for account identity and logo lookup.",
+        },
         "email_domains": {
             "type": "array",
             "items": {"type": "string"},
@@ -791,9 +796,9 @@ class AccountSerializer(DataclassSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Typed account properties: external system identifiers (stripe_customer_id, "
+            "Typed account properties: website_domain, external system identifiers (stripe_customer_id, "
             "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, "
-            "usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains "
+            "usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains "
             "(the company's email domains) and known_emails (individual addresses pinned to the "
             "account). Defaults to an empty object. Unknown keys are rejected. User assignments "
             "live on account relationships, not here."

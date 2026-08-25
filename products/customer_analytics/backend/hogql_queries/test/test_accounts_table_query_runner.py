@@ -319,9 +319,7 @@ class TestAccountsTableQueryRunner(BaseTest):
                 value_num=index,
             )
 
-        # Two of these hydrate the logo domain (its value lookup plus the manager's team scoping).
-        # What matters is that the total stays flat as rows are added, not the exact number.
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(7):
             page = api.query_accounts_table(
                 team_id=self.team.id,
                 user_access_control=UserAccessControl(user=self.user, team=self.team),
@@ -336,24 +334,11 @@ class TestAccountsTableQueryRunner(BaseTest):
 
         assert {row.custom_properties[definition.id] for row in page.rows} == {0.0, 1.0, 2.0}
 
-    def test_resolves_the_logo_domain_without_selecting_the_domain_column(self) -> None:
-        definition = create_custom_property_definition(team_id=self.team.id, name="Domain")
-        from_property = create_account(team_id=self.team.id, name="From property")
-        CustomPropertyValue.objects.unscoped().create(
-            team=self.team,
-            account=from_property,
-            definition=definition,
-            value_str="https://www.acme.example/about",
-        )
-        # A numeric case-variant also matches the name; it must not mask the text value with None.
-        numeric_variant = create_custom_property_definition(
-            team_id=self.team.id, name="domain", display_type=DisplayType.NUMBER
-        )
-        CustomPropertyValue.objects.unscoped().create(
-            team=self.team,
-            account=from_property,
-            definition=numeric_variant,
-            value_num=1.0,
+    def test_resolves_the_logo_domain_from_account_properties(self) -> None:
+        from_website_domain = create_account(
+            team_id=self.team.id,
+            name="From website domain",
+            _properties={"website_domain": "acme.example", "email_domains": ["other.example"]},
         )
         from_email_domains = create_account(
             team_id=self.team.id,
@@ -365,7 +350,6 @@ class TestAccountsTableQueryRunner(BaseTest):
         page = api.query_accounts_table(
             team_id=self.team.id,
             user_access_control=UserAccessControl(user=self.user, team=self.team),
-            # Nothing selected: the logo must not depend on the team putting Domain on screen.
             selection=contracts.AccountTableColumnSelection(),
             filters=(),
             sort=None,
@@ -374,7 +358,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         logo_domains = {row.id: row.logo_domain for row in page.rows}
-        assert logo_domains[from_property.id] == "acme.example"
+        assert logo_domains[from_website_domain.id] == "acme.example"
         assert logo_domains[from_email_domains.id] == "globex.example"
         assert logo_domains[unresolved.id] is None
 
