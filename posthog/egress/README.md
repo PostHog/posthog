@@ -71,8 +71,8 @@ Deferrable background callers construct their client on the `BATCH` lane (`GitHu
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
 An installation whose only consumer is a bulk one — a warehouse backfill of a repository nothing else touches — would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.
-So a non-`BATCH` `core` call writes a short-lived per-installation marker (`note_interactive_demand`), and the policy holds the full 70% floor only while that marker is present; without it `BATCH` falls back to a 5% floor.
-Three details make that safe: the marker is written on the attempt rather than the outcome, so a *denied* interactive call still counts; the floor is 5% rather than zero, so the first interactive call after a quiet stretch is not denied before its own marker applies; and an unreachable cache reports demand as present, so a cache outage cannot hand the whole budget to bulk traffic.
+So a non-`BATCH` `core` call writes a short-lived per-installation marker (`note_interactive_demand`), and the policy holds the full 70% floor only while that marker is present; without it `BATCH` falls back to a 10% floor — the same floor `NORMAL` keeps.
+Three details make that safe: the marker is written on the attempt rather than the outcome, so a _denied_ interactive call still counts; the floor matches `NORMAL`'s rather than dropping toward zero, so an unopposed backfill can never saturate the window past the point where the first interactive call would itself be denied, regardless of the marker it just wrote; and an unreachable cache reports demand as present, so a cache outage cannot hand the whole budget to bulk traffic.
 The two search resources keep the flat ladder — they are metered on their own counters, so core demand says nothing about them.
 
 ### Backend

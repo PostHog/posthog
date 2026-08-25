@@ -81,10 +81,13 @@ _RESERVE: dict[Priority, float] = {Priority.BATCH: 0.30, Priority.NORMAL: 0.10}
 # budget is what decides whether a large backfill finishes, so that third is the difference between
 # one run and several.
 #
-# BATCH keeps a small floor rather than the entire budget. The marker is written by the first
-# interactive call itself, so a zero floor denies that call before its own evidence can apply.
-# NORMAL keeps its floor unchanged, because CRITICAL traffic arrives with no warning.
-_IDLE_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.05, Priority.NORMAL: 0.10}
+# BATCH keeps a floor rather than the entire budget, and that floor is never smaller than NORMAL's
+# own (0.10): a zero floor denies the first interactive call before its own marker can apply, and
+# anything smaller than NORMAL's floor lets an unopposed backfill saturate the window past the
+# point where that first interactive call would be admitted at all, regardless of the marker it
+# just wrote. NORMAL's floor itself stays unchanged, because CRITICAL traffic arrives with no
+# warning.
+_IDLE_RESERVE: dict[Priority, float] = {Priority.BATCH: 0.10, Priority.NORMAL: 0.10}
 
 # How long one interactive call holds the full reserve in place. Longer than a quiet gap in genuine
 # interactive use, so the budget does not flap part-way through a backfill, and far shorter than a
