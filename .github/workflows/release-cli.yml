@@ -286,6 +286,39 @@ jobs:
                   release_tag="posthog-cli/v$NEW_VERSION"
                   echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
 
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "release",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "${{ steps.prepare-release.outputs.new-version || 'unknown' }}",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to prepare release posthog-cli@v${{ steps.prepare-release.outputs.new-version }} :rotating_light:",
+                        "alertContext": "The version bump step failed before cargo-dist ran."
+                      }
+
+            - name: Notify Slack - Failed
+              continue-on-error: true # A Slack outage must not hide the PostHog alert
+              if: ${{ failure() && needs.notify-approval-needed.outputs.slack_ts != '' }}
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: '❌ Failed to prepare `posthog-cli@v${{ steps.prepare-release.outputs.new-version }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  emoji_reaction: 'x'
+
     # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
     # Run 'dist plan' (or host) to determine what tasks we need to do
     plan-release:
@@ -773,11 +806,14 @@ jobs:
                   message: 'posthog-cli release ${{ needs.release.outputs.new-version }} published for ${{ needs.release.outputs.release-tag }}.'
                   emoji_reaction: 'rocket'
 
-    notify-failed:
-        name: Notify Slack - Release Failed
+    # The other SDK repos put this step inside each job. cargo-dist generates the jobs below from
+    # dist-workspace.toml, so steps added there do not survive a regeneration, and one failure in the
+    # 7-target build matrix would alert 7 times. One job watching them keeps the alert per release.
+    # It excludes the release job, which alerts for itself: a rejected approval marks that job failed,
+    # and a rejection must not raise a release-failure alert.
+    notify-publish-failed:
+        name: Notify Slack - Publish Failed
         needs:
-            - check-changesets
-            - cli-release-preview
             - notify-approval-needed
             - release
             - plan-release
@@ -787,14 +823,15 @@ jobs:
             - publish-npm
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Covers every job in the release path, so a failure after the approval gate still alerts.
-        if: always() && contains(needs.*.result, 'failure')
+        if: >-
+            always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
+            || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
+            || needs.publish-npm.result == 'failure')
         steps:
-            - name: Collect failure metadata
+            - name: Collect failed jobs
               id: failure-metadata
               env:
                   NEEDS_JSON: ${{ toJSON(needs) }}
-                  NEW_VERSION: ${{ needs.release.outputs.new-version }}
               run: |
                   set -euo pipefail
 
@@ -802,17 +839,7 @@ jobs:
                       to_entries | map(select(.value.result == "failure") | .key) | join(", ")
                   ')
                   [ -n "$failed_jobs" ] || failed_jobs='unknown'
-
-                  package_ref='posthog-cli'
-                  if [ -n "$NEW_VERSION" ]; then
-                      package_ref="posthog-cli@v$NEW_VERSION"
-                  fi
-
-                  {
-                      echo "failed-jobs=$failed_jobs"
-                      echo "package-ref=$package_ref"
-                      echo "package-version=${NEW_VERSION:-unknown}"
-                  } >> "$GITHUB_OUTPUT"
+                  echo "failed-jobs=$failed_jobs" >> "$GITHUB_OUTPUT"
 
             - name: Send failure event to PostHog
               continue-on-error: true
@@ -827,12 +854,13 @@ jobs:
                         "ref": "${{ github.ref }}",
                         "repository": "${{ github.repository }}",
                         "sdk": "posthog-cli",
-                        "jobName": "${{ steps.failure-metadata.outputs.failed-jobs }}",
+                        "jobName": "cargo-dist",
+                        "failedJobs": "${{ steps.failure-metadata.outputs.failed-jobs }}",
                         "packageName": "posthog-cli",
-                        "packageVersion": "${{ steps.failure-metadata.outputs.package-version }}",
+                        "packageVersion": "${{ needs.release.outputs.new-version || 'unknown' }}",
                         "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-                        "alertText": ":rotating_light: Failed to release ${{ steps.failure-metadata.outputs.package-ref }} :rotating_light:",
-                        "alertContext": "These jobs failed in the posthog-cli release workflow: ${{ steps.failure-metadata.outputs.failed-jobs }}."
+                        "alertText": ":rotating_light: Failed to publish posthog-cli@v${{ needs.release.outputs.new-version }} :rotating_light:",
+                        "alertContext": "The release commit landed, so master carries a version cargo-dist did not publish. Failed jobs: ${{ steps.failure-metadata.outputs.failed-jobs }}."
                       }
 
             - name: Notify Slack - Failed
@@ -843,5 +871,5 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '❌ Failed to release `${{ steps.failure-metadata.outputs.package-ref }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  message: '❌ Failed to publish `posthog-cli@v${{ needs.release.outputs.new-version }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
                   emoji_reaction: 'x'
