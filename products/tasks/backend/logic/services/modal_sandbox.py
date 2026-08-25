@@ -282,6 +282,8 @@ LOCAL_MODAL_GH_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/gh-gua
 LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_package.py")
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
+# The base image builds the agent-shadow observer from source in its first stage.
+LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
@@ -640,6 +642,8 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         # latest rendered output.
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
+
+        shutil.copytree(base_dir / LOCAL_MODAL_AGENT_SHADOW_DIR, context_dir / LOCAL_MODAL_AGENT_SHADOW_DIR)
 
     elif template == SandboxTemplate.NOTEBOOK_BASE:
         destination_kernel_module_path = context_dir / LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE
