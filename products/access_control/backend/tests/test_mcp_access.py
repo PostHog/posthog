@@ -55,6 +55,21 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         response = self._request("post", {"key": f"flag-{_name}", "name": "e2e"}, mcp=mcp)
         assert response.status_code == 201
 
+    def test_root_create_is_capped_against_the_current_org(self) -> None:
+        # A create has no object to defer to; it lands in the caller's current org, which
+        # here is the read-only one. POST /api/projects/ must be capped.
+        self._set_read_only(True)
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "new project via mcp"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+            headers={"User-Agent": f"cursor/1.0 {MCP_USER_AGENT_MARKER}; version: 1.0.0"},
+        )
+        assert response.status_code == 403
+        assert "read-only" in response.json()["detail"]
+
     def test_root_viewset_caps_against_the_target_org_not_current_org(self) -> None:
         # The read-only org is the target; the caller's *current* org is a different,
         # uncapped one. A root environment write must be capped against the target.

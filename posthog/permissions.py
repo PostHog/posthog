@@ -882,11 +882,14 @@ class MCPAccessPermission(ScopeBasePermission):
 
         # Root viewsets (organizations, projects, environments) carry no parent URL kwargs,
         # and `get_organization_from_view` falls back to the user's current organization
-        # there, which is a UI preference, not the request's target. A member of several
-        # organizations could otherwise have the cap evaluated against the wrong one. Gate
-        # on the fetched object below instead. Views deriving their target from the current
-        # team are the exception: for those the current team is the target by construction.
-        if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
+        # there, which is a UI preference, not the request's target. For a detail write the
+        # target is the URL pk, not the current organization, so defer to
+        # has_object_permission once the object is fetched. A create is the exception: it has
+        # no object to defer to, and it lands in the resolved organization (what the
+        # serializer's create uses), so the current-organization resolution is correct there.
+        # Views deriving their target from the current team are also fine by construction.
+        target_in_url = bool(view.parent_query_kwargs) or bool(view.param_derived_from_user_current_team)
+        if not target_in_url and getattr(view, "action", None) != "create":
             return True
 
         return self._admits(request, view, self._target_organization(view))
