@@ -48,6 +48,8 @@ export class UrlFetchConsumer {
         let dedupedInBatch = 0
         let originCount = 0
         let registrableDomainCount = 0
+        let originCandidateCounts: number[] = []
+        let registrableDomainCandidateCounts: number[] = []
         ImageFetchConsumerMetrics.startBatch()
 
         try {
@@ -66,15 +68,20 @@ export class UrlFetchConsumer {
             const deduplicated = deduplicateFetchCandidates(parsedCandidates)
             const candidates = deduplicated.candidates
             dedupedInBatch = deduplicated.duplicateCount
-            const origins = new Set<string>()
-            const registrableDomains = new Set<string>()
+            const origins = new Map<string, number>()
+            const registrableDomains = new Map<string, number>()
             for (const candidate of candidates) {
                 ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
-                origins.add(candidate.origin)
-                registrableDomains.add(candidate.registrableDomain)
+                origins.set(candidate.origin, (origins.get(candidate.origin) ?? 0) + 1)
+                registrableDomains.set(
+                    candidate.registrableDomain,
+                    (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
+                )
             }
             originCount = origins.size
             registrableDomainCount = registrableDomains.size
+            originCandidateCounts = [...origins.values()]
+            registrableDomainCandidateCounts = [...registrableDomains.values()]
 
             if (this.options.dryRun || candidates.length === 0) {
                 return
@@ -82,7 +89,7 @@ export class UrlFetchConsumer {
 
             const keys = [
                 ...candidates.map((candidate) => candidate.originalRef),
-                ...[...origins].flatMap((origin) => [
+                ...[...origins.keys()].flatMap((origin) => [
                     configurationCacheKey(origin, 'robots'),
                     configurationCacheKey(origin, 'tdmrep'),
                 ]),
@@ -134,7 +141,15 @@ export class UrlFetchConsumer {
             }
         } finally {
             ImageFetchConsumerMetrics.finishBatch()
-            this.recordMetrics(drops, dedupedInBatch, originCount, registrableDomainCount, startedAt)
+            this.recordMetrics(
+                drops,
+                dedupedInBatch,
+                originCount,
+                registrableDomainCount,
+                originCandidateCounts,
+                registrableDomainCandidateCounts,
+                startedAt
+            )
         }
     }
 
@@ -238,6 +253,8 @@ export class UrlFetchConsumer {
         dedupedInBatch: number,
         origins: number,
         registrableDomains: number,
+        originCandidateCounts: number[],
+        registrableDomainCandidateCounts: number[],
         startedAt: bigint
     ): void {
         if (dedupedInBatch > 0) {
@@ -246,6 +263,7 @@ export class UrlFetchConsumer {
         for (const [reason, count] of drops) {
             ImageFetchConsumerMetrics.incDropped(reason, count)
         }
+        ImageFetchConsumerMetrics.observeBatchDiversity(originCandidateCounts, registrableDomainCandidateCounts)
         ImageFetchConsumerMetrics.observeBatch(
             origins,
             registrableDomains,

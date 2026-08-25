@@ -157,6 +157,10 @@ export class FetchRunner implements FetchPass {
             }
         }
         const queue = new FetchCandidateQueue(candidates, this.options)
+        ImageFetchRequestMetrics.observeBatchSchedulableCapacity(
+            queue.schedulableSlotsAtStart,
+            this.options.maxInFlightRequests
+        )
         const attempts: FetchAttempt[] = []
         const workers = Array.from({ length: Math.min(this.options.maxInFlightRequests, queue.originCount) }, () =>
             this.runQueueWorker(
