@@ -1,0 +1,242 @@
+# Bake the PostHog *tasks* golden snapshot and promote it into the alias that
+# HoglandSandbox.create restores every task sandbox from.
+#
+# This is the CI move of the terminal bake in
+# products/tasks/management/commands/bake_hogland_snapshot.py: instead of an
+# engineer running the bake from a laptop, a runner joins the hogland tailnet,
+# builds the seed box from setup-golden.sh, smoke-tests the candidate, and only
+# then re-points the live alias — with a dated archive alias for rollback.
+#
+# Modal / Dockerfile.sandbox-base is deliberately untouched: this bakes the same
+# contents into a hogland snapshot, it does not change the container image path.
+#
+# Reachability + auth (mirrors hogbox-preview-env.yml, which already reaches
+# hogland from this repo):
+#   * both hogland APIs are tailnet-only, served by tag:hogplane devices. We join
+#     as tag:hogland-ci — the tag the ACL grants reach to those devices, and the
+#     same join hogbox-preview-env.yml uses. One join covers dev and prod-us.
+#   * hogplane authenticates the caller by bearer: GitHub OIDC end-to-end, no
+#     stored token. It verifies the Actions OIDC token and resolves the
+#     (repo, workflow) claim to a service-account Principal via a github_oidc
+#     TrustMapping. Those tokens live ~5 min while a bake runs ~90, so the CLI
+#     re-mints on any mid-bake 401 via HOG_TOKEN_COMMAND — a single mint-at-start
+#     bearer would die mid-bake.
+#
+# Gating: this stays a deliberate no-op until an operator provisions the per-
+# cluster svc-ci principal + github_oidc TrustMapping + tailnet admittance and
+# flips the arming vars (see GOLDEN_CI_RUNBOOK.md). workflow_dispatch is the only
+# real trigger; the nightly schedule fires but the job's `if` keeps it a no-op
+# until armed, so merging this PR cannot attempt a bake before the principal
+# exists.
+
+name: Tasks Golden Snapshot CD
+
+on:
+    workflow_dispatch:
+        inputs:
+            cluster:
+                description: 'Only bake this cluster (blank = all armed clusters)'
+                required: false
+                default: ''
+    schedule:
+        # Daily, minute offset off :00 — GitHub's scheduler is contended at the
+        # top of the hour and may drop those runs. No-op until armed (job `if`).
+        - cron: '17 8 * * *' # ~08:17 UTC, low-traffic window
+
+permissions:
+    contents: read
+    id-token: write # mint OIDC for the tailnet join AND the hogplane bearer
+
+# Never two bakes racing the same alias. Per-cluster group keys would need
+# ${{ matrix.cluster }}, unavailable at workflow level, so serialise the whole
+# workflow and rely on fail-fast=false to keep one cluster's flake from killing
+# the other within a run.
+concurrency:
+    group: cd-tasks-golden-snapshot
+    cancel-in-progress: false
+
+jobs:
+    bake:
+        # Arming gate: stay a deliberate no-op until the operator provisions the
+        # service-account principal + github_oidc TrustMapping + tailnet reach
+        # and sets HOG_TASKS_GOLDEN_ENABLED=true. Mirrors golden-snapshots.yml's
+        # HOG_GOLDEN_ENABLED gate.
+        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true'
+        name: Bake and promote the tasks golden snapshot
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 150 # 90m bake + smoke (cold restore) + buffer
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - cluster: dev
+                      hog_host: https://hogland-dev.hedgehog-kitefin.ts.net
+                      hog_oidc_audience: hogland.dev.posthog.dev
+                    - cluster: prod-us
+                      hog_host: https://hogland.hedgehog-kitefin.ts.net
+                      hog_oidc_audience: hogland.prod-us.posthog.dev
+                    # prod-eu is deferred to the EU rollout. To add it, append a
+                    # matrix entry (host https://hogland-eu... + audience
+                    # hogland.prod-eu.posthog.dev) once its svc-ci principal +
+                    # TrustMapping exist, and extend the prod arming gate below.
+
+        env:
+            HOG_HOST: ${{ matrix.hog_host }}
+            HOG_OIDC_AUDIENCE: ${{ matrix.hog_oidc_audience }}
+            # No stored bearer. The CLI mints one on demand — and re-mints on any
+            # mid-bake 401 — by hitting the Actions OIDC endpoint and jq-ing the
+            # token out. ACTIONS_ID_TOKEN_REQUEST_{URL,TOKEN} are ambient for the
+            # whole job under permissions.id-token: write.
+            HOG_TOKEN_COMMAND: 'curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=$HOG_OIDC_AUDIENCE" | jq -re .value'
+
+        steps:
+            - name: Check out posthog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Skip clusters not requested when running manually with the input set.
+            - name: Filter cluster
+              if: ${{ github.event.inputs.cluster != '' && github.event.inputs.cluster != matrix.cluster }}
+              run: echo "skip=true" >> "$GITHUB_ENV"
+
+            # Second arming gate, for prod-targeting clusters. HOG_TASKS_GOLDEN_ENABLED
+            # covers dev provisioning; a prod cluster additionally needs its own
+            # svc-ci principal + TrustMapping in that cluster (see the runbook).
+            # Stay a no-op until an operator flips HOG_TASKS_GOLDEN_PROD_ENABLED.
+            - name: Gate prod-targeting clusters
+              if: ${{ env.skip != 'true' && matrix.cluster != 'dev' && vars.HOG_TASKS_GOLDEN_PROD_ENABLED != 'true' }}
+              run: |
+                  echo "::notice::${{ matrix.cluster }} tasks golden bake skipped — set HOG_TASKS_GOLDEN_PROD_ENABLED=true once the ${{ matrix.cluster }} principal + TrustMapping exist"
+                  echo "skip=true" >> "$GITHUB_ENV"
+
+            # The hogland CLI lives in the private PostHog/hogland repo. Check it
+            # out with a scoped App token and build it, mirroring
+            # golden-snapshots.yml's `go build ./cmd/hogland`.
+            - name: Mint hogland-repo token
+              if: env.skip != 'true'
+              id: hogland-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  app-id: ${{ secrets.GH_APP_HOGLAND_CLI_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_HOGLAND_CLI_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: hogland
+
+            - name: Check out hogland CLI source
+              if: env.skip != 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: PostHog/hogland
+                  ref: ${{ vars.HOGLAND_CLI_REF || 'main' }}
+                  token: ${{ steps.hogland-token.outputs.token }}
+                  path: hogland-src
+
+            - name: Set up Go
+              if: env.skip != 'true'
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+              with:
+                  go-version-file: hogland-src/go.mod
+
+            - name: Build hogland CLI
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  mkdir -p "$RUNNER_TEMP/bin"
+                  (cd hogland-src && go build -o "$RUNNER_TEMP/bin/hogland" ./cmd/hogland)
+                  echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+            # Join the tailnet as tag:hogland-ci — the tag whose ACL reaches the
+            # tag:hogplane device serving the API. WIF, no stored secret; the
+            # client-id + audience are shared with hogbox-preview-env.yml.
+            - name: Connect to Tailscale (tag:hogland-ci)
+              if: env.skip != 'true'
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+
+            # Ephemeral keypair for this run. snapshot-build bakes the PUBLIC half
+            # into the seed box and SSH-polls the success marker with the PRIVATE
+            # half; the smoke box is reached with the same key.
+            - name: Generate ephemeral ssh key
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  ssh-keygen -t ed25519 -f "$RUNNER_TEMP/tasks_golden_key" -N "" -C tasks-golden-ci
+                  echo "GOLDEN_SSH_KEY=$RUNNER_TEMP/tasks_golden_key" >> "$GITHUB_ENV"
+
+            # Build into the CANDIDATE alias — no live consumer points at this
+            # name, so a bad build can't poison task runs. The guards + cpu
+            # sampler ride in as --inline-file (small, fixed); the multi-MB skills
+            # payload is fetched inside the box by setup-golden.sh. Golden shape is
+            # the task sandbox shape: 4 CPU / 16 GiB / 64 GiB.
+            - name: snapshot-build (candidate)
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  IMG=products/tasks/backend/sandbox/images
+                  hogland snapshot-build \
+                    --alias posthog-tasks-candidate \
+                    --setup-script "$IMG/hogland/setup-golden.sh" \
+                    --inline-file "$IMG/git-guard.sh:/opt/posthog/bin/git:0755" \
+                    --inline-file "$IMG/gh-guard.sh:/opt/posthog/bin/gh:0755" \
+                    --inline-file "$IMG/cpu_billing_sampler.py:/usr/local/bin/posthog-cpu-billing-sampler:0755" \
+                    --ssh-key "$GOLDEN_SSH_KEY.pub" \
+                    --cpus 4 \
+                    --memory-mib 16384 \
+                    --disk-gib 64 \
+                    --timeout 90m
+
+            # Boot a smoke box from the candidate, run the tasks readiness
+            # contract, delete. Non-zero => DO NOT promote, so the live alias
+            # keeps pointing at the previous known-good snapshot.
+            - name: Smoke-test candidate
+              id: smoke
+              if: env.skip != 'true'
+              env:
+                  ALIAS: posthog-tasks-candidate
+                  SSH_KEY: ${{ env.GOLDEN_SSH_KEY }}
+              run: |
+                  set -euo pipefail
+                  bash products/tasks/backend/sandbox/images/hogland/smoke-golden.sh | tee "$RUNNER_TEMP/smoke.out"
+                  secs=$(sed -n 's/^SMOKE_HEALTHY_SECONDS=//p' "$RUNNER_TEMP/smoke.out")
+                  echo "healthy_seconds=${secs:-unknown}" >> "$GITHUB_OUTPUT"
+
+            # Promote: re-point the live alias at the candidate's snapshot id. A
+            # single alias PUT — atomic from any restoring caller's perspective.
+            - name: Promote candidate to default
+              id: promote
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  SNAP_ID=$(hogland snapshot resolve posthog-tasks-candidate | jq -r .snapshot_id)
+                  hogland snapshot alias "$SNAP_ID" posthog-tasks-default
+                  echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
+
+            # Dated archive alias for rollback. Retention prune is intentionally
+            # not wired here — a separate cleanup cron handles it once we've
+            # watched the alias count for a couple of weeks.
+            - name: Archive dated alias
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  DATE=$(date -u +%Y%m%d)
+                  SNAP_ID=$(hogland snapshot resolve posthog-tasks-candidate | jq -r .snapshot_id)
+                  hogland snapshot alias "$SNAP_ID" posthog-tasks-default-"$DATE"
+
+            # Step outputs go through env vars, not direct ${{ }} interpolation
+            # into run: — semgrep's shell-injection rule treats step output as
+            # untrusted, and env indirection is the standard fix.
+            - name: Step summary
+              if: env.skip != 'true'
+              env:
+                  CLUSTER: ${{ matrix.cluster }}
+                  SNAPSHOT_ID: ${{ steps.promote.outputs.snapshot_id }}
+                  HEALTHY_SECONDS: ${{ steps.smoke.outputs.healthy_seconds }}
+              run: |
+                  {
+                    echo "### tasks golden snapshot: $CLUSTER"
+                    echo ""
+                    echo "- promoted snapshot \`$SNAPSHOT_ID\` -> alias \`posthog-tasks-default\`"
+                    echo "- smoke create->contract: ${HEALTHY_SECONDS}s"
+                  } >> "$GITHUB_STEP_SUMMARY"
