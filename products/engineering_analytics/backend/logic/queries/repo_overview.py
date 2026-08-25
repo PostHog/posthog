@@ -38,7 +38,10 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_started_floor_constant,
     window_pair_predicates,
 )
-from products.engineering_analytics.backend.logic.queries.merge_queue_overview import query_merge_queue_overview
+from products.engineering_analytics.backend.logic.queries.merge_queue_overview import (
+    query_merge_queue_overview,
+    query_merge_queue_trunk_outcomes,
+)
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
@@ -376,6 +379,7 @@ def query_repo_overview(
 
     jobs_available = curated.jobs_source() is not None
     queue = query_merge_queue_overview(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
+    trunk = query_merge_queue_trunk_outcomes(curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from)
     time_to_green = query_time_to_green_window(
         curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
     )
@@ -431,6 +435,11 @@ def query_repo_overview(
         merge_queue_multi_attempt_merge_share_prev=queue.multi_attempt_merge_share_prev,
         merge_queue_failed_gate_merge_share=queue.failed_gate_merge_share,
         merge_queue_failed_gate_merge_share_prev=queue.failed_gate_merge_share_prev,
+        merge_queue_trunk_available=trunk.available,
+        merge_queue_failed_or_cancelled_share=trunk.failed_or_cancelled_share,
+        merge_queue_failed_or_cancelled_share_prev=trunk.failed_or_cancelled_share_prev,
+        merge_queue_skip_the_line_count=trunk.skip_the_line_count,
+        merge_queue_skip_the_line_count_prev=trunk.skip_the_line_count_prev,
         median_time_to_green_seconds=time_to_green.median_seconds,
         median_time_to_green_seconds_prev=time_to_green.median_seconds_prev,
         jobs_available=jobs_available,

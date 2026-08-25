@@ -1083,8 +1083,7 @@ class RepoOverview:
     billable_minutes_prev: float | None
     estimated_cost_usd: float | None
     estimated_cost_usd_prev: float | None
-    # The window's estimated cost divided by its merged-PR count (all authors) — defined here so no
-    # consumer re-derives the ratio with different guards. None without cost data or merges.
+    # estimated_cost_usd / merged_pr_count (all authors). None without cost data or merges.
     cost_per_merge_usd: float | None
     cost_per_merge_usd_prev: float | None
     # The slice of billable_minutes spent on merge-queue batch branches, broken out so queue-settings
@@ -1116,6 +1115,17 @@ class RepoOverview:
     # CI-outcome proxy, not the queue's own eviction record.
     merge_queue_failed_gate_merge_share: float | None
     merge_queue_failed_gate_merge_share_prev: float | None
+    # Trunk-recorded outcomes, present only when the team's TrunkIo warehouse source has the opt-in
+    # merge-queue endpoint synced; without it consumers fall back to the failed-gate proxy above.
+    # Windowed on each entry's last state change, since Trunk keeps no state history.
+    merge_queue_trunk_available: bool
+    # Fraction (0-1) of concluded queue entries (merged, failed, or cancelled) that ended failed or
+    # cancelled, from the queue's own records.
+    merge_queue_failed_or_cancelled_share: float | None
+    merge_queue_failed_or_cancelled_share_prev: float | None
+    # Queue entries flagged skip-the-line (prioritized past the queue order), whatever state they reached.
+    merge_queue_skip_the_line_count: int | None
+    merge_queue_skip_the_line_count_prev: int | None
     # Median wall clock for a push round to settle fully green over the window: the window-level
     # twin of time_to_green_series, same population and exclusions. None when no fully green rounds.
     median_time_to_green_seconds: float | None

@@ -177,7 +177,9 @@ export function RepoOverviewScene(): JSX.Element {
                     </Section>
 
                     <Section id="merge-queue" title="Merge queue" busy={overviewLoading}>
-                        {overview && overview.merge_queue_merged_pr_count === 0 ? (
+                        {overview &&
+                        overview.merge_queue_merged_pr_count === 0 &&
+                        overview.merge_queue_failed_or_cancelled_share == null ? (
                             <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
                                 No merge queue activity in the window.
                             </LemonCard>
@@ -207,17 +209,31 @@ export function RepoOverviewScene(): JSX.Element {
                                     loading={overviewPending}
                                     emptyText="No queue-landed merges in the window."
                                 />
-                                <WindowComparisonCard
-                                    title="Merges with a failed queue run"
-                                    tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
-                                    value={overview?.merge_queue_failed_gate_merge_share}
-                                    previousValue={overview?.merge_queue_failed_gate_merge_share_prev}
-                                    formatValue={percent}
-                                    deltaUnit="pt"
-                                    goodWhenDown
-                                    loading={overviewPending}
-                                    emptyText="No queue-landed merges in the window."
-                                />
+                                {overview?.merge_queue_trunk_available ? (
+                                    <WindowComparisonCard
+                                        title="Left the queue unmerged"
+                                        tooltip="Share of concluded merge queue entries that ended failed or cancelled, from the queue's own records."
+                                        value={overview?.merge_queue_failed_or_cancelled_share}
+                                        previousValue={overview?.merge_queue_failed_or_cancelled_share_prev}
+                                        formatValue={(v) => percent(v, 1)}
+                                        deltaUnit="pt"
+                                        goodWhenDown
+                                        loading={overviewPending}
+                                        emptyText="No concluded queue entries in the window."
+                                    />
+                                ) : (
+                                    <WindowComparisonCard
+                                        title="Merges with a failed queue run"
+                                        tooltip="Share of queue-landed merges where at least one gate run failed before the merge. Derived from CI run conclusions, not the queue's own eviction records."
+                                        value={overview?.merge_queue_failed_gate_merge_share}
+                                        previousValue={overview?.merge_queue_failed_gate_merge_share_prev}
+                                        formatValue={percent}
+                                        deltaUnit="pt"
+                                        goodWhenDown
+                                        loading={overviewPending}
+                                        emptyText="No queue-landed merges in the window."
+                                    />
+                                )}
                             </div>
                         )}
                     </Section>

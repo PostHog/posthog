@@ -159,6 +159,11 @@ def _repo_overview() -> contracts.RepoOverview:
         merge_queue_multi_attempt_merge_share_prev=0.38,
         merge_queue_failed_gate_merge_share=0.34,
         merge_queue_failed_gate_merge_share_prev=0.28,
+        merge_queue_trunk_available=True,
+        merge_queue_failed_or_cancelled_share=0.044,
+        merge_queue_failed_or_cancelled_share_prev=0.032,
+        merge_queue_skip_the_line_count=8,
+        merge_queue_skip_the_line_count_prev=5,
         median_time_to_green_seconds=780.0,
         median_time_to_green_seconds_prev=540.0,
         jobs_available=True,
@@ -354,6 +359,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
         assert data["merge_queue_merged_pr_count"] == 38
         assert data["merge_queue_median_first_gate_to_merge_seconds"] == 1920.0
+        assert data["merge_queue_failed_or_cancelled_share"] == 0.044
         assert data["median_time_to_green_seconds"] == 780.0
         assert data["cost_series"] == []
 

@@ -58,6 +58,11 @@ const OVERVIEW: RepoOverviewApi = {
     merge_queue_failed_gate_merge_share_prev: 0.28,
     median_time_to_green_seconds: 13 * 60,
     median_time_to_green_seconds_prev: 9 * 60,
+    merge_queue_trunk_available: false,
+    merge_queue_failed_or_cancelled_share: null,
+    merge_queue_failed_or_cancelled_share_prev: null,
+    merge_queue_skip_the_line_count: null,
+    merge_queue_skip_the_line_count_prev: null,
     jobs_available: true,
     default_branch: 'master',
     cost_series: [],
@@ -254,4 +259,27 @@ type Story = StoryObj<typeof meta>
 export const RepoOverview: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalytics() },
+}
+
+// The Trunk-source variant: the failed-queue-run proxy card is replaced by the queue's own
+// eviction records.
+const OVERVIEW_WITH_TRUNK: RepoOverviewApi = {
+    ...OVERVIEW,
+    merge_queue_trunk_available: true,
+    merge_queue_failed_or_cancelled_share: 0.044,
+    merge_queue_failed_or_cancelled_share_prev: 0.032,
+    merge_queue_skip_the_line_count: 8,
+    merge_queue_skip_the_line_count_prev: 5,
+}
+
+export const RepoOverviewWithTrunkQueueData: Story = {
+    render: () => <App />,
+    parameters: { pageUrl: urls.engineeringAnalytics() },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW_WITH_TRUNK,
+            },
+        }),
+    ],
 }
