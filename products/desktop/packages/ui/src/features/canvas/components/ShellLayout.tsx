@@ -220,6 +220,15 @@ function FreeformEditControls({
             dashboardId={dashboardId}
             currentChannelId={channelId}
             surface="canvas"
+            // Follow the canvas into its new space: the header's breadcrumb,
+            // copy link, delete, and the sidebar scope all read the route's
+            // channel id, so without this they keep pointing at the old space.
+            onFiled={(targetChannelId) =>
+              void navigate({
+                to: "/spaces/$channelId/dashboards/$dashboardId",
+                params: { channelId: targetChannelId, dashboardId },
+              })
+            }
           />
           <DropdownMenuItem
             variant="destructive"

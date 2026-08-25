@@ -21,11 +21,18 @@ export function CanvasFileToSubmenu({
   dashboardId,
   currentChannelId,
   surface,
+  onFiled,
 }: {
   dashboardId: string;
   /** The space the canvas is filed under now, ticked in the list. */
   currentChannelId: string;
   surface: ChannelsSurface;
+  /**
+   * Called with the target space id after a successful file. The canvas header
+   * uses it to follow the canvas into its new space; the grid card and sidebar
+   * leave it unset and stay put.
+   */
+  onFiled?: (targetChannelId: string) => void;
 }) {
   // "File to…" is a Project Bluebird feature; gate the channel fetch behind the
   // flag so neither the submenu nor its request reaches ungated users.
@@ -63,6 +70,8 @@ export function CanvasFileToSubmenu({
               targetChannelId,
               targetName: channels.find((c) => c.id === targetChannelId)?.name,
               surface,
+            }).then((filed) => {
+              if (filed) onFiled?.(targetChannelId);
             })
           }
         />

@@ -21,9 +21,11 @@ export interface FileCanvasOptions {
 /**
  * File a canvas into another space, toasting the outcome and tracking it. Shared
  * by every "File to…" affordance (sidebar row, canvas header, dashboards grid)
- * so the mutation, feedback, and analytics stay in one place.
+ * so the mutation, feedback, and analytics stay in one place. Resolves to
+ * whether the move succeeded, so a caller can follow the canvas — the header
+ * re-routes to the new space rather than leave its chrome on the old one.
  */
-export function useFileCanvas(): (opts: FileCanvasOptions) => Promise<void> {
+export function useFileCanvas(): (opts: FileCanvasOptions) => Promise<boolean> {
   const { fileDashboard } = useDashboardMutations();
 
   return useCallback(
@@ -45,6 +47,7 @@ export function useFileCanvas(): (opts: FileCanvasOptions) => Promise<void> {
           dashboard_id: dashboardId,
           success: true,
         });
+        return true;
       } catch (error) {
         toast.error("Couldn't file canvas", {
           description: error instanceof Error ? error.message : String(error),
@@ -57,6 +60,7 @@ export function useFileCanvas(): (opts: FileCanvasOptions) => Promise<void> {
           dashboard_id: dashboardId,
           success: false,
         });
+        return false;
       }
     },
     [fileDashboard],
