@@ -400,6 +400,10 @@ snapshots:
         hash: v1.k794b7964.d81ec763d541634271916482f860bfdfc2d1db7e14e6daf8f80dee2ff7d9ee1a.KPijkSly1tKiFDaoh2IZuJuyNlskNylPt3Pa0ybdRZw
     components-date-picker--with-value--light:
         hash: v1.k794b7964.9637f1dcc335c1a3caf269b72e5d299d2b5a42b0f06fcdd2ea410044f62e11f9.-dDqqmYYCzqZKtVOp1FJw6mHETpKlG5oS6qb6zVpEhE
+    components-debugchqueries--query-volume-chart--dark:
+        hash: v1.k794b7964.8f0c289c4d1e36599a1db5d7862066adfdbf7409107b41fb06142ed4e587597c.2PVYQO83gs9m6EhjBSEmOxAtPi3IWwwvqhXgUtUFoYM
+    components-debugchqueries--query-volume-chart--light:
+        hash: v1.k794b7964.c90f0e08f0a6151006d52ffb3da5fb770f61245d1e5d0c62ea4d234d9b62309a.hblu9RsN5dANuKmMUcGZ1XhofXyWhLAnzNU1FqLBVaI
     components-definition-icons--event-definition-icons--dark:
         hash: v1.k794b7964.16cde7300e72420837eb1542a3eb25e0a76a44937ad9b8273a77dfac5c6d8b99.2FLdNg_cl_qw4ZfqAY1JYvuE5tcLyISHnFP7jWGNtpk
     components-definition-icons--event-definition-icons--light:
