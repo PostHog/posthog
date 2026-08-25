@@ -42,7 +42,7 @@ describe('llmEvaluationExecutionLogic', () => {
 
     // The backend turns down a trace- or session-target evaluation with a sentence saying why.
     // Discarding it left the user with "Failed to start evaluation" and nothing to act on.
-    it('shows the reason the backend gave and does not report the rejection as a failure', async () => {
+    it('shows the reason the backend gave when it refuses a run', async () => {
         runResponse = [
             400,
             { error: "This evaluation runs on the whole trace, so it can't be re-run against a single generation." },
@@ -51,14 +51,29 @@ describe('llmEvaluationExecutionLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.runEvaluation('eval-1', 'event-1', '2026-08-06T00:00:00Z', '$ai_generation')
-        })
-            .toDispatchActions(['runEvaluationSuccess'])
-            .toNotHaveDispatchedActions(['runEvaluationFailure'])
+        }).toDispatchActions(['runEvaluationFailure'])
 
         expect(toast).toHaveBeenCalledWith(
             "This evaluation runs on the whole trace, so it can't be re-run against a single generation."
         )
         expect(logic.values.lastRunWorkflowId).toBeNull()
+    })
+
+    // A 4xx whose body is not JSON leaves `api.ts`'s own diagnostic as the error message. Keeping
+    // that out of the toast rests on `evaluations/apiErrors.ts` matching a prefix of a string built
+    // in `api.ts`, so rewording either side would put internal text in front of the user.
+    it('shows the generic string when a rejected run has no JSON body', async () => {
+        runResponse = new Response('<html>Bad Request</html>', {
+            status: 400,
+            headers: { 'content-type': 'text/html' },
+        })
+        const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.runEvaluation('eval-1', 'event-1', '2026-08-06T00:00:00Z', '$ai_generation')
+        }).toDispatchActions(['runEvaluationFailure'])
+
+        expect(toast).toHaveBeenCalledWith('Failed to start evaluation')
     })
 
     it.each(RUN_FAULTS)('keeps failing the loader on %s', async (_, buildResponse) => {

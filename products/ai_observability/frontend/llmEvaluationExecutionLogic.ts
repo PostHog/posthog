@@ -48,7 +48,7 @@ export interface llmEvaluationExecutionLogicActions {
             status: string
             target_event_id: string
             workflow_id: string
-        } | null,
+        },
         payload?: {
             distinctId: string | undefined
             evaluationId: string
@@ -65,7 +65,7 @@ export interface llmEvaluationExecutionLogicActions {
             status: string
             target_event_id: string
             workflow_id: string
-        } | null
+        }
         payload?: {
             distinctId: string | undefined
             evaluationId: string
@@ -102,10 +102,6 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
         }),
     }),
     loaders(({ values }) => ({
-        // A null value means the run was rejected, not that one is pending: the loader swallows a
-        // client error so it does not reach error tracking. Anything reacting to
-        // `runEvaluationSuccess`, `evaluationRun`, or `lastRunWorkflowId` must treat null as "no
-        // run started" — a listener that assumes success gets rejections too.
         evaluationRun: [
             null as { workflow_id: string } | null,
             {
@@ -138,20 +134,17 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                         return response
                     } catch (error) {
                         const status = error instanceof ApiError ? error.status : undefined
-                        // The backend turns some runs down on purpose, because a trace- or
-                        // session-target evaluation cannot be re-run against one generation. That
-                        // answer explains itself to the user, and it is not a defect, so it must
-                        // not reach error tracking as an unhandled exception.
                         if (status !== undefined && status < 500) {
+                            // The backend refuses some runs on purpose, because a trace- or
+                            // session-target evaluation cannot be re-run against one generation,
+                            // and the response says so. That sentence is what the user can act on.
                             lemonToast.error(evaluationErrorMessage(error, 'Failed to start evaluation'))
-                            return null
+                        } else {
+                            // A fault's body is an internal message instead. `api.ts` also leaves
+                            // the status unset when the request never reached the backend or its
+                            // body could not be read, and there the run may already have started.
+                            lemonToast.error('Failed to start evaluation')
                         }
-                        // A fault gets the generic text, because its body is an internal message
-                        // rather than something the user can act on. It keeps throwing so that
-                        // error tracking still receives it. `api.ts` leaves the status unset when
-                        // the request never reached the backend, or when the response body could
-                        // not be read, and there the run may already have started.
-                        lemonToast.error('Failed to start evaluation')
                         throw error
                     }
                 },
