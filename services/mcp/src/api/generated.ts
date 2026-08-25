@@ -22400,6 +22400,7 @@ export namespace Schemas {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -23716,6 +23717,7 @@ export namespace Schemas {
       Ebay: 'Ebay',
       Commercetools: 'Commercetools',
       LightspeedRetail: 'LightspeedRetail',
+      Shipmail: 'Shipmail',
       ShipStation: 'ShipStation',
       ConstantContact: 'ConstantContact',
       Mailgun: 'Mailgun',
@@ -25046,6 +25048,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
@@ -27064,6 +27067,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
@@ -35103,6 +35107,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
@@ -36453,6 +36458,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
@@ -75084,6 +75090,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
@@ -76442,6 +76449,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
@@ -77790,6 +77798,7 @@ export namespace Schemas {
        * * `Ebay` - Ebay
        * * `Commercetools` - Commercetools
        * * `LightspeedRetail` - LightspeedRetail
+       * * `Shipmail` - Shipmail
        * * `ShipStation` - ShipStation
        * * `ConstantContact` - ConstantContact
        * * `Mailgun` - Mailgun
