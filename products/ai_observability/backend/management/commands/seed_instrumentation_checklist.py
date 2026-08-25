@@ -17,7 +17,7 @@ from products.ai_observability.backend.instrumentation_checklist import fetch_ch
 # touching AI events that arrived from a real SDK.
 SEED_PREFIX = "checklist-seed-"
 
-STAGES = ["reset", "sessions", "tools", "identity", "spans"]
+STAGES = ["reset", "sessions", "decline_sessions", "tools", "identity", "spans"]
 
 # Above the grader's volume floor, so a freshly reset project grades warning rather than pending.
 BASELINE_GENERATIONS = 25
@@ -61,7 +61,9 @@ class Command(BaseCommand):
             required=True,
             help=(
                 "reset wipes previously seeded events and leaves every check warning. "
-                "Each other stage adds the events one check is waiting for."
+                "Each other stage adds the events one check is waiting for. "
+                "decline_sessions is the alternative to sessions: it answers the same check by "
+                "declaring the workload finishes in one trace."
             ),
         )
         parser.add_argument(
@@ -161,6 +163,16 @@ class Command(BaseCommand):
             )
         self._capture(events)
         self.stdout.write(f"Captured {len(events)} generations sharing one $ai_session_id.")
+
+    def _decline_sessions(self) -> None:
+        events = []
+        for index in range(3):
+            trace_id = _trace_id("declined", index)
+            events.append(
+                _generation(trace_id, distinct_id=trace_id, seconds_ago=index + 1, **{"$ai_session_id": None})
+            )
+        self._capture(events)
+        self.stdout.write(f"Captured {len(events)} generations declaring $ai_session_id as null.")
 
     def _tools(self) -> None:
         events = []

@@ -34,6 +34,7 @@ class CheckStatus(StrEnum):
 class ChecklistStats:
     generations: int
     events_with_session: int
+    events_declining_session: int
     generations_with_tool_calls: int
     generations_with_tools_declared: int
     sdk_generations: int
@@ -75,22 +76,31 @@ class _CheckInputs:
 
 
 def _sessions(stats: ChecklistStats) -> _CheckInputs:
+    # A missing session id cannot tell incomplete instrumentation apart from a workload that
+    # genuinely finishes in one trace, so a project that sent an explicit null has answered the
+    # question and the copy has to reflect which of the two earned the ok.
+    if stats.events_with_session > 0:
+        ok_detail = "Traces are grouping into sessions."
+    else:
+        ok_detail = "Traces are marked as finishing in one trace, so there is nothing to group."
+
     return _CheckInputs(
         key=CheckKey.SESSIONS,
         title="Sessions",
         denominator=stats.generations,
-        has_signal=stats.events_with_session > 0,
+        has_signal=stats.events_with_session > 0 or stats.events_declining_session > 0,
         warning_detail=(
             "No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us "
             "group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot "
-            "generation, do not need it."
+            "generation, do not need it. Send $ai_session_id as null on those to say so."
         ),
-        ok_detail="Traces are grouping into sessions.",
+        ok_detail=ok_detail,
         pending_detail=_PENDING_GENERATIONS,
         docs_url=_SESSIONS_DOCS_URL,
         stats={
             "generations": stats.generations,
             "events_with_session": stats.events_with_session,
+            "events_declining_session": stats.events_declining_session,
         },
     )
 

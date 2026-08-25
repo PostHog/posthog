@@ -65,6 +65,7 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         assert stats == ChecklistStats(
             generations=2,
             events_with_session=1,
+            events_declining_session=0,
             generations_with_tool_calls=1,
             generations_with_tools_declared=1,
             sdk_generations=2,
@@ -82,6 +83,7 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         assert stats == ChecklistStats(
             generations=0,
             events_with_session=0,
+            events_declining_session=0,
             generations_with_tool_calls=0,
             generations_with_tools_declared=0,
             sdk_generations=0,
@@ -179,6 +181,28 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         )
 
         assert fetch_checklist_stats(self.team).events_with_session == 1
+
+    def test_only_an_explicit_null_session_id_reads_as_declining_a_session(self) -> None:
+        # The native session_id column is null for all four of these, so the opt-out can only be
+        # read off the raw properties blob. An empty string is usually an unset variable rather
+        # than a decision, and counting it would silence the check for a project with a bug.
+        bulk_create_ai_events(
+            [
+                _ai_event(
+                    team=self.team, event="$ai_generation", trace_id="trace-null", properties={"$ai_session_id": None}
+                ),
+                _ai_event(team=self.team, event="$ai_generation", trace_id="trace-absent"),
+                _ai_event(
+                    team=self.team, event="$ai_generation", trace_id="trace-empty", properties={"$ai_session_id": ""}
+                ),
+                _ai_event(
+                    team=self.team, event="$ai_generation", trace_id="trace-real", properties={"$ai_session_id": "s1"}
+                ),
+            ]
+        )
+
+        stats = fetch_checklist_stats(self.team)
+        assert (stats.events_declining_session, stats.events_with_session) == (1, 1)
 
     def test_otel_ingested_generations_are_left_out_of_the_identity_counts(self) -> None:
         bulk_create_ai_events(

@@ -27,15 +27,15 @@ const SESSIONS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheckAp
         title: 'Sessions',
         detail: 'Traces are grouping into sessions.',
         docs_url: SESSIONS_DOCS_URL,
-        stats: { generations: 1284, events_with_session: 842 },
+        stats: { generations: 1284, events_with_session: 842, events_declining_session: 0 },
     },
     warning: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Warning,
         title: 'Sessions',
-        detail: 'No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it.',
+        detail: 'No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it. Send $ai_session_id as null on those to say so.',
         docs_url: SESSIONS_DOCS_URL,
-        stats: { generations: 1284, events_with_session: 0 },
+        stats: { generations: 1284, events_with_session: 0, events_declining_session: 0 },
     },
     pending: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
@@ -43,15 +43,15 @@ const SESSIONS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheckAp
         title: 'Sessions',
         detail: 'Still collecting data. This check runs once there are 20 generations.',
         docs_url: SESSIONS_DOCS_URL,
-        stats: { generations: 4, events_with_session: 0 },
+        stats: { generations: 4, events_with_session: 0, events_declining_session: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Dismissed,
         title: 'Sessions',
-        detail: 'No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it.',
+        detail: 'No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it. Send $ai_session_id as null on those to say so.',
         docs_url: SESSIONS_DOCS_URL,
-        stats: { generations: 1284, events_with_session: 0 },
+        stats: { generations: 1284, events_with_session: 0, events_declining_session: 0 },
     },
 }
 

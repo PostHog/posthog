@@ -33,7 +33,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             \`$ai_trace_id\` groups the events of one LLM interaction into a trace.
                             \`$ai_session_id\` is optional and groups related traces into a session, which is what the
                             Sessions tab reads. Set it if your product has multi-turn conversations. Workloads that
-                            finish in a single trace, like batch jobs or one-shot generation, do not need it.
+                            finish in a single trace, like batch jobs or one-shot generation, do not need it. Send it
+                            as \`null\` on those to say so explicitly, which tells the instrumentation checklist the
+                            workload is complete rather than missing a session id.
                         `}
                     </Markdown>
 

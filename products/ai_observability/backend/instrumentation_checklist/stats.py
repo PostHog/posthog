@@ -33,6 +33,7 @@ _STATS_SQL = """
 SELECT
     countIf(is_generation)                                   AS generations,
     countIf(has_session)                                     AS events_with_session,
+    countIf(declines_session)                                AS events_declining_session,
     countIf(is_generation AND has_tool_calls)                AS generations_with_tool_calls,
     countIf(is_generation AND has_tools_declared)            AS generations_with_tools_declared,
     countIf(is_generation AND NOT is_otel)                   AS sdk_generations,
@@ -48,6 +49,12 @@ FROM (
         -- whichever one has it (see queries/sessions.sql), so flooring on generations alone would
         -- warn about a missing session id at a project whose Sessions tab works.
         coalesce(session_id, '') != ''                          AS has_session,
+        -- An explicit null is a project saying this workload finishes in one trace, which is an
+        -- answer rather than a gap. JSONType reads absent and null alike, so JSONHas is what
+        -- separates them, and requiring type Null keeps an empty string (usually an unset
+        -- variable) out of the opt-out.
+        JSONHas(properties, '$ai_session_id')
+            AND JSONType(properties, '$ai_session_id') = 'Null' AS declines_session,
         coalesce(properties.$ai_tools_called, '') != ''         AS has_tool_calls,
         -- `tools` holds the raw JSON, so an SDK that always sends `$ai_tools: []` stores '[]'. A
         -- non-empty test would read that as declared definitions and accuse a working SDK of not

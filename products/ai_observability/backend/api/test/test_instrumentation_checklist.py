@@ -74,6 +74,7 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
             return ChecklistStats(
                 generations=0,
                 events_with_session=0,
+                events_declining_session=0,
                 generations_with_tool_calls=0,
                 generations_with_tools_declared=0,
                 sdk_generations=0,
@@ -88,10 +89,13 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
             side_effect=record,
         ):
             if suffix:
-                self.client.post(endpoint(self.team.pk, suffix), {"check": "sessions"}, format="json")
+                response = self.client.post(endpoint(self.team.pk, suffix), {"check": "sessions"}, format="json")
             else:
-                self.client.get(endpoint(self.team.pk))
+                response = self.client.get(endpoint(self.team.pk))
 
+        # Asserting the status too, so a stub that raises cannot leave the tag recorded and the
+        # request failing while this still passes.
+        assert response.status_code == status.HTTP_200_OK, response.content
         assert seen == [Feature.INSTRUMENTATION_CHECKLIST]
 
     def test_get_returns_every_check_graded_over_the_teams_events(self) -> None:
@@ -110,6 +114,7 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
         assert check(body, "sessions")["stats"] == {
             "generations": VOLUME_FLOOR,
             "events_with_session": 1,
+            "events_declining_session": 0,
         }
 
     def test_dismissal_mutes_a_check_until_it_is_restored(self) -> None:

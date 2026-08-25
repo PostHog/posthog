@@ -50,7 +50,9 @@ export const TraceEvent = (): JSX.Element => {
                                 <p>
                                     <em>(Optional)</em> Groups related traces into a session, which is what the Sessions
                                     tab reads. Set it if your product has multi-turn conversations. A workload that
-                                    finishes in a single trace does not need it.
+                                    finishes in a single trace does not need it. Send it as null to say so explicitly,
+                                    which tells the instrumentation checklist the workload is complete rather than
+                                    missing a session id.
                                     <br />
                                     Must contain only letters, numbers, and special characters: <code>-</code>,{' '}
                                     <code>_</code>, <code>~</code>, <code>.</code>, <code>@</code>, <code>(</code>,{' '}

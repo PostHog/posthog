@@ -45,7 +45,7 @@ function checklistWith(status: InstrumentationCheckStatusEnumApi): Instrumentati
                 title: 'Sessions',
                 detail: SESSIONS_DETAIL,
                 docs_url: DOCS_URL,
-                stats: { generations: 100, events_with_session: 0 },
+                stats: { generations: 100, events_with_session: 0, events_declining_session: 0 },
             },
         ],
     }

@@ -15,9 +15,11 @@ from products.ai_observability.backend.instrumentation_checklist.grading import 
 
 SESSIONS_WARNING = (
     "No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them "
-    "into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it."
+    "into sessions. Workloads that are complete in one trace, like batch jobs or one-shot generation, do not need it. "
+    "Send $ai_session_id as null on those to say so."
 )
 SESSIONS_OK = "Traces are grouping into sessions."
+SESSIONS_OK_DECLINED = "Traces are marked as finishing in one trace, so there is nothing to group."
 TOOL_CALLS_WARNING_DECLARED = (
     "No tool calls recorded, but you are sending tool definitions. If your agent does call tools, check that your "
     "SDK version reports them."
@@ -55,6 +57,7 @@ def _stats(**overrides: int) -> ChecklistStats:
     counts = {
         "generations": 0,
         "events_with_session": 0,
+        "events_declining_session": 0,
         "generations_with_tool_calls": 0,
         "generations_with_tools_declared": 0,
         "sdk_generations": 0,
@@ -117,6 +120,27 @@ class TestGradeChecklist:
     def test_generation_denominated_checks_stay_pending_at_a_spans_only_project(self, _name: str, key: CheckKey):
         stats = _stats(generations=0, spans=25, events_with_parent=25)
         assert _graded(stats, key).status == CheckStatus.PENDING
+
+    @parameterized.expand(
+        [
+            ("declined_only", 0, 5, CheckStatus.OK, SESSIONS_OK_DECLINED),
+            ("grouped_only", 5, 0, CheckStatus.OK, SESSIONS_OK),
+            # A project instrumenting a chat flow while declining its batch job has both, and the
+            # grouping it does have is the more useful thing to report.
+            ("both", 5, 5, CheckStatus.OK, SESSIONS_OK),
+            ("neither", 0, 0, CheckStatus.WARNING, SESSIONS_WARNING),
+        ]
+    )
+    def test_declining_a_session_answers_the_sessions_check(
+        self, _name: str, with_session: int, declining: int, expected: CheckStatus, expected_detail: str
+    ):
+        stats = _stats(generations=40, events_with_session=with_session, events_declining_session=declining)
+        graded = _graded(stats, CheckKey.SESSIONS)
+        assert (graded.status, graded.detail) == (expected, expected_detail)
+
+    def test_declining_a_session_cannot_lift_a_project_off_the_volume_floor(self):
+        stats = _stats(generations=VOLUME_FLOOR - 1, events_declining_session=VOLUME_FLOOR - 1)
+        assert _graded(stats, CheckKey.SESSIONS).status == CheckStatus.PENDING
 
     def test_trace_structure_is_graded_at_a_spans_only_project(self):
         stats = _stats(generations=0, spans=25)
@@ -291,7 +315,11 @@ class TestGradeChecklist:
 
     @parameterized.expand(
         [
-            (CheckKey.SESSIONS.value, CheckKey.SESSIONS, {"generations": 40, "events_with_session": 7}),
+            (
+                CheckKey.SESSIONS.value,
+                CheckKey.SESSIONS,
+                {"generations": 40, "events_with_session": 7, "events_declining_session": 2},
+            ),
             (
                 CheckKey.TOOL_CALLS.value,
                 CheckKey.TOOL_CALLS,
@@ -315,6 +343,7 @@ class TestGradeChecklist:
         stats = _stats(
             generations=40,
             events_with_session=7,
+            events_declining_session=2,
             generations_with_tool_calls=3,
             generations_with_tools_declared=11,
             sdk_generations=31,
@@ -332,6 +361,7 @@ class TestChecklistStats:
             ChecklistStats(
                 generations=100,
                 events_with_session=0,
+                events_declining_session=0,
                 generations_with_tool_calls=0,
                 generations_with_tools_declared=0,
                 sdk_generations=100,
