@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconArrowUpRight } from '@posthog/icons'
+import { IconArrowUpRight, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -21,16 +21,20 @@ import { ScoutEnabledSwitch } from './ScoutConfigControls'
 /**
  * A compact scout row for surfaces outside the roster — product pages that show the handful of
  * scouts they own (e.g. AI observability). Deliberately read-mostly: name, cadence, the enable
- * switch, and a link into the scout's own page, which is where the rest of it lives.
+ * switch, run now, and a link into the scout's own page, which is where the rest of it lives.
  */
 export function ScoutSummaryRow({
     config,
     onUpdate,
+    onRunNow,
     updating = false,
+    running = false,
 }: {
     config: SignalScoutConfig
     onUpdate: (configId: string, updates: SignalScoutConfigUpdate) => void
+    onRunNow: (configId: string) => void
     updating?: boolean
+    running?: boolean
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const timezone = currentTeam?.timezone ?? 'UTC'
@@ -73,6 +77,19 @@ export function ScoutSummaryRow({
             </div>
             <div className="flex shrink-0 items-center gap-2">
                 <ScoutEnabledSwitch config={config} onUpdate={onUpdate} updating={updating} />
+                <Tooltip title="Start a run now, outside the schedule. Counts against the project's daily run budget.">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        loading={running}
+                        disabledReason={running ? 'Starting a run' : undefined}
+                        onClick={() => onRunNow(config.id)}
+                        data-attr="scout-summary-row-run-now"
+                    >
+                        Run now
+                    </LemonButton>
+                </Tooltip>
                 <Tooltip title="Open this scout">
                     <LemonButton
                         size="small"

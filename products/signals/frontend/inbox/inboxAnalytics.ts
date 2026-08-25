@@ -116,8 +116,11 @@ export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
 
-/** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
+/**
+ * Surface a scout-management event fired from. The first four match the desktop values;
+ * `product_page` is a product's own scouts list (e.g. AI observability self-driving).
+ */
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'product_page'
 
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is

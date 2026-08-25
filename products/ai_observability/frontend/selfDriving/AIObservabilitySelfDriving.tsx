@@ -214,8 +214,8 @@ function ScoutTemplateCard({ template }: { template: AIObservabilityScoutTemplat
 
 export function AIObservabilitySelfDriving(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { scoutConfigs, scoutConfigsLoading, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { loadScoutConfigs, updateScoutConfig } = useActions(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading, updatingScoutIds, manualRunScoutIds } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
     const { evaluations, evaluationsLoadFailed, evaluationsLoading } = useValues(llmEvaluationsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const {
@@ -349,7 +349,9 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                         key={config.id}
                         config={config}
                         onUpdate={updateScoutConfig}
+                        onRunNow={(configId) => runScoutNow(configId, 'product_page')}
                         updating={updatingScoutIds.includes(config.id)}
+                        running={manualRunScoutIds.includes(config.id)}
                     />
                 ))}
             </div>
