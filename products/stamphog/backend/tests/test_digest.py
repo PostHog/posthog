@@ -727,8 +727,12 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         ("missing_key_is_not", '{"summary": "x"}', False),
         # A kept PR must name the rule that admits it. Without that check the model keeps most of a
         # routine batch and calls all of it a customer change, which is the drift the rules catch.
-        ("a_kept_pr_without_a_rule_is_not", '{"prs": [{"index": 0, "summary": "x"}]}', False),
-        ("a_kept_pr_with_an_invented_rule_is_not", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', False),
+        # A response naming real merges that cleared no rule was read, so it is a judged empty
+        # result. Sending it to the fallback would post ten unjudged titles for the one answer that
+        # broke the bar outright.
+        ("a_kept_pr_without_a_rule_is_a_judged_empty", '{"prs": [{"index": 0, "summary": "x"}]}', True),
+        ("an_invented_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', True),
+        ("an_index_naming_no_merge_is_still_unreadable", '{"prs": [{"index": 99, "rule": "contract"}]}', False),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:

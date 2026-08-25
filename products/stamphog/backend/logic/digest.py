@@ -379,6 +379,7 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
     data = json.loads(_strip_code_fence(content))
     picked: list[DigestPRSummary] = []
     filtered = False
+    readable = False
     for item in data.get("prs") or []:
         if not isinstance(item, dict):
             continue
@@ -387,6 +388,7 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
         pr = prs_by_index.get(index) if isinstance(index, int) and not isinstance(index, bool) else None
         if pr is None:
             continue
+        readable = True
         if item.get("rule") not in KEEP_RULES:
             # The model was asked to name the rule that admits this merge. Anything else means it
             # kept the merge without one, which is the drift the named rules exist to catch. A
@@ -407,9 +409,13 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
     raw_prs = data.get("prs")
     # An empty `prs` list IS a usable answer: for an owned audience it means nothing this round was
     # relevant to that team, and falling back there would post the exact noise the filter removed.
-    # A list we could not read a single PR out of is not that answer — it is a broken response
-    # wearing its shape, and accepting it would consume every claimed audience for an empty post.
-    if not picked and raw_prs != []:
+    # A response naming merges that cleared no rule is that answer too. The model was read, it just
+    # kept nothing the bar admits, and falling back there would post ten unjudged titles for the one
+    # response that broke the bar completely.
+    #
+    # A list we could not read a single merge out of is neither. That is a broken response wearing
+    # the shape of an answer, so it takes the fallback.
+    if not picked and not readable and raw_prs != []:
         raise ValueError("LLM returned no recognizable PRs")
     # The headline was written over the whole answer, so a filtered entry can leave it naming a
     # change the thread does not carry. The renderer leads with the scope line instead, which the
