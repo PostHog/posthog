@@ -135,7 +135,7 @@ posthog-events-<run_id>-<part>.jsonl.gz
 posthog-persons-<run_id>-<part>.parquet
 ```
 
-## Watch-outs
+## Important notes
 
 - The maximum export interval is one week. Split longer user requests into separate export runs or ask which week to export.
 - The `hogql` model is in closed beta and is enabled per team. A permission error on that model means the team does not have access yet, not that the request was malformed. Report that back instead of retrying with a different query, and tell the user they can contact PostHog support to request access.
