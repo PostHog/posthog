@@ -543,7 +543,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         it('parks until the date on the event, then continues', async () => {
             // A fixed duration cannot express this: the instant comes from the payload, so two runs of the
             // same workflow park to different times.
-            const expiresAt = DateTime.utc().plus({ seconds: 1.5 })
+            const expiresAt = DateTime.utc().plus({ seconds: 0.5 })
             await workflowWaitingUntil()
             await triggerWorkflow(createGlobals({ properties: { expires_at: expiresAt.toISO() } } as any))
             await waitForExpect(async () => {
