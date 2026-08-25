@@ -7,6 +7,7 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
+import { getFlagVariants } from 'scenes/experiments/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,10 +24,8 @@ import {
     ExperimentsTabs,
     FeatureFlagType,
 } from '~/types'
-
-import type { AvailableFeature, UserType } from '../../types'
-import type { TeamPublicType, TeamType } from '../../types'
-import { getFlagVariants } from './utils'
+import type { AvailableFeature, UserType } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 export const EXPERIMENTS_PER_PAGE = 100
 
@@ -70,14 +69,6 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     page: 1,
     evaluation_runtime: undefined,
 }
-
-export {
-    getExperimentStatus,
-    hasEnded,
-    isExperimentExposureFrozen,
-    isExperimentPaused,
-    isLaunched,
-} from './experimentStatus'
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters

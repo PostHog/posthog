@@ -4,6 +4,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+} from 'scenes/experiments/experimentStatus'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,13 +19,9 @@ import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '
 
 import {
     experimentsLogic,
-    getExperimentStatus,
     getExperimentStatusColor,
     getExperimentStatusLabel,
-    hasEnded,
-    isExperimentExposureFrozen,
-    isExperimentPaused,
-} from './experimentsLogic'
+} from 'products/experiments/frontend/scenes/experimentsLogic'
 
 const createMockExperiment = (overrides: any = {}): Experiment =>
     ({
