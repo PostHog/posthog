@@ -138,7 +138,6 @@ def setup_test_query_runner_class(base: type[QueryRunner] = QueryRunner):
     return TestQueryRunner
 
 
-@override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
 class TestQueryRunner(BaseTest):
     maxDiff = None
 
@@ -251,6 +250,7 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, expected_source_query)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -378,6 +378,7 @@ class TestQueryRunner(BaseTest):
         cache_payload = runner.get_cache_payload()
         assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         # set the pk directly as it affects the hash in the _cache_key call
@@ -388,6 +389,7 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -402,6 +404,7 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         team = Team.objects.create(pk=42, organization=self.organization)
