@@ -19,6 +19,7 @@ import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconGoogleCalendar from 'public/services/google_calendar.png'
+import IconHelpScout from 'public/services/helpscout.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconInstagram from 'public/services/instagram.png'
 import IconIntercom from 'public/services/intercom.png'
@@ -82,6 +83,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     snapchat: IconSnapchat,
     stripe: IconStripe,
     intercom: IconIntercom,
+    helpscout: IconHelpScout,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
     linear: IconLinear,
@@ -148,6 +150,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'helpscout':
+            return 'Help Scout'
         case 'firebase':
             return 'Firebase'
         case 'apns':
