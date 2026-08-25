@@ -2,8 +2,6 @@
 
 What the prediction problem actually _is_: who is in the population, what counts as a positive example, and whether the question is answerable at all.
 
-This package landed ahead of its callers. `../training/`, `../inference/`, and `../presentation/` arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 Nothing here trains or scores anything. It is the shared vocabulary that `../training/` and `../inference/` both compile against — which is the whole point. If the trainer and the scorer disagreed about what a row means, the resulting model would be quietly wrong rather than loudly broken.
 
 ## What lives here
