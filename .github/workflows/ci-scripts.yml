@@ -9,6 +9,14 @@ on:
             - .github/scripts/**
             - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
+            # turbo-discover.test.js pins the Django segment table to these.
+            - .github/workflows/ci-backend.yml
+            - .depot/workflows/ci-backend.yml
+            # The backend test selector and its verdict script gate ci-backend.
+            - tools/snob_backend_test_selection_shadow.py
+            - tools/test_snob_backend_test_selection_shadow.py
+            - tools/test_selection_verdict.py
+            - tools/test_test_selection_verdict.py
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -36,6 +44,7 @@ jobs:
                   fetch-depth: 1
                   sparse-checkout: |
                       /.github/
+                      /.depot/
                       /tools/
                       /proto/
                       /rust/
@@ -63,7 +72,7 @@ jobs:
             # setup-python step. defusedxml + opentelemetry + tools/owners are
             # report_test_timings.py's script deps.
             - name: Install pytest
-              run: python3 -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
+              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the
@@ -78,6 +87,9 @@ jobs:
                       .github/scripts/test_schema_usage_scan.py
                       .github/scripts/test_report_test_timings.py
                       .github/scripts/test_report_workflow_run_traces.py
+                      .github/scripts/test_optimize_test_durations.py
+                      tools/test_snob_backend_test_selection_shadow.py
+                      tools/test_test_selection_verdict.py
                   )
                   present=()
                   for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
@@ -104,6 +116,9 @@ jobs:
                       .github/scripts/weekly-slow-tests-report.test.mjs
                       .github/scripts/patch-cli-npm-installer.test.mjs
                       .github/scripts/turbo-discover-cascade.test.js
+                      .github/scripts/turbo-discover.test.js
+                      .github/scripts/turbo-discover-staleness.test.js
+                      .github/scripts/turbo-discover-sizing.test.js
                       .github/scripts/selected-django-shards.test.js
                       .github/scripts/trunk-impacted-targets.test.js
                   )

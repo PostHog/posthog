@@ -158,7 +158,14 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         ? [
                               {
                                   key: ReplayScannerTab.Scouts,
-                                  label: 'Scouts',
+                                  label: (
+                                      <>
+                                          Scouts{' '}
+                                          <LemonTag type="completion" size="small" className="ml-1">
+                                              Beta
+                                          </LemonTag>
+                                      </>
+                                  ),
                                   content: <ScannerScoutsTab scannerId={scannerId} />,
                               },
                           ]

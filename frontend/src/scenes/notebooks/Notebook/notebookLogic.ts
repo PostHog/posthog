@@ -703,7 +703,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 item_id: props.shortId,
             }),
             ['comments', 'selectedCommentId'],
-            notebookKernelInfoLogic({ shortId: props.shortId }),
+            notebookKernelInfoLogic({ shortId: props.shortId, mode: props.mode }),
             ['kernelInfo'],
             notebookSettingsLogic,
             ['showKernelInfo'],
