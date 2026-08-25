@@ -1,6 +1,7 @@
 import { buildCreateCanvasReportPrompt } from "@posthog/core/inbox/reportActions";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import type { Task } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   type InboxCloudTaskInputContext,
@@ -14,6 +15,8 @@ interface UseCreateCanvasReportOptions {
   /** The space that owns the report, when assigned; the agent falls back to #general. */
   channelId: string | null;
   cloudRepository: string | null;
+  /** Fires once the canvas task exists so the report can open it in the dock. */
+  onTaskCreated?: (task: Task) => void;
 }
 
 interface UseCreateCanvasReportReturn {
@@ -33,6 +36,7 @@ export function useCreateCanvasReport({
   reportTitle,
   channelId,
   cloudRepository,
+  onTaskCreated,
 }: UseCreateCanvasReportOptions): UseCreateCanvasReportReturn {
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const projectId = useAuthStateValue((s) => s.currentProjectId);
@@ -98,6 +102,7 @@ export function useCreateCanvasReport({
     buildInput,
     analyticsExtras: { has_branch: false },
     redirectOnSuccess: false,
+    onTaskCreated,
   });
 
   const createCanvasReport = useCallback(

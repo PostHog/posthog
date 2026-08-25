@@ -10921,9 +10921,9 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Change history for this experiment.
  *
- * Returns a paginated audit trail of changes to the experiment and its holdouts
- * and shared metrics: who made each change, what changed (field-level before/after
- * values), and when. Ordered newest first.
+ * Returns a paginated audit trail of changes to the experiment, its holdouts and
+ * shared metrics, and its linked feature flag: who made each change, what changed
+ * (field-level before/after values), and when. Ordered newest first.
  */
 export const ExperimentsActivityRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),

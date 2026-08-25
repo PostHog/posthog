@@ -21,6 +21,7 @@ import {
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
@@ -112,6 +113,7 @@ export class HogFlowExecutorService {
         hogFlowFunctionsService: HogFlowFunctionsService,
         recipientPreferencesService: RecipientPreferencesService,
         emailValidationService: EmailValidationService,
+        cohortMembershipRepository: CohortMembershipRepository,
         duplicateObserver?: HogFlowDuplicateObserverService
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
@@ -137,8 +139,8 @@ export class HogFlowExecutorService {
 
         this.actionHandlers = {
             trigger: new TriggerHandler(),
-            conditional_branch: new ConditionalBranchHandler(),
-            wait_until_condition: new ConditionalBranchHandler(),
+            conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
+            wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
@@ -889,9 +891,27 @@ export class HogFlowExecutorService {
         }
 
         const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${JSON.stringify(result.invocation.state.variables![key])}`)
+            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
             .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
+    }
+
+    // The create-ai-task destination's result variable is what lets a workflow author jump from a
+    // run's logs to the task it kicked off. Everything else stays plain JSON.
+    private describeStoredVariable(action: HogFlowAction, value: unknown): string {
+        const isCreateAiTaskAction =
+            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+        if (
+            isCreateAiTaskAction &&
+            value &&
+            typeof value === 'object' &&
+            typeof (value as Record<string, unknown>).id === 'string' &&
+            (value as Record<string, unknown>).id !== ''
+        ) {
+            const runId = (value as Record<string, unknown>).run_id
+            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
+        }
+        return JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {
