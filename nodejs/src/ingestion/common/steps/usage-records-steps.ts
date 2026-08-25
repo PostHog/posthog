@@ -44,8 +44,9 @@ export interface RecordEventUsageInput {
  */
 function analyticsRecordId(preparedEvent: RecordEventUsageInput['preparedEvent']): string {
     const day = preparedEvent.timestamp.slice(0, 10)
-    // The separator cannot appear in a hex digest, so no two tuples share an input string.
-    const identity = `${preparedEvent.event}\n${preparedEvent.distinctId}\n${preparedEvent.eventUuid}`
+    // JSON rather than a separator: an event name and a distinct ID can both contain any
+    // character, so `a\nb` with `c` and `a` with `b\nc` would hash the same and bill once.
+    const identity = JSON.stringify([preparedEvent.event, preparedEvent.distinctId, preparedEvent.eventUuid])
     return `${day}:${createHash('sha256').update(identity).digest('hex').slice(0, 32)}`
 }
 
