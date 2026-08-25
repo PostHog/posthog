@@ -7,8 +7,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
-from django.utils import timezone
-from django.utils import timezone as django_timezone
+from django.utils import (
+    timezone,
+    timezone as django_timezone,
+)
 
 from parameterized import parameterized
 from rest_framework import status
