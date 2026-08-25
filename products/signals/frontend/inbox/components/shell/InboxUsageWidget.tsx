@@ -99,7 +99,7 @@ function EditLimitModal(): JSX.Element {
                 </>
             }
         >
-            <Form logic={inboxUsageLogic} formKey="limitForm" className="flex flex-col gap-3">
+            <Form logic={inboxUsageLogic} formKey="limitForm" enableFormOnSubmit className="flex flex-col gap-3">
                 <LemonField name="prs" label="Monthly limit (PRs)">
                     <LemonInput type="number" min={0} step={1} autoFocus />
                 </LemonField>
