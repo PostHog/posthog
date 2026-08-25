@@ -162,6 +162,7 @@ USAGE_REPORT_PARENT_TASK_KWARGS = {
 
 
 @dataclasses.dataclass
+# nosemgrep: prefer-frozen-dataclasses -- pre-existing; OrgReport subclasses it, out of scope here
 class UsageReportCounters:
     event_count_in_period: int
     enhanced_persons_event_count_in_period: int

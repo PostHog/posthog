@@ -228,6 +228,7 @@ def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tup
     }
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- matches the (team_id, value) row pairs this module already returns
 def _workflow_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_workflow_compute_usage_in_period(begin, end)
     return {
