@@ -86,9 +86,24 @@ describe('session recording utils', () => {
             ['current URL: hint and swap', [pageProperty('$current_url')], true, true],
             ['pathname: hint and swap', [pageProperty('$pathname')], true, true],
             ['pageview scoped by URL: hint and swap', [pageview([pageProperty('$current_url')])], true, true],
-            // Recorded URLs are absolute, so an exact pathname value would stop matching once rewritten.
+            // Recorded URLs are absolute, so an exact pathname value or an anchored pathname pattern
+            // would stop matching once rewritten.
             ['exact pathname: hint only', [pageProperty('$pathname', PropertyOperator.Exact)], true, false],
             ['is-not pathname: hint only', [pageProperty('$pathname', PropertyOperator.IsNot)], true, false],
+            ['regex pathname: hint only', [pageProperty('$pathname', PropertyOperator.Regex, '^/docs')], true, false],
+            [
+                'not-regex pathname: hint only',
+                [pageProperty('$pathname', PropertyOperator.NotRegex, '^/docs')],
+                true,
+                false,
+            ],
+            // A negated entity means "sessions without any matching pageview"; a positive visited_page inverts it.
+            [
+                'negated pageview scoped by URL: hint only',
+                [{ ...pageview([pageProperty('$current_url')]), negation: true }],
+                true,
+                false,
+            ],
             // The backend negates the whole array match, so these mean "no URL matches" on both sides.
             [
                 'negated current URL: hint and swap',
@@ -133,6 +148,7 @@ describe('session recording utils', () => {
                         type: FilterLogicalOperator.And,
                         values: [
                             pageProperty('$current_url'),
+                            pageview([pageProperty('$current_url', PropertyOperator.Regex, 'posthog.com/docs')]),
                             pageview([pageProperty('$pathname', PropertyOperator.Regex, '^/docs')]),
                             pageProperty('$current_url', PropertyOperator.NotIContains),
                             pageProperty('$pathname', PropertyOperator.Exact),
@@ -153,8 +169,9 @@ describe('session recording utils', () => {
                     type: PropertyFilterType.Recording,
                     key: 'visited_page',
                     operator: PropertyOperator.Regex,
-                    value: '^/docs',
+                    value: 'posthog.com/docs',
                 },
+                pageview([pageProperty('$pathname', PropertyOperator.Regex, '^/docs')]),
                 {
                     type: PropertyFilterType.Recording,
                     key: 'visited_page',

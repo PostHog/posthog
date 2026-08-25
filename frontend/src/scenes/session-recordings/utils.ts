@@ -71,25 +71,25 @@ const VISITED_PAGE_SAFE_OPERATORS: PropertyOperator[] = [
     PropertyOperator.NotRegex,
 ]
 
-// Recorded URLs are absolute, so an exact `$pathname` would stop matching once rewritten. Substring
-// and pattern matches still line up.
+// Recorded URLs are absolute, so an exact `$pathname` value or an anchored `$pathname` pattern
+// (e.g. `^/docs`) would stop matching once rewritten. Only substring matches still line up.
+const PATHNAME_SAFE_OPERATORS: PropertyOperator[] = [PropertyOperator.IContains, PropertyOperator.NotIContains]
+
 const isSwappablePageProperty = (filter: PageProperty): boolean =>
     isPagePropertyFilter(filter) &&
     VISITED_PAGE_SAFE_OPERATORS.includes(filter.operator!) &&
-    !(
-        filter.key === '$pathname' &&
-        (filter.operator === PropertyOperator.Exact || filter.operator === PropertyOperator.IsNot)
-    )
+    (filter.key !== '$pathname' || PATHNAME_SAFE_OPERATORS.includes(filter.operator!))
 
 const isSwappablePageFilter = (filter: UniversalFilterValue): boolean =>
     filter.type === PropertyFilterType.Event && isSwappablePageProperty(filter)
 
 /**
  * A pageview event filter is the other way people express "visited this page". It only maps cleanly onto
- * `visited_page` when the URL property is the only thing scoping the event.
+ * `visited_page` when the URL property is the only thing scoping the event, and the entity isn't negated:
+ * a negated entity means "sessions without any matching pageview", which a positive `visited_page` inverts.
  */
 const isSwappablePageviewFilter = (filter: UniversalFilterValue): boolean => {
-    if (!isEventFilter(filter) || filter.id !== '$pageview') {
+    if (!isEventFilter(filter) || filter.id !== '$pageview' || filter.negation) {
         return false
     }
     const properties = filter.properties ?? []
