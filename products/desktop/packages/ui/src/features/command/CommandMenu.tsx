@@ -4,6 +4,7 @@ import {
   CaretRightIcon,
   ChartLine,
   EnvelopeSimple,
+  Gauge,
   GitDiffIcon,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
@@ -408,6 +409,14 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
             },
           ]
         : []),
+      {
+        id: "cost-management",
+        label: "Cost management",
+        keywords: "cost spend limits budget savings recommendations",
+        icon: <Gauge size={12} className="text-gray-11" />,
+        action: "open-cost-management",
+        onRun: () => openSettingsDialog("cost-management"),
+      },
       {
         id: "plan-usage",
         label: "Plan & usage",
