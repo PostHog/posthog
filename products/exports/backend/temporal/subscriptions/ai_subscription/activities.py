@@ -82,30 +82,42 @@ class DiagnosticCounts:
     failed_step_count: int
     total_step_count: int
     error_types: list[str]
+    query_errors: list[dict[str, str]]
 
 
-def _tally_diagnostics(steps: list[tuple[bool, str | None]]) -> DiagnosticCounts:
+def _tally_diagnostics(steps: list[tuple[bool, str | None, str | None, str | None]]) -> DiagnosticCounts:
     # Failed/total step counts plus sorted distinct failure types from (ok, error_type)
     # pairs — shared by the persisted-snapshot and in-memory diagnostic paths.
-    failed = [error_type for ok, error_type in steps if not ok]
-    error_types = sorted({str(error_type) for error_type in failed if error_type})
-    return DiagnosticCounts(failed_step_count=len(failed), total_step_count=len(steps), error_types=error_types)
+    failed = [(error_type, error_code, error_message) for ok, error_type, error_code, error_message in steps if not ok]
+    error_types = sorted({str(error_type) for error_type, _, _ in failed if error_type})
+    query_errors = [
+        {"code": error_code, "message": error_message}
+        for _, error_code, error_message in failed
+        if error_code and error_message
+    ]
+    return DiagnosticCounts(
+        failed_step_count=len(failed), total_step_count=len(steps), error_types=error_types, query_errors=query_errors
+    )
 
 
 def _snapshot_diagnostic_counts(snapshot: dict | None) -> DiagnosticCounts:
     # The prior run's failure shape, read back from the persisted diagnostics on Temporal redispatch.
     diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
     if not isinstance(diagnostics, list):
-        return DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
+        return DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[], query_errors=[])
     # Only well-formed dict entries count — a malformed one would inflate the total and mask an
     # all-failed report; `ok is not False` keeps a missing/None ok out of the failed set.
     return _tally_diagnostics(
-        [(d.get("ok") is not False, d.get("error_type")) for d in diagnostics if isinstance(d, dict)]
+        [
+            (d.get("ok") is not False, d.get("error_type"), d.get("error_code"), d.get("human_readable_error"))
+            for d in diagnostics
+            if isinstance(d, dict)
+        ]
     )
 
 
 def _report_diagnostic_counts(result: AiReportResult) -> DiagnosticCounts:
-    return _tally_diagnostics([(d.ok, d.error_type) for d in result.diagnostics])
+    return _tally_diagnostics([(d.ok, d.error_type, d.error_code, d.human_readable_error) for d in result.diagnostics])
 
 
 async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult, prompt: str | None) -> None:
@@ -231,6 +243,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             failed_step_count=counts.failed_step_count,
             total_step_count=counts.total_step_count,
             query_error_types=counts.error_types,
+            query_errors=counts.query_errors,
             target_type=subscription.target_type,
         )
 
@@ -315,6 +328,7 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         failed_step_count=counts.failed_step_count,
         total_step_count=counts.total_step_count,
         query_error_types=counts.error_types,
+        query_errors=counts.query_errors,
         target_type=subscription.target_type,
     )
 

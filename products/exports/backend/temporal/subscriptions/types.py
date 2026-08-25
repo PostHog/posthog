@@ -2,57 +2,40 @@ import uuid
 import typing
 import dataclasses
 
+from rest_framework.exceptions import APIException
+
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.slo.types import SloConfig
 
-UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
-QUERY_FAILURE_DETAILS = {
-    ClickHouseQueryMemoryLimitExceeded.__name__: {
-        "code": ClickHouseQueryMemoryLimitExceeded.default_code,
-        "message": ClickHouseQueryMemoryLimitExceeded.default_detail,
-    }
-}
+class QueryErrorDetails(typing.TypedDict):
+    code: str
+    message: str
 
 
-def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
+def safe_query_error_details(exc: BaseException) -> QueryErrorDetails | None:
+    """Returns the same safe code and message exposed by query APIs."""
     seen: set[int] = set()
-    current: typing.Optional[BaseException] = exc
+    current: BaseException | None = exc
     while current is not None and id(current) not in seen:
-        type_name = type(current).__name__
-        if type_name in UNDISCLOSED_QUERY_ERROR_TYPES:
-            return type_name
+        if isinstance(current, APIException):
+            code = current.get_codes()
+            if isinstance(code, str) and isinstance(current.detail, str):
+                return {"code": code, "message": str(current.detail).replace("\x00", "")}
+        elif isinstance(current, ExposedHogQLError):
+            return {"code": current.code_name, "message": str(current).replace("\x00", "")}
+        elif isinstance(current, ResolutionError):
+            return {"code": "hogql_resolution_error", "message": str(current).replace("\x00", "")}
         seen.add(id(current))
         current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
     return None
 
 
 def safe_error_message(exc: BaseException) -> typing.Optional[str]:
-    """Owner-safe snippet of an exception, or None when the text may carry team-scoped data.
-
-    HogQL/ClickHouse error text can echo team-scoped identifiers (query data, internal
-    names), so only the query-structure error classes (which describe the field/property the
-    query referenced) are safe to surface to the subscription owner — the same trust boundary
-    the HogQL repair loop uses when forwarding to the fixer. Everything else returns None so
-    the caller falls back to a generic message. Executors often wrap a resolution/exposed
-    error in a generic Exception, so walk the __cause__/__context__ chain for a wrapped safe
-    message.
-
-    The result is persisted to Postgres jsonb columns, so NUL bytes are stripped (Postgres
-    rejects them); callers of the sibling raw "message" field already expect this scrub. The
-    walk honours ``raise ... from None`` (``__suppress_context__``) — a deliberately severed
-    chain stays severed, so an internal error the author meant to hide is never surfaced.
-    """
-    seen: set[int] = set()
-    current: typing.Optional[BaseException] = exc
-    while current is not None and id(current) not in seen:
-        if isinstance(current, (ExposedHogQLError, ResolutionError)):
-            return str(current).replace("\x00", "")
-        seen.add(id(current))
-        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
-    return None
+    """Returns a safe user-facing query error message when one is available."""
+    details = safe_query_error_details(exc)
+    return details["message"] if details else None
 
 
 class DeliveryStatus:
@@ -278,6 +261,7 @@ class GenerateAIReportResult:
     failed_step_count: int = 0
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
+    query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
     target_type: str = ""
 
     @property
@@ -286,12 +270,10 @@ class GenerateAIReportResult:
         return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
     def failure_error(self) -> dict[str, str]:
-        for error_type in self.query_error_types:
-            if details := QUERY_FAILURE_DETAILS.get(error_type):
-                return {"type": "AIReportQueryFailure", **details}
+        if self.query_errors:
+            return {"type": "AIReportQueryFailure", **self.query_errors[0]}
 
-        disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
-        detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
+        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
         subject = (
             "The query the AI generated"
             if self.total_step_count == 1

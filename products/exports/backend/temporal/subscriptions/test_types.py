@@ -1,8 +1,22 @@
 from parameterized import parameterized
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
-from products.exports.backend.temporal.subscriptions.types import DeliveryStatus, GenerateAIReportResult
+from products.exports.backend.temporal.subscriptions.types import (
+    DeliveryStatus,
+    GenerateAIReportResult,
+    safe_query_error_details,
+)
+
+
+@parameterized.expand(
+    [
+        ("memory_limit", ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded.default_code),
+        ("timeout", ClickHouseQueryTimeOut(), ClickHouseQueryTimeOut.default_code),
+    ]
+)
+def test_safe_query_error_details_matches_query_api(_name: str, exc, expected_code: str) -> None:
+    assert safe_query_error_details(exc) == {"code": expected_code, "message": str(exc.detail)}
 
 
 class TestGenerateAIReportResult:
@@ -30,11 +44,13 @@ class TestGenerateAIReportResult:
                 "single_no_types",
                 1,
                 [],
+                [],
                 "The query the AI generated failed to run, so the report could not be computed.",
             ),
             (
                 "multiple_no_types",
                 3,
+                [],
                 [],
                 "All 3 queries the AI generated failed to run, so the report could not be computed.",
             ),
@@ -42,33 +58,46 @@ class TestGenerateAIReportResult:
                 "single_with_type",
                 1,
                 ["ExposedHogQLError"],
+                [],
                 "The query the AI generated failed to run (ExposedHogQLError), so the report could not be computed.",
             ),
             (
                 "multiple_with_types",
                 2,
                 ["ExposedHogQLError", "ResolutionError"],
+                [],
                 "All 2 queries the AI generated failed to run (ExposedHogQLError, ResolutionError), so the report could not be computed.",
             ),
             (
                 "memory_limit_has_actionable_reason",
                 1,
                 ["ClickHouseQueryMemoryLimitExceeded"],
+                [
+                    {
+                        "code": ClickHouseQueryMemoryLimitExceeded.default_code,
+                        "message": ClickHouseQueryMemoryLimitExceeded.default_detail,
+                    }
+                ],
                 ClickHouseQueryMemoryLimitExceeded.default_detail,
             ),
             (
-                "memory_limit_takes_priority_over_other_types",
+                "timeout_has_actionable_reason",
                 2,
-                ["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
-                ClickHouseQueryMemoryLimitExceeded.default_detail,
+                ["ClickHouseQueryTimeOut", "ResolutionError"],
+                [{"code": ClickHouseQueryTimeOut.default_code, "message": ClickHouseQueryTimeOut.default_detail}],
+                ClickHouseQueryTimeOut.default_detail,
             ),
         ]
     )
-    def test_failure_error(self, _name, total: int, error_types: list[str], expected_message: str) -> None:
-        result = GenerateAIReportResult(failed_step_count=total, total_step_count=total, query_error_types=error_types)
+    def test_failure_error(
+        self, _name, total: int, error_types: list[str], query_errors: list[dict[str, str]], expected_message: str
+    ) -> None:
+        result = GenerateAIReportResult(
+            failed_step_count=total, total_step_count=total, query_error_types=error_types, query_errors=query_errors
+        )
         expected_error = {"message": expected_message, "type": "AIReportQueryFailure"}
-        if ClickHouseQueryMemoryLimitExceeded.__name__ in error_types:
-            expected_error["code"] = ClickHouseQueryMemoryLimitExceeded.default_code
+        if query_errors:
+            expected_error["code"] = query_errors[0]["code"]
         assert result.failure_error() == expected_error
 
     # delivered_status maps a shipped report to the status the workflow records: fully degraded (every query

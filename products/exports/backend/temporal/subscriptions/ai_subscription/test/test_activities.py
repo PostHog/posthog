@@ -81,6 +81,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             "hogql": "SELECT count()",
             "ok": True,
             "error_type": None,
+            "error_code": None,
             "human_readable_error": None,
         },
         {
@@ -88,6 +89,7 @@ async def test_persist_ai_report_writes_markdown_query_diagnostics_and_prompt(te
             "hogql": "SELECT bad",
             "ok": False,
             "error_type": "ResolutionError",
+            "error_code": None,
             "human_readable_error": None,
         },
     ]
@@ -162,7 +164,10 @@ class TestReportDiagnosticCounts:
             ),
         )
         assert _report_diagnostic_counts(result) == DiagnosticCounts(
-            failed_step_count=expected_failed, total_step_count=expected_total, error_types=expected_types
+            failed_step_count=expected_failed,
+            total_step_count=expected_total,
+            error_types=expected_types,
+            query_errors=[],
         )
 
     def test_distinct_error_types_are_sorted_and_deduped(self):
@@ -176,7 +181,10 @@ class TestReportDiagnosticCounts:
             ),
         )
         assert _report_diagnostic_counts(result) == DiagnosticCounts(
-            failed_step_count=3, total_step_count=3, error_types=["ExposedHogQLError", "ResolutionError"]
+            failed_step_count=3,
+            total_step_count=3,
+            error_types=["ExposedHogQLError", "ResolutionError"],
+            query_errors=[],
         )
 
 
@@ -198,13 +206,13 @@ async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, us
     )
 
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == DiagnosticCounts(
-        failed_step_count=1, total_step_count=2, error_types=["ResolutionError"]
+        failed_step_count=1, total_step_count=2, error_types=["ResolutionError"], query_errors=[]
     )
 
 
 async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user) -> None:
     delivery = await _create_delivery(team, user)
     # Empty content_snapshot (nothing persisted yet) and a fully-missing snapshot both report nothing failed.
-    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[])
+    empty_counts = DiagnosticCounts(failed_step_count=0, total_step_count=0, error_types=[], query_errors=[])
     assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == empty_counts
     assert _snapshot_diagnostic_counts(None) == empty_counts

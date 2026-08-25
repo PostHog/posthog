@@ -267,18 +267,22 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
+async def test_run_steps_placeholder_includes_safe_query_error(mock_executor_cls: MagicMock) -> None:
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
     rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 1
-    assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+    assert rendered[0] == (
+        f"### s0\n\n_{QUERY_FAILED_PREFIX} — {ClickHouseQueryMemoryLimitExceeded.default_detail}"
+        " — metric not computed, not empty data._"
+    )
     assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
-    assert diagnostics[0].human_readable_error is None
+    assert diagnostics[0].error_code == ClickHouseQueryMemoryLimitExceeded.default_code
+    assert diagnostics[0].human_readable_error == ClickHouseQueryMemoryLimitExceeded.default_detail
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
-async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
+async def test_run_steps_placeholder_includes_wrapped_safe_query_error(
     mock_hogql_fix: AsyncMock, mock_executor_cls: MagicMock
 ) -> None:
     error = MaxToolRetryableError("Memory limit exceeded")
@@ -288,8 +292,13 @@ async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
     rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
 
     assert failed == 1
-    assert rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
-    assert diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    assert rendered[0] == (
+        f"### s0\n\n_{QUERY_FAILED_PREFIX} — {ClickHouseQueryMemoryLimitExceeded.default_detail}"
+        " — metric not computed, not empty data._"
+    )
+    assert diagnostics[0].error_type == "MaxToolRetryableError"
+    assert diagnostics[0].error_code == ClickHouseQueryMemoryLimitExceeded.default_code
+    assert diagnostics[0].human_readable_error == ClickHouseQueryMemoryLimitExceeded.default_detail
     mock_hogql_fix.assert_awaited_once()
 
 
