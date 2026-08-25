@@ -96,8 +96,11 @@ const isSwappablePageFilter = (filter: UniversalFilterValue): boolean =>
 
 /**
  * A pageview event filter is the other way people express "visited this page". It only maps cleanly onto
- * `visited_page` when the URL property is the only thing scoping the event, and the entity isn't negated:
- * a negated entity means "sessions without any matching pageview", which a positive `visited_page` inverts.
+ * `visited_page` when the URL property is the only thing scoping the event, and nothing is negated:
+ * a negated entity means "sessions without any matching pageview", and a negated URL property compiles
+ * to an existential predicate ("session has a pageview whose URL doesn't match", still requiring a
+ * pageview to exist), while a negated `visited_page` means "no recorded URL matches" with no such
+ * requirement.
  */
 const isSwappablePageviewFilter = (filter: UniversalFilterValue): boolean => {
     if (!isEventFilter(filter) || filter.id !== '$pageview' || filter.negation) {
@@ -107,7 +110,8 @@ const isSwappablePageviewFilter = (filter: UniversalFilterValue): boolean => {
     return (
         properties.length === 1 &&
         properties[0].type === PropertyFilterType.Event &&
-        isSwappablePageProperty(properties[0])
+        isSwappablePageProperty(properties[0]) &&
+        !NEGATED_PAGE_OPERATORS.includes(properties[0].operator!)
     )
 }
 
@@ -134,6 +138,22 @@ const isAndOnlyGroup = (group: UniversalFiltersGroup): boolean =>
 export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
     filtersFromUniversalFilterGroups(filters).some((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
 
+// The backend routes `visited_page` into HAVING, where it is AND'd against the event filters it
+// used to share a group with, so swapping one member of a match-any group turns the union into an
+// intersection. A match-any group is only safe when every member is a page filter being swapped:
+// then the whole group survives as one OR of `visited_page` predicates.
+const orGroupsContainOnlySwappablePageFilters = (group: UniversalFiltersGroup): boolean =>
+    group.values.every((value) => {
+        if (value && typeof value === 'object' && 'values' in value && Array.isArray(value.values)) {
+            return orGroupsContainOnlySwappablePageFilters(value)
+        }
+        if (group.type !== FilterLogicalOperator.Or) {
+            return true
+        }
+        const filter = value as UniversalFilterValue
+        return isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)
+    })
+
 /** Whether every page filter can be rewritten to `visited_page` without changing which recordings match. */
 export const canSwapPageFiltersForVisitedPage = (filters: RecordingUniversalFilters): boolean => {
     const filterList = filtersFromUniversalFilterGroups(filters)
@@ -141,6 +161,7 @@ export const canSwapPageFiltersForVisitedPage = (filters: RecordingUniversalFilt
     const negatedSwapIsSafe = isAndOnlyGroup(filters.filter_group)
     return (
         pageFilters.length > 0 &&
+        orGroupsContainOnlySwappablePageFilters(filters.filter_group) &&
         pageFilters.every(
             (filter) =>
                 (isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)) &&

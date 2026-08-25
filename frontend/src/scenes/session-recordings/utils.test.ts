@@ -156,6 +156,35 @@ describe('session recording utils', () => {
             expect(canSwapPageFiltersForVisitedPage(orGroup(pageview([negated])))).toBe(false)
         })
 
+        it('does not swap a match-any group that mixes page filters with other filters', () => {
+            const orGroup = (...values: any[]): RecordingUniversalFilters =>
+                withFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.Or, values }],
+                })
+
+            // visited_page lands in the always-AND'd HAVING, so swapping one branch of an OR
+            // turns the union with the remaining event filter into an intersection.
+            const mixed = orGroup(pageProperty('$current_url'), event('a'))
+            expect(hasPageFilter(mixed)).toBe(true)
+            expect(canSwapPageFiltersForVisitedPage(mixed)).toBe(false)
+
+            // All members swap together, so the OR survives among the visited_page predicates.
+            expect(
+                canSwapPageFiltersForVisitedPage(
+                    orGroup(pageProperty('$current_url'), pageview([pageProperty('$pathname')]))
+                )
+            ).toBe(true)
+        })
+
+        it('does not swap a pageview scoped by a negated URL property even under match-all', () => {
+            // Pre-swap this still requires a pageview to exist ("has a pageview whose URL doesn't
+            // match"); a bare negated visited_page has no such requirement.
+            const negatedScoped = pageview([pageProperty('$current_url', PropertyOperator.NotIContains)])
+            expect(hasPageFilter(group(negatedScoped))).toBe(true)
+            expect(canSwapPageFiltersForVisitedPage(group(negatedScoped))).toBe(false)
+        })
+
         it('swaps nested filters and leaves everything else alone', () => {
             const swapped = swapPageFiltersForVisitedPage({
                 type: FilterLogicalOperator.And,
