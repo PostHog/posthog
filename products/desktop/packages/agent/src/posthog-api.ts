@@ -239,7 +239,11 @@ export class PostHogAPIClient {
       const user = await this.apiRequest<{
         id?: number;
         distinct_id?: string;
-      }>("/api/users/@me/");
+      }>("/api/users/@me/", {
+        // Best-effort header on session start: bound the request so a stalled
+        // socket can't hold up the run. The catch below then returns null.
+        signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
+      });
       this.userNode =
         user.distinct_id || (user.id != null ? `user_${user.id}` : null);
     } catch {
