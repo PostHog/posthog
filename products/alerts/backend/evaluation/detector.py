@@ -8,7 +8,7 @@ from posthog.schema import TrendsAlertConfig, TrendsQuery
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.event_usage import EventSource
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -51,6 +51,7 @@ def extract_detector_series(
     execution_mode: ExecutionMode,
     *,
     max_cache_age_seconds: int | None = None,
+    analytics_props: AnalyticsProps | None = None,
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
@@ -87,7 +88,7 @@ def extract_detector_series(
         max_cache_age_seconds=max_cache_age_seconds,
         user=user,
         filters_override=filters_override,
-        analytics_props={"source": EventSource.ALERT},
+        analytics_props=analytics_props,
     )
 
     if calculation_result.result is None:
@@ -223,6 +224,7 @@ class TrendsDetectorExtractor:
             detector_config,
             execution_mode,
             max_cache_age_seconds=max_cache_age_seconds,
+            analytics_props={"source": EventSource.ALERT},
             series_index=series_index,
             user=alert.created_by,
         )
@@ -230,7 +232,8 @@ class TrendsDetectorExtractor:
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
         trends_query = TrendsQuery.model_validate(query)
         # Simulation isn't cadence-bound, so high_frequency=False and no freshness bound; the
-        # interval still forces fresh on HOUR.
+        # interval still forces fresh on HOUR. It is also not an alert check, so it reports no
+        # alert source.
         execution_mode = execution_mode_for_alert(trends_query.interval, high_frequency=False)
         result = extract_detector_series(
             insight,
