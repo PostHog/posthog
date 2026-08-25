@@ -28,7 +28,7 @@ export function useInboxDeepLink() {
 
   const openReport = useOpenInboxReport();
   const open = useCallback(
-    (reportId: string | null) => {
+    (reportId: string | null): void => {
       if (reportId) {
         void openReport(reportId);
       } else {

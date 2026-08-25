@@ -262,7 +262,7 @@ def visible_report_count(team_id: int) -> int:
     return SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False).count()
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class InboxReportSummary:
     """One report, named well enough for an agent to offer it by id."""
 
