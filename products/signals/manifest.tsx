@@ -4,9 +4,7 @@ import type { InboxTabKey } from './frontend/inbox/types'
 export const manifest: ProductManifest = {
     name: 'Signals',
     urls: {
-        // Tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>. The Reports tab's view
-        // (Needs a decision / Monitoring / Resolved) rides on a `?view=` search param, so a report URL
-        // keeps the view it was opened from and returns to it.
+        // Tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
         inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
         inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
         // Triage mode: the Needs-a-decision queue one report at a time, full-width over the list.
