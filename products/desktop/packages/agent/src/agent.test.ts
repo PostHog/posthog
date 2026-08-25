@@ -123,6 +123,38 @@ describe("Agent", () => {
     );
   });
 
+  it("asserts the person's node so the gateway's per-user spend limit applies", async () => {
+    fetchMock.mockImplementation((url: unknown) =>
+      Promise.resolve({
+        ok: true,
+        json: vi
+          .fn()
+          .mockResolvedValue(
+            String(url).includes("/api/users/@me/")
+              ? { distinct_id: "user-distinct-1" }
+              : { origin_product: "posthog_code" },
+          ),
+      }),
+    );
+    const agent = new Agent({
+      posthog: {
+        apiUrl: "https://us.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      },
+      skipLogPersistence: true,
+    });
+
+    await agent.run("task-1", "run-1", { adapter: "claude" });
+
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
+      "X-PostHog-User: user-distinct-1",
+    );
+  });
+
   it("does not fetch or add task attribution for preview sessions", async () => {
     const agent = new Agent({
       posthog: {
