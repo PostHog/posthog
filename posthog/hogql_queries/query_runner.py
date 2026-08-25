@@ -1,3 +1,4 @@
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -1632,6 +1633,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.user = user
         self.timings = timings or HogQLTimings()
         self._shared_database: Optional[Database] = None
+        self._shared_database_build_lock = threading.Lock()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
         self.workload = workload
@@ -1679,13 +1681,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         tables, and it is identical for every query in one run. Built lazily so cache hits
         never pay for it; dropped by _on_user_changed so access control follows the user."""
         if self._shared_database is None:
-            with self.timings.measure("build_shared_database"):
-                self._shared_database = Database.create_for(
-                    team=self.team,
-                    user=self.user,
-                    modifiers=self.modifiers,
-                    timings=self.timings,
-                )
+            # Concurrent query threads (funnels compare mode) can first-touch this property at the
+            # same time. The lock makes the build run once, and keeps the measure on the single
+            # builder thread because HogQLTimings is not thread-safe.
+            with self._shared_database_build_lock:
+                if self._shared_database is None:
+                    with self.timings.measure("build_shared_database"):
+                        self._shared_database = Database.create_for(
+                            team=self.team,
+                            user=self.user,
+                            modifiers=self.modifiers,
+                            timings=self.timings,
+                        )
         return self._shared_database
 
     def build_hogql_context(self, **kwargs: Any) -> HogQLContext:
