@@ -39,8 +39,6 @@ def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandb
 def test_start_agent_server_health_check_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
     with (
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
-        patch.object(sandbox, "_free_agent_server_port"),
         patch.object(sandbox, "write_file"),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
         patch.object(sandbox, "_launch_and_check", return_value=False),
@@ -88,8 +86,6 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
     with (
         patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
-        patch.object(sandbox, "_free_agent_server_port"),
         patch.object(sandbox, "write_file"),
         patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
         patch.object(sandbox, "execute", return_value=failed),
@@ -100,35 +96,6 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
 
     # A genuine non-zero launch is a real fault — it still gets captured.
     capture_exception.assert_called_once()
-
-
-def test_start_agent_server_skips_relaunch_when_already_healthy(sandbox: DockerSandbox):
-    with (
-        patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "_agent_server_is_healthy", return_value=True),
-        patch.object(sandbox, "_free_agent_server_port") as free_agent_server_port,
-        patch.object(sandbox, "execute") as execute,
-    ):
-        sandbox.start_agent_server(repository=None, task_id="t1", run_id="r1")
-
-    free_agent_server_port.assert_not_called()
-    execute.assert_not_called()
-
-
-def test_start_agent_server_frees_port_before_relaunch(sandbox: DockerSandbox):
-    with (
-        patch.object(sandbox, "is_running", return_value=True),
-        patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
-        patch.object(sandbox, "_free_agent_server_port") as free_agent_server_port,
-        patch.object(sandbox, "write_file"),
-        patch.object(sandbox, "_install_gh_guard"),
-        patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=False),
-        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
-        patch.object(sandbox, "_launch_and_check", return_value=True),
-    ):
-        sandbox.start_agent_server(repository=None, task_id="t1", run_id="r1")
-
-    free_agent_server_port.assert_called_once_with()
 
 
 @parameterized.expand([("empty", b""), ("with_content", b"GITHUB_TOKEN=ghs_x\x00")])

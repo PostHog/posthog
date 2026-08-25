@@ -15543,18 +15543,9 @@ export namespace Schemas {
       origins: string[];
     }
 
-    export interface CanvasNotebookCapabilities {
-      /**
-         * @maxItems 100
-         * @items.maxLength 128
-         */
-      frames: string[];
-    }
-
     export interface CanvasCapabilities {
       posthog: CanvasPostHogCapabilities;
       network: CanvasNetworkCapabilities;
-      notebook?: CanvasNotebookCapabilities;
     }
 
     /**
@@ -15578,8 +15569,6 @@ export namespace Schemas {
       state_scopes_added: string[];
       /** Action verbs the draft newly declares it may invoke via ph.actions. */
       actions_added: string[];
-      /** Notebook frame names the draft newly declares it may read. */
-      notebook_frames_added: string[];
     }
 
     /**
@@ -16195,7 +16184,7 @@ export namespace Schemas {
       canvasSdkVersion?: string;
       /** Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config. */
       component?: CanvasComponentMeta;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it runs ad-hoc HogQL. The host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
       capabilities?: CanvasCapabilities;
     }
 
@@ -39332,25 +39321,6 @@ export namespace Schemas {
       last_used_at: string | null;
     }
 
-    export interface GenUIEnsureRequest {
-      /**
-         * Instructions for the custom visualization.
-         * @maxLength 20000
-         */
-      prompt: string;
-      /**
-         * Ordered dataframe names the visualization may read.
-         * @maxItems 4
-         * @items.maxLength 128
-         */
-      inputs: string[];
-      /**
-         * Existing POC canvas to adopt when this notebook node has no persisted GenUI state.
-         * @nullable
-         */
-      legacy_canvas_id?: string | null;
-    }
-
     export interface GenUIError {
       /** Stable machine-readable error code. */
       code: string;
@@ -39370,218 +39340,72 @@ export namespace Schemas {
       name: string;
       /** Dataframe columns and types. */
       columns: GenUIInputColumn[];
-      /** Bounded, JSON-safe preview rows. */
+      /** Bounded, JSON-safe preview rows from the latest successful cell run. */
       rows: unknown[][];
       /**
-         * Total rows reported by the upstream run.
+         * Total rows reported by the notebook run.
          * @minimum 0
          */
       totalRowCount: number;
       /**
-         * Rows included in this snapshot.
+         * Rows included in this response.
          * @minimum 0
          */
       includedRowCount: number;
-      /** Whether rows were omitted from the bounded snapshot. */
+      /** Whether rows were omitted from this response. */
       truncated: boolean;
     }
 
-    /**
-     * * `missing` - missing
-     * * `never_run` - never_run
-     * * `running` - running
-     * * `failed` - failed
-     * * `interrupted` - interrupted
-     * * `stale` - stale
-     * * `ready` - ready
-     */
-    export type InputStatusEnum = typeof InputStatusEnum[keyof typeof InputStatusEnum];
-
-
-    export const InputStatusEnum = {
-      Missing: 'missing',
-      NeverRun: 'never_run',
-      Running: 'running',
-      Failed: 'failed',
-      Interrupted: 'interrupted',
-      Stale: 'stale',
-      Ready: 'ready',
-    } as const;
-
-    export interface GenUIInputState {
-      /** Requested dataframe name. */
-      name: string;
-      /** Current lifecycle state of the cell that produces this dataframe.
-       *
-       * * `missing` - missing
-       * * `never_run` - never_run
-       * * `running` - running
-       * * `failed` - failed
-       * * `interrupted` - interrupted
-       * * `stale` - stale
-       * * `ready` - ready */
-      input_status: InputStatusEnum;
+    export interface GenUIGenerateRequest {
       /**
-         * Notebook node that produces the dataframe, when one exists.
-         * @nullable
+         * Instructions for the generated visualization.
+         * @maxLength 20000
          */
-      producer_node_id?: string | null;
+      prompt: string;
       /**
-         * Latest upstream notebook run used for freshness checks.
-         * @nullable
+         * Dataframe names the generated visualization may read.
+         * @maxItems 4
+         * @items.maxLength 128
          */
-      run_id?: string | null;
-      /** Columns in the saved dataframe preview. */
-      columns?: GenUIInputColumn[];
-      /**
-         * Total rows reported by the upstream run.
-         * @minimum 0
-         */
-      totalRowCount?: number;
-      /**
-         * Rows copied into the bounded GenUI snapshot.
-         * @minimum 0
-         */
-      includedRowCount?: number;
-      /** Whether the snapshot contains fewer rows than the upstream result. */
-      truncated?: boolean;
-      /**
-         * Bounded upstream error when the dataframe is unavailable.
-         * @nullable
-         */
-      error?: string | null;
-    }
-
-    export interface GenUIRestoreVersionRequest {
-      /** Existing source version to make current. */
-      version_id: string;
-    }
-
-    export interface GenUISource {
-      /** Source version shown in the response. */
-      version_id: string;
-      /** Generated React component source. */
-      source: string;
+      inputs: string[];
     }
 
     /**
-     * * `awaiting_inputs` - awaiting_inputs
      * * `awaiting_generation` - awaiting_generation
-     * * `generating` - generating
      * * `building` - building
      * * `ready` - ready
-     * * `stale` - stale
-     * * `incompatible` - incompatible
      * * `failed` - failed
      */
     export type LifecycleStatusEnum = typeof LifecycleStatusEnum[keyof typeof LifecycleStatusEnum];
 
 
     export const LifecycleStatusEnum = {
-      AwaitingInputs: 'awaiting_inputs',
       AwaitingGeneration: 'awaiting_generation',
-      Generating: 'generating',
       Building: 'building',
       Ready: 'ready',
-      Stale: 'stale',
-      Incompatible: 'incompatible',
       Failed: 'failed',
     } as const;
 
-    /**
-     * * `upstream_runs_changed` - upstream_runs_changed
-     * * `prompt_or_schema_changed` - prompt_or_schema_changed
-     */
-    export type StalenessReasonEnum = typeof StalenessReasonEnum[keyof typeof StalenessReasonEnum];
-
-
-    export const StalenessReasonEnum = {
-      UpstreamRunsChanged: 'upstream_runs_changed',
-      PromptOrSchemaChanged: 'prompt_or_schema_changed',
-    } as const;
-
     export interface GenUIStatus {
-      /** Stable notebook node identifier. */
-      node_id: string;
-      /** Current snapshot, generation, build, stale, or failure lifecycle state.
+      /** Current visualization state derived from its Canvas build.
        *
-       * * `awaiting_inputs` - awaiting_inputs
        * * `awaiting_generation` - awaiting_generation
-       * * `generating` - generating
        * * `building` - building
        * * `ready` - ready
-       * * `stale` - stale
-       * * `incompatible` - incompatible
        * * `failed` - failed */
       lifecycle_status: LifecycleStatusEnum;
-      /** Why a ready visualization needs a run or regeneration.
-       *
-       * * `upstream_runs_changed` - upstream_runs_changed
-       * * `prompt_or_schema_changed` - prompt_or_schema_changed */
-      staleness_reason?: StalenessReasonEnum | null;
       /**
-         * Stable machine-readable failure code.
-         * @nullable
-         */
-      error_code?: string | null;
-      /**
-         * Bounded failure detail with a next action.
+         * Actionable detail when visualization generation or building failed.
          * @nullable
          */
       error_detail?: string | null;
       /**
-         * Short-lived URL for the last successful visualization artifact.
+         * Short-lived URL for the current visualization artifact.
          * @nullable
          */
       artifact_url?: string | null;
-      /** Dataframes the artifact may request through ph.readFrame. */
+      /** Dataframes the current visualization may read. */
       frame_names: string[];
-      /**
-         * Last successfully published Canvas source version.
-         * @nullable
-         */
-      source_version_id?: string | null;
-      /**
-         * Last successfully published Canvas build.
-         * @nullable
-         */
-      build_id?: string | null;
-      /** Current state and schema of every requested dataframe. */
-      input_states: GenUIInputState[];
-      /** Whether Run can refresh snapshots without model generation. */
-      can_run: boolean;
-      /** Whether the visualization can be explicitly regenerated. */
-      can_regenerate: boolean;
-      /** Whether the last terminal generation failure can be retried. */
-      can_retry: boolean;
-      /** When persisted state for this notebook node was created. */
-      created_at: string;
-      /** When the lifecycle state last changed. */
-      updated_at: string;
-      /**
-         * When the current generated source became live.
-         * @nullable
-         */
-      generated_at?: string | null;
-      /**
-         * When the active dataframe snapshot last changed.
-         * @nullable
-         */
-      snapshot_updated_at?: string | null;
-    }
-
-    export interface GenUIVersion {
-      /** Immutable source version identifier. */
-      id: string;
-      /**
-         * Description recorded when the source version was generated.
-         * @nullable
-         */
-      prompt?: string | null;
-      /** When the source version was generated. */
-      created_at: string;
-      /** Whether this version backs the live notebook visualization. */
-      is_current: boolean;
     }
 
     /**
@@ -51780,6 +51604,15 @@ export namespace Schemas {
       results: ChangeRequest[];
     }
 
+    export interface PaginatedChannelDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelDTO[];
+    }
+
     export interface PaginatedChannelFeedMessageDTOList {
       count: number;
       /** @nullable */
@@ -52386,15 +52219,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: GatewayMemberSummary[];
-    }
-
-    export interface PaginatedGenUIVersionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: GenUIVersion[];
     }
 
     export interface PaginatedGroupUsageMetricList {
@@ -93721,25 +93545,6 @@ export namespace Schemas {
     user?: string;
     };
 
-    export type NotebooksGenuiSourceParams = {
-    /**
-     * Historical source version to read. Defaults to the live notebook version.
-     */
-    version_id?: string;
-    };
-
-    export type NotebooksGenuiVersionsParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    short_id?: string;
-    };
-
     export type NotificationsListParams = {
     /**
      * When true, return only notifications the recipient has archived; otherwise return only non-archived notifications (the default)
@@ -95202,6 +95007,17 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    };
+
+    export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type TaskChannelsFeedListParams = {

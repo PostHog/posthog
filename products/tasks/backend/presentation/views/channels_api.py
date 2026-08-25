@@ -7,7 +7,6 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -76,7 +75,6 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     serializer_class = ChannelSerializer
-    pagination_class = None
     # GET /instructions/ and /context_generation/ are reads; the PUT/PATCH/DELETE
     # method mappings resolve to their own action names, so they go in the write
     # bucket by name.
@@ -315,7 +313,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=ChannelInstructionsSerializer(many=True))},
         summary="List channel instruction versions",
     )
-    @action(methods=["GET"], detail=True, url_path="instructions/versions", pagination_class=LimitOffsetPagination)
+    @action(methods=["GET"], detail=True, url_path="instructions/versions")
     def instructions_versions(self, request, pk=None, **kwargs):
         versions = tasks_facade.list_channel_instruction_versions(pk, self.team_id, self._user_id())
         if versions is None:

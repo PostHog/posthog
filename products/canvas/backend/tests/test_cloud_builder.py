@@ -127,7 +127,6 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn('event.data?.type==="clear-text-selection"', runtime)
         self.assertIn("getSelection()?.removeAllRanges()", runtime)
         self.assertIn("if(selection&&!selection.isCollapsed)return", runtime)
-        self.assertIn('readFrame:(name)=>call("readFrame",{name})', runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
 
     def test_runtime_flushes_data_requests_queued_before_the_port_connects(self) -> None:
@@ -429,57 +428,6 @@ bridge.port1.close();
 """
         self._run_runtime_harness(runtime, harness)
 
-    def test_runtime_queues_data_requests_until_the_host_connects(self) -> None:
-        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
-
-        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
-        harness = """
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-
-const listeners = { message: [] };
-globalThis.window = globalThis;
-globalThis.parent = {};
-globalThis.location = { hash: "" };
-globalThis.document = {
-    readyState: "complete",
-    body: {},
-    head: { appendChild: () => {} },
-    addEventListener: () => {},
-    createElement: () => ({}),
-    documentElement: { classList: { toggle: () => {} }, style: {} },
-};
-globalThis.MutationObserver = class { observe() {} };
-globalThis.addEventListener = (type, handler) => (listeners[type] ??= []).push(handler);
-
-new Function(readFileSync(new URL("./runtime.js", import.meta.url), "utf8"))();
-
-const framePromise = window.ph.readFrame("pandas_df");
-const bridge = new MessageChannel();
-const received = [];
-bridge.port1.addEventListener("message", (event) => received.push(event.data));
-bridge.port1.start();
-for (const handler of listeners.message) {
-    handler({ source: globalThis.parent, data: { channel: "posthog-canvas", type: "connect" }, ports: [bridge.port2] });
-}
-const deadline = Date.now() + 5000;
-while (!received.some((message) => message.type === "data-request") && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-}
-const request = received.find((message) => message.type === "data-request");
-assert.deepEqual(request.payload, { name: "pandas_df" });
-bridge.port1.postMessage({
-    channel: "posthog-canvas",
-    type: "data-response",
-    id: request.id,
-    ok: true,
-    result: { rows: [[1]] },
-});
-assert.deepEqual(await framePromise, { rows: [[1]] });
-bridge.port1.close();
-"""
-        self._run_runtime_harness(runtime, harness)
-
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {
@@ -556,16 +504,8 @@ bridge.port1.close();
         self.assertNotIn("worker-lib", javascript)
         self.assertIn("42", javascript)
 
-    @parameterized.expand(
-        [
-            ("dayjs", "1.11.13", 'import dayjs from "dayjs"; void dayjs'),
-            ("three", "0.179.1", 'import * as THREE from "three"; void new THREE.Scene()'),
-        ]
-    )
-    def test_runtime_bundles_pinned_dependencies_without_network_access(
-        self, dependency: str, version: str, source: str
-    ) -> None:
-        payload = {**self._project(source), "dependencies": {dependency: version}}
+    def test_runtime_bundles_pinned_dependencies_without_network_access(self) -> None:
+        payload = {**self._project('import dayjs from "dayjs"; void dayjs'), "dependencies": {"dayjs": "1.11.13"}}
 
         result = run_cloud_builder(payload)
 
@@ -574,7 +514,7 @@ bridge.port1.close();
         self.assertIn("script-src 'self'", html)
         self.assertNotIn("esm.sh", html)
         javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
-        self.assertNotIn(f'from"{dependency}"', javascript)
+        self.assertNotIn('from"dayjs"', javascript)
 
     def test_source_contract_rejects_active_or_malformed_assets(self) -> None:
         for content, content_type in (("%%%", "image/png"), ("PGgxLz4=", "text/html")):

@@ -1,1 +1,0 @@
-from products.notebooks.backend.tasks.tasks import process_genui_generation as process_genui_generation

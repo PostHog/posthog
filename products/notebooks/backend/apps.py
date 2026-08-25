@@ -7,8 +7,6 @@ class NotebooksConfig(AppConfig):
     label = "notebooks"
 
     def ready(self) -> None:
-        from django.db.models.signals import pre_delete
-
         from posthog.api.file_system.deletion import (
             register_file_system_type,
             register_post_delete_hook,
@@ -31,11 +29,6 @@ class NotebooksConfig(AppConfig):
         )
 
         def _post_delete(context, notebook):
-            from products.notebooks.backend.genui import (  # noqa: PLC0415 because Canvas and Tasks stay off startup
-                cleanup_removed_genui_nodes,
-            )
-
-            cleanup_removed_genui_nodes(notebook)
             organization = context.organization
             if not organization:
                 return
@@ -76,18 +69,5 @@ class NotebooksConfig(AppConfig):
                 changes=[Change(type="Notebook", action="changed", field="deleted", before=True, after=False)],
             )
 
-        def _pre_hard_delete(*, instance, **kwargs):
-            from products.notebooks.backend.genui import (  # noqa: PLC0415 because Canvas and Tasks stay off startup
-                cleanup_removed_genui_nodes,
-            )
-
-            cleanup_removed_genui_nodes(instance, delete_all=True)
-
         register_post_delete_hook("notebook", _post_delete)
         register_post_restore_hook("notebook", _post_restore)
-        pre_delete.connect(
-            _pre_hard_delete,
-            sender="notebooks.Notebook",
-            dispatch_uid="notebooks_cleanup_genui_before_hard_delete",
-            weak=False,
-        )

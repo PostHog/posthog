@@ -90,7 +90,6 @@ Our signup funnel shows the following conversion rates:
 - Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
 - Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` prop in their block header. Keep the titles already there, and give any tag you add a short one saying what it shows, so a reader can skim the notebook without opening each block
 - `<SQLV2 />` and `<PythonV2 />` carry their body in a `code` prop holding the SQL or Python as a string. Only `<Query />` takes a `query` prop holding a query object, so never give a code cell a `query` prop
-- Prefer `<Query />` for standard charts. For a custom browser visualization, add `<GenUI prompt="..." inputs="frame_name" />` after the SQLV2 or PythonV2 cells that produce its named dataframes. List every dataframe explicitly in the comma-separated `inputs` prop; the GenUI block generates and renders the interactive artifact itself
 
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.

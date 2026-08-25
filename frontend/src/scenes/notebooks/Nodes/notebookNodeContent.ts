@@ -3,7 +3,6 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG, getSqlV2PropsFromQueryProp } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
-import { parseGenUIInputNames } from './NotebookNodeGenUI/genUIInputs'
 
 export type PythonNodeSummary = {
     nodeId: string
@@ -461,7 +460,6 @@ export type NotebookFrameNodeSummary = {
     /** [column name, type] pairs from the last run, empty when the cell has never produced a frame. */
     columns: [string, string][]
     rowCount: number | null
-    previewRows?: unknown[][]
     /**
      * The cell has a stored result. A cell that has never run can't be referenced at all — the
      * backend resolves refs to the latest DONE run — but a cell that ran and produced no frame
@@ -473,24 +471,12 @@ export type NotebookFrameNodeSummary = {
 }
 
 const frameNodeColumns = (result: any): [string, string][] => {
-    if (!result) {
+    if (!result || !Array.isArray(result.types)) {
         return []
     }
-    if (Array.isArray(result.types)) {
-        return result.types
-            .filter((pair: unknown): pair is [string, string] => Array.isArray(pair) && pair.length >= 2)
-            .map(([name, type]: [string, string]) => [String(name), String(type)] as [string, string])
-    }
-    return Array.isArray(result.columns)
-        ? result.columns.map((name: unknown) => [String(name), 'unknown'] as [string, string])
-        : []
-}
-
-const frameNodePreviewRows = (result: any): unknown[][] => {
-    if (!result || !Array.isArray(result.first_page)) {
-        return []
-    }
-    return result.first_page.filter((row: unknown): row is unknown[] => Array.isArray(row))
+    return result.types
+        .filter((pair: unknown): pair is [string, string] => Array.isArray(pair) && pair.length >= 2)
+        .map(([name, type]: [string, string]) => [String(name), String(type)] as [string, string])
 }
 
 /**
@@ -540,7 +526,6 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
                     nodeType: isSql ? 'sql' : 'python',
                     columns: frameNodeColumns(result),
                     rowCount: typeof result?.row_count === 'number' ? result.row_count : null,
-                    previewRows: frameNodePreviewRows(result),
                     hasRun: Boolean(result),
                     code: typeof attrs.code === 'string' ? attrs.code : '',
                 })
@@ -747,7 +732,6 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
     let duckSqlIndex = 0
     let hogqlSqlIndex = 0
     let sqlV2Index = 0
-    let genUIIndex = 0
     const usedDuckSqlReturnVariables = new Set<string>()
     const usedHogqlReturnVariables = new Set<string>()
     const usedSqlV2ReturnVariables = new Set<string>()
@@ -866,27 +850,11 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             })
         }
 
-        if (node.type === NotebookNodeType.GenUI) {
-            const attrs = node.attrs ?? {}
-            genUIIndex += 1
-            nodes.push({
-                nodeId: attrs.nodeId ?? '',
-                nodeType: NotebookNodeType.GenUI,
-                nodeIndex: genUIIndex,
-                title: typeof attrs.title === 'string' ? attrs.title : '',
-                exports: [],
-                uses: parseGenUIInputNames(typeof attrs.inputs === 'string' ? attrs.inputs : ''),
-            })
-        }
-
         if (node.type === NotebookNodeType.MarkdownNotebook) {
-            // Markdown notebooks store cells as component tags, so dependency participants must
-            // be expanded together to preserve their document order.
-            expandMarkdownNotebookNodesOfTypes(node, [
-                NotebookNodeType.SQLV2,
-                NotebookNodeType.PythonV2,
-                NotebookNodeType.GenUI,
-            ]).forEach(walk)
+            // Markdown notebooks (the only V2 surface) store cells as component tags, so both
+            // V2 cell types must be expanded or the graph misses every markdown-held cell.
+            expandMarkdownNotebookSqlV2Nodes(node).forEach(walk)
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
         }
 
         if (Array.isArray(node.content)) {

@@ -144,10 +144,6 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemM
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
-export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNotebookFramesItemMax = 128
-
-export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNotebookFramesMax = 100
-
 export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
     .object({
         project: zod
@@ -295,21 +291,10 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
-                        notebook: zod
-                            .object({
-                                frames: zod
-                                    .array(
-                                        zod
-                                            .string()
-                                            .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneNotebookFramesItemMax)
-                                    )
-                                    .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneNotebookFramesMax),
-                            })
-                            .optional(),
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it runs ad-hoc HogQL. The host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -776,10 +761,6 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsIte
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
-export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNotebookFramesItemMax = 128
-
-export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNotebookFramesMax = 100
-
 export const canvasesPublishCreateBodyNameMax = 400
 
 export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
@@ -931,23 +912,10 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
-                        notebook: zod
-                            .object({
-                                frames: zod
-                                    .array(
-                                        zod
-                                            .string()
-                                            .max(
-                                                canvasesPublishCreateBodyProjectOneCapabilitiesOneNotebookFramesItemMax
-                                            )
-                                    )
-                                    .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneNotebookFramesMax),
-                            })
-                            .optional(),
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it runs ad-hoc HogQL. The host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")
@@ -1110,10 +1078,6 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsIt
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
-export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNotebookFramesItemMax = 128
-
-export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNotebookFramesMax = 100
-
 export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
     .object({
         project: zod
@@ -1265,23 +1229,10 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
-                        notebook: zod
-                            .object({
-                                frames: zod
-                                    .array(
-                                        zod
-                                            .string()
-                                            .max(
-                                                canvasesValidateCreateBodyProjectOneCapabilitiesOneNotebookFramesItemMax
-                                            )
-                                    )
-                                    .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneNotebookFramesMax),
-                            })
-                            .optional(),
                     })
                     .optional()
                     .describe(
-                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it runs ad-hoc HogQL. The host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
+                        'Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins.'
                     ),
             })
             .describe("A canvas's multi-file source project — the canonical write format for canvas source.")

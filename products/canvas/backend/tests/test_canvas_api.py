@@ -964,7 +964,6 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "agentRequests": False,
             },
             "network": {"origins": []},
-            "notebook": {"frames": []},
         }
         widened_capabilities = {
             "posthog": {
@@ -976,7 +975,6 @@ class TestCanvasActivityLog(CanvasAPIBaseTest):
                 "agentRequests": False,
             },
             "network": {"origins": []},
-            "notebook": {"frames": []},
         }
         widened = self._project("export default function C() { return 2 }")
         widened["capabilities"] = widened_capabilities

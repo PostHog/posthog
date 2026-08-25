@@ -15,10 +15,6 @@ if TYPE_CHECKING:
 
 NOTEBOOK_CREATED_EVENT = "notebook created"
 NOTEBOOK_READ_EVENT = "notebook read"
-GENUI_MATERIALIZATION_REQUESTED_EVENT = "notebook genui materialization requested"
-GENUI_GENERATION_COMPLETED_EVENT = "notebook genui generation completed"
-GENUI_BUILD_COMPLETED_EVENT = "notebook genui build completed"
-GENUI_RUN_COMPLETED_EVENT = "notebook genui run completed"
 
 
 class NotebookCreationSource:
@@ -115,50 +111,3 @@ def capture_notebook_read(
         ),
     }
     report_user_action(user, NOTEBOOK_READ_EVENT, props, request=request)
-
-
-def capture_genui_lifecycle(
-    *,
-    event: str,
-    team_id: int,
-    notebook_short_id: str,
-    node_id: str,
-    outcome: str,
-    dependency_count: int,
-    input_row_count: int,
-    truncated: bool,
-    generator_version: str,
-    user_id: int | None = None,
-    duration_seconds: float | None = None,
-    source_size_bytes: int | None = None,
-    artifact_size_bytes: int | None = None,
-) -> None:
-    team = Team.objects.filter(pk=team_id).first()
-    if team is None:
-        return
-    user = User.objects.filter(pk=user_id).first() if user_id is not None else None
-    properties = {
-        "notebook_short_id": notebook_short_id,
-        "node_id": node_id,
-        "outcome": outcome,
-        "dependency_count": dependency_count,
-        "input_row_count_bucket": _genui_row_count_bucket(input_row_count),
-        "truncated": truncated,
-        "generator_version": generator_version,
-        **_optional_props(
-            duration_seconds=round(duration_seconds, 3) if duration_seconds is not None else None,
-            source_size_bytes=source_size_bytes,
-            artifact_size_bytes=artifact_size_bytes,
-        ),
-    }
-    report_user_or_team_action(event, properties, user=user, team=team)
-
-
-def _genui_row_count_bucket(row_count: int) -> str:
-    if row_count == 0:
-        return "0"
-    if row_count <= 10:
-        return "1_10"
-    if row_count <= 100:
-        return "11_100"
-    return "over_100"

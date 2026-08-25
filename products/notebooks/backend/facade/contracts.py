@@ -18,32 +18,6 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
-class GenUIError(Exception):
-    def __init__(self, detail: str, code: str) -> None:
-        self.detail = detail
-        self.code = code
-        super().__init__(detail)
-
-
-class GenUIRateLimitError(GenUIError):
-    pass
-
-
-class GenUIConflictError(GenUIError):
-    pass
-
-
-@dataclass(frozen=True)
-class GenUIInputInspection:
-    states: list[dict[str, object]]
-    schemas: list[dict[str, object]]
-    frames: dict[str, object]
-    schema_hash: str
-    snapshot_hash: str
-    snapshot_metadata: dict[str, object]
-    ready: bool
-
-
 @dataclass(frozen=True)
 class NotebookData:
     """A notebook's persisted state, as other products read it."""

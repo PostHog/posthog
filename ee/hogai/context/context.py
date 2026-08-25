@@ -486,12 +486,6 @@ class AssistantContextManager(AssistantContextMixin):
                     "code cell a `query` prop."
                 ),
                 (
-                    "- Prefer `<Query />` for standard charts. For a custom browser visualization, add "
-                    '`<GenUI prompt="..." inputs="frame_name" />` after the SQLV2 or PythonV2 cells that '
-                    "produce its named dataframes. List every dataframe explicitly in the comma-separated "
-                    "`inputs` prop."
-                ),
-                (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "

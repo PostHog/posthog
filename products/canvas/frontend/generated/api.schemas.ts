@@ -540,18 +540,9 @@ export interface CanvasNetworkCapabilitiesApi {
     origins: string[]
 }
 
-export interface CanvasNotebookCapabilitiesApi {
-    /**
-     * @maxItems 100
-     * @items.maxLength 128
-     */
-    frames: string[]
-}
-
 export interface CanvasCapabilitiesApi {
     posthog: CanvasPostHogCapabilitiesApi
     network: CanvasNetworkCapabilitiesApi
-    notebook?: CanvasNotebookCapabilitiesApi
 }
 
 /**
@@ -587,7 +578,7 @@ export interface CanvasSourceProjectApi {
     canvasSdkVersion?: string
     /** Placement contract, required for (and only allowed on) component-kind canvases: the grid size the component takes and the JSON Schema of its per-placement config. */
     component?: CanvasComponentMetaApi
-    /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it runs ad-hoc HogQL. The host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
+    /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins. */
     capabilities?: CanvasCapabilitiesApi
 }
 
@@ -622,8 +613,6 @@ export interface CanvasCapabilityWideningApi {
     state_scopes_added: string[]
     /** Action verbs the draft newly declares it may invoke via ph.actions. */
     actions_added: string[]
-    /** Notebook frame names the draft newly declares it may read. */
-    notebook_frames_added: string[]
 }
 
 /**

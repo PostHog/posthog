@@ -274,80 +274,6 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
-export interface GenUIEnsureRequestApi {
-    /**
-     * Instructions for the custom visualization.
-     * @maxLength 20000
-     */
-    prompt: string
-    /**
-     * Ordered dataframe names the visualization may read.
-     * @maxItems 4
-     * @items.maxLength 128
-     */
-    inputs: string[]
-    /**
-     * Existing POC canvas to adopt when this notebook node has no persisted GenUI state.
-     * @nullable
-     */
-    legacy_canvas_id?: string | null
-}
-
-/**
- * * `awaiting_inputs` - awaiting_inputs
- * * `awaiting_generation` - awaiting_generation
- * * `generating` - generating
- * * `building` - building
- * * `ready` - ready
- * * `stale` - stale
- * * `incompatible` - incompatible
- * * `failed` - failed
- */
-export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
-
-export const LifecycleStatusEnumApi = {
-    AwaitingInputs: 'awaiting_inputs',
-    AwaitingGeneration: 'awaiting_generation',
-    Generating: 'generating',
-    Building: 'building',
-    Ready: 'ready',
-    Stale: 'stale',
-    Incompatible: 'incompatible',
-    Failed: 'failed',
-} as const
-
-/**
- * * `upstream_runs_changed` - upstream_runs_changed
- * * `prompt_or_schema_changed` - prompt_or_schema_changed
- */
-export type StalenessReasonEnumApi = (typeof StalenessReasonEnumApi)[keyof typeof StalenessReasonEnumApi]
-
-export const StalenessReasonEnumApi = {
-    UpstreamRunsChanged: 'upstream_runs_changed',
-    PromptOrSchemaChanged: 'prompt_or_schema_changed',
-} as const
-
-/**
- * * `missing` - missing
- * * `never_run` - never_run
- * * `running` - running
- * * `failed` - failed
- * * `interrupted` - interrupted
- * * `stale` - stale
- * * `ready` - ready
- */
-export type InputStatusEnumApi = (typeof InputStatusEnumApi)[keyof typeof InputStatusEnumApi]
-
-export const InputStatusEnumApi = {
-    Missing: 'missing',
-    NeverRun: 'never_run',
-    Running: 'running',
-    Failed: 'failed',
-    Interrupted: 'interrupted',
-    Stale: 'stale',
-    Ready: 'ready',
-} as const
-
 export interface GenUIInputColumnApi {
     /** Dataframe column name. */
     name: string
@@ -355,118 +281,25 @@ export interface GenUIInputColumnApi {
     type: string
 }
 
-export interface GenUIInputStateApi {
-    /** Requested dataframe name. */
+export interface GenUIFrameApi {
+    /** Dataframe name. */
     name: string
-    /** Current lifecycle state of the cell that produces this dataframe.
-     *
-     * * `missing` - missing
-     * * `never_run` - never_run
-     * * `running` - running
-     * * `failed` - failed
-     * * `interrupted` - interrupted
-     * * `stale` - stale
-     * * `ready` - ready */
-    input_status: InputStatusEnumApi
+    /** Dataframe columns and types. */
+    columns: GenUIInputColumnApi[]
+    /** Bounded, JSON-safe preview rows from the latest successful cell run. */
+    rows: unknown[][]
     /**
-     * Notebook node that produces the dataframe, when one exists.
-     * @nullable
-     */
-    producer_node_id?: string | null
-    /**
-     * Latest upstream notebook run used for freshness checks.
-     * @nullable
-     */
-    run_id?: string | null
-    /** Columns in the saved dataframe preview. */
-    columns?: GenUIInputColumnApi[]
-    /**
-     * Total rows reported by the upstream run.
+     * Total rows reported by the notebook run.
      * @minimum 0
      */
-    totalRowCount?: number
+    totalRowCount: number
     /**
-     * Rows copied into the bounded GenUI snapshot.
+     * Rows included in this response.
      * @minimum 0
      */
-    includedRowCount?: number
-    /** Whether the snapshot contains fewer rows than the upstream result. */
-    truncated?: boolean
-    /**
-     * Bounded upstream error when the dataframe is unavailable.
-     * @nullable
-     */
-    error?: string | null
-}
-
-export interface GenUIStatusApi {
-    /** Stable notebook node identifier. */
-    node_id: string
-    /** Current snapshot, generation, build, stale, or failure lifecycle state.
-     *
-     * * `awaiting_inputs` - awaiting_inputs
-     * * `awaiting_generation` - awaiting_generation
-     * * `generating` - generating
-     * * `building` - building
-     * * `ready` - ready
-     * * `stale` - stale
-     * * `incompatible` - incompatible
-     * * `failed` - failed */
-    lifecycle_status: LifecycleStatusEnumApi
-    /** Why a ready visualization needs a run or regeneration.
-     *
-     * * `upstream_runs_changed` - upstream_runs_changed
-     * * `prompt_or_schema_changed` - prompt_or_schema_changed */
-    staleness_reason?: StalenessReasonEnumApi | null
-    /**
-     * Stable machine-readable failure code.
-     * @nullable
-     */
-    error_code?: string | null
-    /**
-     * Bounded failure detail with a next action.
-     * @nullable
-     */
-    error_detail?: string | null
-    /**
-     * Short-lived URL for the last successful visualization artifact.
-     * @nullable
-     */
-    artifact_url?: string | null
-    /** Dataframes the artifact may request through ph.readFrame. */
-    frame_names: string[]
-    /**
-     * Last successfully published Canvas source version.
-     * @nullable
-     */
-    source_version_id?: string | null
-    /**
-     * Last successfully published Canvas build.
-     * @nullable
-     */
-    build_id?: string | null
-    /** Current state and schema of every requested dataframe. */
-    input_states: GenUIInputStateApi[]
-    /** Whether Run can refresh snapshots without model generation. */
-    can_run: boolean
-    /** Whether the visualization can be explicitly regenerated. */
-    can_regenerate: boolean
-    /** Whether the last terminal generation failure can be retried. */
-    can_retry: boolean
-    /** When persisted state for this notebook node was created. */
-    created_at: string
-    /** When the lifecycle state last changed. */
-    updated_at: string
-    /**
-     * When the current generated source became live.
-     * @nullable
-     */
-    generated_at?: string | null
-    /**
-     * When the active dataframe snapshot last changed.
-     * @nullable
-     */
-    snapshot_updated_at?: string | null
+    includedRowCount: number
+    /** Whether rows were omitted from this response. */
+    truncated: boolean
 }
 
 export interface GenUIErrorApi {
@@ -476,60 +309,55 @@ export interface GenUIErrorApi {
     detail: string
 }
 
-export interface GenUIFrameApi {
-    /** Dataframe name. */
-    name: string
-    /** Dataframe columns and types. */
-    columns: GenUIInputColumnApi[]
-    /** Bounded, JSON-safe preview rows. */
-    rows: unknown[][]
+export interface GenUIGenerateRequestApi {
     /**
-     * Total rows reported by the upstream run.
-     * @minimum 0
+     * Instructions for the generated visualization.
+     * @maxLength 20000
      */
-    totalRowCount: number
+    prompt: string
     /**
-     * Rows included in this snapshot.
-     * @minimum 0
+     * Dataframe names the generated visualization may read.
+     * @maxItems 4
+     * @items.maxLength 128
      */
-    includedRowCount: number
-    /** Whether rows were omitted from the bounded snapshot. */
-    truncated: boolean
+    inputs: string[]
 }
 
-export interface GenUISourceApi {
-    /** Source version shown in the response. */
-    version_id: string
-    /** Generated React component source. */
-    source: string
-}
+/**
+ * * `awaiting_generation` - awaiting_generation
+ * * `building` - building
+ * * `ready` - ready
+ * * `failed` - failed
+ */
+export type LifecycleStatusEnumApi = (typeof LifecycleStatusEnumApi)[keyof typeof LifecycleStatusEnumApi]
 
-export interface GenUIVersionApi {
-    /** Immutable source version identifier. */
-    id: string
+export const LifecycleStatusEnumApi = {
+    AwaitingGeneration: 'awaiting_generation',
+    Building: 'building',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface GenUIStatusApi {
+    /** Current visualization state derived from its Canvas build.
+     *
+     * * `awaiting_generation` - awaiting_generation
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed */
+    lifecycle_status: LifecycleStatusEnumApi
     /**
-     * Description recorded when the source version was generated.
+     * Actionable detail when visualization generation or building failed.
      * @nullable
      */
-    prompt?: string | null
-    /** When the source version was generated. */
-    created_at: string
-    /** Whether this version backs the live notebook visualization. */
-    is_current: boolean
-}
-
-export interface PaginatedGenUIVersionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: GenUIVersionApi[]
-}
-
-export interface GenUIRestoreVersionRequestApi {
-    /** Existing source version to make current. */
-    version_id: string
+    error_detail?: string | null
+    /**
+     * Short-lived URL for the current visualization artifact.
+     * @nullable
+     */
+    artifact_url?: string | null
+    /** Dataframes the current visualization may read. */
+    frame_names: string[]
 }
 
 export interface NotebookKernelConfigApi {
@@ -887,23 +715,4 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
-}
-
-export type NotebooksGenuiSourceParams = {
-    /**
-     * Historical source version to read. Defaults to the live notebook version.
-     */
-    version_id?: string
-}
-
-export type NotebooksGenuiVersionsParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    short_id?: string
 }

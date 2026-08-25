@@ -124,25 +124,6 @@ describe('buildNotebookDependencyGraph', () => {
         expect(graph.downstreamUsageByNode['a'].sql_df.map((usage) => usage.nodeId)).toEqual(['py'])
     })
 
-    it('links declared GenUI inputs without inferring names from its prompt', () => {
-        const markdown = [
-            serializeMarkdownNotebookComponent('SQLV2', {
-                nodeId: 'a',
-                returnVariable: 'locations_df',
-                code: 'select latitude from events',
-            }),
-            serializeMarkdownNotebookComponent('GenUI', {
-                nodeId: 'globe',
-                prompt: 'Plot locations_df and ignore unrelated_df.',
-                inputs: 'locations_df',
-            }),
-        ].join('\n\n')
-        const graph = buildNotebookDependencyGraph(buildMarkdownNotebookContent(markdown))
-        expect(graph.nodesById.globe.uses).toEqual(['locations_df'])
-        expect(graph.upstreamSourcesByNode.globe.locations_df.nodeId).toEqual('a')
-        expect(graph.upstreamSourcesByNode.globe.unrelated_df).toBeUndefined()
-    })
-
     it('extractPythonIdentifiers ignores strings, comments, and attribute tails', () => {
         // A frame name inside a string or after a dot is not a read; matching it would
         // create a false dependency edge and mark unrelated cells stale.

@@ -25,7 +25,7 @@ from products.notebooks.backend.util import (
     _parse_markdown_component_props,
 )
 
-_CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight", "GenUI": "genui"}
+_CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
 _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
@@ -36,7 +36,6 @@ class NotebookCellState:
     cell_type: str
     dataframe_name: str = ""
     code: str = ""
-    explicit_inputs: list[str] = field(default_factory=list)
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
@@ -58,19 +57,12 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             continue
         code = props.get("code")
         dataframe_name = props.get("returnVariable")
-        raw_inputs = props.get("inputs")
-        explicit_inputs = (
-            [name for name in re.split(r"[\s,]+", raw_inputs.strip()) if _DATAFRAME_NAME.fullmatch(name)]
-            if isinstance(raw_inputs, str)
-            else []
-        )
         cells.append(
             NotebookCellState(
                 node_id=node_id,
                 cell_type=cell_type,
                 dataframe_name=dataframe_name.strip() if isinstance(dataframe_name, str) else "",
                 code=code if isinstance(code, str) else "",
-                explicit_inputs=explicit_inputs,
             )
         )
     return cells
@@ -109,10 +101,7 @@ def build_dependency_edges(cells: list[NotebookCellState]) -> None:
     by_node: dict[str, NotebookCellState] = {cell.node_id: cell for cell in cells}
     for cell in cells:
         candidates = {name for name, owner in owner_by_name.items() if owner != cell.node_id}
-        referenced_names = (
-            set(cell.explicit_inputs) & candidates if cell.cell_type == "genui" else _referenced_names(cell, candidates)
-        )
-        for name in sorted(referenced_names):
+        for name in sorted(_referenced_names(cell, candidates)):
             upstream_id = owner_by_name[name]
             cell.depends_on.append(upstream_id)
             by_node[upstream_id].dependents.append(cell.node_id)

@@ -208,53 +208,21 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
-export const notebooksGenuiEnsureBodyPromptMax = 20000
+export const notebooksGenuiGenerateBodyPromptMax = 20000
 
-export const notebooksGenuiEnsureBodyInputsItemMax = 128
+export const notebooksGenuiGenerateBodyInputsItemMax = 128
 
-export const notebooksGenuiEnsureBodyInputsMax = 4
+export const notebooksGenuiGenerateBodyInputsMax = 4
 
-export const NotebooksGenuiEnsureBody = /* @__PURE__ */ zod.object({
-    prompt: zod.string().max(notebooksGenuiEnsureBodyPromptMax).describe('Instructions for the custom visualization.'),
-    inputs: zod
-        .array(zod.string().max(notebooksGenuiEnsureBodyInputsItemMax))
-        .max(notebooksGenuiEnsureBodyInputsMax)
-        .describe('Ordered dataframe names the visualization may read.'),
-    legacy_canvas_id: zod
-        .uuid()
-        .nullish()
-        .describe('Existing POC canvas to adopt when this notebook node has no persisted GenUI state.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksGenuiRegenerateBodyPromptMax = 20000
-
-export const notebooksGenuiRegenerateBodyInputsItemMax = 128
-
-export const notebooksGenuiRegenerateBodyInputsMax = 4
-
-export const NotebooksGenuiRegenerateBody = /* @__PURE__ */ zod.object({
+export const NotebooksGenuiGenerateBody = /* @__PURE__ */ zod.object({
     prompt: zod
         .string()
-        .max(notebooksGenuiRegenerateBodyPromptMax)
-        .describe('Instructions for the custom visualization.'),
+        .max(notebooksGenuiGenerateBodyPromptMax)
+        .describe('Instructions for the generated visualization.'),
     inputs: zod
-        .array(zod.string().max(notebooksGenuiRegenerateBodyInputsItemMax))
-        .max(notebooksGenuiRegenerateBodyInputsMax)
-        .describe('Ordered dataframe names the visualization may read.'),
-    legacy_canvas_id: zod
-        .uuid()
-        .nullish()
-        .describe('Existing POC canvas to adopt when this notebook node has no persisted GenUI state.'),
-})
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const NotebooksGenuiRestoreVersionBody = /* @__PURE__ */ zod.object({
-    version_id: zod.uuid().describe('Existing source version to make current.'),
+        .array(zod.string().max(notebooksGenuiGenerateBodyInputsItemMax))
+        .max(notebooksGenuiGenerateBodyInputsMax)
+        .describe('Dataframe names the generated visualization may read.'),
 })
 
 /**

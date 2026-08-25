@@ -268,24 +268,6 @@ class TestCanvasSourceAdapter(SimpleTestCase):
 
         self.assertIn("capability_missing_agent_requests", [entry["code"] for entry in diagnostics])
 
-    def test_read_frame_requires_a_declared_notebook_frame(self):
-        code = CODE + 'ph.readFrame("pandas_df");'
-        undeclared = project(files={CANVAS_COMPONENT_PATH: code})
-        declared = project(
-            files={CANVAS_COMPONENT_PATH: code},
-            capabilities={
-                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
-                "network": {"origins": []},
-                "notebook": {"frames": ["pandas_df"]},
-            },
-        )
-
-        self.assertIn(
-            "capability_missing_notebook_frame",
-            [entry["code"] for entry in validate_source_project(undeclared)],
-        )
-        self.assertFalse(has_errors(validate_source_project(declared)))
-
 
 def component_meta(**overrides):
     meta = {

@@ -25,7 +25,3 @@ export function validateGenUIInputs(inputs: string): GenUIInputValidation {
     }
     return { names, error: null }
 }
-
-export function parseGenUIInputNames(inputs: string): string[] {
-    return validateGenUIInputs(inputs).names
-}

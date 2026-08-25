@@ -42,11 +42,13 @@ describe('GenUIArtifactFrame', () => {
         const { unmount } = render(
             <GenUIArtifactFrame
                 artifactUrl="https://example.com/globe.html"
-                capabilities={{ notebook: { frames: [] } }}
+                allowedFrames={[]}
                 onReadFrame={jest.fn()}
             />
         )
         const iframe = screen.getByTitle('Generated visualization')
+        expect(iframe).toHaveAttribute('src', 'https://example.com/globe.html#theme=light')
+        expect(iframe).not.toHaveAttribute('srcdoc')
         fireEvent.load(iframe)
 
         unmount()
@@ -59,7 +61,7 @@ describe('GenUIArtifactFrame', () => {
         render(
             <GenUIArtifactFrame
                 artifactUrl="https://example.com/globe.html"
-                capabilities={{ notebook: { frames: [] } }}
+                allowedFrames={[]}
                 onReadFrame={jest.fn()}
                 onArtifactUnavailable={onArtifactUnavailable}
             />

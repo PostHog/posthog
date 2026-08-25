@@ -257,23 +257,15 @@ describe('markdown round trip', () => {
     })
 
     describe('unclosed component tags', () => {
-        it.each(['<Important config', '<Important prompt="unfinished'])(
-            'does not swallow the rest of the document after %s',
-            (unclosedTag) => {
-                const markdown = `# Title\n\n${unclosedTag}\n\nThis text must survive\n\n## And this heading`
-                const document = parseMarkdownNotebook(markdown)
+        it('does not swallow the rest of the document', () => {
+            const markdown = '# Title\n\n<Important config\n\nThis text must survive\n\n## And this heading'
+            const document = parseMarkdownNotebook(markdown)
 
-                expect(document.errors.map((error) => error.message)).toEqual(['Unclosed component tag'])
-                expect(document.nodes.map((node) => node.type)).toEqual([
-                    'heading',
-                    'paragraph',
-                    'paragraph',
-                    'heading',
-                ])
-                expect(getNodeText(document.nodes[1])).toEqual(unclosedTag)
-                expect(getNodeText(document.nodes[2])).toEqual('This text must survive')
-            }
-        )
+            expect(document.errors.map((error) => error.message)).toEqual(['Unclosed component tag'])
+            expect(document.nodes.map((node) => node.type)).toEqual(['heading', 'paragraph', 'paragraph', 'heading'])
+            expect(getNodeText(document.nodes[1])).toEqual('<Important config')
+            expect(getNodeText(document.nodes[2])).toEqual('This text must survive')
+        })
 
         it('keeps the raw source of a component tag with malformed props through serialization', () => {
             const markdown = '<Broken "unparseable />\n\nnext paragraph'

@@ -12,7 +12,6 @@ BASE = {
         "agentRequests": False,
     },
     "network": {"origins": []},
-    "notebook": {"frames": ["base_df"]},
 }
 WIDER = {
     "posthog": {
@@ -24,12 +23,10 @@ WIDER = {
         "agentRequests": True,
     },
     "network": {"origins": ["https://api.example.com"]},
-    "notebook": {"frames": ["base_df", "pandas_df"]},
 }
 NARROWER = {
     "posthog": {"insights": [], "captureEvents": [], "inlineQueries": False, "agentRequests": False},
     "network": {"origins": []},
-    "notebook": {"frames": []},
 }
 
 
@@ -55,7 +52,6 @@ class TestCapabilityWidening(TestCase):
         assert widening.network_origins_added == ["https://api.example.com"]
         assert widening.state_scopes_added == ["user"]
         assert widening.actions_added == ["tasks.create"]
-        assert widening.notebook_frames_added == ["pandas_df"]
 
     def test_inline_queries_already_enabled_is_not_a_widening(self):
         enabled = {"posthog": {"inlineQueries": True}}

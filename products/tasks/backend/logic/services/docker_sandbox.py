@@ -1008,11 +1008,6 @@ class DockerSandbox(SandboxBase):
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
-        if self._agent_server_is_healthy():
-            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-            return
-        self._free_agent_server_port()
-
         repo_path: str | None = None
         if repository:
             org, repo = repository.lower().split("/")
@@ -1221,17 +1216,6 @@ class DockerSandbox(SandboxBase):
         """Poll health endpoint until server is ready (single remote call)."""
 
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
-
-    def _agent_server_is_healthy(self) -> bool:
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
-
-    def _free_agent_server_port(self) -> None:
-        self.execute(
-            "pkill -TERM -f agent-server 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f agent-server 2>/dev/null || true",
-            timeout_seconds=15,
-        )
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)

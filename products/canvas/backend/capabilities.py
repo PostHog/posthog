@@ -18,10 +18,6 @@ def _network_origins(manifest: dict | None) -> list[str]:
     return ((manifest or {}).get("network") or {}).get("origins") or []
 
 
-def _notebook_frames(manifest: dict | None) -> list[str]:
-    return ((manifest or {}).get("notebook") or {}).get("frames") or []
-
-
 def declared_state_scopes(manifest: dict | None) -> set[str]:
     """The ph.state scopes a capabilities manifest declares."""
     return set(_posthog_section(manifest).get("state") or [])
@@ -45,7 +41,6 @@ class CapabilityWidening:
     network_origins_added: list[str]
     state_scopes_added: list[str]
     actions_added: list[str]
-    notebook_frames_added: list[str]
 
     @property
     def widens(self) -> bool:
@@ -57,7 +52,6 @@ class CapabilityWidening:
             or self.network_origins_added
             or self.state_scopes_added
             or self.actions_added
-            or self.notebook_frames_added
         )
 
 
@@ -80,5 +74,4 @@ def capability_widening(before: dict | None, after: dict | None) -> CapabilityWi
         network_origins_added=sorted(set(_network_origins(after)) - set(_network_origins(before))),
         state_scopes_added=sorted(set(after_ph.get("state") or []) - set(before_ph.get("state") or [])),
         actions_added=sorted(set(after_ph.get("actions") or []) - set(before_ph.get("actions") or [])),
-        notebook_frames_added=sorted(set(_notebook_frames(after)) - set(_notebook_frames(before))),
     )

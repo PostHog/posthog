@@ -28,20 +28,19 @@ describe('notebookNodeStalenessLogic', () => {
             { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'x', returnVariable: 'other_df', code: 'select 2' } },
         ],
     }
+    const getContent = (): JSONContent => content
+
     let stalenessLogic: ReturnType<typeof notebookNodeStalenessLogic.build>
     let nodeLogics: ReturnType<typeof notebookNodeSQLV2Logic.build>[]
     let runSpy: jest.SpyInstance
     let resultSpy: jest.SpyInstance
 
-    const mountNode = (
-        nodeId: string,
-        currentContent: JSONContent = content
-    ): ReturnType<typeof notebookNodeSQLV2Logic.build> => {
+    const mountNode = (nodeId: string): ReturnType<typeof notebookNodeSQLV2Logic.build> => {
         const logic = notebookNodeSQLV2Logic({
             nodeId,
             notebookShortId: 'nb1',
             updateAttributes: jest.fn(),
-            getContent: () => currentContent,
+            getContent,
         })
         logic.mount()
         nodeLogics.push(logic)
@@ -183,49 +182,5 @@ describe('notebookNodeStalenessLogic', () => {
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
         expect(runSpy).toHaveBeenCalledTimes(1)
-    })
-
-    it('marks a dependent GenUI node stale without adding it to the automatic run chain', async () => {
-        const genUIContent: JSONContent = {
-            type: 'doc',
-            content: [
-                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'source', returnVariable: 'locations_df' } },
-                { type: NotebookNodeType.GenUI, attrs: { nodeId: 'globe', inputs: 'locations_df' } },
-            ],
-        }
-        mountNode('source')
-
-        stalenessLogic.actions.nodeRunFinished('source', 'done', genUIContent)
-        await expectLogic(stalenessLogic).toFinishAllListeners()
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ globe: true })
-
-        stalenessLogic.actions.runStaleChain(genUIContent, 'source')
-        await expectLogic(stalenessLogic).toFinishAllListeners()
-        expect(runSpy).not.toHaveBeenCalled()
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ globe: true })
-    })
-
-    it('runs every upstream dataframe cell before completing a GenUI dependency chain', async () => {
-        const genUIContent: JSONContent = {
-            type: 'doc',
-            content: [
-                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'a', returnVariable: 'sql_df', code: 'select 1' } },
-                {
-                    type: NotebookNodeType.PythonV2,
-                    attrs: { nodeId: 'b', returnVariable: 'new_events', code: 'new_events = sql_df.head()' },
-                },
-                { type: NotebookNodeType.GenUI, attrs: { nodeId: 'globe', inputs: 'new_events' } },
-            ],
-        }
-        mountNode('a', genUIContent)
-        mountNode('b', genUIContent)
-
-        await expectLogic(stalenessLogic, () => stalenessLogic.actions.runDependencyChain(genUIContent, 'globe'))
-            .toDispatchActions(['dependencyChainFinished'])
-            .toFinishAllListeners()
-
-        expect(runSpy.mock.calls.map((call) => call[1].node_id)).toEqual(['a', 'b'])
-        expect(stalenessLogic.values.chainQueue).toEqual([])
-        expect(stalenessLogic.values.dependencyChainTargetNodeId).toBeNull()
     })
 })

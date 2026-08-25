@@ -36,6 +36,7 @@ import type {
     LoopsTriggerCreateBodyTwo,
     ModelCatalogueResponseApi,
     OnboardingSessionApi,
+    PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
     PaginatedLoopDTOListApi,
@@ -73,6 +74,7 @@ import type {
     TaskActivityPageDTOApi,
     TaskArtifactsResponseApi,
     TaskChannelsFeedListParams,
+    TaskChannelsListParams,
     TaskCommentDetailApi,
     TaskCommentsResponseApi,
     TaskCreateApi,
@@ -776,16 +778,32 @@ export const taskActivityMarkReadCreate = async (
     })
 }
 
-export const getTaskChannelsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/task_channels/`
+export const getTaskChannelsListUrl = (projectId: string, params?: TaskChannelsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/`
 }
 
 /**
  * All live public channels plus the requester's personal #me channel when it exists, sorted by name. Listing does not provision; call provision_defaults to create the default channels.
  * @summary List channels
  */
-export const taskChannelsList = async (projectId: string, options?: RequestInit): Promise<ChannelDTOApi[]> => {
-    return apiMutator<ChannelDTOApi[]>(getTaskChannelsListUrl(projectId), {
+export const taskChannelsList = async (
+    projectId: string,
+    params?: TaskChannelsListParams,
+    options?: RequestInit
+): Promise<PaginatedChannelDTOListApi> => {
+    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

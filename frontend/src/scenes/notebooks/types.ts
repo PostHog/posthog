@@ -123,7 +123,6 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     ToolbarComponent?: (props: NotebookNodeProps<T>) => JSX.Element | null
     attributes: Record<keyof T, NotebookNodeAttributeConfig>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
-    hideIdFromSettings?: boolean
     defaultView?: PostHogWidgetDefaultView
     views?: PostHogWidgetViews<T>
 }

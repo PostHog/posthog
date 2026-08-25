@@ -70,17 +70,6 @@ class TestCellExtractionAndEdges(SimpleTestCase):
         build_dependency_edges(cells)
         assert cells[2].depends_on == ["s"]
 
-    def test_genui_dependencies_come_only_from_declared_inputs(self) -> None:
-        content = markdown_content(
-            '<SQLV2 nodeId="a" code="select 1" returnVariable="locations_df" />\n\n'
-            '<GenUI nodeId="globe" prompt="Use locations_df and secret_df" inputs="locations_df" />\n'
-        )
-        cells = extract_cells(content)
-        build_dependency_edges(cells)
-        assert cells[1].cell_type == "genui"
-        assert cells[1].explicit_inputs == ["locations_df"]
-        assert cells[1].depends_on == ["a"]
-
 
 class TestNotebookCellState(APIBaseTest):
     def _notebook(self, markdown: str) -> Notebook:

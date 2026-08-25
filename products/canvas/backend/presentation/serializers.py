@@ -276,14 +276,9 @@ class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
     origins = serializers.ListField(child=serializers.URLField(max_length=2048), max_length=20)
 
 
-class CanvasNotebookCapabilitiesSerializer(serializers.Serializer):
-    frames = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)
-
-
 class CanvasCapabilitiesSerializer(serializers.Serializer):
     posthog = CanvasPostHogCapabilitiesSerializer()
     network = CanvasNetworkCapabilitiesSerializer()
-    notebook = CanvasNotebookCapabilitiesSerializer(required=False, default=lambda: {"frames": []})
 
 
 class CanvasSourceProjectSerializer(serializers.Serializer):
@@ -335,13 +330,12 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
                 "agentRequests": False,
             },
             "network": {"origins": []},
-            "notebook": {"frames": []},
         },
         help_text=(
             "Bounded capabilities frozen into the built artifact. Declare every insight short id the "
-            "canvas loads, every event it captures, every notebook frame it reads, and inlineQueries when it "
-            "runs ad-hoc HogQL. The host enforces these at runtime and validation rejects undeclared `ph` calls. "
-            "Network origins must be exact HTTPS origins. Data fetched by canvas code can be sent to those origins."
+            "canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the "
+            "host enforces these at runtime and validation rejects undeclared `ph` calls. Network origins must "
+            "be exact HTTPS origins. Data fetched by canvas code can be sent to those origins."
         ),
     )
 
@@ -927,10 +921,6 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
     actions_added = serializers.ListField(
         child=serializers.CharField(),
         help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
-    )
-    notebook_frames_added = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Notebook frame names the draft newly declares it may read.",
     )
 
 

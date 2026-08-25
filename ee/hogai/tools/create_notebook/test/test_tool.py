@@ -34,9 +34,6 @@ class TestCreateNotebookTool(BaseTest):
         assert "editor: Edit the flag status" in self.tool.description
         assert "Cohort" in self.tool.description
 
-    def test_description_includes_genui_component(self) -> None:
-        assert '<GenUI prompt="..." inputs="frame_name" />' in self.tool.description
-
     def test_returns_error_when_both_content_and_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(
             title="Test Notebook",
