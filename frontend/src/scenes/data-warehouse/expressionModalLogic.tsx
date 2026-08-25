@@ -179,8 +179,14 @@ export const expressionModalLogic = kea<expressionModalLogicType>([
             [] as DataWarehouseExpressionApi[],
             {
                 loadExpressions: async () => {
-                    const response = await warehouseExpressionsList(String(values.currentTeamId))
-                    return response.results
+                    try {
+                        const response = await warehouseExpressionsList(String(values.currentTeamId))
+                        return response.results
+                    } catch {
+                        // Saved expressions are optional. A permission or server error must not crash
+                        // the scene, so fall back to an empty list.
+                        return []
+                    }
                 },
             },
         ],

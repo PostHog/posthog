@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -40,5 +42,13 @@ describe('expressionModalLogic', () => {
             query: 'SELECT * FROM auth_group',
             connectionId: 'connection-123',
         })
+    })
+
+    it('falls back to an empty list when loading expressions fails', async () => {
+        mockWarehouseExpressionsList.mockRejectedValueOnce({ status: 500 })
+        logic.actions.loadExpressions()
+
+        await expectLogic(logic).toDispatchActions(['loadExpressionsSuccess'])
+        expect(logic.values.expressions).toEqual([])
     })
 })

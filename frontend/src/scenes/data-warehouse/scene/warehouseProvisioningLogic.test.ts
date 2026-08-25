@@ -37,8 +37,10 @@ describe('warehouseProvisioningLogic', () => {
         expect(dwApi.dataWarehouseWarehouseStatusRetrieve).toHaveBeenCalled()
     })
 
-    it('treats a 404 status as no warehouse', async () => {
-        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockRejectedValueOnce({ status: 404 })
+    // 404: no warehouse yet. 403: the managed-warehouse feature is off for the org. Both are
+    // expected responses, so the loader must resolve to null rather than throw.
+    it.each([404, 403])('treats a %i status as no warehouse', async (statusCode) => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockRejectedValueOnce({ status: statusCode })
 
         logic = warehouseProvisioningLogic()
         logic.mount()
