@@ -1038,8 +1038,10 @@ def get_cache_stats() -> dict[str, Any]:
 # outlives cutover — `cohort_changed_flags_cache` still calls it directly until
 # cohort invalidation gets its own topic. Throwaway code by design; don't polish.
 #
-# Transitional surface: KAFKA_ROUTING_FLAG, _route_to_kafka,
-# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
+# Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
+# _route_to_kafka, get_team_primary_flags_writer (and its config binding on
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), _produce_invalidation,
+# _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see

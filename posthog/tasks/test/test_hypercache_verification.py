@@ -36,6 +36,27 @@ def _incomplete_runs(cache_type: str, reason: str) -> float:
     )
 
 
+class TestFixCounterSeries(SimpleTestCase):
+    def test_every_label_triple_is_pre_created_at_import(self) -> None:
+        # Expectations are literals, not _FIX_WRITERS_BY_CACHE_TYPE: deriving them
+        # from the dict would let a dropped writer (the rust series the ramp gates
+        # on) shrink the test along with the code.
+        for cache_type, writers in (
+            ("flags", ("python", "rust", "unknown")),
+            ("team_metadata", ("python",)),
+            ("flag_definitions", ("python",)),
+        ):
+            for issue_type in ("cache_miss", "cache_mismatch", "expiry_missing"):
+                for writer in writers:
+                    assert (
+                        REGISTRY.get_sample_value(
+                            "posthog_hypercache_verify_fixes_total",
+                            {"cache_type": cache_type, "issue_type": issue_type, "writer": writer},
+                        )
+                        is not None
+                    ), f"series not pre-created: cache_type={cache_type}, issue_type={issue_type}, writer={writer}"
+
+
 class TestIncompleteRunsCounterSeries(SimpleTestCase):
     def test_every_label_pair_is_pre_created_at_import(self) -> None:
         for cache_type in ("flags", "team_metadata", "flag_definitions"):

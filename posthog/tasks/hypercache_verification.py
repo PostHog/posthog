@@ -80,9 +80,8 @@ _FIX_ISSUE_TYPES = ("cache_miss", "cache_mismatch", "expiry_missing")
 # caches are Python-written, so pre-creating rust/unknown series for them would
 # publish zero-valued series that can never increment.
 _FIX_WRITERS_BY_CACHE_TYPE = {
-    "flags": ("python", "rust", "unknown"),
-    "team_metadata": ("python",),
-    FLAG_DEFINITIONS_CACHE_TYPE: ("python",),
+    cache_type: ("python", "rust", "unknown") if cache_type == "flags" else ("python",)
+    for cache_type in (*get_args(CacheType), FLAG_DEFINITIONS_CACHE_TYPE)
 }
 # Same pre-creation rationale as above. It matters most for writer="rust": a
 # rust-attributed fix is the rare parity signal the Kafka-builder ramp gates on,
