@@ -1,0 +1,21 @@
+# Dockerfile for the autoresearch sandbox image: the agent-capable base image plus the
+# Python ML libraries the autoresearch training loop needs. The base image hosts the
+# agent server (agentsh, @posthog/agent, skills); the notebook image ships the ML libs
+# but cannot host the agent — autoresearch needs both, so we layer the libs onto base.
+# Kept deliberately minimal (no torch/autogluon yet); extend here when heavier models land.
+ARG BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:master
+FROM ${BASE_IMAGE}
+
+# Installed at system site (not a venv) so the agent's plain `python3` resolves them.
+# The training prompt promises a pre-equipped sandbox and forbids `pip install` at run
+# time, so these must be present on the default interpreter path. PEP 668 marks the
+# system environment as externally managed; --break-system-packages is the documented
+# escape hatch for purpose-built images like this one.
+RUN pip install --break-system-packages --no-cache-dir \
+    numpy \
+    pandas \
+    scikit-learn \
+    pyarrow \
+    scipy
+
+CMD ["/bin/bash"]

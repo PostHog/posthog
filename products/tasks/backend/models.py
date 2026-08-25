@@ -350,6 +350,7 @@ class Task(DeletedMetaFields, models.Model):
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
+        AUTORESEARCH = "autoresearch", "Autoresearch"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
         # Headless scan that pre-computes the "Suggested for this project" scout batch
@@ -1007,6 +1008,7 @@ class Task(DeletedMetaFields, models.Model):
         reasoning_effort: str | None = None,
         service_tier: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -1221,6 +1223,9 @@ class Task(DeletedMetaFields, models.Model):
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
+        if sandbox_template:
+            extra_state["sandbox_template"] = sandbox_template
+
         # Optional per-task sandbox compute/timeout overrides. Read back into
         # SandboxConfig at provision time (see TaskProcessingContext); unset
         # fields keep the SandboxConfig defaults.
@@ -1368,6 +1373,7 @@ class Task(DeletedMetaFields, models.Model):
         reasoning_effort: str | None = None,
         service_tier: str | None = None,
         initial_permission_mode: str | None = None,
+        sandbox_template: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
@@ -1419,6 +1425,7 @@ class Task(DeletedMetaFields, models.Model):
             reasoning_effort=reasoning_effort,
             service_tier=service_tier,
             initial_permission_mode=initial_permission_mode,
+            sandbox_template=sandbox_template,
             sandbox_resources=sandbox_resources,
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
