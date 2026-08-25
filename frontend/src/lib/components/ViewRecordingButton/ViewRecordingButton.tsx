@@ -197,6 +197,11 @@ export default function ViewRecordingButton({
     )
 }
 
+// Recorder statuses that definitively mean replay produced no snapshots at this event. Other
+// statuses (lazy_loading, awaiting_config, paused) are transient or page-scoped, so a recording
+// may still exist for the session — do not disable the button and claim replay was off.
+const REPLAY_INACTIVE_STATUSES = ['disabled', 'missing_config']
+
 export const recordingDisabledReason = (
     sessionId: unknown,
     recordingStatus: string | undefined,
@@ -216,7 +221,7 @@ export const recordingDisabledReason = (
                 set it on all events.
             </>
         )
-    } else if (recordingStatus && !['active', 'sampled', 'buffering'].includes(recordingStatus)) {
+    } else if (recordingStatus && REPLAY_INACTIVE_STATUSES.includes(recordingStatus)) {
         return (
             <>
                 Replay was not active when capturing this event.{' '}

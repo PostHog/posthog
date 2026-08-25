@@ -205,11 +205,32 @@ describe('diagnoseReplayCapture', () => {
             expected: 'unknown',
         },
         {
-            name: 'paused recording status → unknown',
+            name: 'paused recording status → url_blocked',
             properties: {
                 $recording_status: 'paused',
             },
-            expected: 'unknown',
+            expected: 'url_blocked',
+        },
+        {
+            name: 'lazy_loading recording status → recorder_loading',
+            properties: {
+                $recording_status: 'lazy_loading',
+            },
+            expected: 'recorder_loading',
+        },
+        {
+            name: 'awaiting_config recording status → recorder_loading',
+            properties: {
+                $recording_status: 'awaiting_config',
+            },
+            expected: 'recorder_loading',
+        },
+        {
+            name: 'missing_config recording status → config_missing',
+            properties: {
+                $recording_status: 'missing_config',
+            },
+            expected: 'config_missing',
         },
         {
             name: 'string-valued buffer length "0" is coerced for buffering_empty',
@@ -235,6 +256,21 @@ describe('diagnoseReplayCapture', () => {
         expect(result.verdict).toBe(expected)
         expect(result.headline).toBeTruthy()
         expect(result.reasons.length).toBeGreaterThan(0)
+    })
+
+    it('names the absent primary signals when the cause is unknown', () => {
+        const result = diagnoseReplayCapture({ $browser: 'Chrome' })
+        expect(result.verdict).toBe('unknown')
+        const text = result.reasons.join(' ')
+        expect(text).toContain('$recording_status')
+        expect(text).toContain('$has_recording')
+        expect(text).toContain('$session_recording_start_reason')
+    })
+
+    it('reports an unrecognized recording status in the unknown fallback', () => {
+        const result = diagnoseReplayCapture({ $recording_status: 'some_future_status' })
+        expect(result.verdict).toBe('unknown')
+        expect(result.reasons.some((r) => r.includes('some_future_status'))).toBe(true)
     })
 
     it('includes relevant raw signals in the result', () => {

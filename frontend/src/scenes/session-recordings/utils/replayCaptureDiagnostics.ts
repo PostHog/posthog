@@ -4,6 +4,9 @@ export type DiagnosisVerdict =
     | 'captured'
     | 'ad_blocked'
     | 'disabled'
+    | 'config_missing'
+    | 'recorder_loading'
+    | 'url_blocked'
     | 'trigger_pending'
     | 'sampled_out'
     | 'buffering_empty'
@@ -52,6 +55,10 @@ const DIAGNOSTIC_KEYS = [
     '$replay_override_url_trigger',
     '$replay_override_event_trigger',
 ] as const
+
+// The signals the ladder relies on most. When none of these are present the fallback cannot say
+// why a recording is missing, so it names the absent ones instead of shrugging.
+const PRIMARY_SIGNAL_KEYS = ['$recording_status', '$has_recording', '$session_recording_start_reason'] as const
 
 const TROUBLESHOOTING_URL = 'https://posthog.com/docs/session-replay/troubleshooting'
 
@@ -161,6 +168,49 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
+    if (recordingStatus === 'missing_config') {
+        return {
+            verdict: 'config_missing',
+            headline: 'Recording never received its configuration',
+            reasons: [
+                'The SDK requested replay config from PostHog but it never arrived, so the recorder never started.',
+                'This can happen when the config request is blocked, or when replay is not enabled for this project.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'lazy_loading' || recordingStatus === 'awaiting_config') {
+        const phase =
+            recordingStatus === 'lazy_loading'
+                ? 'downloading the recorder script'
+                : 'waiting for replay config from PostHog'
+        return {
+            verdict: 'recorder_loading',
+            headline: 'The recorder was still starting up when this event was captured',
+            reasons: [
+                `The SDK was ${phase} at this moment, so no snapshots existed yet.`,
+                'A recording may still exist for later in this session — open the session in the replay list to check.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    if (recordingStatus === 'paused') {
+        return {
+            verdict: 'url_blocked',
+            headline: 'Recording was paused on this page',
+            reasons: [
+                'The SDK paused recording for this page, usually because the URL matched a configured block rule.',
+                'Other pages in this session may still have a recording — open the session in the replay list to check.',
+            ],
+            rawSignals,
+            suggestedActions: [settingsAction, troubleshootingAction],
+        }
+    }
+
     const triggers = [
         { key: 'URL trigger', status: urlTrigger },
         { key: 'event trigger', status: eventTrigger },
@@ -220,13 +270,26 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
         }
     }
 
+    const reasons: string[] = []
+    if (recordingStatus !== undefined) {
+        reasons.push(
+            `The recorder reported status \`${recordingStatus}\`, which does not map to a known missing-recording cause.`
+        )
+    }
+    const missingSignals = PRIMARY_SIGNAL_KEYS.filter((key) => properties[key] === undefined)
+    if (missingSignals.length > 0) {
+        reasons.push(
+            `These signals were absent from this event, so the cause cannot be pinpointed: ${missingSignals.join(', ')}.`
+        )
+    } else {
+        reasons.push('The signals on this event do not match any known capture-failure pattern.')
+    }
+    reasons.push('Check the raw signals below and the troubleshooting docs for more guidance.')
+
     return {
         verdict: 'unknown',
         headline: 'Unable to determine why this recording is missing',
-        reasons: [
-            'The diagnostic properties on this event do not match any known capture-failure pattern.',
-            'Check the raw signals below and the troubleshooting docs for more guidance.',
-        ],
+        reasons,
         rawSignals,
         suggestedActions: [settingsAction, troubleshootingAction],
     }

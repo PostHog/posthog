@@ -27,4 +27,15 @@ describe('recordingDisabledReason', () => {
         expect(recordingDisabledReason(undefined, undefined, undefined)).not.toBeNull()
         expect(typeof recordingDisabledReason(undefined, undefined, undefined)).not.toBe('string')
     })
+
+    it.each([['disabled'], ['missing_config']])('disables and explains replay was off for the %s status', (status) => {
+        expect(recordingDisabledReason('0190-good-session', status, undefined)).not.toBeNull()
+    })
+
+    it.each([['lazy_loading'], ['awaiting_config'], ['paused'], ['some_future_status']])(
+        'does not claim replay was off for the transient %s status',
+        (status) => {
+            expect(recordingDisabledReason('0190-good-session', status, undefined)).toBeNull()
+        }
+    )
 })

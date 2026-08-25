@@ -25,7 +25,10 @@ const RECORDING_STATUS_EXPLANATIONS: Record<string, string> = {
         'The SDK initialized but is waiting (for a trigger, duration, or remote config) before producing snapshots.',
     disabled: 'Recording is turned off — either in project settings or via SDK config at runtime.',
     sampled: 'This session was included by the configured replay sample rate — recording started.',
-    paused: 'Recording is temporarily paused for this session.',
+    paused: 'Recording is paused for this page, usually because the URL matched a block rule.',
+    lazy_loading: 'The SDK is still downloading the recorder script — snapshots start once it loads.',
+    awaiting_config: 'The SDK is waiting for replay config from PostHog before it can start recording.',
+    missing_config: 'The SDK never received replay config, so recording did not start.',
 }
 
 const START_REASON_EXPLANATIONS: Record<string, string> = {
@@ -99,6 +102,9 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     captured: 'success',
     ad_blocked: 'warning',
     disabled: 'warning',
+    config_missing: 'warning',
+    recorder_loading: 'info',
+    url_blocked: 'info',
     trigger_pending: 'info',
     sampled_out: 'info',
     buffering_empty: 'info',
