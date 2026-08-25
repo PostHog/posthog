@@ -315,7 +315,6 @@ export const FEATURE_FLAGS = {
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
     ERROR_TRACKING_FINGERPRINT_MAP: 'error-tracking-fingerprint-map', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
-    ERROR_TRACKING_ISSUE_RELEASES: 'error-tracking-issue-releases', // owner: #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING: 'error-tracking-rate-limiting', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_BYPASS: 'error-tracking-rate-limiting-bypass', // owner: @ablaszkiewicz #team-error-tracking
