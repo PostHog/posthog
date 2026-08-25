@@ -3,8 +3,8 @@ from uuid import UUID
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import CISignalsConfig, CISignalsSyncStatus
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
