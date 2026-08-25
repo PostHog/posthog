@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_INVALID_CONNECTION_STRING_MESSAGE,
     _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
@@ -45,6 +46,21 @@ class TestParseConnectionStringDatabaseOverride:
 
 
 class TestMongoValidateCredentialsDatabaseName:
+    @pytest.mark.parametrize(
+        "connection_string",
+        [
+            "https://cluster.example.com/db",  # wrong scheme, rejected by our own check
+            "mongodb+srv://host:not-a-port/db",  # urlparse rejects the non-numeric port
+        ],
+    )
+    def test_unparseable_connection_string_returns_actionable_error(self, connection_string):
+        config = MongoDBSourceConfig.from_dict({"connection_string": connection_string})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_INVALID_CONNECTION_STRING_MESSAGE
+
     def test_missing_database_everywhere_returns_actionable_error(self):
         config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_NO_DB})
 

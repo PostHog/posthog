@@ -90,6 +90,17 @@ class SlackIntegration:
 
         return sorted(channels, key=lambda x: x["name"])
 
+    def list_public_channels(self) -> list[dict]:
+        """Every public channel, without paging the private half.
+
+        ``list_channels`` also pages ``users_conversations`` and masks the name of every private
+        channel the caller cannot see, so a caller that matches on name pays for a listing where
+        those entries all collapse onto one unusable name. Background jobs want this one: they
+        have no request user to pass as ``authed_user``, so the private half can only ever be
+        masked for them.
+        """
+        return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
+
     def get_channel_by_id(
         self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
     ) -> dict | None:

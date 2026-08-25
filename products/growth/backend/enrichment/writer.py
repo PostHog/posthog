@@ -13,7 +13,8 @@ threshold-tuned consumers migrate) and the ICP fit score on its own `icp_fit_*` 
 The two never share a key, so neither can misattribute the other's values.
 """
 
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, Union
 
 from django.db import transaction
 
@@ -34,19 +35,28 @@ ORGANIZATION_GROUP_TYPE = "organization"
 _FIT_NUMERIC_KEYS = ["icp_fit_score", "icp_fit_components", "icp_fit_flags", "icp_fit_dq_reason"]
 
 
-def _merge_into_record(organization_id: str, values: dict[str, Any], remove: Optional[list[str]] = None) -> None:
+def merge_into_record(
+    organization_id: str,
+    values: Union[dict[str, Any], Callable[[dict[str, Any]], dict[str, Any]]],
+    remove: Optional[list[str]] = None,
+) -> None:
     """Row-locked read/merge/save into OrganizationEnrichment.data.
 
     select_for_update serializes concurrent writers on the same org (the request-path
     signup write and the fire-and-forget provider write). Without the lock they read the
     same snapshot and the later save clobbers the other's keys, dropping enrichment data.
 
+    `values` may be a callable receiving the locked row's current data — needed for a
+    merge that depends on the current value (e.g. incrementing a counter) without a
+    separate unlocked read racing the lock.
+
     `remove` deletes keys in the same locked write — used to strip stale fit keys when a
     new evaluation supersedes them.
     """
     with transaction.atomic():
         record, _ = OrganizationEnrichment.objects.select_for_update().get_or_create(organization_id=organization_id)
-        merged = {**record.data, **values}
+        computed = values(record.data) if callable(values) else values
+        merged = {**record.data, **computed}
         for key in remove or []:
             merged.pop(key, None)
         record.data = merged
@@ -150,7 +160,7 @@ def write_organization_enrichment(
     if not values:
         return
 
-    _merge_into_record(organization_id, values, remove=remove)
+    merge_into_record(organization_id, values, remove=remove)
 
     properties = fields.to_group_properties() if fields is not None else {}
     if icp_score is not None:
@@ -210,4 +220,4 @@ def record_signup_work_email(*, organization_id: str, work_email: bool, signup_r
     values: dict[str, Any] = {"work_email": work_email}
     if signup_role and signup_role.strip():
         values["signup_role"] = signup_role.strip().lower()
-    _merge_into_record(organization_id, values)
+    merge_into_record(organization_id, values)
