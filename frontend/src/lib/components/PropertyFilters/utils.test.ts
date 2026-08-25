@@ -17,6 +17,7 @@ import type { propertyDefinitionsModelType } from '~/models/propertyDefinitionsM
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
+    ActionType,
     AnyPropertyFilter,
     BehavioralEventType,
     BehavioralPropertyFilter,
@@ -81,9 +82,12 @@ describe('formatPropertyLabel() for behavioral filters', () => {
     }
 
     // pluralize() glues the count to its unit with a non-breaking space
-    test.each<[string, Partial<BehavioralPropertyFilter>, string]>([
-        ['performed', {}, 'Performed signed_up in the last 30\u00a0days'],
-        ['did not perform', { negation: true }, 'Did not perform signed_up in the last 30\u00a0days'],
+    // Every row spells out actionsById: a shorter row makes jest-each hand the callback a `done`
+    const noActions: Partial<Record<string | number, ActionType>> = {}
+
+    test.each<[string, Partial<BehavioralPropertyFilter>, string, Partial<Record<string | number, ActionType>>]>([
+        ['performed', {}, 'Performed signed_up in the last 30\u00a0days', noActions],
+        ['did not perform', { negation: true }, 'Did not perform signed_up in the last 30\u00a0days', noActions],
         [
             'count',
             {
@@ -92,15 +96,40 @@ describe('formatPropertyLabel() for behavioral filters', () => {
                 operator_value: 3,
             },
             'Performed signed_up at least 3\u00a0times in the last 30\u00a0days',
+            noActions,
         ],
         [
             'single unit',
             { time_value: 1, time_interval: TimeUnitType.Week },
             'Performed signed_up in the last 1\u00a0week',
+            noActions,
         ],
-        ['explicit date', { explicit_datetime: '-14d', time_value: undefined }, 'Performed signed_up since -14d'],
-    ])('%s', (_name, overrides, expected) => {
-        expect(formatPropertyLabel({ ...base, ...overrides }, {})).toEqual(expected)
+        [
+            'explicit date',
+            { explicit_datetime: '-14d', time_value: undefined },
+            'Performed signed_up since -14d',
+            noActions,
+        ],
+        [
+            'core event uses its readable label',
+            { key: '$pageview' },
+            'Performed Pageview in the last 30\u00a0days',
+            noActions,
+        ],
+        [
+            'action resolves to its name',
+            { key: '42', event_type: 'actions' },
+            'Performed Completed checkout in the last 30\u00a0days',
+            { 42: { id: 42, name: 'Completed checkout' } as ActionType },
+        ],
+        [
+            'unresolved action falls back to its id',
+            { key: '42', event_type: 'actions' },
+            'Performed action 42 in the last 30\u00a0days',
+            noActions,
+        ],
+    ])('%s', (_name, overrides, expected, actionsById) => {
+        expect(formatPropertyLabel({ ...base, ...overrides }, {}, undefined, actionsById)).toEqual(expected)
     })
 })
 

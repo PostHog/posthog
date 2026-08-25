@@ -1,9 +1,16 @@
+import { useValues } from 'kea'
+
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { BEHAVIORAL_COUNT_OPERATOR_LABELS } from 'lib/components/PropertyFilters/utils'
+import {
+    BEHAVIORAL_COUNT_OPERATOR_LABELS,
+    behavioralEntityLabel,
+    formatPropertyLabel,
+} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
+import { actionsModel } from '~/models/actionsModel'
 import { BehavioralEventType, BehavioralPropertyFilter, PropertyOperator, TimeUnitType } from '~/types'
 
 import { PropertyFilterButton } from './PropertyFilterButton'
@@ -62,9 +69,16 @@ export function BehavioralPropertyFilterRow({
     editable,
     size = 'medium',
 }: BehavioralPropertyFilterRowProps): JSX.Element {
+    // Only mounted for behavioral filters, so surfaces without one never pay for the actions fetch
+    const { actionsById } = useValues(actionsModel)
+
     // Filters created via the API with explicit date bounds have no window controls to map onto
     if (!editable || filter.explicit_datetime) {
-        return <PropertyFilterButton item={filter} />
+        return (
+            <PropertyFilterButton item={filter}>
+                {formatPropertyLabel(filter, {}, undefined, actionsById)}
+            </PropertyFilterButton>
+        )
     }
 
     const countOperator = filter.operator ?? PropertyOperator.GreaterThanOrEqual
@@ -91,11 +105,22 @@ export function BehavioralPropertyFilterRow({
                     <div className="min-w-32 flex-1">
                         <TaxonomicPopover
                             size={size}
-                            groupType={TaxonomicFilterGroupType.Events}
-                            groupTypes={[TaxonomicFilterGroupType.Events]}
-                            value={filter.key}
-                            onChange={(value) => onChange({ ...filter, key: String(value), event_type: 'events' })}
-                            placeholder="Select an event"
+                            groupType={
+                                filter.event_type === 'actions'
+                                    ? TaxonomicFilterGroupType.Actions
+                                    : TaxonomicFilterGroupType.Events
+                            }
+                            groupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                            value={filter.event_type === 'actions' ? Number(filter.key) : filter.key}
+                            onChange={(value, groupType) =>
+                                onChange({
+                                    ...filter,
+                                    key: String(value),
+                                    event_type: groupType === TaxonomicFilterGroupType.Actions ? 'actions' : 'events',
+                                })
+                            }
+                            renderValue={() => <span>{behavioralEntityLabel(filter, actionsById)}</span>}
+                            placeholder="Select an event or action"
                             fullWidth
                             truncate
                             data-attr="behavioral-filter-event"

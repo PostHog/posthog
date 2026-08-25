@@ -33,7 +33,7 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
             )
         case 'behavioral':
             return (
-                <Tooltip title="Performed event filter">
+                <Tooltip title="Performed event or action filter">
                     <IconCursorClick />
                 </Tooltip>
             )

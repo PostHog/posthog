@@ -15,6 +15,7 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
+    ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
     BehavioralEventType,
@@ -152,7 +153,8 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
 export function formatPropertyLabel(
     item: AnyPropertyFilter,
     cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
+    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)],
+    actionsById: Partial<Record<string | number, ActionType>> = {}
 ): string {
     if (!isValidPropertyFilter(item)) {
         return ''
@@ -163,7 +165,7 @@ export function formatPropertyLabel(
     }
 
     if (isBehavioralPropertyFilter(item)) {
-        return formatBehavioralPropertyLabel(item)
+        return formatBehavioralPropertyLabel(item, actionsById)
     }
 
     const { value, key, type } = item
@@ -256,11 +258,23 @@ export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, 
     [PropertyOperator.Exact]: 'exactly',
 }
 
-function formatBehavioralPropertyLabel(item: BehavioralPropertyFilter): string {
-    const eventLabel =
-        item.event_type === 'actions'
-            ? `action ${item.key}`
-            : getCoreFilterDefinition(item.key, TaxonomicFilterGroupType.Events)?.label || item.key
+/** Display name for the event or action a behavioral filter targets. An unresolved action falls back
+ * to its id, which is all the filter itself stores. */
+export function behavioralEntityLabel(
+    item: BehavioralPropertyFilter,
+    actionsById: Partial<Record<string | number, ActionType>> = {}
+): string {
+    if (item.event_type === 'actions') {
+        return actionsById[item.key]?.name || `action ${item.key}`
+    }
+    return getCoreFilterDefinition(item.key, TaxonomicFilterGroupType.Events)?.label || item.key
+}
+
+function formatBehavioralPropertyLabel(
+    item: BehavioralPropertyFilter,
+    actionsById: Partial<Record<string | number, ActionType>> = {}
+): string {
+    const eventLabel = behavioralEntityLabel(item, actionsById)
     const countClause =
         item.value === BehavioralEventType.PerformMultipleEvents
             ? ` ${BEHAVIORAL_COUNT_OPERATOR_LABELS[item.operator ?? PropertyOperator.Exact] || 'exactly'} ${pluralize(

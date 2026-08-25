@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { mswDecorator } from '~/mocks/browser'
 import {
     BehavioralEventType,
     BehavioralPropertyFilter,
@@ -11,10 +12,19 @@ import {
 
 import { BehavioralPropertyFilterRow } from './BehavioralPropertyFilterRow'
 
+const CHECKOUT_ACTION = { id: 42, name: 'Completed checkout' }
+
 type Story = StoryObj<typeof BehavioralPropertyFilterRow>
 const meta: Meta<typeof BehavioralPropertyFilterRow> = {
     title: 'Filters/Behavioral Property Filter Row',
     component: BehavioralPropertyFilterRow,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/actions/': { count: 1, next: null, previous: null, results: [CHECKOUT_ACTION] },
+            },
+        }),
+    ],
     args: {
         editable: true,
     },
@@ -37,6 +47,23 @@ export const Default: Story = {}
 
 export const ReadOnly: Story = {
     args: { editable: false },
+}
+
+export const Action: Story = {
+    render: (props) => (
+        <BehavioralPropertyFilterRow
+            {...props}
+            filter={{
+                type: PropertyFilterType.Behavioral,
+                value: BehavioralEventType.PerformEvent,
+                key: String(CHECKOUT_ACTION.id),
+                event_type: 'actions',
+                time_value: 30,
+                time_interval: TimeUnitType.Day,
+            }}
+            onChange={() => {}}
+        />
+    ),
 }
 
 export const ReadOnlyWithCount: Story = {
