@@ -4,6 +4,7 @@ import {
   FileTextIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
 import {
   humanizeReportTitle,
   splitReportSummary,
@@ -22,6 +23,8 @@ import { SignalReportSummaryMarkdown } from "@posthog/ui/features/inbox/componen
 import { useInboxBulkActions } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /** A keyboard hint chip; quill has no kbd primitive, so plain HTML carries it. */
@@ -76,6 +79,8 @@ export function ReportTriageFocus({
 }) {
   const [index, setIndex] = useState(0);
   const [dismissOpen, setDismissOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const router = useRouter();
 
   // The queue shrinks under us when a report is archived; clamping (rather
   // than resetting) is what makes archive-and-advance work.
@@ -85,6 +90,18 @@ export function ReportTriageFocus({
     () => splitReportSummary(report?.summary),
     [report?.summary],
   );
+
+  // Triage is intentionally sequential, so the next destination is known as
+  // soon as the card renders. Warm it before Enter/Review is pressed instead
+  // of making the detail route begin its work after navigation.
+  useEffect(() => {
+    if (!report) return;
+    seedInboxReportDetailCache(queryClient, report);
+    void router.preloadRoute({
+      to: "/inbox/reports/$reportId",
+      params: { reportId: report.id },
+    });
+  }, [queryClient, report, router]);
 
   const bulkActions = useInboxBulkActions(
     allReports,

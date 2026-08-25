@@ -42,6 +42,7 @@ import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportT
 import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/components/SuggestedReviewerAvatarStack";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
+import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportDismissAction } from "@posthog/ui/features/inbox/hooks/useInboxReportDismissAction";
 import { useInboxReportsInfinite } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxSectionCounts } from "@posthog/ui/features/inbox/hooks/useInboxSectionCounts";
@@ -409,12 +410,19 @@ function InboxReportRow({ report }: { report: SignalReport }) {
     : null;
   const { actionButton: archiveButton, dialog: archiveDialog } =
     useInboxReportDismissAction(report);
+  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(report, {
+    to: "/inbox/reports/$reportId",
+    params: { reportId: report.id },
+  });
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: the row holds a real archive <button>, which a <button> row would illegally nest */}
       <div
         role="button"
         tabIndex={0}
+        {...pointerHandlers}
+        onPointerEnter={prefetch}
+        onFocus={prefetch}
         onClick={() => navigateToInboxReportDetail(report.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
