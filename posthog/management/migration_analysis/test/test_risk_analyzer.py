@@ -406,6 +406,18 @@ class TestRunSQLOperations:
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
 
+    def test_run_sql_does_not_match_keywords_inside_identifiers(self):
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER INDEX oauth_scope_idx SET (fastupdate = off);",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 3
+        assert risk.reason == "RunSQL with ALTER may cause locks"
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+
     def test_run_sql_with_concurrent_index_with_if_not_exists(self):
         """Test CREATE INDEX CONCURRENTLY with IF NOT EXISTS - score 1 (SAFE)."""
         op = create_mock_operation(
