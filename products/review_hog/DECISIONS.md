@@ -3904,3 +3904,14 @@ resolution died silently at sandbox checkout. Decisions, in one PR:
 Vocabulary added to CONTEXT.md: **Review cycle**, **Busy-guard**. ADR: `adr/0001-resolution-is-a-separate-workflow.md`
 (kept resolution a separate workflow after challenging it — standalone mode, failure isolation, independent
 versioning outweigh the manual seam).
+
+## Sandbox checkout ref: head branch by name (2026-08-25, maintainer decision)
+
+Review sandboxes check out the PR's **head branch by name** again. The 2026-07-15 switch to `pull/N/head` (meant to
+survive a mid-review merge, which deletes the head branch) never worked: the Tasks checkout resolves only
+`refs/heads/<name>`, so the pull ref fell through to a fresh local branch on the base tip and every review
+sandbox investigated the base branch instead of the PR. Invisible while base ≈ PR; loud once the base carried
+later fixes — validators dismissed real findings as "already fixed" because the tree they examined was master.
+The reviewer's findings still came from the diff pasted into its prompt, so review volume never dropped.
+Consequence accepted: a PR that merges mid-review now fails its later checkouts loudly instead of reviewing the
+wrong tree. Fetching `refs/pull/N/head` properly belongs in the Tasks checkout, not here.
