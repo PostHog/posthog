@@ -169,15 +169,18 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     }
 
     if (recordingStatus === 'missing_config') {
+        // The SDK only reports this status when a config refresh failed or returned no replay
+        // settings, not when replay is off for the project (that path reports `disabled`). So the
+        // cause is a blocked config request, and replay settings are not the fix.
         return {
             verdict: 'config_missing',
             headline: 'Recording never received its configuration',
             reasons: [
-                'The SDK requested replay config from PostHog but it never arrived, so the recorder never started.',
-                'This can happen when the config request is blocked, or when replay is not enabled for this project.',
+                'The SDK asked PostHog for replay config but the request failed or returned no replay settings, so the recorder never started.',
+                'Recording stays off until the page reloads. This usually means the config request was blocked by a network filter, ad blocker, or proxy.',
             ],
             rawSignals,
-            suggestedActions: [settingsAction, troubleshootingAction],
+            suggestedActions: [troubleshootingAction],
         }
     }
 

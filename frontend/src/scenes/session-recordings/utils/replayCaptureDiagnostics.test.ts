@@ -299,6 +299,15 @@ describe('diagnoseReplayCapture', () => {
         expect(labels).toContain('Read troubleshooting docs')
     })
 
+    it('does not send config_missing to replay settings, since the config request failed', () => {
+        // missing_config means a blocked/failed config refresh, not replay being off for the project,
+        // so replay settings are not the fix.
+        const result = diagnoseReplayCapture({ $recording_status: 'missing_config' })
+        const labels = result.suggestedActions.map((a) => a.label)
+        expect(labels).not.toContain('Open replay settings')
+        expect(labels).toContain('Read troubleshooting docs')
+    })
+
     it('trigger_pending reason mentions all pending trigger names', () => {
         const result = diagnoseReplayCapture({
             $sdk_debug_replay_url_trigger_status: 'trigger_pending',
