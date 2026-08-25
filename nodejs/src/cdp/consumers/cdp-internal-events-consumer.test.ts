@@ -6,7 +6,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
@@ -40,11 +40,10 @@ describe('CDP Internal Events Consumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
@@ -123,9 +122,9 @@ describe('CDP Internal Events Consumer', () => {
                     },
                     person: undefined,
                     project: {
-                        id: 2,
+                        id: team.id,
                         name: 'TEST PROJECT',
-                        url: 'http://localhost:8000/project/2',
+                        url: `http://localhost:8000/project/${team.id}`,
                     },
                 })
             })
@@ -371,6 +370,7 @@ describe('CDP Internal Events Consumer', () => {
             // guard is part of eligibility, not the trigger's stored filters, so a workflow created
             // through the API or MCP still has it.
             const integration = await insertIntegration(hub.postgres, team.id, {
+                id: team.id,
                 kind: 'slack',
                 config: { app_id: 'A0POSTHOG' },
             })
