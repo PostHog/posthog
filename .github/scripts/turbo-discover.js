@@ -818,6 +818,23 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
     }
 }
 
+// The run identity the selection telemetry event carries, from the runner's own env.
+function runContext() {
+    let prNumber = null
+    try {
+        prNumber = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8')).pull_request?.number ?? null
+    } catch {
+        // Not a GitHub run, or no event payload: the fields stay null.
+    }
+    return {
+        event_type: process.env.GITHUB_EVENT_NAME ?? null,
+        branch: process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || null,
+        sha: process.env.GITHUB_SHA ?? null,
+        pr_number: prNumber,
+        run_id: process.env.GITHUB_RUN_ID ?? null,
+    }
+}
+
 function buildDjangoShards(durations) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
@@ -1119,16 +1136,39 @@ const durations = loadTestDurations()
 console.error('\nDjango shard calculation:')
 const djangoShards = buildDjangoShards(durations)
 
+const { mode, core_files, poe_files, temporal_files, compat_files, run_poe, run_temporal, segment_shards, ...metrics } =
+    selectionDecision
 const result = {
     matrix: buildMatrix(products, durations),
     run_legacy: runLegacy,
     run_legacy_reason: runLegacyReason,
-    // Telemetry for the capture-test-selection job.
-    product_matrix_narrowed: productMatrixNarrowed,
-    product_count: products.length,
-    product_count_full: productCountBeforeNarrowing,
     django_shards: djangoShards,
-    selection: selectionDecision,
+    // What the Django matrix jobs read, as one job output; segment_shards stays a JSON
+    // string because build_django_matrix parses it itself.
+    selection: {
+        mode,
+        core_files,
+        poe_files,
+        temporal_files,
+        compat_files,
+        run_poe,
+        run_temporal,
+        segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
+    },
+    // The posthog-ci-test-selection event, ready for the capture-test-selection job.
+    telemetry: {
+        suite: 'backend',
+        mode,
+        run_poe,
+        run_temporal,
+        ...metrics,
+        run_legacy: runLegacy,
+        run_legacy_reason: runLegacyReason,
+        product_matrix_narrowed: productMatrixNarrowed,
+        product_count: products.length,
+        product_count_full: productCountBeforeNarrowing,
+        ...runContext(),
+    },
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')

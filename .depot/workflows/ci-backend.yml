@@ -524,26 +524,11 @@ jobs:
             django_shards: ${{ steps.discover.outputs.django_shards }}
             # Which Django tests this PR runs. Empty mode = this run does not select.
             mode: ${{ steps.discover.outputs.mode }}
-            core_files: ${{ steps.discover.outputs.core_files }}
-            poe_files: ${{ steps.discover.outputs.poe_files }}
-            temporal_files: ${{ steps.discover.outputs.temporal_files }}
-            compat_files: ${{ steps.discover.outputs.compat_files }}
-            run_poe: ${{ steps.discover.outputs.run_poe }}
-            run_temporal: ${{ steps.discover.outputs.run_temporal }}
-            # Shards per segment for a narrowed run; build_django_matrix reads them as-is.
-            segment_shards: ${{ steps.discover.outputs.segment_shards }}
-            # Kept apples-to-apples with canonical, though the shadow strips the
-            # capture job that consumes them (posthog-github-action telemetry).
-            narrowed: ${{ steps.discover.outputs.narrowed }}
-            skip_reason: ${{ steps.discover.outputs.skip_reason }}
-            changed_file_count: ${{ steps.discover.outputs.changed_file_count }}
-            selected_test_count: ${{ steps.discover.outputs.selected_test_count }}
-            full_run_reasons_count: ${{ steps.discover.outputs.full_run_reasons_count }}
-            selected_test_seconds: ${{ steps.discover.outputs.selected_test_seconds }}
-            skipped_test_seconds: ${{ steps.discover.outputs.skipped_test_seconds }}
-            product_matrix_narrowed: ${{ steps.discover.outputs.product_matrix_narrowed }}
-            product_count: ${{ steps.discover.outputs.product_count }}
-            product_count_full: ${{ steps.discover.outputs.product_count_full }}
+            # The rest of that decision (segment file lists, run_poe, run_temporal,
+            # segment_shards) as one JSON object; consumers read it with fromJSON.
+            selection: ${{ steps.discover.outputs.selection }}
+            # The posthog-ci-test-selection event properties, as one JSON object.
+            telemetry: ${{ steps.discover.outputs.telemetry }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -696,13 +681,7 @@ jobs:
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
                   echo "run_legacy_reason=$(echo "$RESULT" | jq -r '.run_legacy_reason // empty')" >> "$GITHUB_OUTPUT"
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
-                  echo "product_matrix_narrowed=$(echo "$RESULT" | jq -r '.product_matrix_narrowed')" >> $GITHUB_OUTPUT
-                  echo "product_count=$(echo "$RESULT" | jq -r '.product_count')" >> $GITHUB_OUTPUT
-                  echo "product_count_full=$(echo "$RESULT" | jq -r '.product_count_full')" >> $GITHUB_OUTPUT
-                  # One line per test-selection field. A null becomes an empty string, so a
-                  # consumer reads the same blank it read when no selection was made.
-                  echo "$RESULT" | jq -r '.selection | to_entries[] |
-                      "\(.key)=\(if .value == null then "" elif (.value | type) == "object" then (.value | tojson) else .value end)"' >> "$GITHUB_OUTPUT"
+                  echo "$RESULT" | jq -r '"mode=\(.selection.mode)", "selection=\(.selection | tojson)", "telemetry=\(.telemetry | tojson)"' >> "$GITHUB_OUTPUT"
 
             # Depot shadow note: canonical uploads /tmp/selection.json for its
             # test-selection-verdict job. The shadow strips that job and all artifact
@@ -1366,11 +1345,11 @@ jobs:
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
                   DJANGO_SHARDS_JSON: ${{ needs.turbo-discover.outputs.django_shards }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
-                  RUN_POE: ${{ needs.turbo-discover.outputs.run_poe }}
-                  RUN_TEMPORAL: ${{ needs.turbo-discover.outputs.run_temporal }}
-                  CORE_FILES: ${{ needs.turbo-discover.outputs.core_files }}
-                  COMPAT_FILES: ${{ needs.turbo-discover.outputs.compat_files }}
-                  SEGMENT_SHARDS: ${{ needs.turbo-discover.outputs.segment_shards }}
+                  RUN_POE: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').run_poe }}
+                  RUN_TEMPORAL: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').run_temporal }}
+                  CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
+                  COMPAT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').compat_files }}
+                  SEGMENT_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').segment_shards }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
                   # turbo-discover deliberately does not select for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
@@ -1972,9 +1951,9 @@ jobs:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
-                  CORE_FILES: ${{ needs.turbo-discover.outputs.core_files }}
-                  POE_FILES: ${{ needs.turbo-discover.outputs.poe_files }}
-                  COMPAT_FILES: ${{ needs.turbo-discover.outputs.compat_files }}
+                  CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
+                  POE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_files }}
+                  COMPAT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').compat_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
                   # Mirrors canonical: the coverage report skips narrowed runs, so
@@ -2100,7 +2079,7 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
-                  TEMPORAL_FILES: ${{ needs.turbo-discover.outputs.temporal_files }}
+                  TEMPORAL_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').temporal_files }}
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
