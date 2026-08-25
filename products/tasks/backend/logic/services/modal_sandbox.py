@@ -689,6 +689,7 @@ class ModalSandbox(SandboxBase):
         self._app = type(self)._get_app_for_config(config)
         self._sandbox_url = sandbox_url
         self.provision_diagnostics = None
+        self._destroyed = False
 
     @property
     def sandbox_url(self) -> str | None:
@@ -1041,7 +1042,7 @@ class ModalSandbox(SandboxBase):
             )
 
     def get_status(self) -> SandboxStatus:
-        return SandboxStatus.RUNNING if self._sandbox.poll() is None else SandboxStatus.SHUTDOWN
+        return SandboxStatus.SHUTDOWN if self._destroyed or self._sandbox.poll() is not None else SandboxStatus.RUNNING
 
     def execute(
         self,
@@ -1596,6 +1597,12 @@ class ModalSandbox(SandboxBase):
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return self._read_health_boot_metrics(AGENT_SERVER_PORT)
+
     def _free_agent_server_port(self) -> None:
         self.execute(
             "pkill -TERM -f agent-server 2>/dev/null || true; "
@@ -1772,6 +1779,7 @@ class ModalSandbox(SandboxBase):
     def destroy(self) -> None:
         try:
             self._sandbox.terminate()
+            self._destroyed = True
             logger.info(f"Destroyed sandbox {self.id}")
         except Exception as e:
             logger.exception(f"Failed to destroy sandbox: {e}")
