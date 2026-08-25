@@ -39,6 +39,26 @@
             "added": "2026-08-10",
             "expires": "2026-09-07",
             "mode": "run"
+        },
+        {
+            "id": "products/tasks/backend/logic/services/test_sandbox.py::TestSandboxIntegration::test_create_execute_destroy_lifecycle",
+            "runner": "pytest",
+            "reason": "Live-Modal integration test; the status-transition asserts (get_status()==RUNNING after create / ==SHUTDOWN after teardown) are timing-flaky against the live Modal API. The sibling command tests in the same class pass, so Modal works. Fails deterministically on master (ad7753ce, 3fd65b84) and gates every PR touching tasks.",
+            "owner": "@team-posthog-code",
+            "issue": "ISSUE_URL_PLACEHOLDER",
+            "added": "2026-08-25",
+            "expires": "2026-09-15",
+            "mode": "run"
+        },
+        {
+            "id": "products/tasks/backend/logic/services/test_sandbox.py::TestSandboxIntegration::test_context_manager_auto_cleanup",
+            "runner": "pytest",
+            "reason": "Live-Modal integration test; the status-transition asserts (get_status()==RUNNING after create / ==SHUTDOWN after teardown) are timing-flaky against the live Modal API. The sibling command tests in the same class pass, so Modal works. Fails deterministically on master (ad7753ce, 3fd65b84) and gates every PR touching tasks.",
+            "owner": "@team-posthog-code",
+            "issue": "ISSUE_URL_PLACEHOLDER",
+            "added": "2026-08-25",
+            "expires": "2026-09-15",
+            "mode": "run"
         }
     ]
 }
