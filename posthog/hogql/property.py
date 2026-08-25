@@ -83,14 +83,14 @@ PERSON_METADATA_FIELDS = {"created_at"}
 # Negated operators paired with the match they invert, for wrapping negation around a whole array
 # match rather than the comparison inside it. Only `visited_page` uses this so far: the
 # EXCEPTION_STRING_ARRAY_PROPERTIES still negate per element inside arrayExists.
-NEGATED_TO_POSITIVE_OPERATORS: dict[PropertyOperator, OperatorType] = {
-    PropertyOperator.IS_NOT: "exact",
-    PropertyOperator.NOT_ICONTAINS: "icontains",
-    PropertyOperator.NOT_ICONTAINS_MULTI: "icontains_multi",
-    PropertyOperator.NOT_STARTS_WITH: "starts_with",
-    PropertyOperator.NOT_ENDS_WITH: "ends_with",
-    PropertyOperator.NOT_REGEX: "regex",
-    PropertyOperator.NOT_IN: "in",
+NEGATED_TO_POSITIVE_OPERATORS: dict[PropertyOperator, PropertyOperator] = {
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_ICONTAINS_MULTI: PropertyOperator.ICONTAINS_MULTI,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+    PropertyOperator.NOT_IN: PropertyOperator.IN_,
 }
 
 
@@ -1316,7 +1316,10 @@ def property_to_expr(
                         Property(
                             type=property.type,
                             key=property.key,
-                            operator=NEGATED_TO_POSITIVE_OPERATORS[operator],
+                            # Property.operator is typed narrower than the operator set handled here
+                            # (it leaves out the multi-contains pair), and this function casts the
+                            # other way when it reads the field back, so cast to match it.
+                            operator=cast(OperatorType, NEGATED_TO_POSITIVE_OPERATORS[operator].value),
                             group_type_index=property.group_type_index,
                             value=value,
                         ),
