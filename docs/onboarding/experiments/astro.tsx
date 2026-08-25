@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getAstroSteps as getAstroStepsPA } from '../product-analytics/astro'
+import { getAstroInstallSteps } from '../product-analytics/astro'
 import { StepDefinition } from '../steps'
 
 export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getAstroStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getAstroInstallSteps(ctx), ...experimentSteps]
 }
 
 export const AstroInstallation = createInstallation(getAstroSteps)
