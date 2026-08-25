@@ -965,7 +965,9 @@ class UserAccessControl:
             source_subject=self._row_subject(row),
             source_resource=resource,
         )
-        self._report_shadow_divergence("resource", resource, access, lambda: self.resolve_resource_access(resource))
+        self._report_resolved_access_divergence(
+            "resource", resource, access, lambda: self.resolve_resource_access(resource)
+        )
         return access
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
@@ -1572,7 +1574,7 @@ class UserAccessControl:
         if not explicit:
             # explicit=True changes the enforced answer but not the future one, so comparing
             # there would report divergence that is really just the flag
-            self._report_shadow_divergence("object", resource, access, lambda: self.resolve_object_access(obj))
+            self._report_resolved_access_divergence("object", resource, access, lambda: self.resolve_object_access(obj))
         return access.access_level if access else None
 
     def bulk_object_access_levels(
@@ -1751,7 +1753,7 @@ class UserAccessControl:
             source_resource=resource,
         )
 
-    def _report_shadow_divergence(
+    def _report_resolved_access_divergence(
         self,
         kind: Literal["object", "resource"],
         resource: APIScopeObject,
