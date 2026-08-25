@@ -30,8 +30,12 @@ logger = structlog.get_logger(__name__)
 
 GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta"
 
-# Bound the credential-check metadata call so a slow Google response cannot hang the
-# setup request past the gateway limit. (connect, read) seconds — well under 120s.
+# Bound each outbound HTTP request in the credential check with a (connect, read) timeout so a
+# slow Google response cannot hang the setup request. This bounds each request, not the whole
+# check: AuthorizedSession refreshes the OAuth token before the metadata GET and can retry on a
+# 401. The failure mode this guards is an unresponsive Google, where a read or connect timeout
+# raises immediately and skips those retry loops, so the check makes at most a refresh and a GET
+# and stays under the 120s gateway limit.
 PROPERTY_METADATA_TIMEOUT_SECONDS = (10.0, 30.0)
 
 # GA4 standard properties retain aggregate report data well beyond event-level
