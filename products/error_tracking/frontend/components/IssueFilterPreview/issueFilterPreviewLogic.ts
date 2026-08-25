@@ -52,6 +52,13 @@ export interface issueFilterPreviewLogicActions {
         replaceExisting: boolean
         value: boolean | number | string | null
     } // issueFiltersLogic
+    removePropertyFilter: (
+        key: string,
+        fromPreview?: boolean | undefined
+    ) => {
+        fromPreview: boolean
+        key: string
+    } // issueFiltersLogic
     setDateRange: (
         dateRange: DateRange,
         fromPreview?: boolean | undefined
@@ -91,6 +98,9 @@ export interface issueFilterPreviewLogicActions {
     }
     applyPropertyFilters: (filters: PreviewPropertyFilter[]) => {
         filters: PreviewPropertyFilter[]
+    }
+    clearPropertyFilter: (key: string) => {
+        key: string
     }
     clearNonDateFilters: () => {
         value: true
@@ -156,7 +166,14 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
         ],
         actions: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }),
-            ['addPropertyFilter', 'setDateRange', 'setFilterGroup', 'setFilterTestAccounts', 'setSearchQuery'],
+            [
+                'addPropertyFilter',
+                'removePropertyFilter',
+                'setDateRange',
+                'setFilterGroup',
+                'setFilterTestAccounts',
+                'setSearchQuery',
+            ],
             quickFiltersSectionLogic({
                 context: QuickFilterContext.ErrorTrackingIssueFilters,
                 logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
@@ -175,6 +192,7 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             replaceExisting: boolean = false
         ) => ({ key, value, operator, replaceExisting }),
         applyPropertyFilters: (filters: PreviewPropertyFilter[]) => ({ filters }),
+        clearPropertyFilter: (key: string) => ({ key }),
         undoActivePreview: true,
         clearNonDateFilters: true,
         popDateRangeHistory: true,
@@ -266,6 +284,13 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             }
             // Each add counts one chip as preview-added, which would open the popovers of the earlier ones.
             actions.setFilterGroup(values.filterGroup, filters.length)
+            if (values.filterGroup !== previousFilterGroup) {
+                actions.pushFilterGroupHistory(previousFilterGroup)
+            }
+        },
+        clearPropertyFilter: ({ key }) => {
+            const previousFilterGroup = values.filterGroup
+            actions.removePropertyFilter(key, true)
             if (values.filterGroup !== previousFilterGroup) {
                 actions.pushFilterGroupHistory(previousFilterGroup)
             }
