@@ -143,10 +143,15 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type AccountProperties = {
+      /**
+         * Primary company website hostname used for account identity and logo lookup.
+         * @nullable
+         */
+      website_domain?: string | null;
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
       /** Individual email addresses pinned to this account, matched before the domain fallback. */
@@ -200,7 +205,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: AccountProperties;
@@ -1325,6 +1330,8 @@ export namespace Schemas {
       customPropertyHistory: AccountsTableRowCustomPropertyHistory;
       externalId?: string | null;
       id: string;
+      /** Bare hostname the row's logo is rendered from. Null when no source resolved one. */
+      logoDomain?: string | null;
       name: string;
       /** Number of linked internal notes. Omitted when the request does not select the note count. */
       noteCount?: number | null;
@@ -23537,6 +23544,11 @@ export namespace Schemas {
      * * `DatoCMS` - DatoCMS
      * * `WPSOffice` - WPSOffice
      * * `TeraBox` - TeraBox
+     * * `SimonData` - SimonData
+     * * `CommissionJunction` - CommissionJunction
+     * * `Liveblocks` - Liveblocks
+     * * `NationBuilder` - NationBuilder
+     * * `Tana` - Tana
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24854,6 +24866,11 @@ export namespace Schemas {
       DatoCMS: 'DatoCMS',
       WPSOffice: 'WPSOffice',
       TeraBox: 'TeraBox',
+      SimonData: 'SimonData',
+      CommissionJunction: 'CommissionJunction',
+      Liveblocks: 'Liveblocks',
+      NationBuilder: 'NationBuilder',
+      Tana: 'Tana',
     } as const;
 
     /**
@@ -26184,7 +26201,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28203,7 +28225,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -36243,7 +36270,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37594,7 +37626,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -57533,10 +57570,15 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+     * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
      */
     export type PatchedAccountProperties = {
+      /**
+         * Primary company website hostname used for account identity and logo lookup.
+         * @nullable
+         */
+      website_domain?: string | null;
       /** Email domains owned by this account's company, used to match inbound touchpoints to the account. */
       email_domains?: string[];
       /** Individual email addresses pinned to this account, matched before the domain fallback. */
@@ -57576,7 +57618,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link) plus touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
+         * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -71442,6 +71484,11 @@ export namespace Schemas {
          * @nullable
          */
       run_id?: string | null;
+      /**
+         * Optional ISO-8601 expiry for a memory that's only true for a while (a cooldown, a window you're watching). After this time the entry drops out of searches, so you don't have to come back and forget it. Omit for a durable memory — every write sets the whole entry, so omitting it on a later write clears an expiry set earlier.
+         * @nullable
+         */
+      expires_at?: string | null;
     }
 
     export interface RemoveOptOutRequest {
@@ -73879,6 +73926,11 @@ export namespace Schemas {
          * @nullable
          */
       updated_at: string | null;
+      /**
+         * ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.
+         * @nullable
+         */
+      expires_at?: string | null;
       /**
          * Run that wrote this entry, or null if human-authored.
          * @nullable
@@ -76435,7 +76487,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -77794,7 +77851,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -79143,7 +79205,12 @@ export namespace Schemas {
        * * `Clarify` - Clarify
        * * `DatoCMS` - DatoCMS
        * * `WPSOffice` - WPSOffice
-       * * `TeraBox` - TeraBox */
+       * * `TeraBox` - TeraBox
+       * * `SimonData` - SimonData
+       * * `CommissionJunction` - CommissionJunction
+       * * `Liveblocks` - Liveblocks
+       * * `NationBuilder` - NationBuilder
+       * * `Tana` - Tana */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -93813,6 +93880,10 @@ export namespace Schemas {
 
     export type PersonsListParams = {
     /**
+     * Names the ClickHouse query this request runs. Send the same id to `DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still running. Up to 128 characters.
+     */
+    client_query_id?: string;
+    /**
      * Filter list by distinct id.
      */
     distinct_id?: string;
@@ -94830,6 +94901,10 @@ export namespace Schemas {
      * ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).
      */
     date_to?: string;
+    /**
+     * Include entries whose `expires_at` has passed. Off by default so a time-boxed memory retires itself; turn it on to audit what the fleet remembered and when it lapsed.
+     */
+    include_expired?: boolean;
     /**
      * Exact key match — returns the single entry with this key, or nothing. Use this to re-read a known entry; `text` searches key *and* content, so it can push the row you asked for past the limit.
      * @minLength 1
