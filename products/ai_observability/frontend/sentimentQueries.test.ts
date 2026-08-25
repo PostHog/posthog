@@ -200,12 +200,13 @@ describe('sentimentQueries', () => {
         expect(candidateQuery).toContain('toIntOrZero(message_count) > 0')
         expect(candidateOptions?.queryParams?.filters).toEqual({
             dateRange: { date_from: '-7d', date_to: null },
-        })
-
-        const [, , hydrationOptions] = mockApi.queryHogQL.mock.calls[1]
-        expect(hydrationOptions?.queryParams?.filters).toEqual({
             filterTestAccounts: false,
         })
+
+        // Project filters belong on the candidate query above. A person property filter here would
+        // join ai_events back to the main cluster.
+        const [, , hydrationOptions] = mockApi.queryHogQL.mock.calls[1]
+        expect(hydrationOptions?.queryParams?.filters).toBeUndefined()
     })
 
     it('restricts the candidate query to a single evaluation when one is selected', async () => {
