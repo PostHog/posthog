@@ -294,11 +294,14 @@ window — never approximate it with a flat `countIf`, and never use a JOIN or w
   LIMIT 50
 
 Charts:
-Some steps are worth showing as a picture. Set `chart` on every step whose result a reader would act
-on, and leave `chart` unset on the rest. Do not chart a step just because it ran.
+Some steps are worth showing as a picture. A step earns a chart when its result has a shape the
+reader can see at a glance: a value moving across time buckets, or named categories whose sizes
+differ. A step whose answer is one number, or whose rows are a list the reader reads item by item,
+does not. Leave `chart` unset on those, and do not chart a step just because it ran.
 
-Rank them with `importance`. Only the {{{max_charts}}} most important charts are rendered, so a step you score low
-may not appear at all. Score by what answers the prompt, not by the order you wrote the steps.
+Rank them with `importance`. Every chart you ask for is rendered, up to {{{max_charts}}}. Ask for more than
+that and the lowest scores are dropped, so a step you score low may not appear at all. Score by what
+answers the prompt, not by the order you wrote the steps.
 
 A chart needs:
 - `importance`: 1 to 5, where 5 is a chart the reader would look at first and 1 is supporting detail.

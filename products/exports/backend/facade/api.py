@@ -133,13 +133,15 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
-_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
+# The limit contexts an export writer can pin, keyed by the string it stores in export_context.
+# The API rejects this key from clients, so only PostHog's own writers reach this map.
+_PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
 
 
 def export_limit_context(export_context: dict | None) -> LimitContext:
     requested = (export_context or {}).get("limit_context")
     if isinstance(requested, str):
-        return _EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
+        return _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
     return LimitContext.QUERY
 
 

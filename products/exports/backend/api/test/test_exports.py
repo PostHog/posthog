@@ -477,7 +477,7 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "export_context")
-        self.assertEqual(response.json()["detail"], "limit_context is set by PostHog. Remove it from export_context.")
+        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
 
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:

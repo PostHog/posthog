@@ -4,11 +4,15 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ChartDisplayType
 
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+
 # Hard cap on AI report query-plan steps — the contract the schema validator, planner prompt, and
 # synthesis result budget all key off. Named once here so they can't silently drift apart.
 MAX_QUERY_PLAN_STEPS = 25
 
-MAX_CHARTS_PER_REPORT = 6
+# Bound to the dashboard subscription insight cap so the two kinds of subscription report
+# show the same number of pictures.
+MAX_CHARTS_PER_REPORT = MAX_INSIGHTS
 MIN_CHART_IMPORTANCE = 1
 MAX_CHART_IMPORTANCE = 5
 MAX_CHART_SERIES = 4
@@ -42,8 +46,8 @@ class StepChart(BaseModel):
         description=(
             f"How much this chart matters to the reader, {MIN_CHART_IMPORTANCE} to "
             f"{MAX_CHART_IMPORTANCE}, with {MAX_CHART_IMPORTANCE} the most important. "
-            f"A report shows at most {MAX_CHARTS_PER_REPORT} charts, and drops the least "
-            "important ones first, so score honestly."
+            f"A report shows every chart you ask for, up to {MAX_CHARTS_PER_REPORT}. Only when you "
+            "ask for more than that are the lowest scores dropped, so score honestly."
         ),
     )
     x_column: str = Field(

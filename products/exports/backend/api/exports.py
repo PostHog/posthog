@@ -123,9 +123,7 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
 
         export_context = data.get("export_context") or {}
         if "limit_context" in export_context:
-            raise ValidationError(
-                {"export_context": ["limit_context is set by PostHog. Remove it from export_context."]}
-            )
+            raise ValidationError({"export_context": ["limit_context is not supported for exports."]})
         if export_context.get("path") and (
             str(export_context.get("method", "GET")).upper() != "GET" or export_context.get("body") is not None
         ):
