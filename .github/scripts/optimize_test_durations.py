@@ -86,6 +86,7 @@ _JUNIT_ARTIFACT_PREFIX = {
     "CorePOE": "junit-results-backend-core-poe",
     "Temporal": "junit-results-backend-temporal",
     "Products": "product-junit-results",
+    "Dagster": "junit-results-dagster",
 }
 
 
@@ -102,6 +103,8 @@ class JUnitShard:
 
     name: str
     call_times: dict[str, float]
+    # An XML of this shard (any attempt) did not parse, so call_times is incomplete.
+    unreadable: bool = False
 
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
@@ -111,40 +114,64 @@ class JUnitShard:
         Segment match is anchored at the artifact prefix so "Core" doesn't
         accidentally pick up "core-poe" or any future "*-core-*" name, and
         "CorePOE" matches "core-poe" instead of the absent substring "corepoe".
+
+        Re-run attempts upload as `<shard>-attempt<N>` (attempt 1 carries no
+        suffix). Attempts of one shard merge into one entry under the base
+        shard name, so downstream shard-set matching sees one entry per shard.
+        The newest attempt's time wins for a test every attempt ran; a test
+        only an earlier attempt ran stays, because a rerun without the pinned
+        plan can reshard it into a shard that is not rerun at all.
         """
-        shards = []
+        # Group re-run attempt dirs by base shard name (attempt 1 is the
+        # unsuffixed dir), oldest attempt first.
+        by_base: dict[str, list[tuple[int, Path]]] = defaultdict(list)
         for shard_dir in sorted(junit_dir.iterdir()):
             if not shard_dir.is_dir():
                 continue
+            match = re.match(r"^(.*?)(?:-attempt(\d+))?$", shard_dir.name.lower())
+            if not match:
+                continue
+            base, attempt_n = match.group(1), int(match.group(2) or 1)
+            by_base[base].append((attempt_n, shard_dir))
 
+        shards = []
+        for base, attempts in sorted(by_base.items()):
             if segment:
                 artifact_prefix = _JUNIT_ARTIFACT_PREFIX.get(segment, f"junit-results-backend-{segment.lower()}")
                 # Anchor with `\d+$` so the Core prefix doesn't accidentally
                 # eat core-poe-N (which also starts with junit-results-backend-core-).
                 pattern = re.compile(rf"^{re.escape(artifact_prefix)}-\d+$")
-                if not pattern.match(shard_dir.name.lower()):
+                if not pattern.match(base):
                     continue
 
-            xml_files = sorted(shard_dir.glob("*.xml"))
-            if not xml_files:
-                continue
-
             call_times: dict[str, float] = {}
-            for xml_file in xml_files:
-                for test_id, call_time in cls._parse_call_times(xml_file).items():
-                    call_times[test_id] = max(call_times.get(test_id, 0.0), call_time)
-            shards.append(cls(name=shard_dir.name, call_times=call_times))
+            found_xml = False
+            unreadable = False
+            for _attempt_n, shard_dir in sorted(attempts):
+                attempt_times: dict[str, float] = {}
+                for xml_file in sorted(shard_dir.glob("*.xml")):
+                    found_xml = True
+                    parsed = cls._parse_call_times(xml_file)
+                    if parsed is None:
+                        unreadable = True
+                        continue
+                    for test_id, call_time in parsed.items():
+                        attempt_times[test_id] = max(attempt_times.get(test_id, 0.0), call_time)
+                call_times.update(attempt_times)
+            if not found_xml:
+                continue
+            shards.append(cls(name=base, call_times=call_times, unreadable=unreadable))
 
         return shards
 
     @staticmethod
-    def _parse_call_times(xml_path: Path) -> dict[str, float]:
-        """Extract {pytest_id: call_time} for every parseable testcase."""
+    def _parse_call_times(xml_path: Path) -> dict[str, float] | None:
+        """Extract {pytest_id: call_time} for every parseable testcase, None when the XML does not parse."""
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
             logger.warning("  Could not parse JUnit XML %s: %s", xml_path, e)
-            return {}
+            return None
         call_times: dict[str, float] = {}
         for tc in tree.getroot().iter("testcase"):
             pytest_id = _junit_to_pytest_id(tc.get("classname", ""), tc.get("name", ""))
@@ -807,6 +834,14 @@ def main():
     if args.scope_to_junit:
         if not junit_shards:
             logger.error("--scope-to-junit requires --junit-dir with matching artifacts")
+            sys.exit(1)
+        # A timing shard whose JUnit never uploaded, or uploaded truncated (the
+        # parser turns that into an empty shard), would read as "nothing ran" and
+        # lose every nodeid it owns, so scoping needs one readable JUnit per
+        # shard. The workflow retries unscoped on this exit.
+        unreadable = [shard.name for shard in junit_shards if shard.unreadable or not shard.call_times]
+        if not shard_sets_match(shards, junit_shards) or unreadable:
+            logger.error("--scope-to-junit needs a readable JUnit artifact for every timing shard: %s", unreadable)
             sys.exit(1)
         ran = set().union(*(s.call_times.keys() for s in junit_shards))
         before_count = len(durations)
