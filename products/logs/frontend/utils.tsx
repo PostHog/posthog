@@ -98,9 +98,16 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
         lines.push({ label: 'Search', value: `"${truncated}"` })
     }
 
-    // Skips the two `exact` log filters the Severity and Service lines above already cover, so a
-    // group-stored selection isn't reported twice. Exclusions still show here.
-    const attributeFilters = formatFilterGroupValues(filters.filterGroup, [SEVERITY_LEVEL_FILTER, SERVICE_NAME_FILTER])
+    // Skips the `exact` log filters the Severity and Service lines above already cover, so a
+    // group-stored selection isn't reported twice. Only where the line came from the group: a line
+    // read off the legacy field says nothing about the group, so skipping there would drop a
+    // `severity_level =` chip from the summary entirely. Exclusions always show here.
+    const usedLegacyField = (legacyField: 'severityLevels' | 'serviceNames'): boolean =>
+        Array.isArray(filters[legacyField]) && filters[legacyField].length > 0
+    const attributeFilters = formatFilterGroupValues(filters.filterGroup, [
+        ...(usedLegacyField('severityLevels') ? [] : [SEVERITY_LEVEL_FILTER]),
+        ...(usedLegacyField('serviceNames') ? [] : [SERVICE_NAME_FILTER]),
+    ])
     if (attributeFilters.length > 0) {
         lines.push({
             label: attributeFilters.length === 1 ? 'Filter' : 'Filters',

@@ -187,6 +187,13 @@ describe('facetFilters', () => {
         })
     })
 
+    // A log with no service_name facets as '', which the services table shows as "(no service)".
+    it("reads back a '' service selection so its row can cycle", () => {
+        const cycled = cycleFacetValue(groupOf([]), SERVICE_NAME_FILTER, '')
+
+        expect(facetSelection(cycled, SERVICE_NAME_FILTER).included).toEqual([''])
+    })
+
     describe('setFacetSelection', () => {
         it('keeps a sibling group the facet does not own', () => {
             const sibling = { type: FilterLogicalOperator.Or, values: [] } as UniversalFiltersGroup

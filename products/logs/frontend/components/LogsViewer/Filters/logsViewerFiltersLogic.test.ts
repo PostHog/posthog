@@ -110,6 +110,35 @@ describe('logsViewerFiltersLogic', () => {
 
             expect(selectedServices()).toEqual([])
         })
+
+        // Restoring a filter-history entry or a saved view written before the selection moved into
+        // the group hands over both, and the group is then the whole selection.
+        it('keeps a chip when an empty field arrives alongside a group', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    serviceNames: [],
+                    severityLevels: [],
+                    filterGroup: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: 'service_name',
+                                        type: PropertyFilterType.Log,
+                                        operator: PropertyOperator.Exact,
+                                        value: ['api'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+            }).toFinishAllListeners()
+
+            expect(selectedServices()).toEqual(['api'])
+        })
     })
 
     describe('setFilterGroup fallback', () => {

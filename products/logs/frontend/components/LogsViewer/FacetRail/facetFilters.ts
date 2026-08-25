@@ -79,13 +79,16 @@ function isRailFacetFilter(entry: RailFilterEntry, target: FacetFilterTarget): e
 
 /**
  * A filter's values as a list. Values keep their own type, so merging into a numeric filter does not
- * rewrite it to strings; callers that compare stringify at the point of comparison. Empty strings are
- * dropped: external state (a URL, a saved view) carrying one would select a value with no visible row.
+ * rewrite it to strings; callers that compare stringify at the point of comparison.
+ *
+ * An empty string inside the list is kept, unlike in the tracing rail: a log with no service_name
+ * facets as `''` (the services table shows it as "(no service)" and filters on `''`), so dropping it
+ * would leave that row's checkbox unable to read its own selection.
  */
 export function filterValues(filter: { value?: PropertyFilterValue }): unknown[] {
     const value = filter.value
     if (Array.isArray(value)) {
-        return value.filter((v) => v !== '')
+        return value
     }
     return value != null && value !== '' ? [value] : []
 }

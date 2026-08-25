@@ -29,6 +29,7 @@ import {
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import {
+    FacetFilterTarget,
     SERVICE_NAME_FILTER,
     SEVERITY_LEVEL_FILTER,
     facetSelection,
@@ -92,19 +93,26 @@ export function combineWithPinnedFilters(
  * filtered. Exclusions have never had a dedicated field, so they are left as they are.
  *
  * A field that is present but empty clears that facet's includes, which is how an embedding scene
- * drops the scope it applied; a field that is absent leaves the group untouched.
+ * drops the scope it applied; a field that is absent leaves the group untouched. An empty field
+ * handed over *alongside* a group is ignored, because the group is then the whole selection: a saved
+ * view or a persisted filter-history entry written before the move carries `severityLevels: []` next
+ * to a group that may hold a `severity_level =` chip the user added by hand, and clearing on that
+ * would drop the chip on restore.
  */
 export function foldLegacyColumnFilters(
     filterGroup: UniversalFiltersGroup,
     filters: Partial<LogsViewerFilters>
 ): UniversalFiltersGroup {
+    const groupIsAuthoritative = !!filters.filterGroup?.values
     let folded = filterGroup
-    if (filters.severityLevels !== undefined) {
-        folded = setFacetIncluded(folded, SEVERITY_LEVEL_FILTER, filters.severityLevels)
+    const fold = (field: string[] | undefined, target: FacetFilterTarget): void => {
+        if (field === undefined || (groupIsAuthoritative && field.length === 0)) {
+            return
+        }
+        folded = setFacetIncluded(folded, target, field)
     }
-    if (filters.serviceNames !== undefined) {
-        folded = setFacetIncluded(folded, SERVICE_NAME_FILTER, filters.serviceNames)
-    }
+    fold(filters.severityLevels, SEVERITY_LEVEL_FILTER)
+    fold(filters.serviceNames, SERVICE_NAME_FILTER)
     return folded
 }
 
