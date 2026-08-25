@@ -261,6 +261,27 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
     )
 }
 
+function SimulationPlaceholder(): JSX.Element {
+    return (
+        <div className="relative h-56 overflow-hidden rounded border border-dashed border-border bg-bg-light">
+            <div aria-hidden className="space-y-4 p-4 opacity-60">
+                <LemonSkeleton className="h-32" />
+                <div className="flex gap-6">
+                    <LemonSkeleton className="h-8 w-16" repeat={3} />
+                </div>
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center bg-bg-light/80 p-4 text-center">
+                <div>
+                    <div className="text-sm font-medium">Select a time range, then run a simulation</div>
+                    <p className="m-0 mt-1 text-xs text-secondary">
+                        Historical log counts and alert outcomes will appear here.
+                    </p>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { simulationResult, simulationResultLoading, simulationDateFrom } = useValues(logsAlertFormLogic)
     const { simulateAlert, setSimulationDateFrom } = useActions(logsAlertFormLogic)
@@ -294,12 +315,7 @@ export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }
 
             {simulationResult && <SimulationResults result={simulationResult} />}
 
-            {!simulationResult && !simulationResultLoading && (
-                <div className="py-4 text-secondary text-sm">
-                    Select a time range and click "Run simulation" to preview how this alert would behave on historical
-                    data.
-                </div>
-            )}
+            {!simulationResult && !simulationResultLoading && <SimulationPlaceholder />}
         </div>
     )
 

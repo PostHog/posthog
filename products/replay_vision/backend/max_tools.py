@@ -43,14 +43,17 @@ from products.replay_vision.backend.models.vision_action import ActionMode, Visi
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, format_line, read_output
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_STALE_AFTER,
+    PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot, quota_state
 from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
     is_uuid,
+    readable_observation_scanner_ids,
     scanner_for_reading_observations,
-    scanners_for_reading_observations,
     selection_target_ids,
 )
 from products.replay_vision.backend.scanner_config import scanner_config_error
@@ -63,6 +66,7 @@ from products.replay_vision.backend.scanning import (
 )
 from products.replay_vision.backend.tag_suggestions import suggest_classifier_tags
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
+from products.replay_vision.backend.temporal.metrics import record_scanner_limit_reached
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.untrusted import as_untrusted_data, neutralize_markup
@@ -243,7 +247,8 @@ class ReplayVisionGatesMixin:
         return action
 
     def _observation_for(self, observation_id: str, level: AccessControlLevel = "editor") -> "ReplayObservation | None":
-        """An observation this user may act on at `level`. Observations inherit their scanner's RBAC."""
+        """An observation this user may act on at `level`. Observations inherit their scanner's RBAC,
+        and an experiment scanner's observations also need access to the experiment in their snapshot."""
         if not is_uuid(observation_id):
             return None
         observation = (
@@ -252,6 +257,10 @@ class ReplayVisionGatesMixin:
         if observation is None or not self.user_access_control.check_access_level_for_object(
             observation.scanner, level
         ):
+            return None
+        if not accessible_observations(
+            self.user_access_control, self._team.id, ReplayObservation.objects.filter(pk=observation.pk)
+        ).exists():
             return None
         return observation
 
@@ -332,7 +341,10 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # Summaries inherit the scanner's RBAC — a team member without viewer access to this scanner
         # must not read its recording-derived output. Treat as not-found so we don't leak existence.
-        if not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+        # An experiment scanner also needs access to its targeted experiment.
+        if not self.user_access_control.check_access_level_for_object(
+            scanner, "viewer"
+        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
         if scanner.scanner_type != ScannerType.SUMMARIZER:
             # Never interpolate the user-editable scanner name into tool output — it's outside the data fence.
@@ -595,11 +607,15 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 
         observations = {
             str(obs.id): obs
-            for obs in ReplayObservation.objects.filter(
-                team_id=self._team.id,
-                scanner_id__in=scanner_ids,
-                status=ObservationStatus.SUCCEEDED,
-                id__in=ordered_ids,
+            for obs in accessible_observations(
+                self.user_access_control,
+                self._team.id,
+                ReplayObservation.objects.filter(
+                    team_id=self._team.id,
+                    scanner_id__in=scanner_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                    id__in=ordered_ids,
+                ),
             )
             .select_related("scanner")
             .only("id", "session_id", "scanner_result", "created_at", "scanner__name")
@@ -634,15 +650,19 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
                 # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
                 return None
             scanner = scanner_for_reading_observations(self._team.id, scanner_uuid)
-            # Observations inherit the scanner's RBAC — treat missing access as not-found.
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+            # Observations inherit the scanner's RBAC, and an experiment scanner also needs access to
+            # its targeted experiment — treat either miss as not-found.
+            if (
+                scanner is None
+                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+                or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
+            ):
                 return None
             # The scanner name is user-editable and the header sits outside the data fence, so keep it out of
             # tool output entirely (stored-injection guard); the searcher already knows which scanner they're on.
             return [str(scanner.id)], "the selected Replay Vision scanner", False
-        readable = self.user_access_control.filter_queryset_by_access_level(
-            scanners_for_reading_observations(self._team.id)
-        ).values_list("id", flat=True)
+        # Experiment access included, and the experiment lookup batched into one query.
+        readable = readable_observation_scanner_ids(self.user_access_control, self._team.id)
         return [str(sid) for sid in readable], "your Replay Vision scanners", True
 
     def _rank_observation_ids(
@@ -765,6 +785,11 @@ def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
         parts.append(f"{counts['already_running']} were already being scanned.")
     if counts.get("skipped_quota"):
         parts.append(f"{counts['skipped_quota']} were skipped: the monthly credit budget is used up.")
+    if counts.get("skipped_scanner_limit"):
+        parts.append(
+            f"{counts['skipped_scanner_limit']} were skipped: this scanner reached its own credit limit. "
+            "Scanning resumes when its billing period resets."
+        )
     if counts.get("skipped_limit"):
         parts.append(f"{counts['skipped_limit']} were skipped: too many scans already running.")
     if counts.get("failed"):
@@ -880,6 +905,8 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
+                record_scanner_limit_reached("max_tool")
             return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
 
         if not prompt or not prompt.strip():
@@ -1219,7 +1246,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         resolved_type = scanner_type if scanner_type in VALID_SCANNER_TYPES else ScannerType.MONITOR
         # Through the serializer, not ReplayScanner.objects.create: it owns the sampling-rate floor below
         # which a scanner silently never scans, the unique-name race, the estimate refresh, the built-in
-        # daily digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
+        # featured digest, and the lifecycle event. A scanner Max makes should be the same object the UI makes.
         serializer = ReplayScannerSerializer(
             data={
                 "name": name.strip(),
@@ -1698,9 +1725,12 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             try:
                 estimate = estimate_scanner_session_volume(
                     team=self._team,
-                    query=scanner.recordings_query(),
+                    query=scanner.targeted_recordings_query(),
+                    # The exposure filter's access check runs as whoever is asking Max.
+                    user=self._user,
                     sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
+                    budget=PREVIEW_ESTIMATE_BUDGET,
                 )
             except Exception:
                 logger.exception("replay_vision.max_tools.estimate_failed", scanner_id=scanner_id)
@@ -2228,7 +2258,7 @@ class SuggestReplayVisionTagsTool(ReplayVisionGatesMixin, MaxTool):
         if scanner is None:
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         if scanner.scanner_type != ScannerType.CLASSIFIER:
-            return "Only classifier scanners have a tag vocabulary.", {"error": "not_a_classifier"}
+            return "Only classifier scanners have categories.", {"error": "not_a_classifier"}
         # Pooled rather than thread-sensitive: the model call carries a 90s timeout, and the shared
         # executor would queue every other database operation behind it. Still connection-managed,
         # because the suggestion path reads observations and event definitions.

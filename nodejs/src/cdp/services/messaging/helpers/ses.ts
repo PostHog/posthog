@@ -170,6 +170,9 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Click: 'email_link_clicked',
     Delivery: 'email_delivered',
     Bounce: 'email_bounced',
+    // A Complaint is a recipient's "report spam" relayed through the provider's feedback loop.
+    // It stays recorded under email_blocked because complaint counts have always been stored
+    // there; the UI surfaces the metric as "Marked as spam".
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',
     Reject: 'email_failed',

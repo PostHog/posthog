@@ -11,6 +11,8 @@ from posthog.temporal.common.errors import NonReportableError
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
+# - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
+#   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -18,6 +20,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "the credential provider was not enabled",
     "Generic S3 error",
     "Please reduce your request rate",
+    "We encountered an internal error. Please try again.",
 )
 
 

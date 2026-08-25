@@ -11,10 +11,11 @@ import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
 import { FilterPill } from '../../components/FilterPill'
+import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
-import { ScoreRangeFilterPill } from '../../components/ScoreRangeFilterPill'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
@@ -289,17 +290,20 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     />
                                 )}
                                 {scannerType === 'scorer' && (
-                                    <ScoreRangeFilterPill
+                                    <NumericRangeFilterPill
+                                        label="Score"
                                         min={observationMinScoreFilter}
                                         max={observationMaxScoreFilter}
                                         scaleMin={scoreScale?.min}
                                         scaleMax={scoreScale?.max}
                                         onChange={setObservationScoreRange}
+                                        dataAttr="vision-observations-score-filter"
                                     />
                                 )}
                                 {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
                                     <FilterPill<string>
-                                        label="Tag"
+                                        label="Category"
+                                        searchPlaceholder="Search categories"
                                         options={tagFilterOptions}
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
@@ -394,8 +398,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     ) : (
                         <div className="p-6 flex flex-col items-center gap-3 text-center">
                             <div className="text-muted">
-                                No observations yet. They'll appear here once the scanner fires on its schedule — or
-                                scan a recording right now.
+                                No observations yet. They'll appear here once the scanner fires on its schedule, or you
+                                can scan a recording right now.
                             </div>
                             <LemonButton
                                 type="primary"
@@ -405,6 +409,9 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             >
                                 Scan a recording now
                             </LemonButton>
+                            <VisionDocsLink page="observations" dataAttr="vision-empty-docs-link-observations">
+                                Learn how observations work
+                            </VisionDocsLink>
                         </div>
                     )
                 }

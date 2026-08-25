@@ -100,7 +100,7 @@ queryset.filter(name__icontains=value)  # SAFE
 **Do not add new `pickle` usage.**
 Unpickling bytes that any other process could influence is arbitrary code execution — the pickle stream can name any importable callable and pass it arguments.
 This applies to the equivalents too: `cPickle`, `cloudpickle`, `dill`, `marshal`, `shelve`, `joblib`, `pandas.read_pickle`, and `numpy.load(..., allow_pickle=True)`.
-CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs with `--error` (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
+CI already fails on new pickle: the `avoid-pickle` rule from the `p/security-audit` Semgrep pack runs as a blocking rule in the diff-aware `semgrep ci` jobs (see `.github/workflows/ci-security.yaml`), so introducing one is a hard stop, not a warning.
 Pickle can also appear without the word `pickle`: Django's default cache backend (`cache.set` / `cache.get`) pickles values transparently, so treat the cache as a pickle boundary and only store JSON-serializable values in it.
 
 **Use JSON instead.**

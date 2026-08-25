@@ -357,7 +357,10 @@ class TestExtractTextFromMessages:
                 ],
             }
         ]
-        assert extract_text_from_messages(messages) == "assistant: The warranty lasts three years."
+        result = extract_text_from_messages(messages)
+        assert result.splitlines()[0] == "assistant: The warranty lasts three years."
+        assert "thinking: thinking it through" in result
+        assert "thinking: more thinking" in result
 
     def test_otel_parts_multiple_text_parts_join(self):
         messages = [
@@ -403,7 +406,7 @@ class TestExtractTextFromMessages:
         assert '[tool_call call_1: get_weather({"location": "Montreal"})]' in result
         assert "tool[call_1]: -10C" in result
         assert "assistant: It is -10C." in result
-        assert "need the weather tool" not in result
+        assert "thinking: need the weather tool" in result
         assert "stale" not in result
 
     @pytest.mark.parametrize(
@@ -434,15 +437,84 @@ class TestExtractTextFromMessages:
         messages = [{"role": "user", "content": "flat wins", "parts": [{"type": "text", "content": "ignored"}]}]
         assert extract_text_from_messages(messages) == "user: flat wins"
 
-    def test_otel_parts_only_reasoning_preserves_role_slot(self):
+    def test_otel_parts_only_reasoning_renders_thinking_without_empty_slot(self):
         messages = [
             {"role": "user", "parts": [{"type": "text", "content": "hi"}]},
             {"role": "assistant", "parts": [{"type": "reasoning", "content": "hmm"}]},
         ]
+        assert extract_text_from_messages(messages) == "user: hi\nthinking: hmm"
+
+    def test_otel_parts_server_tool_conversation_correlates_calls_and_results(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
+            {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call",
+                        "id": "st_1",
+                        "name": "web_search",
+                        "server_tool_call": {"type": "web_search", "query": "Montreal weather"},
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "parts": [
+                    {
+                        "type": "server_tool_call_response",
+                        "id": "st_1",
+                        "server_tool_call_response": {"type": "web_search", "status": "completed"},
+                    }
+                ],
+            },
+            {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
+        ]
         result = extract_text_from_messages(messages)
-        assert "user: hi" in result
-        assert "assistant:" in result
-        assert "hmm" not in result
+        assert '[tool_call st_1: web_search({"type": "web_search", "query": "Montreal weather"})]' in result
+        assert 'tool[st_1]: {"type": "web_search", "status": "completed"}' in result
+        assert "assistant: It is -10C." in result
+
+    @pytest.mark.parametrize(
+        ("part", "marker"),
+        [
+            pytest.param(
+                {"type": "blob", "modality": "image", "mime_type": "image/png", "content": "aGVsbG8="},
+                "[image]",
+                id="image_blob_renders_marker_not_base64",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "uri": "https://example.com/cat.jpg"},
+                "[image: https://example.com/cat.jpg]",
+                id="image_uri",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "document", "uri": "https://example.com/doc.pdf"},
+                "[document: https://example.com/doc.pdf]",
+                id="document_uri",
+            ),
+            pytest.param({"type": "file", "file_id": "file_123"}, "[file: file_123]", id="file_reference"),
+            pytest.param({"type": "blob", "content": "aGVsbG8="}, "[media]", id="blob_without_modality"),
+        ],
+    )
+    def test_otel_parts_media_render_markers(self, part, marker):
+        messages = [{"role": "user", "parts": [{"type": "text", "content": "Look at this."}, part]}]
+        assert extract_text_from_messages(messages) == f"user: Look at this.\nuser: {marker}"
+
+    @pytest.mark.parametrize(
+        ("compaction_part", "expected"),
+        [
+            pytest.param(
+                {"type": "compaction", "id": "c1", "content": "Earlier turns covered pricing."},
+                "user: Earlier turns covered pricing.",
+                id="summary_present",
+            ),
+            pytest.param({"type": "compaction", "id": "c1"}, "user: [conversation compacted]", id="summary_absent"),
+        ],
+    )
+    def test_otel_parts_compaction_renders_summary(self, compaction_part, expected):
+        messages = [{"role": "user", "parts": [compaction_part]}]
+        assert extract_text_from_messages(messages) == expected
 
     @pytest.mark.parametrize(
         "parts",
@@ -451,7 +523,7 @@ class TestExtractTextFromMessages:
             pytest.param([{"type": "text"}], id="text_part_without_content"),
             pytest.param([{"type": "tool_call"}], id="tool_call_without_name"),
             pytest.param([{"no_type": True}], id="part_without_type"),
-            pytest.param([{"type": "file", "data": "aGVsbG8="}], id="unknown_part_type"),
+            pytest.param([{"type": "tool_approval_response", "approved": True}], id="unknown_part_type"),
         ],
     )
     def test_malformed_or_unknown_parts_do_not_crash(self, parts):

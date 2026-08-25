@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api'
+import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
@@ -8,6 +9,18 @@ import { MAX_ENABLED_RETENTION_RULES, type RetentionRuleRow, compileRetentionRul
 import type { CompiledRetentionRuleSet } from './evaluate-retention'
 
 const REFRESH_MS = 30_000
+
+/**
+ * Enabled rules fetched from Postgres that `compileRetentionRuleSet` discarded — a `retention_days`
+ * outside the valid tiers or otherwise malformed config. A non-zero value for a team explains the
+ * "rule saved but ignored" symptom that is otherwise silent (the row exists and is enabled, yet no
+ * per-row retention is stamped).
+ */
+export const logsRetentionRulesDroppedCounter = new Counter({
+    name: 'logs_ingestion_retention_rules_dropped_total',
+    help: 'Enabled retention rules fetched but discarded at compile time (invalid retention_days tier or malformed config).',
+    labelNames: ['team_id'],
+})
 
 const retentionCacheInstrumentOpts = { measureTime: false, sendException: false } as const
 
@@ -60,6 +73,15 @@ export class RetentionRulesCache {
                     return existing?.compiled ?? compileRetentionRuleSet([])
                 }
                 const compiled = compileRetentionRuleSet(rows)
+                const droppedCount = rows.length - compiled.rules.length
+                if (droppedCount > 0) {
+                    logsRetentionRulesDroppedCounter.inc({ team_id: String(teamId) }, droppedCount)
+                    logger.warn('[logs-retention] enabled rules discarded at compile — check retention_days tier', {
+                        teamId,
+                        fetched: rows.length,
+                        dropped: droppedCount,
+                    })
+                }
                 const vw = rows.reduce((m, r) => Math.max(m, r.version ?? 0), 0)
                 this.cache.set(teamId, { compiled, versionWatermark: vw, fetchedAtMs: now })
                 trace.getActiveSpan()?.setAttributes({

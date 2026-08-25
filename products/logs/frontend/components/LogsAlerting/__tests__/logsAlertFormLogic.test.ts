@@ -13,7 +13,7 @@ import {
     LogsAlertConfigurationStateEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-import { LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
+import { buildFormDefaults, LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
     logsAlertsCreate: jest.fn(),
@@ -83,6 +83,7 @@ const VALID_FORM_VALUES: LogsAlertFormType = {
     evaluationPeriods: 1,
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
+    scheduleRestriction: null,
 }
 
 describe('logsAlertFormLogic', () => {
@@ -132,6 +133,24 @@ describe('logsAlertFormLogic', () => {
 
             expect(logic.values.alertFormValidationErrors.name).toBeUndefined()
 
+            logic.unmount()
+        })
+
+        it('rejects invalid quiet hours before submitting', async () => {
+            const logic = logsAlertFormLogic({ alert: null })
+            logic.mount()
+
+            logic.actions.setAlertFormValues({
+                name: 'My Alert',
+                severityLevels: ['error'],
+                scheduleRestriction: { blocked_windows: [{ start: '10:00', end: '10:00' }] },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsCreate).not.toHaveBeenCalled()
             logic.unmount()
         })
 
@@ -456,6 +475,12 @@ describe('logsAlertFormLogic', () => {
             expect(logic.values.alertForm.severityLevels).toEqual(['error'])
         })
 
+        it('allows existing alerts without filters', () => {
+            const existingAlertWithoutFilters = { ...MOCK_ALERT, filters: null } as unknown as LogsAlertConfigurationApi
+
+            expect(buildFormDefaults(existingAlertWithoutFilters).severityLevels).toEqual([])
+        })
+
         it('pre-populates numeric fields from existing alert', () => {
             expect(logic.values.alertForm.thresholdCount).toBe(MOCK_ALERT.threshold_count)
             expect(logic.values.alertForm.windowMinutes).toBe(MOCK_ALERT.window_minutes)
@@ -503,7 +528,7 @@ describe('logsAlertFormLogic', () => {
 
             expect(logic.values.alertForm).toMatchObject({
                 name: '',
-                severityLevels: [],
+                severityLevels: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
                 serviceNames: [],
                 thresholdOperator: 'above',
                 thresholdCount: 100,

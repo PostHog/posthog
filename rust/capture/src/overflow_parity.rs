@@ -113,6 +113,7 @@ fn v0_context(now: DateTime<Utc>) -> ProcessingContext {
         historical_migration: false,
         chatty_debug_enabled: false,
         capture_mode: crate::config::CaptureMode::Events,
+        ai_max_event_bytes: 0,
         sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
     }
 }
@@ -146,6 +147,7 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
         None,
         (0..batch_size).map(|_| v0_raw_event()).collect(),
         &v0_context(now),
+        None,
     )
     .await
     .expect("v0 pipeline must accept the batch");

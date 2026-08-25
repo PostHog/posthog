@@ -186,6 +186,26 @@ async fn an_op_id_reused_with_a_different_request_is_rejected() {
 }
 
 #[tokio::test]
+async fn a_first_call_is_not_compared_against_its_own_normalized_insert() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+    let op_id = Uuid::now_v7();
+
+    // Postgres renders 1e17 back as an integer, so the reloaded row never
+    // equals this request value-for-value. The call that won the insert
+    // owns the row by construction and must not verify against its own
+    // jsonb-normalized copy.
+    let row = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({"count": 1e17}))
+        .await
+        .expect("the inserting call is never a request mismatch");
+    assert_eq!(row.step, STEP_COMPLETED);
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn resume_picks_up_an_op_from_its_saved_step() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();
@@ -769,5 +789,43 @@ async fn a_step_that_loses_a_database_conflict_is_retried_not_surfaced() {
     assert!(completed);
     assert_eq!(attempt, 1, "the retry re-drives under the original claim");
 
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_claim_skips_a_row_a_concurrent_writer_holds_instead_of_queueing() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DummyDriver::new();
+    let op_id = Uuid::now_v7();
+
+    // Created but not driven: the lease is free, so only the row lock below
+    // stands between resume and a successful claim.
+    engine
+        .create_or_attach(&driver, op_id, ctx.team_id, &json!({"work": 7}))
+        .await
+        .expect("create");
+
+    // Hold the row lock the way any concurrent writer would (a renew, a
+    // step advance, a rival claim mid-flight).
+    let mut tx = ctx.pool.begin().await.expect("begin");
+    sqlx::query("SELECT 1 FROM lifecycle_op WHERE op_id = $1 FOR UPDATE")
+        .bind(op_id)
+        .execute(&mut *tx)
+        .await
+        .expect("lock the op row");
+
+    // The claim must answer Busy promptly rather than queueing on the tuple
+    // until the lock holder commits.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        engine.resume(&driver, op_id),
+    )
+    .await
+    .expect("resume must not wait out a concurrent writer's row lock");
+    assert!(matches!(result, Err(SagaError::Busy)));
+    assert_eq!(driver.steps_run.load(Ordering::SeqCst), 0);
+
+    tx.rollback().await.expect("rollback");
     ctx.cleanup().await.expect("cleanup");
 }

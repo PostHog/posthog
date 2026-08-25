@@ -198,6 +198,7 @@ function normalize(result: BuildResult) {
     lastTurnInfo: result.lastTurnInfo,
     isCompacting: result.isCompacting,
     completedToolCallCount: result.completedToolCallCount,
+    lastActivityAt: result.lastActivityAt,
   };
 }
 

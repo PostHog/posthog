@@ -56,7 +56,7 @@ describe('dataWarehouseSceneLogic', () => {
         {
             name: 'warehouse ready',
             status: { state: 'ready' },
-            expectedTabs: [DataWarehouseTab.OVERVIEW, DataWarehouseTab.SETTINGS],
+            expectedTabs: [DataWarehouseTab.OVERVIEW, DataWarehouseTab.MONITORING, DataWarehouseTab.SETTINGS],
         },
     ])('$name', async ({ status, expectedTabs }) => {
         warehouseStatusResponse = status ? [200, status] : [404, {}]
@@ -76,7 +76,7 @@ describe('dataWarehouseSceneLogic', () => {
 
     // The URL is parsed before the warehouse status arrives, so a requested tab has to survive the
     // wait — clamping it against a tab list that doesn't include Overview yet would drop it.
-    it.each([[DataWarehouseTab.OVERVIEW], [DataWarehouseTab.SETTINGS]])(
+    it.each([[DataWarehouseTab.OVERVIEW], [DataWarehouseTab.MONITORING], [DataWarehouseTab.SETTINGS]])(
         'honors a tab requested before the warehouse status resolves (%s)',
         async (tab) => {
             warehouseStatusResponse = [200, { state: 'ready' }]

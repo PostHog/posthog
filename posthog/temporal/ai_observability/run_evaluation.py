@@ -327,7 +327,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=timedelta(seconds=30),
             )
 
-        if evaluation_type == "llm_judge" and result.get("verdict") is True and result.get("reasoning"):
+        # Old histories must still issue their recorded activity or child-workflow command during replay.
+        replay_legacy_eval_signal = not temporalio.workflow.patched("remove-per-evaluation-signal-2026-08")
+        if (
+            replay_legacy_eval_signal
+            and evaluation_type == "llm_judge"
+            and result.get("verdict") is True
+            and result.get("reasoning")
+        ):
             event_uuid = inputs.event_data.get("uuid", "")
             properties = inputs.event_data.get("properties", {})
             if isinstance(properties, str):
@@ -377,7 +384,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         evaluation_id=evaluation["id"],
                         team_id=evaluation["team_id"],
                     )
-
         workflow_result: WorkflowResult = {
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],

@@ -28,7 +28,7 @@ export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalPr
 }
 
 function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
-    const formLogicProps = { alert: null, onCreateSuccess: onClose }
+    const formLogicProps = { alert: null, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(logsAlertFormLogic(formLogicProps))
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
@@ -102,7 +102,7 @@ function buildLogsAlertWizardSteps({
             title: 'Set trigger',
             description: 'Set the log count that fires the alert and reduce notification noise if needed.',
             content: (
-                <div className="max-w-2xl space-y-6">
+                <div className="space-y-6">
                     <LogsAlertTrigger />
                     <LogsAlertSimulation embedded />
                 </div>
@@ -142,37 +142,35 @@ function LogsAlertReview({
         : 'No notification destinations'
 
     return (
-        <div className="max-w-2xl">
-            <AlertWizardReview
-                notice={
-                    pendingNotifications.length === 0 ? (
-                        <LemonBanner type="warning">
-                            This alert will run without notifications. Go back to Notify to add a destination.
-                        </LemonBanner>
-                    ) : undefined
-                }
-                items={[
-                    { label: 'Name', value: alertForm.name },
-                    { label: 'Severity', value: severity },
-                    { label: 'Service', value: services },
-                    {
-                        label: 'Attributes',
-                        value: attributeCount
-                            ? `${attributeCount} attribute filter${attributeCount === 1 ? '' : 's'}`
-                            : 'None',
-                    },
-                    {
-                        label: 'Fires when',
-                        value: `log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`,
-                    },
-                    {
-                        label: 'Noise reduction',
-                        value: `${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`,
-                    },
-                    { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
-                    { label: 'Notifies', value: notificationSummary },
-                ]}
-            />
-        </div>
+        <AlertWizardReview
+            notice={
+                pendingNotifications.length === 0 ? (
+                    <LemonBanner type="warning">
+                        This alert will run without notifications. Go back to Notify to add a destination.
+                    </LemonBanner>
+                ) : undefined
+            }
+            items={[
+                { label: 'Name', value: alertForm.name },
+                { label: 'Severity', value: severity },
+                { label: 'Service', value: services },
+                {
+                    label: 'Attributes',
+                    value: attributeCount
+                        ? `${attributeCount} attribute filter${attributeCount === 1 ? '' : 's'}`
+                        : 'None',
+                },
+                {
+                    label: 'Fires when',
+                    value: `log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`,
+                },
+                {
+                    label: 'Noise reduction',
+                    value: `${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`,
+                },
+                { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
+                { label: 'Notifies', value: notificationSummary },
+            ]}
+        />
     )
 }

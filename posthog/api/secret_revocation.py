@@ -52,13 +52,18 @@ def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
 
 
 def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"]) -> bool:
+    # Deliberately no expiry check on the access-token match: an already-expired token
+    # can't authenticate on its own, but revoking still matters if the same exposure
+    # also affects the paired refresh token (up to 30 days live). Gating this on
+    # expiry would only block that revocation, not close any capability - both this
+    # endpoint and github.py's webhook are triggerable by anyone holding a copy of a
+    # token, dead or alive (a public GitHub commit gets scanned and reported the same
+    # as an anonymous POST here), so there is no less-exposed path to gate in favor of.
+    # The only real consequence of a match either way is forcing a re-authentication,
+    # not a confidentiality or integrity loss.
     if kind == "access":
         access_token = find_oauth_access_token(token)
-        # An expired access token no longer authenticates, so possessing one doesn't
-        # give its holder the "already has full use of this credential" standing this
-        # endpoint's lack of a signature check relies on. Without this, anyone who once
-        # saw a since-expired token could still force-revoke the holder's live session.
-        if access_token is None or access_token.is_expired():
+        if access_token is None:
             return False
         # Scoped to this one access/refresh token pair, not every session the user has
         # with the application - a leaked-token report is evidence about that one

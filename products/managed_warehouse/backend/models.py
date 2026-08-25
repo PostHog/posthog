@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from django.db import models
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
+
+from products.managed_warehouse.backend.model_observability import DuckgresServerManager, record_duckgres_server_access
 
 
 class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -16,6 +20,8 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     query connection is not the same endpoint), so its connection is recorded here
     too under the ``catalog_*`` fields.
     """
+
+    objects = DuckgresServerManager()
 
     organization = models.OneToOneField(
         "posthog.Organization",
@@ -66,6 +72,34 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             "DUCKLAKE_S3_ACCESS_KEY": "",
             "DUCKLAKE_S3_SECRET_KEY": "",
         }
+
+
+class ManagedWarehouseSourceLifecycle(models.Model):
+    """Non-secret generation fence for managed SQL-editor source lifecycle operations."""
+
+    organization = models.OneToOneField(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="managed_warehouse_source_lifecycle",
+        db_constraint=False,
+    )
+    generation = models.PositiveBigIntegerField(default=0)
+    desired_active = models.BooleanField(default=True)
+    legacy_conversion_generation = models.PositiveBigIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_managedwarehousesourcelifecycle"
+
+
+@receiver(post_save, sender=DuckgresServer, dispatch_uid="observe_duckgres_server_save")
+def _observe_duckgres_server_save(*, created: bool, **kwargs: object) -> None:
+    record_duckgres_server_access("create" if created else "update")
+
+
+@receiver(post_delete, sender=DuckgresServer, dispatch_uid="observe_duckgres_server_delete")
+def _observe_duckgres_server_delete(**kwargs: object) -> None:
+    record_duckgres_server_access("delete")
 
 
 class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):

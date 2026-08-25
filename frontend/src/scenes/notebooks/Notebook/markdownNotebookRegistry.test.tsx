@@ -6,6 +6,8 @@ import {
     mergeMarkdownNotebookRegistries,
     omitInsertCommands,
 } from 'lib/components/MarkdownNotebook'
+import { getInsertedComponentPanelVisibility } from 'lib/components/MarkdownNotebook/componentPanels'
+import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
@@ -78,6 +80,33 @@ describe('markdownNotebookRegistry', () => {
             const flagOff = getMarkdownRegistryForFeatureFlags({})
             expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
+        })
+
+        // An inserted code cell holds no code and no result, so a closed editor panel leaves the
+        // user an empty box. Resolving through getInsertedComponentPanelVisibility rather than
+        // reading the prop keeps this honest if the panel prop is renamed again.
+        it.each([
+            ['SQL', 'component-SQLV2'],
+            ['Python', 'component-PythonV2'],
+        ])('inserts a %s cell with its code editor open', (_label, commandKey) => {
+            const insertedNodes: NotebookComponentBlockNode[] = []
+            const noop = (): void => {}
+            const commands = buildInsertCommands(
+                mergeMarkdownNotebookRegistries(
+                    getMarkdownNotebookDefaultRegistry(),
+                    getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
+                ),
+                (_nodeId, node) => insertedNodes.push(node),
+                noop,
+                noop,
+                noop,
+                noop
+            )
+
+            commands.find((command) => command.key === commandKey)?.run('target-node')
+
+            expect(insertedNodes).toHaveLength(1)
+            expect(getInsertedComponentPanelVisibility(insertedNodes[0]).filters).toBe(true)
         })
     })
 

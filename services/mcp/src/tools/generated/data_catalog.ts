@@ -345,9 +345,9 @@ const dataCatalogMetricRun = (): ToolBase<typeof DataCatalogMetricRunSchema, Sch
     },
 })
 
-const DataCatalogMetricUpdateSchema = DataCatalogMetricsPartialUpdateParams.omit({ project_id: true }).extend(
-    DataCatalogMetricsPartialUpdateBody.shape
-)
+const DataCatalogMetricUpdateSchema = DataCatalogMetricsPartialUpdateParams.omit({ project_id: true })
+    .extend(DataCatalogMetricsPartialUpdateBody.omit({ name: true }).shape)
+    .extend({ new_name: DataCatalogMetricsPartialUpdateBody.shape['name'] })
 
 const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchema, Schemas.DataCatalogMetric> => ({
     name: 'data-catalog-metric-update',
@@ -355,8 +355,8 @@ const dataCatalogMetricUpdate = (): ToolBase<typeof DataCatalogMetricUpdateSchem
     handler: async (context: Context, params: z.infer<typeof DataCatalogMetricUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
+        if (params.new_name !== undefined) {
+            body['name'] = params.new_name
         }
         if (params.display_name !== undefined) {
             body['display_name'] = params.display_name

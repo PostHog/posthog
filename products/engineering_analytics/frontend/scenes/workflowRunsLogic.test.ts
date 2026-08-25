@@ -48,7 +48,11 @@ describe('workflowRunsLogic', () => {
         mockJobAggregates.mockResolvedValue([])
     })
 
+    let unmountFilters: (() => void) | undefined
+
     afterEach(() => {
+        unmountFilters?.()
+        unmountFilters = undefined
         logic?.unmount()
     })
 
@@ -56,7 +60,7 @@ describe('workflowRunsLogic', () => {
         logic = workflowRunsLogic({ repoOwner: 'PostHog', repoName: 'posthog', workflowName: 'CI', sourceId: null })
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
-        filters.mount()
+        unmountFilters = filters.mount()
         await expectLogic(logic).toDispatchActions([
             'loadRunsSuccess',
             'loadRunActivitySuccess',

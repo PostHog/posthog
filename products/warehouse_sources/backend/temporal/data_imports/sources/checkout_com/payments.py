@@ -6,8 +6,14 @@ request requires a non-empty ``query`` and supports ``from``/``to`` and
 ``limit`` (max 1000) but no documented page cursor, so listing walks the time
 range and recursively splits any window that fills a whole page; a window
 returning fewer than ``limit`` rows is provably complete. Documented search
-coverage is roughly the previous 90 days, so range starts are clamped to that
-horizon; older history is only available via the report tables.
+coverage is roughly the previous 90 days, which sets how far back a first sync
+reaches; the endpoint serves older payments too, so a configured ``start_date``
+reaching further back is honoured rather than clamped forward.
+
+A sync bounds its own API usage with per-run call budgets. Hitting one leaves the
+range incomplete, so it raises: returning would report the schema ``Completed``
+over months holding no rows. Each fully-drained window is checkpointed, so the
+retry resumes where the budget ran out.
 
 ``payment_actions``, ``customers`` and ``instruments`` have no listing
 endpoints at all, so their syncs walk the same payment windows and fan out to
@@ -36,7 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    PartitionMode,
+    SourceResponse,
+)
 
 PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "customers", "instruments")
 
@@ -48,9 +58,10 @@ SEARCH_PAGE_LIMIT = 1000
 # form (`field:>=value`) to match the documented `field:value` grammar; a bare
 # `amount>=0` appears in no official example.
 SEARCH_MATCH_ALL_QUERY = "amount:>=0"
-# Checkout.com documents payments search as covering roughly the previous 90 days, so
-# this is both the default backfill reach and the clamp for configured start dates and
-# stale watermarks; anything older can't come back from search.
+# Checkout.com documents payments search as covering roughly the previous 90 days, so this
+# is how far back a first sync reaches when nothing else says otherwise. It is a default,
+# not a limit: the endpoint serves well past its documented window, so a configured
+# `start_date` reaching further back is honoured rather than clamped forward.
 SEARCH_HORIZON = timedelta(days=90)
 REQUEST_TIMEOUT_SECONDS = 120
 # A window that still fills a whole page at this span can't be split further; anything
@@ -68,6 +79,23 @@ MAX_SEARCH_WINDOW = timedelta(days=90)
 MAX_SEARCH_REQUESTS_PER_SYNC = 2_000
 MAX_FANOUT_LOOKUPS_PER_SYNC = 10_000
 FANOUT_CHUNK_SIZE = 500
+# Bucket count for the md5(id) partitioning of `payments` (see
+# checkout_com_payments_source): enough buckets to keep each per-partition merge small
+# on multi-million-row accounts, matching the count other id-hashed sources use.
+PAYMENTS_PARTITION_COUNT = 200
+
+# Stable marker so the source can classify a budget stop as retryable rather than a bug.
+SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync hit its per-run API budget"
+
+
+class CheckoutComSyncBudgetExceeded(Exception):
+    """A sync stopped at its per-run API call budget before covering its whole range.
+
+    Raised rather than returned. Returning cleanly reported the schema `Completed` with no
+    error while the range past the cut-off held no rows at all, so the gap was invisible:
+    `last_synced_at` moved, the table did not. Every window completed before the budget ran
+    out is checkpointed, so the retry resumes there instead of redoing the run.
+    """
 
 
 class _SyncBudget:
@@ -316,15 +344,6 @@ def _get_rows(
         resume.search_window_to if resume is not None else None,
         now,
     )
-    horizon_start = now - SEARCH_HORIZON
-    if start < horizon_start:
-        logger.warning(
-            "Checkout.com payments search covers roughly the previous 90 days; clamping the range start",
-            requested_start=_format_timestamp(start),
-            clamped_start=_format_timestamp(horizon_start),
-        )
-        start = horizon_start
-
     seen_ids: set[str] = set()
     chunk: list[dict[str, Any]] = []
     for window, payments in _iter_bounded_payment_windows(session, auth, hosts["api"], start, now, logger, budget):
@@ -359,13 +378,13 @@ def _get_rows(
             # next scheduled sync re-covers it (merge dedupes overlapping rows).
             break
         resumable_source_manager.save_state(CheckoutComResumeConfig(search_window_to=_format_timestamp(window.end)))
-    if budget.exhausted:
-        logger.warning(
-            "Checkout.com sync hit its per-run API budget; continuing from the last complete window next run",
-            schema=schema_name,
-        )
     if chunk:
         yield chunk
+    if budget.exhausted:
+        raise CheckoutComSyncBudgetExceeded(
+            f"{SYNC_BUDGET_EXCEEDED_MARKER} for {schema_name} before reaching "
+            f"{_format_timestamp(now)}; the range past the last complete window holds no rows yet"
+        )
 
 
 def checkout_com_payments_source(
@@ -384,17 +403,33 @@ def checkout_com_payments_source(
 
     if schema_name == "payments":
         primary_keys = ["id"]
-        partition_keys: Optional[list[str]] = ["requested_on"]
+        # The merge matches on primary key *and* partition, and every sync re-reads
+        # `requested_on` from the search index, which does not promise the same value
+        # (or any value at all) for a payment across fetches. A timestamp-keyed
+        # partition can therefore shift between two runs that cover the same payment,
+        # and the merge inserts a second copy it can never match instead of updating
+        # the first, so duplicate ids accumulate. Hashing the immutable id gives every
+        # payment one partition for good while keeping merges partition-bounded.
+        partition_keys: Optional[list[str]] = ["id"]
+        partition_mode: Optional[PartitionMode] = "md5"
+        partition_format: Optional[PartitionFormat] = None
+        partition_count: Optional[int] = PAYMENTS_PARTITION_COUNT
     elif schema_name == "payment_actions":
         # Action ids look globally unique, but the API doesn't document that scope,
         # so the parent payment id is part of the key.
         primary_keys = ["payment_id", "id"]
         partition_keys = ["payment_requested_on"]
+        partition_mode = "datetime"
+        partition_format = "month"
+        partition_count = 1
     else:
         # Customers and instruments are point lookups keyed by their own id; they
         # carry no stable creation timestamp to partition on.
         primary_keys = ["id"]
         partition_keys = None
+        partition_mode = None
+        partition_format = None
+        partition_count = None
 
     return SourceResponse(
         name=schema_name,
@@ -410,10 +445,10 @@ def checkout_com_payments_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=primary_keys,
-        partition_count=1 if partition_keys else None,
+        partition_count=partition_count,
         partition_size=1 if partition_keys else None,
-        partition_mode="datetime" if partition_keys else None,
-        partition_format="month" if partition_keys else None,
+        partition_mode=partition_mode,
+        partition_format=partition_format,
         partition_keys=partition_keys,
         # Windows walk oldest-first and each window is sorted before yielding, so the
         # watermark only moves forward.

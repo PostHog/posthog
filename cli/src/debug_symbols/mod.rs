@@ -463,30 +463,6 @@ pub fn package_dsym_bundles(bundles: &[PathBuf], include_source: bool) -> Vec<Sy
     uploads
 }
 
-/// Coalesce uploads that share a chunk_id, keeping the first occurrence.
-///
-/// ELF chunk_ids are lowercase (derived by `symbolic`) and Mach-O chunk_ids —
-/// executables and dSYMs alike — are uppercase (to match what the SDKs emit),
-/// so the two formats never collide; this merges the same Mach-O UUID
-/// appearing both as a binary and in a dSYM bundle, or a dSYM UUID appearing
-/// in more than one bundle. Casing is preserved exactly and must never be
-/// normalized: the SDK matches chunk_ids case-sensitively, per format.
-pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
-    let mut seen = std::collections::HashSet::new();
-    let mut deduped = Vec::with_capacity(uploads.len());
-    for upload in uploads {
-        if seen.insert(upload.chunk_id.clone()) {
-            deduped.push(upload);
-        } else {
-            warn!(
-                "Duplicate chunk id {} across symbol sets; keeping the first",
-                upload.chunk_id
-            );
-        }
-    }
-    deduped
-}
-
 /// Extract the debug id of an ELF file, e.g. for testing parity with the SDK.
 pub fn elf_debug_id(path: &Path) -> Result<String> {
     let data = std::fs::read(path)?;

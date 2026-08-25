@@ -1,19 +1,35 @@
 # MCP store
 
-A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `MCP_SERVERS` feature flag).
+A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `mcp-gateway` feature flag).
 Connected servers are consumed by agent surfaces via the `backend/facade/` package.
 
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
+## Keep the desktop UI in sync
+
+PostHog Desktop ships its own, independently written frontend for this product — same backend, same feature flags, no shared UI code:
+
+| This product (web app)                                | PostHog Desktop equivalent                                      |
+| ----------------------------------------------------- | --------------------------------------------------------------- |
+| `frontend/scene/` (marketplace)                       | `products/desktop/packages/ui/src/features/mcp-servers/`        |
+| `frontend/gateway/` + `frontend/settings/` (gateway)  | `products/desktop/packages/ui/src/features/mcp-gateway/`        |
+| `frontend/scene/AddCustomServerForm.tsx` (custom add) | `products/desktop/packages/ui/src/features/mcp-server-manager/` |
+
+The implementations are parallel, not shared: web uses Kea + LemonUI, desktop uses TanStack Query + quill.
+The desktop also hand-writes its gateway API types in `products/desktop/packages/api-client/src/mcp-gateway.ts` as mirrors of the serializers in `backend/presentation/gateway_views.py`.
+
+The MCP store feature set always changes for both apps together.
+When you change the frontend here — a new workflow, control, state, or flag gate — make the equivalent change in the desktop features above in the same PR, or open an explicitly linked follow-up.
+When you change a serializer the gateway UI consumes, update the desktop's hand-written mirrors too.
+
 ## Settings experience and rollout
 
-Two independent feature flags gate two surfaces — neither flag depends on the other:
+The `mcp-gateway` feature flag (`MCP_GATEWAY`) gates both surfaces:
 
-- The Settings → MCP servers page is gated by the `mcp-servers` feature flag (`MCP_SERVERS`).
-  On that page, the `mcp-gateway` feature flag (`MCP_GATEWAY`) selects the gateway experience described below; when it is off, Settings renders the existing marketplace UI.
-- The standalone gateway scene at `/mcp-servers` and its nav entry are gated solely by `mcp-gateway` and are reachable even with `mcp-servers` off.
+- The Settings → MCP servers page, which renders the gateway experience described below.
+- The standalone gateway scene at `/mcp-servers` and its nav entry.
 
-Keep both layers until the legacy `mcp-servers` flag and marketplace logic are removed in a follow-up change.
+The marketplace UI that `McpStoreSettings` falls back to when the flag is off is unreachable, since the Settings section itself requires the flag; remove it together with the rest of the marketplace logic in a follow-up change.
 
 The gateway experience has these pages and workflows:
 

@@ -1,3 +1,4 @@
+import { ApiRequestError } from "@posthog/api-client/fetcher";
 import { describe, expect, it, vi } from "vitest";
 import { GithubConnectService } from "./githubConnectService";
 import type { GithubConnectClient } from "./identifiers";
@@ -18,6 +19,26 @@ describe("GithubConnectService", () => {
     await service.disconnectInstallation("install-1");
 
     expect(disconnect).toHaveBeenCalledWith("install-1");
+  });
+
+  it("treats a row that is already gone as disconnected", async () => {
+    const disconnect = vi
+      .fn()
+      .mockRejectedValue(new ApiRequestError(404, '{"detail":"gone"}'));
+    const service = new GithubConnectService(makeClient(disconnect));
+
+    await expect(
+      service.disconnectInstallation("install-1"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("still surfaces other disconnect failures", async () => {
+    const disconnect = vi
+      .fn()
+      .mockRejectedValue(new ApiRequestError(500, "boom"));
+    const service = new GithubConnectService(makeClient(disconnect));
+
+    await expect(service.disconnectInstallation("install-1")).rejects.toThrow();
   });
 
   it("reconnect disconnects then runs the connect flow in order", async () => {

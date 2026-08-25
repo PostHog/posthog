@@ -39,6 +39,9 @@ from products.data_catalog.evals.constants import (
     CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
     CURRENT_TOP_CUSTOMERS_METRIC_NAME,
     DECOY_INSIGHT_NAMES,
+    DEFINITION_INSIGHT_DESCRIPTION,
+    DEFINITION_INSIGHT_NAME,
+    DEFINITION_INSIGHT_QUERY,
     DEPRECATED_SOURCE_NAME,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
@@ -68,7 +71,7 @@ from products.data_catalog.evals.constants import (
     TOP_CUSTOMERS_METRIC_NAME,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 if TYPE_CHECKING:
@@ -79,6 +82,7 @@ __all__ = [
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
+    "seed_definition_insight",
     "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
@@ -262,6 +266,24 @@ def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     # Mutating the source insight after approval is what makes the metric read as drifted.
     Insight.objects.filter(pk=insight.pk).update(query=DRIFTED_INSIGHT_MUTATED_QUERY)
     return {"metric": {"name": DRIFTED_METRIC_NAME, "status": "approved", "is_drifted": True}}
+
+
+def seed_definition_insight(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    insight = Insight.objects.create(
+        team=team,
+        created_by=user,
+        name=DEFINITION_INSIGHT_NAME,
+        description=DEFINITION_INSIGHT_DESCRIPTION,
+        query=DEFINITION_INSIGHT_QUERY,
+    )
+    return {
+        "definition_insight": {
+            "name": DEFINITION_INSIGHT_NAME,
+            "short_id": insight.short_id,
+            "query": DEFINITION_INSIGHT_QUERY["query"],
+        }
+    }
 
 
 def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:

@@ -47,10 +47,21 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
     return baseMs * multiplier ** (attempt - 1)
 }
 
+/** Fraction of each backoff to jitter by default, de-correlating retries across workers. */
+export const DEFAULT_JITTER_FACTOR = 0.05
+
 /**
  * Retry a function, respecting `error.isRetriable`.
+ *
+ * Each sleep is jittered down by up to `jitterFactor` of the backoff so
+ * concurrent callers don't retry in lockstep. Pass `0` to opt out.
  */
-export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleepMs = 100): Promise<T> {
+export async function retryIfRetriable<T>(
+    fn: () => Promise<T>,
+    tries = 3,
+    sleepMs = 100,
+    jitterFactor = DEFAULT_JITTER_FACTOR
+): Promise<T> {
     let currentSleepMs = sleepMs
     for (let i = 0; i < tries; i++) {
         try {
@@ -62,7 +73,9 @@ export async function retryIfRetriable<T>(fn: () => Promise<T>, tries = 3, sleep
             }
 
             // Fall through, `fn` will retry after sleep.
-            await sleep(currentSleepMs)
+            const jitteredSleepMs =
+                jitterFactor > 0 ? currentSleepMs * (1 - jitterFactor + Math.random() * jitterFactor) : currentSleepMs
+            await sleep(jitteredSleepMs)
             currentSleepMs = Math.min(
                 currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR,
                 defaultRetryConfig.MAX_INTERVAL

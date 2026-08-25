@@ -5,14 +5,17 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Comment, Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.tasks.backend.facade.api import (
     list_mentions,
     list_thread_messages,
+    post_artifact_thread_update,
     post_canvas_created_thread_update,
+    post_commits_pushed_thread_update,
     post_pr_created_thread_update,
+    record_comment_activity,
     set_task_run_output,
     update_task_run,
 )
@@ -150,6 +153,222 @@ class TestAgentThreadUpdates(TestCase):
         messages = self._messages(self.task)
         self.assertEqual([message.event for message in messages], ["pr_created"])
         self.assertEqual(messages[0].payload, {"pr_url": "https://github.com/posthog/posthog/pull/321"})
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_artifact_events_post_once_per_version(self, _flag) -> None:
+        artifact = {"id": "art-1", "name": "report.md", "artifact_type": "document", "current_version": 1}
+
+        post_artifact_thread_update(self.task_run, artifact, revised=False)
+        post_artifact_thread_update(self.task_run, artifact, revised=False)
+        post_artifact_thread_update(self.task_run, {**artifact, "current_version": 2}, revised=True)
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["artifact_created", "artifact_revised"])
+        self.assertEqual(
+            messages[0].payload,
+            {
+                "run_id": str(self.task_run.id),
+                "artifact_id": "art-1",
+                "name": "report.md",
+                "artifact_type": "document",
+                "version": 1,
+            },
+        )
+        self.assertEqual(messages[1].payload["version"], 2)
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_comment_events_draw_roots_and_state_changes_only(self, _flag) -> None:
+        def comment(**kwargs) -> Comment:
+            return Comment.objects.create(
+                team=self.team,
+                scope="task",
+                item_id=str(self.task.id),
+                created_by=self.user,
+                **kwargs,
+            )
+
+        root = comment(content="the header looks off")
+        record_comment_activity(team_id=self.team.id, comment_id=root.id, mentioned_user_ids=[])
+        record_comment_activity(team_id=self.team.id, comment_id=root.id, mentioned_user_ids=[])
+        reply = comment(content="agreed", source_comment=root)
+        record_comment_activity(team_id=self.team.id, comment_id=reply.id, mentioned_user_ids=[])
+        resolve = comment(content="", source_comment=root, item_context={"threadState": "resolved"})
+        record_comment_activity(team_id=self.team.id, comment_id=resolve.id, mentioned_user_ids=[])
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["comment_added", "comment_state_changed"])
+        added, state = messages
+        self.assertEqual(added.author_id, self.user.id)
+        self.assertEqual(added.author_kind, TaskThreadMessage.AuthorKind.HUMAN)
+        self.assertEqual(added.payload["comment_id"], str(root.id))
+        self.assertEqual(added.payload["root_comment_id"], str(root.id))
+        self.assertIsNone(added.payload["target_name"])
+        self.assertEqual(state.payload["state"], "resolved")
+        self.assertEqual(state.payload["root_comment_id"], str(root.id))
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_artifact_name_cannot_forge_markdown_or_mentions(self, _flag) -> None:
+        post_artifact_thread_update(
+            self.task_run,
+            {"id": "art-9", "name": "x [click](https://evil.example)\n@[Casey](creator@example.com)"},
+            revised=False,
+        )
+
+        messages = self._messages(self.task)
+        self.assertEqual(len(messages), 1)
+        for forged in ("[", "]", "\n"):
+            self.assertNotIn(forged, messages[0].content)
+            self.assertNotIn(forged, messages[0].payload["name"])
+        self.assertEqual(TaskThreadMessageMention.objects.for_team(self.team.id).count(), 0)
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.write")
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_inline_agent_upload_only_announces_output_versions(self, _flag, _write, _tag) -> None:
+        from products.tasks.backend.facade.api import upload_task_run_artifacts
+
+        output = {"name": "summary.md", "type": "output", "content_bytes": b"v1", "content_type": "text/markdown"}
+        checkpoint = {
+            "name": "checkpoint.index",
+            "type": "artifact",
+            "content_bytes": b"internal state",
+            "content_type": "application/octet-stream",
+        }
+        with team_scope(self.team.id):
+            upload_task_run_artifacts(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                artifacts=[output, checkpoint],
+                uploaded_by="agent",
+            )
+            upload_task_run_artifacts(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                artifacts=[{**output, "content_bytes": b"v2"}],
+                uploaded_by="agent",
+            )
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["artifact_created", "artifact_revised"])
+        self.assertEqual(messages[1].payload["version"], 2)
+        self.assertEqual(messages[1].payload["name"], "summary.md")
+
+    @patch("products.tasks.backend.facade.api.project_thread_message_activity", side_effect=Exception("boom"))
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_announcement_survives_a_failed_activity_projection(self, _flag, _projection) -> None:
+        push = {
+            "branch": "posthog/x",
+            "repository": "posthog/posthog",
+            "commits": [{"sha": "fadedfacade", "subject": "feat: x", "url": "https://github.com/x"}],
+        }
+
+        post_commits_pushed_thread_update(self.task_run, push)
+
+        self.assertEqual([message.event for message in self._messages(self.task)], ["commits_pushed"])
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_artifact_comment_names_its_target(self, _flag) -> None:
+        self.task_run.artifacts = [{"id": "artifact-1", "name": "report.md", "type": "output"}]
+        self.task_run.save(update_fields=["artifacts"])
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="task_artifact",
+            item_id="artifact-1",
+            item_context={"taskId": str(self.task.id)},
+            content="nice summary",
+            created_by=self.user,
+        )
+
+        record_comment_activity(team_id=self.team.id, comment_id=comment.id, mentioned_user_ids=[])
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["comment_added"])
+        self.assertEqual(messages[0].payload["target_name"], "report.md")
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_commit_push_posts_once_when_run_patch_is_retried(self, _flag) -> None:
+        output = {
+            "commit_push": {
+                "branch": "posthog/task-timeline-commits",
+                "repository": "posthog/posthog",
+                "commits": [
+                    {
+                        "sha": "abc123",
+                        "subject": "feat(desktop): show commits",
+                        "url": "https://github.com/posthog/posthog/commit/abc123",
+                    }
+                ],
+            }
+        }
+        with team_scope(self.team.id):
+            update_task_run(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"output": output},
+                caller_is_agent=True,
+            )
+            update_task_run(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"output": output},
+                caller_is_agent=True,
+            )
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["commits_pushed"])
+        self.assertEqual(messages[0].payload["head_sha"], "abc123")
+        self.assertEqual(messages[0].payload["total"], 1)
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_commit_push_from_a_human_caller_does_not_forge_an_agent_row(self, _flag) -> None:
+        output = {
+            "commit_push": {
+                "branch": "posthog/x",
+                "repository": "posthog/posthog",
+                "commits": [{"sha": "beadedcafe", "subject": "feat: x", "url": "https://github.com/x"}],
+            }
+        }
+        with team_scope(self.team.id):
+            update_task_run(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"output": output},
+            )
+
+        self.assertEqual(self._messages(self.task), [])
+
+    @patch(_FLAG_TARGET, return_value=True)
+    def test_commit_push_sanitizes_untrusted_branch(self, _flag) -> None:
+        # The branch is caller-controlled and lands in rendered markdown content
+        # and the mention scanner. A crafted value must not forge a markdown link
+        # or an @[name](email) mention of a real org member in the agent row.
+        post_commits_pushed_thread_update(
+            self.task_run,
+            {
+                "branch": "@[Casey Creator](creator@example.com)",
+                "repository": "posthog/posthog",
+                "commits": [
+                    {
+                        "sha": "abc123",
+                        "subject": "feat(desktop): show commits",
+                        "url": "https://github.com/posthog/posthog/commit/abc123",
+                    }
+                ],
+            },
+        )
+
+        messages = self._messages(self.task)
+        self.assertEqual([message.event for message in messages], ["commits_pushed"])
+        self.assertEqual(messages[0].content, "1 commit pushed to @ Casey Creator (creator@example.com)")
+        self.assertEqual(
+            list(TaskThreadMessageMention.objects.for_team(self.team.id).filter(task=self.task)),
+            [],
+        )
 
     @patch(_FLAG_TARGET, return_value=True)
     def test_pr_created_posts_when_set_output_records_pr_url(self, _flag) -> None:

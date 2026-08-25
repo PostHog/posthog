@@ -108,6 +108,14 @@ SUBSCRIPTION_PAGE_LIMIT = 20
 # Small write batch so each chunk (and its durable `earliest` watermark) commits well inside the heartbeat window, letting a large backfill make progress every attempt.
 STRIPE_CHUNK_SIZE = 1000
 
+# How many parents a nested sweep may walk before it records its position, independent of whether
+# any rows were produced. `STRIPE_CHUNK_SIZE` already checkpoints a sweep that is finding data, but
+# it measures rows, not parents: a sparse nested resource (CustomerPaymentMethod over a customer
+# base where few have a stored payment method) spends one API call per parent and produces almost
+# nothing, so thousands of parents can pass between chunks — and every pod death throws that walk
+# away. Counting parents bounds the work a restart repeats no matter how sparse the data is.
+NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
+
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
 _CLOSE_BRACE = ord("}")
@@ -680,7 +688,6 @@ def get_rows(
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
-    # Get the incremental field name for this endpoint
     incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
@@ -708,12 +715,29 @@ def get_rows(
             # method's actual signature so both shapes get the parent id where Stripe expects it.
             parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
+            parents_since_checkpoint = 0
+            last_finished_parent: Optional[str] = None
             for obj in stripe_parent_objects.auto_paging_iter():
+                # Checkpoint the sweep's position through the parent list every so often. The only
+                # other checkpoint fires when a chunk fills, which for a sparse nested resource
+                # (most customers have no payment methods) can take the entire customer base — so a
+                # sweep could walk hundreds of thousands of parents, one API call each, without ever
+                # recording progress, and a pod death restarted it from the first parent forever.
+                # Flushing first is what makes the position safe to save: every row up to
+                # `last_finished_parent` has been yielded by the time `starting_after` names it.
+                if parents_since_checkpoint >= NESTED_SWEEP_CHECKPOINT_PARENTS and last_finished_parent is not None:
+                    while batcher.should_yield(include_incomplete_chunk=True):
+                        yield batcher.get_table()
+                    resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_finished_parent))
+                    parents_since_checkpoint = 0
+
                 parent_obj_id = obj[resource.parent_id]
+                parents_since_checkpoint += 1
                 # Skip parents that a cheap signal on the parent object rules out — avoids one empty
                 # nested call per parent (the bulk of Stripe API volume for these resources).
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
                     skipped_parents += 1
+                    last_finished_parent = parent_obj_id
                     continue
                 parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
                 nested_params = {**default_params, **resource.params, **parent_params}
@@ -753,6 +777,9 @@ def get_rows(
                     if not _is_stripe_resource_missing_error(e):
                         raise
                     logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
+                # Reached whether the nested call succeeded or the parent had vanished: either way
+                # this parent contributes nothing further, so the sweep may resume after it.
+                last_finished_parent = parent_obj_id
             if skipped_parents:
                 logger.debug(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
@@ -1167,6 +1194,18 @@ def _is_stripe_account_access_error(error: Exception, error_str: str) -> bool:
     )
 
 
+def _is_stripe_webhook_limit_error(error_str: str) -> bool:
+    """Detect Stripe's webhook-endpoint cap rejection.
+
+    Stripe caps an account's webhook endpoints and rejects further creates with an
+    ``invalid_request_error`` that carries no distinct ``code``, so it never matches the
+    permission/403 branch. Classifying it lets us tell the user the cap is the cause and point them
+    at the manual-setup fallback instead of surfacing Stripe's raw message.
+    """
+    lowered = error_str.lower()
+    return "maximum of" in lowered and "webhook endpoint" in lowered
+
+
 def create_webhook(
     api_key: str,
     stripe_account_id: str | None,
@@ -1223,6 +1262,16 @@ def create_webhook(
                     "Stripe account. The 'Account id' in your source settings only applies to Stripe Connect "
                     "platform accounts — remove or correct it if your key belongs directly to the account, "
                     "then retry. Otherwise, set up the webhook manually below."
+                ),
+            )
+
+        if _is_stripe_webhook_limit_error(error_str):
+            return WebhookCreationResult(
+                success=False,
+                error=(
+                    "Your Stripe account has reached its webhook endpoint limit. Delete an unused "
+                    "endpoint in the Stripe dashboard (Developers → Webhooks) and retry, or set up "
+                    "the webhook manually below."
                 ),
             )
 

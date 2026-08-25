@@ -52,6 +52,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
             sandbox_id="sb-cold",
             config=_config(vm_runtime=True),
             cpu_usage_attribution_usec=1_234_567,
+            billed_cpu_usage_attribution_usec=1_500_000,
             cpu_usage_attribution_measured_at=measured_at,
         )
 
@@ -67,6 +68,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.cpu_request_cores is None
         assert session.user_attributed_at == measured_at
         assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
         assert session.provider_cpu_usage_attribution_measured_at == measured_at
 
     def test_open_leaves_warm_runs_unattributed(self):
@@ -84,11 +86,12 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
     def test_warm_claim_snapshots_provenance_set_after_provisioning(self):
         run = self._run(state={"await_user_message": True, "prewarmed": True})
-        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=True))
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-warm-claim", config=_config(vm_runtime=False))
         Task.objects.filter(id=run.task_id).update(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
 
         with patch.object(Sandbox, "get_by_id") as get_by_id:
             get_by_id.return_value.read_cpu_usage_usec.return_value = 2_345_678
+            get_by_id.return_value.read_billed_cpu_usage_usec.return_value = 3_000_000
             cpu_attribution = measure_task_run_cpu_attribution(run.id, self.team.id)
         record_task_run_user_activity(run.id, self.team.id, cpu_attribution)
 
@@ -96,6 +99,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.user_attributed_at is not None
         assert session.client_provenance == TaskClientProvenance.POSTHOG_DESKTOP
         assert session.provider_cpu_usage_attribution_usec == 2_345_678
+        assert session.provider_billed_cpu_usage_attribution_usec == 3_000_000
         assert session.provider_cpu_usage_attribution_measured_at == session.user_attributed_at
 
     def test_warm_claim_keeps_provenance_snapshotted_at_provisioning(self):
@@ -205,6 +209,24 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert again.ended_at == first.ended_at
         assert again.ended_reason == SandboxSession.EndedReason.CLEANUP
 
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_close_captures_analytics_once(self, mock_capture):
+        run = self._run()
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
+        record_task_run_user_activity(run.id, self.team.id)
+
+        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.CLEANUP)
+        close_sandbox_session("sb-analytics", reason=SandboxSession.EndedReason.REAPED)
+
+        captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
+        assert len(captured) == 1
+        props = captured[0].kwargs["properties"]
+        assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
+        assert props["runtime_seconds"] >= 0
+        assert props["idle_seconds"] >= 0
+        assert props["prewarmed"] is False
+        assert props["origin_product"] == Task.OriginProduct.USER_CREATED
+
     def test_close_records_provider_cpu_usage(self):
         run = self._run()
         open_sandbox_session(run_id=run.id, sandbox_id="sb-usage", config=_config(vm_runtime=True))
@@ -214,11 +236,13 @@ class TestSandboxSessionWrites(SandboxUsageBase):
             "sb-usage",
             reason=SandboxSession.EndedReason.CLEANUP,
             cpu_usage_usec=12_345_678,
+            billed_cpu_usage_usec=15_000_000,
             cpu_usage_measured_at=measured_at,
         )
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-usage")
         assert session.provider_cpu_usage_usec == 12_345_678
+        assert session.provider_billed_cpu_usage_usec == 15_000_000
         assert session.provider_usage_measured_at == measured_at
 
     def test_user_activity_stamps_open_sessions_only(self):

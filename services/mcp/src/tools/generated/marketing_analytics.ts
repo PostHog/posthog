@@ -136,9 +136,9 @@ const marketingAnalyticsExplainConversionGoal = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/explain_conversion_goal/`,
             query: {
+                conversion_goal_id: params.conversion_goal_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
-                goal_id: params.goal_id,
             },
         })
         return result

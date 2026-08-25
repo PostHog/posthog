@@ -22,10 +22,6 @@
   dockerfile: ./rust/Dockerfile.sqlx-migrate
   project: jmsz6gms8g
 
-- image: cyclotron-janitor
-  dockerfile: ./rust/Dockerfile
-  project: r4zm8vtlbw
-
 - image: property-defs-rs
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q

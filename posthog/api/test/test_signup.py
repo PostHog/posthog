@@ -25,6 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, OrganizationInvite
@@ -1044,10 +1045,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -1090,10 +1089,8 @@ class TestSignupAPI(APIBaseTest):
                 jit_provisioning_enabled=True,
                 organization=new_org,
             )
-            domain.identity_provider_config = IdentityProviderConfig.objects.create(
-                organization=new_org, scim_enabled=True
-            )
-            domain.save()
+            config = IdentityProviderConfig.objects.create(organization=new_org, scim_enabled=True)
+            LinkedIdentityProviderConfig.objects.create(organization_domain=domain, identity_provider_config=config)
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -3284,6 +3281,17 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertNotIn("pending_invite", response.json())
 
+    def test_precheck_rejects_plus_addressed_email(self):
+        response = self.client.post("/api/signup/precheck", {"email": "newperson+alias@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
+
+    def test_precheck_reports_collision_with_an_aliased_account(self):
+        User.objects.create_user(email="dupe+old@acme.com", password=None, first_name="Dupe")
+        response = self.client.post("/api/signup/precheck", {"email": "dupe@acme.com"})
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertTrue(response.json()["email_exists"])
+
 
 class TestSignupResendInvite(APIBaseTest):
     def setUp(self):
@@ -3373,11 +3381,13 @@ class TestSAMLInviteLookup(APIBaseTest):
             organization=self.organization, saml_entity_id="e", saml_acs_url="a", saml_x509_cert="c"
         )
         for domain in domains:
-            OrganizationDomain.objects.create(
+            organization_domain = OrganizationDomain.objects.create(
                 organization=self.organization,
                 domain=domain,
                 verified_at=timezone.now(),
-                identity_provider_config=config,
+            )
+            LinkedIdentityProviderConfig.objects.create(
+                organization_domain=organization_domain, identity_provider_config=config
             )
         config.refresh_from_db()
         assert config.saml_relay_state is not None

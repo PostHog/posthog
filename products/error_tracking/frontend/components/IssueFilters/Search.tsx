@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 
 import { IconSearch } from '@posthog/icons'
 
@@ -11,9 +11,11 @@ import { issueFiltersLogic } from './issueFiltersLogic'
 export function IssueSearchInput({
     className,
     placeholder = 'Search issues',
+    endAddon,
 }: {
     className?: string
     placeholder?: string
+    endAddon?: ReactNode
 }): JSX.Element {
     const { searchInput } = useValues(issueFiltersLogic)
     const { setSearchInput } = useActions(issueFiltersLogic)
@@ -31,6 +33,11 @@ export function IssueSearchInput({
                     placeholder={placeholder}
                     aria-label={placeholder}
                 />
+                {endAddon && (
+                    <InputGroupAddon align="inline-end" className="min-w-0 gap-1 px-1 py-0">
+                        {endAddon}
+                    </InputGroupAddon>
+                )}
             </InputGroup>
         </div>
     )

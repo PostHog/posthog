@@ -88,6 +88,7 @@ pub enum LeaderCall {
     },
     PropertyPush {
         person_id: i64,
+        is_identified: Option<bool>,
     },
 }
 
@@ -544,12 +545,16 @@ impl PropertyWriter for SimLeader {
         if self.deaths.lock().unwrap().contains_key(&request.person_id) {
             return Err(Status::not_found("person is destroyed"));
         }
-        let person = self
+        let mut person = self
             .live_person(request.team_id, request.person_id)
             .await
             .ok_or_else(|| Status::not_found("person is destroyed"))?;
+        // The real leader OR-merges the flip and answers with the updated
+        // person; the flip reaches Postgres through the changelog, not here.
+        person.is_identified = person.is_identified || request.is_identified == Some(true);
         self.record(LeaderCall::PropertyPush {
             person_id: request.person_id,
+            is_identified: request.is_identified,
         });
         Ok(UpdatePersonPropertiesResponse {
             person: Some(person),

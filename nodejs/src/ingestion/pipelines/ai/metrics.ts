@@ -69,6 +69,12 @@ export const aiCacheExclusiveFallbackCounter = new Counter({
     labelNames: ['prior'], // prior: inclusive | anthropic_inclusive
 })
 
+export const aiOtelUnknownPartTypeCounter = new Counter({
+    name: 'aio_ai_otel_unknown_part_type_total',
+    help: 'OTel GenAI message parts whose type no renderer handles, bucketed into a fixed label set, so new semconv part types surface here instead of as blank output',
+    labelNames: ['part_type'],
+})
+
 export const aiBlobOffloadS3Duration = new Histogram({
     name: 'aio_blob_offload_s3_request_duration_seconds',
     help: 'Latency of S3 requests made by the AI blob offload store',

@@ -1003,7 +1003,7 @@ class TestTable(BaseTest):
                 "access_denied",
                 "DB::Exception: Access Denied: while reading key: some/path/file.parquet",
                 499,
-                "Access was denied when reading the provided file",
+                "s3:GetObject",
             ),
             (
                 "no_such_bucket",

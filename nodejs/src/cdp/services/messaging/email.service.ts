@@ -18,6 +18,7 @@ import { logger } from '~/common/utils/logger'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -120,6 +121,17 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
         .filter((addr) => addr.length > 0)
 }
 
+// Deliberately stricter than RFC 5322: exactly one @, a dotted domain, and none of the
+// characters that would let a templated value smuggle a second address or break out of the
+// RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
+const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+
+// The display name is embedded as `"${name}" <email>`, so strip the characters that would
+// terminate the quoted phrase or start the address part, plus control characters.
+function sanitizeFromName(name: string): string {
+    return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -169,7 +181,11 @@ export class EmailService {
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
             invocation,
-            {},
+            // Preserve the incoming priority: createInvocationResult otherwise resets it to 0, which
+            // on a throttle reschedule (below) would rewrite the send's priority class — an entering
+            // bulk send (priority 1) would return as fast-lane (0). The queue caller sets this to the
+            // send's class before calling in, so carrying it through keeps a throttled retry in class.
+            { queuePriority: invocation.queuePriority },
             {
                 finished: true,
             }
@@ -177,7 +193,8 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.integrationManager.get(params.from.integrationId)
+        const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
+        const integration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
         let throttled: boolean = false
@@ -185,6 +202,26 @@ export class EmailService {
         let trackingEnabled = true
 
         try {
+            // Team-level kill switch: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability. Same choke-point placement as the
+            // suppression check below so no upstream route can bypass it. Test sends are blocked
+            // too — they hit SES and count against the tenant all the same.
+            if (await this.teamWorkflowsConfigService.isEmailSendingSuspended(invocation.teamId)) {
+                addLog('warn', 'Skipping send: email sending is suspended for this project')
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_suspended',
+                        count: 1,
+                    })
+                }
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
+
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
                 throw new Error(
@@ -197,7 +234,7 @@ export class EmailService {
                 )
             }
 
-            const from = this.resolveFromSender(integration)
+            const from = this.resolveFromSender(integration, params.from, addLog)
 
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
@@ -244,7 +281,7 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${params.to.email}${viewEmailToken}`)
+            addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
         } catch (error) {
             if (error instanceof SESThrottleError) {
@@ -445,7 +482,11 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
-    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
+    private resolveFromSender(
+        integration: IntegrationType,
+        from: CyclotronInvocationQueueParametersEmailType['from'],
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -454,7 +495,55 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        return { email: integration.config.email, name: integration.config.name }
+        // Overrides arrive already rendered by the templating engine, so a template that
+        // resolved to nothing means "no override" and the integration's stored sender applies.
+        const overrideName = from.name ? sanitizeFromName(from.name) : ''
+
+        return {
+            email: this.resolveFromEmailAddress(integration, from.email?.trim(), addLog),
+            name: overrideName || integration.config.name,
+        }
+    }
+
+    // An unusable override degrades to the integration's own sender rather than failing the send.
+    // Steps authored before mid-2026 carry a placeholder address written by an old sender picker,
+    // so throwing here fails sends whose author never typed an address at all.
+    private resolveFromEmailAddress(
+        integration: IntegrationType,
+        overrideEmail: string | undefined,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): string {
+        if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (!FROM_OVERRIDE_EMAIL_REGEX.test(overrideEmail)) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address "${overrideEmail}": it is not a valid email address. Sending from ${integration.config.email} instead. Fix the From address in the workflow's email step so it resolves to a single valid address.`
+            )
+            return integration.config.email
+        }
+
+        // Verification is domain-level (the DNS records cover the whole domain), so any address
+        // on the integration's domain is exactly as verified as the integration's own address.
+        // Anything off-domain is discarded: honoring it would let a workflow send as a domain the
+        // team never proved ownership of.
+        const integrationDomain: string = (
+            integration.config.domain ??
+            integration.config.email.split('@')[1] ??
+            ''
+        ).toLowerCase()
+        const overrideDomain = overrideEmail.split('@')[1].toLowerCase()
+        if (!integrationDomain || overrideDomain !== integrationDomain) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address "${overrideEmail}": it is not on the verified domain "${integrationDomain}" of the selected sender. Sending from ${integration.config.email} instead. Use an address on that domain, or select a different sender in the workflow's email step.`
+            )
+            return integration.config.email
+        }
+
+        return overrideEmail
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)

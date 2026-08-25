@@ -68,22 +68,37 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
- * minimal_flag_called_events).
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
+ * rollout gate and the per-team feature-flag count override.
  *
- * Single-team writes only, by design: this setting is meant to be flipped one team at a time
- * after staff manually verify that team's SDK versions support the slim $feature_flag_called
- * event shape, unlike the cache tools' bulk rebuild/clear.
+ * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
+ * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
+ * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
+ * unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
  *
  * Registered on the root router so it is not team-nested; staff act on teams they do not
  * belong to, same as staff_cache.py / staff_teams.py.
  */
+export const featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax = 20000
+
 export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.object({
     team_id: zod.number().describe('Team id to update. Exactly one team per request.'),
     minimal_flag_called_events: zod
         .boolean()
+        .optional()
         .describe(
-            "New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+            "New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape."
+        ),
+    max_feature_flags_override: zod
+        .number()
+        .min(1)
+        .max(featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax)
+        .nullish()
+        .describe(
+            'New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.'
         ),
 })
 

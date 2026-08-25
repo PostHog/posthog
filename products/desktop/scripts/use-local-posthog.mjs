@@ -3,8 +3,8 @@
  * Point the desktop app's analytics + feature-flag client at your LOCAL PostHog
  * (localhost:8010) for dev. Code reads feature flags through posthog-js, which
  * is configured by the `VITE_POSTHOG_*` vars in `.env` — by default these point
- * at PostHog's internal analytics instance, so flags you sync locally (e.g.
- * `manage.py sync_feature_flags` → `agent-platform`) never resolve in dev. This
+ * at PostHog's internal analytics instance, so flags you sync locally never
+ * resolve in dev. This
  * rewrites those vars to your local instance so synced flags take effect.
  *
  * Note: this is the analytics/flags client only — separate from the data API
@@ -12,7 +12,7 @@
  * localhost:8010; see docs/LOCAL-DEVELOPMENT.md).
  *
  * Usage:
- *   node scripts/use-local-posthog.mjs                  # auto-fetch project key from ../posthog
+ *   node scripts/use-local-posthog.mjs                  # auto-fetch project key from the monorepo checkout
  *   node scripts/use-local-posthog.mjs phc_xxx          # pass the project key explicitly
  *   LOCAL_POSTHOG_PROJECT_KEY=phc_xxx node scripts/use-local-posthog.mjs
  *   POSTHOG_DIR=/path/to/posthog node scripts/use-local-posthog.mjs
@@ -42,8 +42,14 @@ function resolveProjectKey() {
   )?.trim();
   if (explicit) return explicit;
 
+  // products/desktop lives inside the posthog monorepo, so the Django checkout
+  // is two levels up; ../posthog covers a standalone sibling-checkout layout.
+  const monorepoRoot = resolve(repoRoot, "..", "..");
   const posthogDir =
-    process.env.POSTHOG_DIR || resolve(repoRoot, "..", "posthog");
+    process.env.POSTHOG_DIR ||
+    (existsSync(join(monorepoRoot, "manage.py"))
+      ? monorepoRoot
+      : resolve(repoRoot, "..", "posthog"));
   if (!existsSync(join(posthogDir, "manage.py"))) {
     fail(
       `No project key given and no PostHog checkout at ${posthogDir}.\n` +

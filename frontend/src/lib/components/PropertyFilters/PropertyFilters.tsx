@@ -16,11 +16,12 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinition } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
 import { OperatorValueSelectProps } from './components/OperatorValueSelect'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { PropertyFilterInternalProps } from './types'
 
 export interface PropertyFiltersProps {
     endpoint?: string | null
@@ -65,6 +66,13 @@ export interface PropertyFiltersProps {
      * (`TAXONOMIC_FILTER_MENU_REBUILD`).
      */
     triggerVariant?: 'button' | 'input'
+    staticValueOptions?: PropertyFilterInternalProps['staticValueOptions']
+    /** Override inferred property definitions for contexts where one event key is polymorphic. */
+    propertyDefinitionsOverride?: PropertyDefinition[]
+    /** Keep the selected key fixed while leaving its operator and value editable. */
+    propertyKeyEditable?: boolean
+    singleLine?: boolean
+    showRemoveButton?: boolean
 }
 
 export function PropertyFilters({
@@ -104,6 +112,11 @@ export function PropertyFilters({
     operatorAllowlist,
     hogQLGlobals,
     triggerVariant = 'button',
+    staticValueOptions,
+    propertyDefinitionsOverride,
+    propertyKeyEditable,
+    singleLine,
+    showRemoveButton = true,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -143,6 +156,7 @@ export function PropertyFilters({
                                     labelClassName={buttonClassName}
                                     size={buttonSize}
                                     onRemove={remove}
+                                    showRemoveButton={showRemoveButton}
                                     orFiltering={orFiltering}
                                     editable={editable}
                                     filterComponent={(onComplete) => (
@@ -175,6 +189,10 @@ export function PropertyFilters({
                                             operatorAllowlist={operatorAllowlist}
                                             hogQLGlobals={hogQLGlobals}
                                             triggerVariant={triggerVariant}
+                                            staticValueOptions={staticValueOptions}
+                                            propertyDefinitionsOverride={propertyDefinitionsOverride}
+                                            propertyKeyEditable={propertyKeyEditable}
+                                            singleLine={singleLine}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

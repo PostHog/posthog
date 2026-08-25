@@ -230,6 +230,7 @@ const workflowsListInvocations = (): ToolBase<
                 after: params.after,
                 before: params.before,
                 distinct_id: params.distinct_id,
+                error_message_contains: params.error_message_contains,
                 limit: params.limit,
                 status: params.status,
             },
@@ -360,6 +361,9 @@ const workflowsRestoreRevision = (): ToolBase<typeof WorkflowsRestoreRevisionSch
         const body: Record<string, unknown> = {}
         if (params.overwrite !== undefined) {
             body['overwrite'] = params.overwrite
+        }
+        if (params.expected_draft_updated_at !== undefined) {
+            body['expected_draft_updated_at'] = params.expected_draft_updated_at
         }
         const result = await context.api.request<Schemas.HogFlow>({
             method: 'POST',

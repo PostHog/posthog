@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
+from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 
@@ -26,6 +27,7 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
 from posthog.data_freshness import LOOKBACK_DAYS, QUIET_AFTER_DAYS, Freshness, get_organization_data_freshness
 from posthog.event_usage import (
+    exclude_internal_organization_from_crm,
     groups,
     report_organization_action,
     report_organization_deleted,
@@ -33,7 +35,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
-from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
@@ -242,6 +244,7 @@ class OrganizationSerializer(
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+        exclude_internal_organization_from_crm(organization, user)
         return organization
 
     @tracer.start_as_current_span("organization_serializer.membership_level")
@@ -400,6 +403,13 @@ class OrganizationSerializer(
 class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField(
         help_text="Whether the access request was accepted and the organization admins were notified."
+    )
+
+
+class OrganizationRemoveBlockedMembersResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether verified-domain enforcement was turned on.")
+    removed_members = serializers.IntegerField(
+        help_text="How many members with an email outside the verified domains were removed from the organization. Owners are never removed."
     )
 
 
@@ -677,6 +687,40 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             requesting_user_id=user.id,
         )
         return Response({"success": True})
+
+    @extend_schema(
+        request=None,
+        responses={200: OrganizationRemoveBlockedMembersResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="remove_blocked_members_and_enforce_verified_domains")
+    def remove_blocked_members_and_enforce_verified_domains(self, request: Request, **kwargs) -> Response:
+        """
+        Remove the members whose email domain is outside the organization's verified domains and turn
+        `enforce_verified_domains` on, in one transaction. Owners are never removed; they keep gated
+        access and can disable the setting themselves. Admin only.
+
+        Use this only when the caller has confirmed the removals. To turn the setting on without
+        touching memberships, PATCH `enforce_verified_domains` on the organization instead.
+        """
+        organization = self.organization
+        self.check_object_permissions(request, organization)
+
+        # Reuses the paygate and the would-block-self guard on the field's validator.
+        serializer = self.get_serializer(organization, data={"enforce_verified_domains": True}, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        blocked = organization.memberships.exclude(level=OrganizationMembership.Level.OWNER).select_related("user")
+        admitted = verified_domain_email_q(organization)
+        if admitted is not None:
+            blocked = blocked.exclude(admitted)
+
+        removed = 0
+        with transaction.atomic():
+            for membership in blocked:
+                membership.user.leave(organization=organization)
+                removed += 1
+            serializer.save()
+        return Response({"success": True, "removed_members": removed})
 
     @extend_schema(request=None, responses={200: OrganizationDataFreshnessSerializer})
     @action(detail=True, methods=["GET"], url_path="teams/data_freshness", pagination_class=None)

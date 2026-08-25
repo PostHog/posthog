@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE lifecycle_op\n            SET lease_expires_at = now() + make_interval(secs => $2),\n                attempt = attempt + 1,\n                parked_at = NULL,\n                parked_reason = NULL\n            WHERE op_id IN (\n                SELECT op_id FROM lifecycle_op\n                WHERE op_id = $1 AND completed_at IS NULL\n                  AND (lease_expires_at IS NULL OR lease_expires_at < now())\n                  AND (parked_at IS NULL OR $3)\n                FOR UPDATE SKIP LOCKED\n            )\n            RETURNING attempt\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "attempt",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Float8",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "63cc7113e122f98c5408aa855f10a9cad31fb8a761dbdb8ff449aa84734fd7d2"
+}

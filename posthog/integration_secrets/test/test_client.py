@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import pytest
@@ -15,7 +16,11 @@ from posthog.integration_secrets.client import (
     integration_service_enabled,
     integration_service_signing_keys,
 )
-from posthog.integration_secrets.errors import SecretInRecoveryError, SecretMissingError
+from posthog.integration_secrets.errors import (
+    IntegrationServiceMisconfiguredError,
+    SecretInRecoveryError,
+    SecretMissingError,
+)
 from posthog.jwt import PosthogJwtAudience
 
 SERVICE_SETTINGS: dict[str, Any] = {
@@ -190,6 +195,53 @@ class TestUnconfigured(SimpleTestCase):
     def test_raises_when_unconfigured_and_the_environment_has_nothing_either(self) -> None:
         with pytest.raises(SecretMissingError):
             IntegrationSecretsClient().get("A_KEY_NOBODY_SET", CALLER)
+
+    @override_settings(INTEGRATION_SERVICE_URL="", INTEGRATION_SERVICE_JWT_SECRET="")
+    def test_the_error_says_the_service_was_never_called(self) -> None:
+        # "not available from the integration service" sends the reader to look for a key that is
+        # sitting in the service already. The reason it did not resolve is that nothing asked.
+        with pytest.raises(SecretMissingError) as excinfo:
+            IntegrationSecretsClient().get("A_KEY_NOBODY_SET", CALLER)
+        assert "was not called" in str(excinfo.value)
+        assert "unconfigured" in str(excinfo.value)
+
+
+class TestHalfConfigured(SimpleTestCase):
+    """One variable without the other: refuse, rather than silently reading the environment."""
+
+    @parameterized.expand(
+        [
+            ("url without a signing key", "http://svc", "", "INTEGRATION_SERVICE_JWT_SECRET"),
+            ("signing key without a url", "", "signing-key", "INTEGRATION_SERVICE_URL"),
+        ]
+    )
+    def test_raises_naming_the_variable_still_needed(self, _name: str, url: str, key: str, missing: str) -> None:
+        with (
+            override_settings(INTEGRATION_SERVICE_URL=url, INTEGRATION_SERVICE_JWT_SECRET=key),
+            patch(POST) as post,
+            patch(FLAG, return_value=True),
+        ):
+            with pytest.raises(IntegrationServiceMisconfiguredError) as excinfo:
+                IntegrationSecretsClient().get(KEY, CALLER)
+            assert missing in str(excinfo.value)
+            post.assert_not_called()
+
+    @override_settings(INTEGRATION_SERVICE_URL="http://svc", INTEGRATION_SERVICE_JWT_SECRET="")
+    def test_a_mounted_environment_variable_does_not_paper_over_it(self) -> None:
+        # The failure this exists to catch. Half-configured, the fallback would have returned the
+        # value from the pod's environment and the deployment would look wired up — until someone
+        # asks for a credential that only exists in the service.
+        with patch.dict(os.environ, {KEY: "still-mounted-on-the-pod"}):
+            with pytest.raises(IntegrationServiceMisconfiguredError):
+                IntegrationSecretsClient().get(KEY, CALLER)
+
+    @override_settings(INTEGRATION_SERVICE_URL="http://svc", INTEGRATION_SERVICE_JWT_SECRET="")
+    def test_the_flag_does_not_rescue_a_half_configured_deployment(self) -> None:
+        # Turning the flag off is how you disable the client deliberately; it is not a way to make
+        # a misconfiguration legal, or the rollout gate would hide it.
+        with patch(FLAG, return_value=False):
+            with pytest.raises(IntegrationServiceMisconfiguredError):
+                IntegrationSecretsClient().get(KEY, CALLER)
 
 
 @override_settings(**SERVICE_SETTINGS)

@@ -96,7 +96,13 @@ describe("uploadArtifactTool", () => {
     ]);
     expect(fetch).toHaveBeenCalledWith(
       "https://storage.example/upload",
-      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(FormData),
+        // A stalled storage POST must abort instead of waiting out undici's
+        // internal defaults, so the ≤10MB inline fallback stays fast.
+        signal: expect.any(AbortSignal),
+      }),
     );
     expect(finalizeTaskArtifactUploads).toHaveBeenCalledWith(
       "task-1",

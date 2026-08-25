@@ -83,7 +83,7 @@ class MatrixManager:
                     email,
                     password,
                     first_name,
-                    OrganizationMembership.Level.ADMIN,
+                    OrganizationMembership.Level.OWNER,
                     is_staff=is_staff,
                     theme_mode="system",
                     role_at_organization="engineering",

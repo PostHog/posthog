@@ -10,7 +10,7 @@ build-backend = "maturin"
 [project]
 name = "deltalite"
 # Mirrors `rust/deltalite/python/Cargo.toml` (always identical); bump both together.
-version = "0.1.6"
+version = "0.1.7"
 description = "Streaming partition upsert for Delta tables, replacing delta-rs SQL MERGE"
 readme = "README.md"
 requires-python = ">=3.12"

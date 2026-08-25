@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Team
 from posthog.models.integration import Integration
 
@@ -65,7 +65,7 @@ class TestVisionActionDelivery(APIBaseTest):
             name="my-scanner",
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "did the user check out?"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _create_slack_integration(self) -> Integration:

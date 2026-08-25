@@ -37,7 +37,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,

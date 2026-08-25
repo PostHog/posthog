@@ -47,10 +47,12 @@ The writer is a pure applier: the leader admits every record against this servic
 
 The consumer flushes the buffer when any of these conditions are met:
 
-- **Timer**: every `FLUSH_INTERVAL_MS` (default 5s)
-- **Size threshold**: buffer reaches `FLUSH_BUFFER_SIZE` entries (default 1000)
-- **Backpressure**: buffer reaches `BUFFER_CAPACITY` (default 50k), flush immediately
+- **Timer**: every `FLUSH_INTERVAL_MS` (default 30s)
+- **Size threshold**: buffer reaches `FLUSH_BUFFER_SIZE` entries (default 10k)
+- **Backpressure**: buffer reaches `BUFFER_CAPACITY` (default 100k), flush immediately
 - **Shutdown**: graceful shutdown flushes remaining buffer
+
+Every flush drains at most `FLUSH_BUFFER_SIZE` rows (rounded up to whole partitions), so a backlogged buffer empties as a sequence of bounded batches paced by the writer instead of one giant batch. Whole partitions only: a partition's max offset is safe to commit exactly when every buffered person from it has flushed, so a drained batch's offsets never skip past a person still in the buffer.
 
 ## Idempotency
 
@@ -62,7 +64,8 @@ A person whose fields cannot be bound losslessly (malformed uuid, `team_id` beyo
 
 Failures are handled at chunk granularity: the store splits each batch into chunks (sized by `upsert_batch_size`), runs them in parallel against `PgStore::execute_chunk`, and reports successful, transient-failed, and data-failed chunks separately so only the affected rows need retry.
 
-- **Transient** (connection loss, pool timeout, deadlock): retry just the failed chunks with exponential backoff (1s, 2s, 4s). Successful chunks are not re-executed. After 3 consecutive failures, signal unhealthy and shut down.
+- **Transient** (connection loss, deadlock): retry just the failed chunks with exponential backoff (1s, 2s, 4s). Successful chunks are not re-executed. After 3 consecutive failures, signal unhealthy and shut down.
+- **Saturation** (local pool acquire timeout): the writer's own in-flight statements exceeded pool capacity — self-inflicted, so it retries with the same backoff but never counts toward the consecutive-failure shutdown. Escalating on it would let a slow-PG burst crash-loop the pod, and each restart drops the buffers and redelivers, worsening the load that caused it.
 - **Data** (constraint violation, invalid input): fall back to per-row inserts for the failed chunks' rows, isolating the bad records. Per-row upserts run with bounded concurrency (`ROW_FALLBACK_CONCURRENCY`). Successful chunks are not re-executed.
 - **Non-transient row failure** (constraint violation, unbindable field): an invariant violation — the leader admitted a record Postgres cannot apply, so admission has a gap. The flush halts via `signal_failure` without committing; Kafka redelivers after restart, and the alarm stands until the gap is fixed. Skipping is never an option: it would permanently diverge PG from the cache and changelog.
 - **Chunk task panic**: a spawned chunk task that panics cannot hand its persons back — the task's stack is unwound. The writer treats this as a fatal error, signals failure, and exits. Because Kafka offsets are committed only on full batch success, redelivery after restart recovers the records; the panic payload is captured in the error message for diagnosis.
@@ -75,7 +78,9 @@ The leader serializes a parsed `serde_json::Value` into proto bytes, so they are
 
 ## Backpressure
 
-When the writer is slow (PG latency, connection pool exhaustion), the bounded channel between consumer and writer fills up (capacity: 8 batches). The consumer blocks on channel send, which stops Kafka consumption. This naturally limits memory usage and prevents unbounded buffering.
+Total in-flight statement concurrency is capped by a pod-wide permit budget (`UPSERT_CONCURRENCY`) shared across all writer lanes and both the chunk and per-row paths. A burst of chunks queues at the semaphore — a cheap, unbounded wait — instead of oversubscribing the pool and converting its own fan-out into acquire timeouts.
+
+When the writer is slow (PG latency, pool saturation), size-triggered flushes stop being accepted, the lane buffer grows, and at the hard cap the consumer blocks on channel send, which stops Kafka consumption. Capped drains keep the resulting batches bounded, so the backlog releases at the writer's pace. This naturally limits memory usage and prevents unbounded buffering.
 
 ## Kafka consumer configuration
 
@@ -100,6 +105,8 @@ When the writer is slow (PG latency, connection pool exhaustion), the bounded ch
 | `personhog_writer_unapplyable_rows_total{kind}` | counter | Rows PG refused non-transiently (invariant violation, halts the flush) |
 | `personhog_writer_chunk_fallback_rows_total` | counter | Rows from data-failed chunks sent to per-row fallback |
 | `personhog_writer_chunk_retry_rows_total` | counter | Rows from transient-failed chunks retried as a batch |
+| `personhog_writer_chunk_saturated_rows_total` | counter | Rows from chunks that hit local pool saturation |
+| `personhog_writer_saturation_retries_total` | counter | Retry rounds caused only by pool saturation (never escalate) |
 | `personhog_writer_chunk_fatal_total` | counter | Chunk tasks that panicked or were cancelled |
 | `personhog_writer_row_fallback_duration_seconds` | histogram | Duration of the per-row fallback for a batch |
 | `personhog_writer_row_fallback_in_flight` | gauge | Concurrent per-row upserts in flight during fallback |
@@ -131,9 +138,10 @@ Consumer lag per partition is monitored externally via KMinion (`kminion_kafka_c
 | `PG_MAX_CONNECTIONS` | `20` | Connection pool size |
 | `PG_TARGET_TABLE` | `personhog_person_tmp` | Target table (`posthog_person` for production cutover) |
 | `FLUSH_INTERVAL_MS` | `30000` | Timer-based flush interval (longer = better dedup, higher latency) |
-| `FLUSH_BUFFER_SIZE` | `10000` | Size-based flush trigger |
+| `FLUSH_BUFFER_SIZE` | `10000` | Size-based flush trigger and per-flush drain cap |
 | `BUFFER_CAPACITY` | `100000` | Hard cap for backpressure |
 | `UPSERT_BATCH_SIZE` | `5000` | Max rows per INSERT statement (chunks execute in parallel) |
+| `UPSERT_CONCURRENCY` | `8` | Pod-wide cap on concurrent upsert statements, shared across lanes |
 | `ROW_FALLBACK_CONCURRENCY` | `16` | Max concurrent per-row upserts during per-row fallback |
 | `FLUSH_CHANNEL_CAPACITY` | `8` | Channel capacity between tasks |
 | `METRICS_PORT` | `9103` | Prometheus metrics HTTP port |

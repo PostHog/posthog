@@ -5,6 +5,7 @@ import pytest
 from fakeredis import aioredis as fakeredis
 from fastapi.testclient import TestClient
 
+from llm_gateway.dependencies import _format_retry_delay
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
@@ -244,17 +245,77 @@ class TestRateLimitResponseHeaders:
 
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
-            # The reason is repeated in the message (SDK error strings often
-            # surface only error.message) and the throttle scope rides along as
-            # a machine-readable code.
+            # The reason and retry time are repeated in the message (SDK error
+            # strings often surface only error.message) and the throttle scope
+            # and retry_after ride along machine-readable.
             assert response.json() == {
                 "error": {
-                    "message": "Rate limit exceeded: Product rate limit exceeded",
+                    "message": "Rate limit exceeded: Product rate limit exceeded. Try again in about 1 hour.",
                     "type": "rate_limit_error",
                     "reason": "Product rate limit exceeded",
+                    "retry_after": 3600,
                     "code": "test_throttle",
                 }
             }
+
+
+class TestBackoffOnlyRetryAfter:
+    def test_429_message_omits_retry_promise_when_retry_wont_reset_limit(self, mock_db_pool: MagicMock) -> None:
+        class CreditsExhaustedThrottle(Throttle):
+            scope = "billable_credits"
+
+            async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
+                return ThrottleResult.deny(
+                    detail="Your team has used its monthly PostHog AI credits.",
+                    scope=self.scope,
+                    retry_after=60,
+                    retry_after_resets_limit=False,
+                )
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "key_id",
+                "user_id": 1,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 1,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+            }
+        )
+        mock_db_pool.acquire = AsyncMock(return_value=conn)
+
+        app = create_test_app(mock_db_pool, throttles=[CreditsExhaustedThrottle()])
+
+        with TestClient(app) as client:
+            body = {"model": "gpt-4", "messages": [{"role": "user", "content": "Hi"}]}
+            headers = {"Authorization": "Bearer phx_test_key"}
+            response = client.post("/v1/chat/completions", json=body, headers=headers)
+
+            assert response.status_code == 429
+            # The back-off hint still reaches machines via header and body,
+            # but the message must not promise that retrying will succeed.
+            assert response.headers["retry-after"] == "60"
+            error = response.json()["error"]
+            assert error["retry_after"] == 60
+            assert "Try again" not in error["message"]
+
+
+class TestFormatRetryDelay:
+    @pytest.mark.parametrize(
+        "seconds,expected",
+        [
+            pytest.param(1, "1 second", id="one_second"),
+            pytest.param(45, "45 seconds", id="seconds"),
+            pytest.param(60, "1 minute", id="one_minute"),
+            pytest.param(90, "2 minutes", id="minutes_round_up"),
+            pytest.param(3600, "1 hour", id="one_hour"),
+            pytest.param(3601, "2 hours", id="hours_round_up"),
+            pytest.param(86400, "24 hours", id="full_day"),
+        ],
+    )
+    def test_buckets_and_rounding(self, seconds: int, expected: str) -> None:
+        assert _format_retry_delay(seconds) == expected
 
 
 class TestFreeTierModelGateErrorBody:

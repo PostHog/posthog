@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentityServer;
@@ -116,7 +116,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
+        const BUCKETS: &[f64] = &[
+            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+        ];
+        // Lifecycle ops span "settled in one drive" (tens of ms) to
+        // "abandoned, parked, or leader-blocked and resumed by the sweeper"
+        // (minutes to an hour); the default latency ladder tops out at 10s
+        // and would collapse every resumed op into +Inf.
+        const OP_DURATION_BUCKETS: &[f64] = &[
+            10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0,
+            300000.0, 1800000.0, 3600000.0,
+        ];
+        // Source counts, not latency; the request cap is 250.
+        const MERGE_SOURCES_BUCKETS: &[f64] = &[1.0, 2.0, 3.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0];
+        let recorder_handle = PrometheusBuilder::new()
+            .add_global_label("service", "personhog-identity")
+            .set_buckets(BUCKETS)
+            .unwrap()
+            .set_buckets_for_metric(
+                Matcher::Full("personhog_lifecycle_op_duration_ms".into()),
+                OP_DURATION_BUCKETS,
+            )
+            .unwrap()
+            .set_buckets_for_metric(
+                Matcher::Full("personhog_identity_merge_sources_per_call".into()),
+                MERGE_SOURCES_BUCKETS,
+            )
+            .unwrap()
+            .install_recorder()
+            .expect("Failed to install metrics recorder");
+        let metrics_router = health_router.route(
+            "/metrics",
+            get(move || std::future::ready(recorder_handle.render())),
+        );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)

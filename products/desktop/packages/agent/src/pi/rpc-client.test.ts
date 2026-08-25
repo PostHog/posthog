@@ -56,6 +56,7 @@ describe("createRuntimeMcpServers", () => {
         env: { POSTHOG_LOCAL_TOOLS_ENABLED: "finish" },
         transport: "stdio",
         lifecycle: "eager",
+        requestTimeoutMs: 300_000,
         directTools: true,
       },
     });
@@ -107,6 +108,12 @@ process.stdin.resume();
       projectTrusted: true,
       extensions: ["auto-publish"],
       providerOptions: { apiKey: "proxy-key" },
+      enrichment: {
+        apiUrl: "http://127.0.0.1:5678",
+        publicApiUrl: "https://us.posthog.com",
+        projectId: 2,
+        apiKey: "enrichment-proxy-key",
+      },
     });
 
     try {
@@ -115,6 +122,12 @@ process.stdin.resume();
         await expect(readFile(capturePath, "utf8")).resolves.toBe(
           JSON.stringify({
             providerOptions: { apiKey: "proxy-key" },
+            enrichment: {
+              apiUrl: "http://127.0.0.1:5678",
+              publicApiUrl: "https://us.posthog.com",
+              projectId: 2,
+              apiKey: "enrichment-proxy-key",
+            },
             projectTrusted: true,
             extensions: ["auto-publish"],
           }),

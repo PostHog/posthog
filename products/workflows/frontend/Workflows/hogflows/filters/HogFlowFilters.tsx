@@ -1,16 +1,17 @@
 import { useValues } from 'kea'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { AllowedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils/operators'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
+import { PropValue } from '~/models/propertyDefinitionsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType, PropertyOperator } from '~/types'
+import { FilterType, PropertyDefinition, PropertyOperator } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
@@ -53,6 +54,18 @@ export type HogFlowFiltersProps = {
     // as suggestions and resolve their distinct values.
     schemaColumns?: DatabaseSchemaField[]
     dataWarehouseTableName?: string
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
+    propertyAllowList?: AllowedProperties
+    propertyDefinitionsOverride?: PropertyDefinition[]
+    /** Extra options to offer in the taxonomic filter, for events whose properties aren't stored. */
+    taxonomicFilterOptionsFromProp?: Record<string, { name: string }[]>
+    staticValueOptions?: (propertyKey: string) => PropValue[] | null
+    inline?: boolean
+    allowNew?: boolean
+    propertyKeyEditable?: boolean
+    singleLine?: boolean
+    showRemoveButton?: boolean
+    hasRowOperator?: boolean
 }
 
 /**
@@ -124,6 +137,18 @@ export function HogFlowPropertyFilters({
     excludeGroupProperties,
     schemaColumns,
     dataWarehouseTableName,
+    taxonomicGroupTypes,
+    propertyAllowList,
+    propertyDefinitionsOverride,
+    taxonomicFilterOptionsFromProp: taxonomicFilterOptionsFromPropOverride,
+    staticValueOptions,
+    buttonCopy,
+    inline,
+    allowNew,
+    propertyKeyEditable,
+    singleLine,
+    showRemoveButton,
+    hasRowOperator,
 }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -134,6 +159,7 @@ export function HogFlowPropertyFilters({
         [TaxonomicFilterGroupType.WorkflowVariables]: (workflow?.variables ?? []).map((variable) => ({
             name: variable.key,
         })),
+        ...taxonomicFilterOptionsFromPropOverride,
     }
     const isDataWarehouse = !!dataWarehouseTableName
     return (
@@ -143,10 +169,18 @@ export function HogFlowPropertyFilters({
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
+            buttonText={buttonCopy ?? 'Add filter'}
+            disablePopover={inline}
+            allowNew={allowNew}
+            propertyKeyEditable={propertyKeyEditable}
+            singleLine={singleLine}
+            showRemoveButton={showRemoveButton}
+            hasRowOperator={hasRowOperator}
             taxonomicGroupTypes={
+                taxonomicGroupTypes ??
                 // Warehouse rows are row-scoped — only the synced row's columns make sense to filter on,
                 // so event/feature-flag/person/group properties don't apply here.
-                isDataWarehouse
+                (isDataWarehouse
                     ? [TaxonomicFilterGroupType.DataWarehouseProperties, TaxonomicFilterGroupType.HogQLExpression]
                     : [
                           TaxonomicFilterGroupType.WorkflowVariables,
@@ -156,7 +190,7 @@ export function HogFlowPropertyFilters({
                           ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
                           TaxonomicFilterGroupType.HogQLExpression,
                           TaxonomicFilterGroupType.EventMetadata,
-                      ]
+                      ])
             }
             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
             schemaColumns={schemaColumns}
@@ -168,6 +202,9 @@ export function HogFlowPropertyFilters({
             }}
             hogQLGlobals={sampleGlobals}
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+            propertyAllowList={propertyAllowList}
+            propertyDefinitionsOverride={propertyDefinitionsOverride}
+            staticValueOptions={staticValueOptions}
         />
     )
 }

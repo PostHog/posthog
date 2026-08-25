@@ -188,5 +188,35 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             expect(logic.values.selectedTool).toBe('tool_a')
         })
+
+        it('refetches the charts at the picked grouping, leaving the table alone', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const callsBefore = mockApi.query.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.setPinnedInterval('hour')
+            }).toFinishAllListeners()
+
+            const newCalls = queryCallsSince(callsBefore)
+            expect(newCalls.length).toBe(1) // daily stats only — the table is a single-window aggregate
+            expect(newCalls[0].interval).toBe('hour')
+        })
+
+        // The two filters are independent: changing the window must not silently undo the grouping.
+        it('keeps the picked grouping when the date range changes', async () => {
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setPinnedInterval('hour')
+            await expectLogic(logic, () => {
+                logic.actions.setDateFilter('-14d', null)
+            }).toFinishAllListeners()
+
+            // Two weeks would auto-group by day.
+            expect(logic.values.interval).toBe('hour')
+        })
     })
 })

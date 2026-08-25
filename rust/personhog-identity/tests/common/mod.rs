@@ -295,3 +295,107 @@ impl personhog_identity::storage::IdentityStorage for UnusedStorage {
         panic!("not exercised by this test")
     }
 }
+
+/// Wraps the real storage to inject the target-establishment races that
+/// cannot be produced deterministically otherwise. Each injection fires
+/// once, and the "concurrent winner" side effect is committed through the
+/// real storage so the entrance's re-resolution finds what a genuine race
+/// would have left behind.
+pub struct RacingStorage {
+    inner: Arc<PostgresIdentityStorage>,
+    /// attach_distinct_ids: map the ids to THIS person instead (the
+    /// concurrent winner) and answer AlreadyMapped.
+    pub hijack_attach_to: std::sync::Mutex<Option<i64>>,
+    /// attach_distinct_ids: attach nothing (the person vanished under a
+    /// racing lifecycle op).
+    pub vanish_attach: std::sync::Mutex<bool>,
+    /// create_person_stubs: commit the stub as a concurrent winner and
+    /// answer LostRace.
+    pub lose_create_race: std::sync::Mutex<bool>,
+}
+
+impl RacingStorage {
+    pub fn new(inner: Arc<PostgresIdentityStorage>) -> Self {
+        Self {
+            inner,
+            hijack_attach_to: std::sync::Mutex::new(None),
+            vanish_attach: std::sync::Mutex::new(false),
+            lose_create_race: std::sync::Mutex::new(false),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl personhog_identity::storage::IdentityStorage for RacingStorage {
+    async fn resolve_distinct_ids(
+        &self,
+        keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<
+        std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
+    > {
+        self.inner.resolve_distinct_ids(keys).await
+    }
+
+    async fn get_distinct_ids_for_persons(
+        &self,
+        team_id: i64,
+        person_ids: &[i64],
+        limit_per_person: Option<i64>,
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<personhog_identity::storage::DistinctIdMapping>,
+    > {
+        self.inner
+            .get_distinct_ids_for_persons(team_id, person_ids, limit_per_person)
+            .await
+    }
+
+    async fn create_person_stubs(
+        &self,
+        stubs: &[personhog_identity::storage::PersonStub],
+    ) -> personhog_identity::storage::StorageResult<Vec<personhog_identity::storage::StubOutcome>>
+    {
+        let lose = std::mem::take(&mut *self.lose_create_race.lock().unwrap());
+        if lose {
+            self.inner.create_person_stubs(stubs).await?;
+            return Ok(stubs
+                .iter()
+                .map(|_| personhog_identity::storage::StubOutcome::LostRace)
+                .collect());
+        }
+        self.inner.create_person_stubs(stubs).await
+    }
+
+    async fn attach_distinct_ids(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        distinct_ids: &[String],
+    ) -> personhog_identity::storage::StorageResult<
+        std::collections::HashMap<String, personhog_identity::storage::AttachOutcome>,
+    > {
+        let vanish = std::mem::take(&mut *self.vanish_attach.lock().unwrap());
+        if vanish {
+            return Ok(std::collections::HashMap::new());
+        }
+        let winner = self.hijack_attach_to.lock().unwrap().take();
+        if let Some(winner) = winner {
+            self.inner
+                .attach_distinct_ids(team_id, winner, distinct_ids)
+                .await?;
+            return Ok(distinct_ids
+                .iter()
+                .map(|d| {
+                    (
+                        d.clone(),
+                        personhog_identity::storage::AttachOutcome::AlreadyMapped {
+                            person_id: winner,
+                        },
+                    )
+                })
+                .collect());
+        }
+        self.inner
+            .attach_distinct_ids(team_id, person_id, distinct_ids)
+            .await
+    }
+}

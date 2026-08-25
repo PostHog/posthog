@@ -27,7 +27,7 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def check_can_add_insight_to_shared_dashboard(

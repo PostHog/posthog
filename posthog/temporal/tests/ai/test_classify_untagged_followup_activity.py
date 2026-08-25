@@ -52,6 +52,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
             event={},
             integration_id=self.integration.id,
             slack_team_id="T_SLACK",
+            user_id=self.user.id,
             untagged_followup=True,
         )
 

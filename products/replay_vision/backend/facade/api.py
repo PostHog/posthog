@@ -7,7 +7,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
-from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
+from products.replay_vision.backend.scanner_access import accessible_observations, readable_observation_scanner_ids
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -31,9 +31,11 @@ def fetch_page_session_observations(
     Returns an `<observations>` block wrapped by the shared indirect-prompt-injection fence, or `None` when
     the user can read no scanners, or none of the sessions were observed. `None` (not an empty string) is the "no Vision enrichment" signal the caller degrades on.
 
-    Access: an observation inherits its scanner's RBAC, so the scanner set is filtered by the user's access
-    level — never `team_id` alone — otherwise output from scanners the user can't read would leak. This
-    mirrors `SearchReplayVisionObservationsTool`; the session-existence tradeoff it documents applies here too.
+    Access: an observation inherits its scanner's RBAC and, for an experiment scanner, the access to its
+    targeted experiment — so the scanner set is filtered by the user's access level (never `team_id` alone)
+    and each row is gated against the experiment in its snapshot. Otherwise output from scanners the user
+    can't read, or from experiments they can't view, would leak. This mirrors `SearchReplayVisionObservationsTool`;
+    the session-existence tradeoff it documents applies here too.
 
     The observations summarize the *whole session* (which may span many pages), so the caller must present
     this as session-level color for visitors who touched the page, not page-specific ground truth.
@@ -42,21 +44,21 @@ def fetch_page_session_observations(
     """
     if not session_ids:
         return None
-    readable_scanner_ids = [
-        str(sid)
-        for sid in UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        .filter_queryset_by_access_level(scanners_for_reading_observations(team.id))
-        .values_list("id", flat=True)
-    ]
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    readable_scanner_ids = readable_observation_scanner_ids(access, team.id)
     if not readable_scanner_ids:
         return None
 
     queryset = (
-        ReplayObservation.objects.filter(
-            team_id=team.id,
-            scanner_id__in=readable_scanner_ids,
-            session_id__in=session_ids,
-            status=ObservationStatus.SUCCEEDED,
+        accessible_observations(
+            access,
+            team.id,
+            ReplayObservation.objects.filter(
+                team_id=team.id,
+                scanner_id__in=readable_scanner_ids,
+                session_id__in=session_ids,
+                status=ObservationStatus.SUCCEEDED,
+            ),
         )
         .select_related("scanner")
         .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
