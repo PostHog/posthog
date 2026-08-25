@@ -35,7 +35,7 @@ export function SourcesList({ action }: { action: JSX.Element }): JSX.Element {
             ) : null}
 
             <SceneSection
-                title="Managed data warehouse sources"
+                title="PostHog-managed sources"
                 description="PostHog can connect to external sources and automatically import data from them into the PostHog data warehouse"
             >
                 <ManagedSourcesTable />
