@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -67,7 +68,16 @@ def build_model(facet: str, values: list[str]) -> type[BaseModel]:
     )
 
 
-def load_corpus(path: Path) -> list[tuple[str, dict[str, str], str]]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CorpusRow:
+    """One session. `meta` holds the pass-through columns between `sid` and `opening`."""
+
+    sid: str
+    meta: dict[str, str]
+    opening: str
+
+
+def load_corpus(path: Path) -> list[CorpusRow]:
     """Reads a pipe-delimited dump whose header row names the columns.
 
     The header must start with `sid` and end with `opening`. Every column
@@ -85,7 +95,7 @@ def load_corpus(path: Path) -> list[tuple[str, dict[str, str], str]]:
     if header[0] != "sid" or header[-1] != "opening":
         raise SystemExit(f"corpus header must be sid|…|opening, got: {'|'.join(header)}")
 
-    rows: list[tuple[str, dict[str, str], str]] = []
+    rows: list[CorpusRow] = []
     for line in lines[1:]:
         parts = line.split("|", len(header) - 1)
         if len(parts) != len(header):
@@ -93,33 +103,30 @@ def load_corpus(path: Path) -> list[tuple[str, dict[str, str], str]]:
         sid, *meta, opening = parts
         if opening.strip():
             named = {k: v.strip() for k, v in zip(header[1:-1], meta) if v.strip()}
-            rows.append((sid.strip(), named, opening))
+            rows.append(CorpusRow(sid=sid.strip(), meta=named, opening=opening))
     return rows
 
 
-def extract(
-    client: OpenAI, schema: type[BaseModel], system: str, row: tuple[str, dict[str, str], str]
-) -> dict[str, Any] | None:
-    sid, meta, opening = row
+def extract(client: OpenAI, schema: type[BaseModel], system: str, row: CorpusRow) -> dict[str, Any] | None:
     try:
         response = client.beta.chat.completions.parse(
             model=MODEL,
             max_tokens=256,
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user", "content": f"Session tool-call sequence:\n\n{opening}"},
+                {"role": "user", "content": f"Session tool-call sequence:\n\n{row.opening}"},
             ],
             response_format=schema,
         )
     except Exception as exc:  # one bad session must not kill a 700-session run
-        print(f"  ! {sid}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"  ! {row.sid}: {type(exc).__name__}: {exc}", file=sys.stderr)
         return None
     parsed = response.choices[0].message.parsed
     if parsed is None:
-        print(f"  ! {sid}: model returned no parsed output", file=sys.stderr)
+        print(f"  ! {row.sid}: model returned no parsed output", file=sys.stderr)
         return None
     facets = {k: (v.value if isinstance(v, Enum) else v) for k, v in parsed.model_dump().items()}
-    return {"sid": sid, **meta, **facets}
+    return {"sid": row.sid, **row.meta, **facets}
 
 
 def main() -> None:
