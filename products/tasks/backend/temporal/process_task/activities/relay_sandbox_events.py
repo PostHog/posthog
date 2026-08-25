@@ -816,11 +816,11 @@ def _is_end_of_turn(event_data: dict) -> bool:
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
     """Read recent agentsh network events and emit as debug console logs."""
     from products.tasks.backend.logic.services.agentsh import build_audit_query_command
-    from products.tasks.backend.logic.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
     from products.tasks.backend.temporal.observability import emit_agent_log
 
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         result = await asyncio.to_thread(
             sandbox.execute,
             build_audit_query_command(since_ns=last_ts_ns[0]),

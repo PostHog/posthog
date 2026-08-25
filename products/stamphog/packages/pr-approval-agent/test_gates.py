@@ -556,6 +556,29 @@ def test_ownership_cross_team_and_unowned(tmp_path: Path) -> None:
     assert outside["unowned_files"] == 1
 
 
+def test_ownership_counts_a_products_generated_directory_and_nothing_wider(tmp_path: Path) -> None:
+    # `hogli build:openapi` rewrites a product's generated API types whenever any shared serializer
+    # changes anywhere in the repo, so a team owning only those was not touched by the change. The
+    # match names one directory shape on purpose: AGENTS.md rules out a general harmless-file rule,
+    # and a bare `generated/` match would catch hand-editable code elsewhere in the tree.
+    product_dir = tmp_path / "products" / "foo"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product.yaml").write_text("owners:\n  - team-a\n")
+
+    resolvers = build_ownership(tmp_path, _HOGLI_RESOLVER)
+    ownership = detect_ownership(
+        [
+            "products/foo/frontend/generated/api.schemas.ts",
+            "products/foo/backend/generated/thing.py",
+            "products/foo/backend/models.py",
+        ],
+        resolvers,
+    )
+
+    assert ownership["team_file_counts"] == {"@PostHog/team-a": 3}
+    assert ownership["team_generated_file_counts"] == {"@PostHog/team-a": 1}
+
+
 def test_owners_candidates_are_fixed_offsets_from_this_file() -> None:
     # policy.repo_root() walks up to find a .stamphog/ directory, and the PR head is untrusted. A PR
     # that adds tools/.stamphog/ would move that root and aim the lookup at a directory that the PR
