@@ -9,7 +9,9 @@ const meta: Meta<typeof CostChecklistPanel> = {
     onSwitchModel: () => {},
     onCreateImage: () => {},
     onInstallSkill: () => {},
-    onOpenSkills: () => {},
+    onUninstallSkill: () => {},
+    onOpenSkill: () => {},
+    busySkillId: null,
   },
   decorators: [
     (Story) => (
