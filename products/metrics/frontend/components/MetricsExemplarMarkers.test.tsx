@@ -23,7 +23,11 @@ const RADIUS = 4
 function renderMarkers(timestamps: string[], onClick: () => void = jest.fn()): void {
     renderOverlayInChart(
         <MetricsExemplarMarkers
-            exemplars={timestamps.map((timestamp) => ({ timeMs: Date.parse(timestamp), onClick }))}
+            exemplars={timestamps.map((timestamp) => ({
+                timeMs: Date.parse(timestamp),
+                onClick,
+                tooltipLabel: `test exemplar at ${timestamp}`,
+            }))}
         />,
         makeOverlayContext(
             { x: (label) => BUCKET_X[label], y: (value) => value, yTicks: () => [] },
@@ -66,7 +70,9 @@ describe('MetricsExemplarMarkers', () => {
 
     it('clamps an exemplar onto a single-bucket chart instead of dropping it', () => {
         renderOverlayInChart(
-            <MetricsExemplarMarkers exemplars={[{ timeMs: Date.parse('2026-08-01T10:30:00Z'), onClick: jest.fn() }]} />,
+            <MetricsExemplarMarkers
+                exemplars={[{ timeMs: Date.parse('2026-08-01T10:30:00Z'), onClick: jest.fn(), tooltipLabel: 'test' }]}
+            />,
             makeOverlayContext(
                 { x: (label) => BUCKET_X[label], y: (value) => value, yTicks: () => [] },
                 { labels: [BUCKETS[0]] }
@@ -94,8 +100,13 @@ describe('MetricsExemplarMarkers', () => {
         renderOverlayInChart(
             <MetricsExemplarMarkers
                 exemplars={[
-                    { timeMs: Date.parse(BUCKETS[0]), onClick: jest.fn() },
-                    { timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn(), color: 'danger' },
+                    { timeMs: Date.parse(BUCKETS[0]), onClick: jest.fn(), tooltipLabel: 'default color' },
+                    {
+                        timeMs: Date.parse(BUCKETS[1]),
+                        onClick: jest.fn(),
+                        color: 'danger',
+                        tooltipLabel: 'danger color',
+                    },
                 ]}
             />,
             makeOverlayContext(
@@ -108,9 +119,30 @@ describe('MetricsExemplarMarkers', () => {
         expect(coloredDot.style.borderColor).toBe('#ff0000')
     })
 
+    // Regression: error-spike markers once carried a hardcoded trace-specific aria-label
+    // regardless of what they actually represented — assert the label tracks the marker.
+    it('labels each marker with its own tooltip text', () => {
+        renderOverlayInChart(
+            <MetricsExemplarMarkers
+                exemplars={[
+                    { timeMs: Date.parse(BUCKETS[0]), onClick: jest.fn(), tooltipLabel: 'Traced emission' },
+                    { timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn(), tooltipLabel: 'Error spike: checkout' },
+                ]}
+            />,
+            makeOverlayContext(
+                { x: (label) => BUCKET_X[label], y: (value) => value, yTicks: () => [] },
+                { labels: BUCKETS }
+            )
+        )
+        expect(screen.getByLabelText('Traced emission')).toBeInTheDocument()
+        expect(screen.getByLabelText('Error spike: checkout')).toBeInTheDocument()
+    })
+
     it('renders nothing when the chart has no buckets yet', () => {
         renderOverlayInChart(
-            <MetricsExemplarMarkers exemplars={[{ timeMs: Date.parse(BUCKETS[0]), onClick: jest.fn() }]} />,
+            <MetricsExemplarMarkers
+                exemplars={[{ timeMs: Date.parse(BUCKETS[0]), onClick: jest.fn(), tooltipLabel: 'test' }]}
+            />,
             makeOverlayContext({ x: () => undefined, y: (value) => value, yTicks: () => [] }, { labels: [] })
         )
         expect(screen.queryAllByTestId('metrics-exemplar-marker')).toHaveLength(0)

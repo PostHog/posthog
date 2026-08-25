@@ -182,6 +182,11 @@ export const MetricsViewer = (): JSX.Element => {
         () =>
             overlayMarkers(traceExemplars, tracingDisabledReason, (exemplar) => ({
                 timeMs: dayjs(exemplar.timestamp).valueOf(),
+                // Explicit, not the component's 'link' default: 'link' resolves to PostHog's
+                // brand orange (#f54e00), which reads as the same color as 'danger' (#db3707)
+                // at marker size — indistinguishable from the error-spike dots below.
+                color: 'brand-blue',
+                tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
                 onClick: () => {
                     exemplarDotClicked(!!exemplar.spanId)
                     router.actions.push(
@@ -204,6 +209,7 @@ export const MetricsViewer = (): JSX.Element => {
             overlayMarkers(errorSpikeExemplars, !showErrorSpikes || errorTrackingDisabledReason, (spike) => ({
                 timeMs: dayjs(spike.timestamp).valueOf(),
                 color: 'danger',
+                tooltipLabel: `Error spike: ${spike.issueName ?? 'Untitled issue'}. Click to view the issue.`,
                 onClick: () => {
                     router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
                 },

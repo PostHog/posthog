@@ -1,3 +1,4 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import { useChartLayout } from '@posthog/quill-charts'
 
 import { getColorVar } from 'lib/colors'
@@ -10,6 +11,9 @@ export interface MetricsExemplar {
     onClick: () => void
     /** Design-token color name. Defaults to 'link' (a dot that navigates, not a data series). */
     color?: string
+    /** Shown in a hover tooltip and as the button's aria-label — what this dot is, before
+     * the user clicks it. Required: an unlabeled dot on a chart is not self-explanatory. */
+    tooltipLabel: string
 }
 
 const RADIUS = 4
@@ -39,25 +43,31 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
                 }
                 const color = exemplar.color ? getColorVar(exemplar.color) : defaultColor
                 return (
-                    <button
-                        key={`${exemplar.timeMs}-${index}`}
-                        type="button"
-                        aria-label={`Open the trace emitted at ${dayjs(exemplar.timeMs).format('D MMM YYYY HH:mm:ss')}`}
-                        data-attr="metrics-exemplar-marker"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            exemplar.onClick()
-                        }}
-                        className="absolute pointer-events-auto rounded-full border cursor-pointer transition-transform hover:scale-150"
-                        style={{
-                            left: x - RADIUS,
-                            top: baseline - RADIUS,
-                            width: RADIUS * 2,
-                            height: RADIUS * 2,
-                            backgroundColor: hexToRGBA(color, 0.85),
-                            borderColor: color,
-                        }}
-                    />
+                    <Tooltip key={`${exemplar.timeMs}-${index}`} title={exemplar.tooltipLabel}>
+                        <button
+                            type="button"
+                            aria-label={exemplar.tooltipLabel}
+                            data-attr="metrics-exemplar-marker"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                exemplar.onClick()
+                            }}
+                            // The chart's own hover/tooltip tracking listens for mousemove on the
+                            // chart's outer wrapper, which every bubbled event reaches regardless of
+                            // z-index — stopping propagation here is the only way to let this dot's
+                            // own tooltip win instead of the chart's nearest-point tooltip.
+                            onMouseMove={(e) => e.stopPropagation()}
+                            className="absolute pointer-events-auto rounded-full border cursor-pointer transition-transform hover:scale-150"
+                            style={{
+                                left: x - RADIUS,
+                                top: baseline - RADIUS,
+                                width: RADIUS * 2,
+                                height: RADIUS * 2,
+                                backgroundColor: hexToRGBA(color, 0.85),
+                                borderColor: color,
+                            }}
+                        />
+                    </Tooltip>
                 )
             })}
         </>
