@@ -157,8 +157,14 @@ export class FetchRunner implements FetchPass {
             }
         }
         const queue = new FetchCandidateQueue(candidates, this.options)
+        const podRequestSlots = Math.max(0, this.options.maxInFlightRequests - this.candidateWork.running)
         ImageFetchRequestMetrics.observeBatchSchedulableCapacity(
-            queue.schedulableSlotsAtStart,
+            Math.min(
+                podRequestSlots,
+                queue.availableRequestSlotsAtStart((registrableDomain) =>
+                    this.budget.availableConnections(registrableDomain)
+                )
+            ),
             this.options.maxInFlightRequests
         )
         const attempts: FetchAttempt[] = []

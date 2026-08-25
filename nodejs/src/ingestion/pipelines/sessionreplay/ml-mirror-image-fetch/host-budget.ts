@@ -61,7 +61,11 @@ export class HostBudget {
             const number = value as number
             const invalid = !Number.isFinite(number) || (name === 'requestsPerSecond' ? number < 0 : number <= 0)
             if (invalid) {
-                throw new Error(`the image fetch request budget has an invalid ${name}, got ${value}`)
+                const validRange =
+                    name === 'requestsPerSecond'
+                        ? 'a finite number greater than or equal to zero'
+                        : 'a finite number greater than zero'
+                throw new Error(`the image fetch request budget ${name} must be ${validRange}, got ${value}`)
             }
         }
         this.random = options.random ?? Math.random
@@ -197,6 +201,11 @@ export class HostBudget {
         registrableDomainState.inFlight += 1
         originState.inFlight += 1
         return true
+    }
+
+    public availableConnections(registrableDomain: string): number {
+        const inFlight = this.registrableDomains.get(registrableDomain)?.inFlight ?? 0
+        return Math.max(0, this.options.maxConcurrent - inFlight)
     }
 
     public releaseConnection(registrableDomain: string, origin: string): void {

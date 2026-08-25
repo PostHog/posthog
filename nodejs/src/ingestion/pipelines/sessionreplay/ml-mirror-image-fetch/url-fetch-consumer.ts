@@ -4,7 +4,7 @@ import { logger } from '~/common/utils/logger'
 
 import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
-import { deduplicateFetchCandidates } from './fetch-candidate-queue'
+import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
     DELAY_TOO_LONG,
@@ -44,7 +44,7 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
-        const parsedCandidates: FetchCandidate[] = []
+        const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
         let originCount = 0
         let registrableDomainCount = 0
@@ -63,11 +63,18 @@ export class UrlFetchConsumer {
                 for (const rejected of parsed.rejected) {
                     drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
                 }
-                parsedCandidates.push(...parsed.candidates)
+                for (const candidate of parsed.candidates) {
+                    const existing = candidatesByRef.get(candidate.originalRef)
+                    if (existing) {
+                        dedupedInBatch += 1
+                        candidatesByRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
+                    } else {
+                        candidatesByRef.set(candidate.originalRef, candidate)
+                    }
+                }
             }
-            const deduplicated = deduplicateFetchCandidates(parsedCandidates)
-            const candidates = deduplicated.candidates
-            dedupedInBatch = deduplicated.duplicateCount
+            const candidates = [...candidatesByRef.values()]
+            candidatesByRef.clear()
             const origins = new Map<string, number>()
             const registrableDomains = new Map<string, number>()
             for (const candidate of candidates) {

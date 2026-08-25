@@ -41,6 +41,7 @@ function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
 
 interface Harness {
     runner: FetchRunner
+    budget: HostBudget
     fetch: jest.Mock<Promise<ImageFetchResult>, [string, ImageFetchOptions]>
     check: jest.Mock<Promise<OriginPolicyDecision>, [string, Map<string, ConfigurationCacheItem>, number]>
     createPass: jest.Mock
@@ -97,7 +98,7 @@ function build(
         options,
         { createRepublishBatch, publishImage } as unknown as FrontierPublisher
     )
-    return { runner, fetch, check, createPass, republish, publishImage }
+    return { runner, budget, fetch, check, createPass, republish, publishImage }
 }
 
 describe('FetchRunner', () => {
@@ -219,7 +220,7 @@ describe('FetchRunner', () => {
         expect(harness.fetch).toHaveBeenCalledTimes(3)
     })
 
-    it('records initial capacity after origin and registrable-domain limits', async () => {
+    it('records initial capacity after live pod and registrable-domain limits', async () => {
         const observeCapacity = jest
             .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
             .mockImplementation()
@@ -246,10 +247,21 @@ describe('FetchRunner', () => {
                 })
             ),
         ]
+        const grant = harness.budget.take('example.com', 'https://cdn.example.com', NOW_MS, NOW_MS + 10_000, true)
+        expect(grant).toMatchObject({ granted: true, waitMs: 0 })
+        expect(harness.budget.acquireConnection('example.com', 'https://cdn.example.com')).toBe(true)
+        harness.budget.markRequestStarted(
+            'example.com',
+            'https://cdn.example.com',
+            NOW_MS,
+            grant.granted ? grant.reservedStartAtMs : null,
+            'configuration'
+        )
 
         await harness.runner.run(candidates, new Map())
 
-        expect(observeCapacity).toHaveBeenCalledWith(4, 3)
+        expect(observeCapacity).toHaveBeenCalledWith(3, 3)
+        harness.budget.releaseConnection('example.com', 'https://cdn.example.com')
     })
 
     it('starts the origin with the largest canonical URL queue first', async () => {
@@ -341,6 +353,9 @@ describe('FetchRunner', () => {
     })
 
     it('keeps the pod request limit across overlapping passes', async () => {
+        const observeCapacity = jest
+            .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
+            .mockImplementation()
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 1 })
         const releases: Array<() => void> = []
         let signalSecondFetchStarted: () => void = () => undefined
@@ -370,6 +385,10 @@ describe('FetchRunner', () => {
         await Promise.resolve()
 
         expect(harness.fetch).toHaveBeenCalledTimes(1)
+        expect(observeCapacity.mock.calls).toEqual([
+            [1, 1],
+            [0, 1],
+        ])
         releases[0]()
         await secondFetchStarted
         expect(harness.fetch).toHaveBeenCalledTimes(2)

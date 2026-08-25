@@ -29,6 +29,7 @@ interface RegistrableDomainQueue {
     registrableDomain: string
     origins: Map<string, OriginQueue>
     availableOrigins: FastPriorityQueue<OriginQueue>
+    initialCandidateCount: number
     active: number
     heapIndex: number
 }
@@ -143,7 +144,7 @@ export function deduplicateFetchCandidates(candidates: FetchCandidate[]): Dedupl
         const existing = candidatesByCanonicalRef.get(candidate.originalRef)
         if (existing) {
             duplicateCount += 1
-            candidatesByCanonicalRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
+            candidatesByCanonicalRef.set(candidate.originalRef, mergeDuplicateFetchCandidates(existing, candidate))
         } else {
             candidatesByCanonicalRef.set(candidate.originalRef, candidate)
         }
@@ -176,6 +177,7 @@ export class FetchCandidateQueue {
                     registrableDomain: candidate.registrableDomain,
                     origins: new Map(),
                     availableOrigins: new FastPriorityQueue<OriginQueue>(originQueueHasPriority),
+                    initialCandidateCount: 0,
                     active: 0,
                     heapIndex: -1,
                 }
@@ -195,19 +197,18 @@ export class FetchCandidateQueue {
                 this.remainingOrigins += 1
             }
             originQueue.candidates.push(candidate)
+            domain.initialCandidateCount += 1
             this.waitingCandidates += 1
             if (candidate.lowOriginDiversityDeferred !== true) {
                 this.waitingCandidatesWithoutDiversityDeferral += 1
             }
         }
         for (const domain of this.domains.values()) {
-            let domainCandidateCount = 0
             for (const origin of domain.origins.values()) {
-                domainCandidateCount += originCandidateCount(origin)
                 this.refreshOriginSelection(domain, origin)
             }
             this.initialSchedulableSlots += Math.min(
-                domainCandidateCount,
+                domain.initialCandidateCount,
                 this.options.maxConcurrentPerRegistrableDomain
             )
             this.refreshDomainSelection(domain)
@@ -228,6 +229,14 @@ export class FetchCandidateQueue {
 
     public get schedulableSlotsAtStart(): number {
         return this.initialSchedulableSlots
+    }
+
+    public availableRequestSlotsAtStart(availableConnections: (registrableDomain: string) => number): number {
+        let slots = 0
+        for (const domain of this.domains.values()) {
+            slots += Math.min(domain.initialCandidateCount, availableConnections(domain.registrableDomain))
+        }
+        return slots
     }
 
     public abort(): void {
@@ -360,7 +369,7 @@ function domainQueueHasPriority(left: RegistrableDomainQueue, right: Registrable
     )
 }
 
-function foldDuplicateCandidate(left: FetchCandidate, right: FetchCandidate): FetchCandidate {
+export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: FetchCandidate): FetchCandidate {
     let preferredRoute = left
     if (
         right.remainingHops < left.remainingHops ||

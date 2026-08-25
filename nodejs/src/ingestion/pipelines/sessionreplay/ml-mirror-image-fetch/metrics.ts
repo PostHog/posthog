@@ -246,12 +246,12 @@ export class ImageFetchRequestMetrics {
     })
     private static readonly batchSchedulableSlots = new Histogram({
         name: 'ml_image_fetch_batch_schedulable_slots',
-        help: 'Request slots that the initial fetch queue can use immediately after origin and registrable-domain concurrency limits',
+        help: 'Request slots that the initial fetch queue can use after live pod and registrable-domain concurrency limits',
         buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 512, 1024],
     })
     private static readonly batchSchedulableCapacityRatio = new Histogram({
         name: 'ml_image_fetch_batch_schedulable_capacity_ratio',
-        help: 'Share of the pod request limit that the initial fetch queue can use immediately',
+        help: 'Share of the pod request limit that the initial fetch queue can use after live concurrency limits',
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
     })
     /**
@@ -426,7 +426,7 @@ export class ImageFetchRequestMetrics {
      */
     private static readonly republished = new Counter({
         name: 'ml_image_fetch_republished_total',
-        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended',
+        help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended. "low_origin_diversity" returns queued work to the frontier so a later batch can add origins',
         labelNames: ['reason', 'topic'],
     })
     private static readonly republishFailed = new Counter({
