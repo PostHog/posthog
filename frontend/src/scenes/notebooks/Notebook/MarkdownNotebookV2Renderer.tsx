@@ -29,7 +29,6 @@ import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
-import { userLogic } from 'scenes/userLogic'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
@@ -90,7 +89,6 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         markdownRemoteCarets,
     } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { user } = useValues(userLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const hiddenInsertCommandKeys = useMemo(
         () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
@@ -688,7 +686,6 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
                 <MarkdownNotebook
                     value={markdownEditorValue}
-                    aiPromptAuthorName={user?.first_name || user?.email || 'You'}
                     remoteValue={remoteMarkdown}
                     remoteVersion={notebook?.version}
                     mode={isEditable ? 'edit' : 'view'}

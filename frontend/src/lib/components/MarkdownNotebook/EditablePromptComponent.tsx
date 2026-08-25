@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { KeyboardEvent, MutableRefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import { BaseIcon, IconSend, IconTrash } from '@posthog/icons'
+import { IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { getNotebookStringProp, isPromptComponentNode } from './documentModel'
@@ -37,7 +37,6 @@ export function EditablePromptComponent({
     const handledFocusRequestRef = useRef<number | undefined>(undefined)
     const [isCollapsed, setIsCollapsed] = useState(false)
     const question = getNotebookStringProp(node.props.question) ?? ''
-    const keepQuestion = node.props.keepQuestion === true
     const isEmpty = question.length === 0
     const submitDisabledReason = question.trim()
         ? isAIPromptSubmitDisabled
@@ -116,23 +115,6 @@ export function EditablePromptComponent({
 
     const deletePrompt = (): void => {
         deleteNodeAndFocusAdjacent()
-    }
-
-    const toggleKeepQuestion = (): void => {
-        updateNode(node.id, (currentNode) => {
-            if (!isPromptComponentNode(currentNode)) {
-                return currentNode
-            }
-
-            const nextProps = { ...currentNode.props }
-            if (keepQuestion) {
-                delete nextProps.keepQuestion
-            } else {
-                nextProps.keepQuestion = true
-            }
-
-            return { ...currentNode, props: nextProps }
-        })
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -221,36 +203,6 @@ export function EditablePromptComponent({
                             autoFocus={isActive}
                             disabled={mode !== 'edit'}
                             rows={1}
-                        />
-                        <LemonButton
-                            size="xsmall"
-                            icon={
-                                <BaseIcon>
-                                    <path
-                                        d="M4.75 3.25h10.69l4.31 4.31v11.69a1.5 1.5 0 0 1-1.5 1.5H4.75a1.5 1.5 0 0 1-1.5-1.5V4.75a1.5 1.5 0 0 1 1.5-1.5Z"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="1.5"
-                                    />
-                                    <path
-                                        d="M7 3.25v6h9v-5M7.5 20.75v-7h9v7"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="1.5"
-                                    />
-                                </BaseIcon>
-                            }
-                            active={keepQuestion}
-                            tooltip="Keep question when answering"
-                            aria-label="Keep question when answering"
-                            aria-pressed={keepQuestion}
-                            onClick={toggleKeepQuestion}
-                            disabled={mode !== 'edit'}
-                            data-attr="markdown-notebook-ai-keep-question"
                         />
                         <LemonButton
                             type="primary"
