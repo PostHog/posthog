@@ -1,8 +1,10 @@
 import re
+from dataclasses import replace
 from typing import Any
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
+from rest_framework.fields import empty
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
@@ -463,16 +465,29 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             )
         return value
 
-    def _validate_model_defining_fields_unchanged(self, team: Any, data: dict[str, Any]) -> None:
+    @staticmethod
+    def _supplied(data: Any, name: str) -> bool:
+        """Whether the request body carried this field.
+
+        ``DataclassSerializer`` leaves an unset field as the ``empty`` sentinel rather than the
+        dataclass default, which is the only way to tell "absent" from "sent as the default".
+        """
+        return getattr(data, name, empty) is not empty
+
+    @classmethod
+    def _value(cls, data: Any, name: str, fallback: Any = None) -> Any:
+        return getattr(data, name) if cls._supplied(data, name) else fallback
+
+    def _validate_model_defining_fields_unchanged(self, team: Any, data: Any) -> None:
         pipeline_id = self._pipeline_id
         if not api.pipeline_has_models(team.pk, pipeline_id):
             return
         stored = api.get_pipeline_definition(team.pk, pipeline_id)
         changed = []
         for field_name in self.MODEL_DEFINING_FIELDS:
-            if field_name not in data:
+            if not self._supplied(data, field_name):
                 continue
-            current, new = getattr(stored, field_name), data[field_name]
+            current, new = getattr(stored, field_name), getattr(data, field_name)
             if field_name == "target_definition":
                 # An empty stored definition and the normalized {"type": "event"} mean the same thing.
                 current, new = current or {"type": "event"}, new or {"type": "event"}
@@ -487,12 +502,12 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
                 )
             )
 
-    def _derive_output_person_property(self, data: dict[str, Any]) -> str:
-        raw = data.get("target_event") or "target"
+    def _derive_output_person_property(self, data: Any) -> str:
+        raw = self._value(data, "target_event") or "target"
         safe_name = re.sub(r"[^a-z0-9._-]+", "_", raw.lstrip("$").lower()) or "target"
         # Include the horizon so two pipelines predicting the same target over different
         # horizons don't $set the same person property and clobber each other's scores.
-        horizon = data.get("horizon_days") or 7
+        horizon = self._value(data, "horizon_days") or 7
         derived = f"predicted_p_{safe_name}_{horizon}d"
         if len(derived) > OUTPUT_PERSON_PROPERTY_MAX_LENGTH:
             raise serializers.ValidationError(
@@ -505,25 +520,29 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
             )
         return derived
 
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+    def validate(self, data: Any) -> Any:
+        # DataclassSerializer hands us the constructed dataclass, not a dict, and it is frozen —
+        # so derived values are collected here and applied with one `replace`.
         team = self.context["get_team"]()
+        updates: dict[str, Any] = {}
         # On a partial update that doesn't touch the target, leave it untouched —
         # only resolve when creating or when a target field is actually supplied.
         is_update = self._pipeline_id is not None
-        target_supplied = "target_event" in data or "target_definition" in data
+        target_supplied = self._supplied(data, "target_event") or self._supplied(data, "target_definition")
         if not is_update or target_supplied:
             target_event, target_definition = resolve_target(
                 team=team,
-                target_event=data.get("target_event", ""),
-                target_definition=data.get("target_definition"),
+                target_event=self._value(data, "target_event", ""),
+                target_definition=self._value(data, "target_definition"),
             )
-            data["target_event"] = target_event
-            data["target_definition"] = target_definition
+            updates["target_event"] = target_event
+            updates["target_definition"] = target_definition
         if is_update:
-            self._validate_model_defining_fields_unchanged(team, data)
-        if not is_update and not data.get("output_person_property"):
-            data["output_person_property"] = self._derive_output_person_property(data)
-        output_person_property = data.get("output_person_property")
+            self._validate_model_defining_fields_unchanged(team, replace(data, **updates) if updates else data)
+        output_person_property = self._value(data, "output_person_property")
+        if not is_update and not output_person_property:
+            output_person_property = self._derive_output_person_property(replace(data, **updates) if updates else data)
+            updates["output_person_property"] = output_person_property
         if output_person_property and api.output_person_property_taken(
             team.pk, output_person_property, exclude_pipeline_id=self._pipeline_id
         ):
@@ -535,9 +554,9 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
                     )
                 }
             )
-        if not is_update and not data.get("inference_population"):
-            data["inference_population"] = data.get("training_population", {})
-        return data
+        if not is_update and not self._value(data, "inference_population"):
+            updates["inference_population"] = self._value(data, "training_population", {})
+        return replace(data, **updates) if updates else data
 
 
 @extend_schema_serializer(component_name="AutoresearchModel")

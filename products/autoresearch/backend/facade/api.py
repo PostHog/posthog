@@ -244,9 +244,19 @@ def _run_to_contract(row: AutoresearchRun) -> Run:
 # ── Row lookups (internal) ─────────────────────────────────────────────────
 
 
-def _pipeline_row(team_id: int, pipeline_id: str | UUID) -> AutoresearchPipeline:
+def _pipeline_row(team_id: int, pipeline_id: str | UUID, *, live_only: bool = False) -> AutoresearchPipeline:
+    """One pipeline in this team.
+
+    ``live_only`` excludes archived rows, which is what the pipeline's own detail routes do: an
+    archived pipeline is gone as far as they are concerned, so acting on one is a 404 rather than
+    a refusal that admits it exists. Routes nested under a pipeline id keep seeing archived rows,
+    so they can explain why the write is refused.
+    """
+    qs = AutoresearchPipeline.objects.for_team(team_id)
+    if live_only:
+        qs = qs.exclude(status=AutoresearchPipeline.Status.ARCHIVED)
     try:
-        return AutoresearchPipeline.objects.for_team(team_id).get(pk=str(pipeline_id))
+        return qs.get(pk=str(pipeline_id))
     except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
         raise PipelineNotFound("Pipeline not found.")
 
@@ -279,7 +289,7 @@ def list_pipelines(team_id: int, *, offset: int, limit: int) -> tuple[list[Pipel
 
 
 def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
-    return _pipeline_with_champion(_pipeline_row(team_id, pipeline_id))
+    return _pipeline_with_champion(_pipeline_row(team_id, pipeline_id, live_only=True))
 
 
 def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) -> Pipeline:
@@ -293,7 +303,7 @@ def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) ->
 
 
 def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
-    row = _pipeline_row(team_id, pipeline_id)
+    row = _pipeline_row(team_id, pipeline_id, live_only=True)
     for key, value in fields.items():
         setattr(row, key, value)
     row.save()
@@ -301,7 +311,7 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
 
 
 def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
-    _pipeline_row(team_id, pipeline_id).delete()
+    _pipeline_row(team_id, pipeline_id, live_only=True).delete()
 
 
 def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -> Pipeline:
@@ -310,7 +320,7 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -
     Resuming refuses anything that is not paused, so a caller cannot use it to revive an
     archived pipeline or restart a converged one.
     """
-    row = _pipeline_row(team_id, pipeline_id)
+    row = _pipeline_row(team_id, pipeline_id, live_only=True)
     if status == AutoresearchPipeline.Status.RUNNING and row.status != AutoresearchPipeline.Status.PAUSED:
         raise AutoresearchConflict("Pipeline is not paused.")
     row.status = status
@@ -324,7 +334,7 @@ def pipeline_has_models(team_id: int, pipeline_id: str | UUID) -> bool:
     The model-defining fields freeze once this is true — scoring keeps loading the trained
     artifact, so changing them would silently answer a different question.
     """
-    return _pipeline_row(team_id, pipeline_id).models.exists()
+    return _pipeline_row(team_id, pipeline_id, live_only=True).models.exists()
 
 
 def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWrite:
@@ -498,7 +508,7 @@ def get_run(team_id: int, run_id: str | UUID) -> Run | None:
 
 def score_pipeline(team_id: int, pipeline_id: str | UUID) -> Run:
     """Score the inference population with the champion model and emit prediction events."""
-    pipeline = _pipeline_row(team_id, pipeline_id)
+    pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
     if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
         raise AutoresearchConflict("Cannot score an archived pipeline.")
     champion = (
@@ -514,7 +524,7 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID) -> Run:
 
 def validate_pipeline_online(team_id: int, pipeline_id: str | UUID) -> list[Run]:
     """Score matured prediction dates against realized outcomes."""
-    pipeline = _pipeline_row(team_id, pipeline_id)
+    pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
     if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
         raise AutoresearchConflict("Cannot validate an archived pipeline.")
     return [_run_to_contract(run) for run in run_online_validation_for_pipeline(pipeline=pipeline)]
@@ -554,9 +564,15 @@ def start_training(team_id: int, pipeline_id: str | UUID, *, iteration_budget: i
     request re-checks.
     """
     with transaction.atomic():
-        pipeline = AutoresearchPipeline.objects.for_team(team_id).select_for_update().get(pk=str(pipeline_id))
-        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-            raise AutoresearchConflict("Cannot start training on an archived pipeline.")
+        try:
+            pipeline = (
+                AutoresearchPipeline.objects.for_team(team_id)
+                .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+                .select_for_update()
+                .get(pk=str(pipeline_id))
+            )
+        except (AutoresearchPipeline.DoesNotExist, ValueError, TypeError):
+            raise PipelineNotFound("Pipeline not found.")
         if (
             AutoresearchTrainingRun.objects.for_team(team_id)
             .filter(pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING)
@@ -880,8 +896,13 @@ def list_suggestions(
     return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
 
 
-def get_suggestion(team_id: int, suggestion_id: str | UUID) -> Suggestion | None:
-    row = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id)).first()
+def get_suggestion(
+    team_id: int, suggestion_id: str | UUID, *, pipeline_id: str | UUID | None = None
+) -> Suggestion | None:
+    qs = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id))
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
     return _suggestion_to_contract(row) if row else None
 
 
@@ -902,10 +923,18 @@ def create_suggestion(
 
 
 def respond_to_suggestion(
-    team_id: int, suggestion_id: str | UUID, *, status: str, agent_response: str | None = None
+    team_id: int,
+    suggestion_id: str | UUID,
+    *,
+    status: str,
+    agent_response: str | None = None,
+    pipeline_id: str | UUID | None = None,
 ) -> Suggestion:
     """Record how the agent handled a suggestion."""
-    row = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id)).first()
+    qs = AutoresearchSuggestion.objects.for_team(team_id).filter(pk=str(suggestion_id))
+    if pipeline_id:
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
+    row = qs.first()
     if row is None:
         raise SuggestionNotFound("Suggestion not found.")
     row.status = status

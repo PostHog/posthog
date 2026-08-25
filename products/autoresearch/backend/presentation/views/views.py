@@ -9,6 +9,7 @@ Responsibilities:
 No business logic here — that lives behind ``facade/api.py``.
 """
 
+from dataclasses import fields
 from typing import Any, cast
 
 import structlog
@@ -16,6 +17,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.fields import empty
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -146,19 +148,16 @@ def _require_parent_pipeline_id(view: Any) -> str:
     return pipeline_id
 
 
-def _pipeline_write_fields(validated: Any, raw_data: dict, *, creating: bool) -> dict[str, Any]:
-    """The fields to persist, keyed on what the request body actually carried.
+def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
+    """The fields to persist.
 
-    A PATCH must not write a serializer default over a field the caller left alone, so on update
-    only keys present in the raw body are applied. ``validate()`` can add derived values, so those
-    are carried through whenever it set them.
+    ``validated`` is the write contract, where a field the request body did not carry is left as
+    the ``empty`` sentinel. Skipping those is what stops a PATCH writing a default over a field
+    the caller never mentioned; the values ``validate()`` derived are real, so they carry through.
     """
-    derived = ("target_event", "target_definition", "output_person_property", "inference_population")
-    fields: dict[str, Any] = {}
-    for key, value in validated.items():
-        if creating or key in raw_data or key in derived:
-            fields[key] = value
-    return fields
+    return {
+        f.name: getattr(validated, f.name) for f in fields(validated) if getattr(validated, f.name, empty) is not empty
+    }
 
 
 @extend_schema(tags=["autoresearch"])
@@ -222,7 +221,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         serializer.is_valid(raise_exception=True)
         pipeline = api.create_pipeline(
             self.team_id,
-            fields=_pipeline_write_fields(serializer.validated_data, request.data, creating=True),
+            fields=_pipeline_write_fields(serializer.validated_data),
             created_by=cast(User, request.user),
         )
         output = AutoresearchPipelineSerializer(instance=pipeline)
@@ -238,7 +237,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             pipeline = api.update_pipeline(
                 self.team_id,
                 self.kwargs["pk"],
-                fields=_pipeline_write_fields(serializer.validated_data, request.data, creating=False),
+                fields=_pipeline_write_fields(serializer.validated_data),
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
@@ -923,7 +922,7 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
         description="Get details for a specific suggestion including its status and agent_response.",
     )
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        suggestion = api.get_suggestion(self.team_id, self.kwargs["pk"])
+        suggestion = api.get_suggestion(self.team_id, self.kwargs["pk"], pipeline_id=_parent_pipeline_id(self))
         if suggestion is None:
             raise NotFound("Suggestion not found.")
         return Response(AutoresearchSuggestionSerializer(instance=suggestion).data)
@@ -989,6 +988,7 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
                 self.kwargs["pk"],
                 status=data["status"],
                 agent_response=data.get("agent_response"),
+                pipeline_id=_parent_pipeline_id(self),
             )
         except SuggestionNotFound:
             raise NotFound("Suggestion not found.")

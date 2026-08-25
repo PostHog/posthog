@@ -208,7 +208,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
 
     @patch(
-        "products.autoresearch.backend.presentation.views.views.validate_pipeline_definition",
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
         return_value=MOCK_VALIDATION_OK,
     )
     def test_validate_pipeline_success(self, _mock: MagicMock):
@@ -224,7 +224,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert data["warnings"] == []
 
     @patch(
-        "products.autoresearch.backend.presentation.views.views.validate_pipeline_definition",
+        "products.autoresearch.backend.facade.api._validate_pipeline_definition",
         return_value=MOCK_VALIDATION_ERROR,
     )
     def test_validate_pipeline_with_errors(self, _mock: MagicMock):
@@ -258,7 +258,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             )
 
         with patch(
-            "products.autoresearch.backend.presentation.views.views.run_training", side_effect=_fake_run_training
+            "products.autoresearch.backend.facade.api.run_training", side_effect=_fake_run_training
         ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
@@ -273,7 +273,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             status=AutoresearchTrainingRun.Status.RUNNING,
             iteration_budget=50,
         )
-        with patch("products.autoresearch.backend.presentation.views.views.run_training") as mock_run_training:
+        with patch("products.autoresearch.backend.facade.api.run_training") as mock_run_training:
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
