@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
@@ -47,15 +46,13 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
     } = props
     const { push } = useActions(router)
     const { userLoading } = useValues(userLogic)
-    const { isDev } = useValues(preflightLogic)
     const { searchParams } = useValues(router)
     const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
-    const subscriptionWizardEnabled = Boolean(isDev) || subscriptionWizardExperimentEnabled
 
     const dashboardId = dashboard?.id
     const isAiPrompt = searchParams.resource_type === SubscriptionResourceTypes.AiPrompt
     const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
-    const isWizard = isCreating && (insightShortId || dashboard || isAiPrompt) && subscriptionWizardEnabled
+    const isWizard = isCreating && (insightShortId || dashboard || isAiPrompt) && subscriptionWizardExperimentEnabled
     const cancelWizard = (): void => push(urlForSubscriptions(baseProps))
     const requestWizardCancel = (): void => {
         const wizardForm = subscriptionLogic.findMounted({

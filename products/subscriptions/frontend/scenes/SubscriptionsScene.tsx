@@ -11,7 +11,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -123,10 +122,8 @@ export function SubscriptionsScene(): JSX.Element {
         subscriptionModalId,
         aiSubscriptionsAvailable,
     } = useValues(subscriptionsSceneLogic)
-    const { isDev } = useValues(preflightLogic)
     const subscriptionWizardExperimentEnabled = useFeatureFlag('SUBSCRIPTION_CREATION_WIZARD', 'test')
-    const subscriptionWizardEnabled = Boolean(isDev) || subscriptionWizardExperimentEnabled
-    const isWizard = subscriptionModalId === 'new' && subscriptionWizardEnabled
+    const isWizard = subscriptionModalId === 'new' && subscriptionWizardExperimentEnabled
     const cancelWizard = (): void => router.actions.push(urls.subscriptions())
     const requestWizardCancel = (): void => {
         const wizardForm = subscriptionLogic.findMounted({ id: 'new', creationSource: 'wizard' })
