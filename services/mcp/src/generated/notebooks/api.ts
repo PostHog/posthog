@@ -59,6 +59,8 @@ export const notebooksCreateBodyTitleMax = 256
 export const notebooksCreateBodyVersionMin = -2147483648
 export const notebooksCreateBodyVersionMax = 2147483647
 
+export const notebooksCreateBodyVariablesItemNameMax = 200
+
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
@@ -78,6 +80,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                 .object({
                     name: zod
                         .string()
+                        .max(notebooksCreateBodyVariablesItemNameMax)
                         .describe(
                             'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
                         ),
@@ -130,6 +133,8 @@ export const notebooksPartialUpdateBodyTitleMax = 256
 export const notebooksPartialUpdateBodyVersionMin = -2147483648
 export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
+export const notebooksPartialUpdateBodyVariablesItemNameMax = 200
+
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
     content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
@@ -149,6 +154,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .object({
                     name: zod
                         .string()
+                        .max(notebooksPartialUpdateBodyVariablesItemNameMax)
                         .describe(
                             'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
                         ),

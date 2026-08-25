@@ -49326,7 +49326,10 @@ export namespace Schemas {
      * One notebook-level variable. Shared by the notebook's own `variables` field and a run body.
      */
     export interface NotebookVariable {
-      /** Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell. */
+      /**
+         * Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.
+         * @maxLength 200
+         */
       name: string;
       /** How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'. */
       type: string;
