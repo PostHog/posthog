@@ -1961,7 +1961,7 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
 
 export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
     .object({
-        uuid: zod.uuid().describe('UUID of the user whose email is being verified.'),
+        uuid: zod.string().describe('UUID of the user whose email is being verified.'),
         token: zod
             .string()
             .optional()
@@ -1973,6 +1973,4 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
                 'The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
             ),
     })
-    .describe(
-        'Request body for POST \/api\/users\/verify_email\/. Documentation only. The action validates\nmanually because serializer fields cannot express the token-or-code rule.'
-    )
+    .describe('Request body for POST \/api\/users\/verify_email\/. Exactly one of token or code is required.')
