@@ -39,6 +39,12 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_GENUI_MODEL,
         isEditable,
+        persistNotebook: async (): Promise<void> => {
+            await notebookLogic.asyncActions.saveNotebook({
+                content: notebookLogic.values.content,
+                title: notebookLogic.values.title,
+            })
+        },
     })
     const {
         cancellationInFlight,

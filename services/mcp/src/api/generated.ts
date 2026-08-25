@@ -39415,6 +39415,7 @@ export namespace Schemas {
      * * `claude-haiku-4-5` - claude-haiku-4-5
      * * `claude-sonnet-4-6` - claude-sonnet-4-6
      * * `claude-sonnet-5` - claude-sonnet-5
+     * * `claude-opus-5` - claude-opus-5
      */
     export type GenUIGenerateRequestModelEnum = typeof GenUIGenerateRequestModelEnum[keyof typeof GenUIGenerateRequestModelEnum];
 
@@ -39423,6 +39424,7 @@ export namespace Schemas {
       ClaudeHaiku45: 'claude-haiku-4-5',
       ClaudeSonnet46: 'claude-sonnet-4-6',
       ClaudeSonnet5: 'claude-sonnet-5',
+      ClaudeOpus5: 'claude-opus-5',
     } as const;
 
     export interface GenUIGenerateRequest {
@@ -39437,7 +39439,8 @@ export namespace Schemas {
        *
        * * `claude-haiku-4-5` - claude-haiku-4-5
        * * `claude-sonnet-4-6` - claude-sonnet-4-6
-       * * `claude-sonnet-5` - claude-sonnet-5 */
+       * * `claude-sonnet-5` - claude-sonnet-5
+       * * `claude-opus-5` - claude-opus-5 */
       model?: GenUIGenerateRequestModelEnum;
     }
 

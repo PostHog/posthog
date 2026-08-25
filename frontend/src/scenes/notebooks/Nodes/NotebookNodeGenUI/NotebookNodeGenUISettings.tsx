@@ -4,6 +4,7 @@ import { LemonButton, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { NotebookNodeAttributeProperties } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
@@ -24,6 +25,12 @@ export function NotebookNodeGenUISettings({
         prompt: attributes.prompt ?? '',
         model: attributes.model ?? DEFAULT_GENUI_MODEL,
         isEditable,
+        persistNotebook: async (): Promise<void> => {
+            await notebookLogic.asyncActions.saveNotebook({
+                content: notebookLogic.values.content,
+                title: notebookLogic.values.title,
+            })
+        },
     })
     const { cancellationInFlight, error, generationInFlight, status } = useValues(logic)
     const { cancelGeneration, generateVisualization, refreshData } = useActions(logic)
@@ -31,11 +38,12 @@ export function NotebookNodeGenUISettings({
     const modelId = `genui-model-${attributes.nodeId}`
     const isBuilding = status?.lifecycle_status === 'building'
     const isWorking = generationInFlight || isBuilding
-    const disabledReason = isWorking
-        ? 'Wait for the visualization to finish'
-        : !(attributes.prompt ?? '').trim()
-          ? 'Add a prompt first'
-          : undefined
+    const workingLabel = generationInFlight
+        ? status?.lifecycle_status === 'ready'
+            ? 'Regenerating visualization…'
+            : 'Generating visualization…'
+        : 'Building visualization…'
+    const disabledReason = !(attributes.prompt ?? '').trim() ? 'Add a prompt first' : undefined
 
     const generate = (): void => {
         if (status?.lifecycle_status === 'ready' || status?.lifecycle_status === 'failed') {
@@ -78,24 +86,37 @@ export function NotebookNodeGenUISettings({
                 />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-                {status?.lifecycle_status === 'ready' ? (
-                    <LemonButton type="primary" onClick={refreshData} disabled={isWorking}>
-                        Reload data
-                    </LemonButton>
-                ) : null}
-                {generationInFlight ? (
-                    <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
-                        Cancel
-                    </LemonButton>
+                {isWorking ? (
+                    <>
+                        <div
+                            className="flex items-center gap-2 text-sm text-secondary"
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <Spinner />
+                            <span>{workingLabel}</span>
+                        </div>
+                        {generationInFlight ? (
+                            <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
+                                Cancel
+                            </LemonButton>
+                        ) : null}
+                    </>
                 ) : (
-                    <LemonButton
-                        type={status?.lifecycle_status === 'ready' ? 'secondary' : 'primary'}
-                        onClick={generate}
-                        loading={isBuilding}
-                        disabledReason={disabledReason}
-                    >
-                        {status?.lifecycle_status === 'ready' ? 'Regenerate' : 'Generate visualization'}
-                    </LemonButton>
+                    <>
+                        {status?.lifecycle_status === 'ready' ? (
+                            <LemonButton type="primary" onClick={refreshData}>
+                                Reload data
+                            </LemonButton>
+                        ) : null}
+                        <LemonButton
+                            type={status?.lifecycle_status === 'ready' ? 'secondary' : 'primary'}
+                            onClick={generate}
+                            disabledReason={disabledReason}
+                        >
+                            {status?.lifecycle_status === 'ready' ? 'Regenerate' : 'Generate visualization'}
+                        </LemonButton>
+                    </>
                 )}
             </div>
             {error ? <div className="text-xs text-danger">{error}</div> : null}

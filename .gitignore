@@ -65,6 +65,7 @@ object_storage/
 playwright/e2e-vrt/**/*-darwin.png
 pnpm-error.log
 pyrightconfig.json
+rust/cyclotron-node/dist/
 settings.yml
 scripts/local/
 share/GeoLite2-City.*

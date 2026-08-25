@@ -226,13 +226,13 @@ export const NotebooksGenuiGenerateBody = /* @__PURE__ */ zod.object({
         .describe('Instructions for the generated visualization.'),
     generation_id: zod.uuid().describe('Unique identifier used to cancel this generation request.'),
     model: zod
-        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5'])
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5', 'claude-opus-5'])
         .describe(
-            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5'
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
         )
         .default(notebooksGenuiGenerateBodyModelDefault)
         .describe(
-            'AI model used to generate the visualization.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5'
+            'AI model used to generate the visualization.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5\n\* `claude-opus-5` - claude-opus-5'
         ),
 })
 

@@ -49,10 +49,14 @@ def markdown_content(markdown: str) -> dict[str, Any]:
     }
 
 
-def completion_stream(content: str) -> MagicMock:
+def completion_stream(content: str, finish_reason: str | None = None) -> MagicMock:
     stream = MagicMock()
     stream.__iter__.return_value = iter(
-        [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content))])]
+        [
+            SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content=content), finish_reason=finish_reason)]
+            )
+        ]
     )
     return stream
 
@@ -158,6 +162,29 @@ class TestGenUIGeneration(SimpleTestCase):
             )
 
         stream.close.assert_called_once()
+
+    def test_length_limited_generation_retries_without_partial_source(self) -> None:
+        client = MagicMock()
+        client.with_options.return_value = client
+        truncated_stream = completion_stream("partial-source-marker", finish_reason="length")
+        valid_stream = completion_stream('{"source":"export default function Canvas() { return <div>Ready</div> }"}')
+        client.chat.completions.create.side_effect = [truncated_stream, valid_stream]
+
+        source = generate_genui_source(
+            team_id=42,
+            trace_id="trace-42",
+            prompt="Build an interactive activity overview",
+            schemas=[],
+            input_names=[],
+            client=client,
+        )
+
+        assert source == "export default function Canvas() { return <div>Ready</div> }"
+        retry_prompt = client.chat.completions.create.call_args_list[1].kwargs["messages"][1]["content"]
+        assert "previous response reached the output limit" in retry_prompt
+        assert "partial-source-marker" not in retry_prompt
+        truncated_stream.close.assert_called_once()
+        valid_stream.close.assert_called_once()
 
     def test_generation_rejects_an_unlisted_model(self) -> None:
         with self.assertRaises(GenUISourceGenerationError):

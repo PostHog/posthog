@@ -17,16 +17,19 @@ GENUI_MODEL_TIMEOUT_SECONDS: dict[str, float] = {
     "claude-haiku-4-5": 90.0,
     "claude-sonnet-4-6": 120.0,
     "claude-sonnet-5": 180.0,
+    "claude-opus-5": 300.0,
 }
 GENUI_MODEL_MAX_TOKENS: dict[str, int] = {
-    "claude-haiku-4-5": 4_096,
-    "claude-sonnet-4-6": 6_144,
-    "claude-sonnet-5": 8_192,
+    "claude-haiku-4-5": 8_192,
+    "claude-sonnet-4-6": 12_288,
+    "claude-sonnet-5": 16_384,
+    "claude-opus-5": 16_384,
 }
 GENUI_MODEL_TEMPERATURE: dict[str, float] = {
     "claude-haiku-4-5": 0.2,
     "claude-sonnet-4-6": 0.2,
     "claude-sonnet-5": 1,
+    "claude-opus-5": 1,
 }
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
@@ -37,6 +40,10 @@ class GenUISourceGenerationError(Exception):
 
 
 class GenUISourceGenerationCancelled(GenUISourceGenerationError):
+    pass
+
+
+class GenUISourceGenerationTruncated(GenUISourceGenerationError):
     pass
 
 
@@ -133,14 +140,21 @@ def _validation_errors(source: str, input_names: list[str]) -> list[dict[str, ob
 
 def _read_stream(stream: Stream[ChatCompletionChunk], is_cancelled: Callable[[], bool]) -> str:
     content: list[str] = []
+    finish_reason: str | None = None
     try:
         for chunk in stream:
             if is_cancelled():
                 raise GenUISourceGenerationCancelled("The visualization generation was canceled.")
-            if chunk.choices and chunk.choices[0].delta.content:
-                content.append(chunk.choices[0].delta.content)
+            if chunk.choices:
+                choice = chunk.choices[0]
+                if choice.delta.content:
+                    content.append(choice.delta.content)
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
     finally:
         stream.close()
+    if finish_reason == "length":
+        raise GenUISourceGenerationTruncated("The model response reached its output limit.")
     return "".join(content)
 
 
@@ -166,21 +180,25 @@ def generate_genui_source(
     )
     source: str | None = None
     diagnostics: list[dict[str, object]] = []
+    compact_retry = False
 
     for attempt in range(MAX_GENERATION_ATTEMPTS):
         if is_cancelled():
             raise GenUISourceGenerationCancelled("The visualization generation was canceled.")
-        request = (
-            _generation_prompt(prompt=prompt, schemas=schemas, input_names=input_names)
-            if source is None
-            else _repair_prompt(
+        request = _generation_prompt(prompt=prompt, schemas=schemas, input_names=input_names)
+        if compact_retry:
+            request += (
+                "\n\nThe previous response reached the output limit. Start over and return the complete source "
+                "more concisely. Preserve every requested feature, reuse small helpers, and keep the source under 250 lines."
+            )
+        elif source is not None:
+            request = _repair_prompt(
                 prompt=prompt,
                 schemas=schemas,
                 input_names=input_names,
                 source=source,
                 diagnostics=diagnostics,
             )
-        )
         try:
             stream = resolved_client.with_options(
                 timeout=GENUI_MODEL_TIMEOUT_SECONDS[model],
@@ -204,6 +222,13 @@ def generate_genui_source(
             content = _read_stream(stream, is_cancelled)
         except GenUISourceGenerationCancelled:
             raise
+        except GenUISourceGenerationTruncated:
+            compact_retry = True
+            source = None
+            diagnostics = []
+            if attempt + 1 < MAX_GENERATION_ATTEMPTS:
+                continue
+            break
         except OpenAIError as error:
             raise GenUISourceGenerationError("The model request failed.") from error
         try:

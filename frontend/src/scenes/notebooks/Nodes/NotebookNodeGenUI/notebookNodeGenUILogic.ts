@@ -36,6 +36,7 @@ export type NotebookNodeGenUILogicProps = {
     prompt: string
     model: GenUIModel
     isEditable: boolean
+    persistNotebook: () => Promise<void>
 }
 
 export interface notebookNodeGenUILogicValues {
@@ -92,6 +93,14 @@ function isCancellationError(error: unknown): boolean {
         return response?.code === 'generation_canceled'
     }
     return error instanceof Error && error.name === 'AbortError'
+}
+
+function isMissingNodeError(error: unknown): boolean {
+    if (error instanceof ApiError) {
+        const response = error.data as { code?: unknown } | undefined
+        return error.code === 'node_not_found' || response?.code === 'node_not_found'
+    }
+    return false
 }
 
 function shouldPoll(status: GenUIStatusApi | null): boolean {
@@ -245,10 +254,12 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                 const abortController = new AbortController()
                 cache.activeGenerationId = generationId
                 cache.generationAbortController = abortController
-                cache.disposables.add(() => () => abortController.abort(), 'generationRequest')
+                cache.disposables.add(() => () => abortController.abort(), 'generationRequest', {
+                    pauseOnPageHidden: false,
+                })
                 actions.generationStarted()
                 try {
-                    actions.statusReceived(
+                    const requestGeneration = async (): Promise<GenUIStatusApi> =>
                         await notebooksGenuiGenerate(
                             String(values.currentTeamId),
                             props.notebookShortId,
@@ -256,7 +267,18 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                             { prompt: props.prompt, generation_id: generationId, model: props.model },
                             { signal: abortController.signal }
                         )
-                    )
+
+                    let generatedStatus: GenUIStatusApi
+                    try {
+                        generatedStatus = await requestGeneration()
+                    } catch (error) {
+                        if (!isMissingNodeError(error)) {
+                            throw error
+                        }
+                        await props.persistNotebook()
+                        generatedStatus = await requestGeneration()
+                    }
+                    actions.statusReceived(generatedStatus)
                 } catch (error) {
                     if (isCancellationError(error)) {
                         actions.generationCanceled()

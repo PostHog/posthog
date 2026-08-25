@@ -318,6 +318,7 @@ export interface GenUIFrameApi {
  * * `claude-haiku-4-5` - claude-haiku-4-5
  * * `claude-sonnet-4-6` - claude-sonnet-4-6
  * * `claude-sonnet-5` - claude-sonnet-5
+ * * `claude-opus-5` - claude-opus-5
  */
 export type GenUIGenerateRequestModelEnumApi =
     (typeof GenUIGenerateRequestModelEnumApi)[keyof typeof GenUIGenerateRequestModelEnumApi]
@@ -326,6 +327,7 @@ export const GenUIGenerateRequestModelEnumApi = {
     ClaudeHaiku45: 'claude-haiku-4-5',
     ClaudeSonnet46: 'claude-sonnet-4-6',
     ClaudeSonnet5: 'claude-sonnet-5',
+    ClaudeOpus5: 'claude-opus-5',
 } as const
 
 export interface GenUIGenerateRequestApi {
@@ -340,7 +342,8 @@ export interface GenUIGenerateRequestApi {
      *
      * * `claude-haiku-4-5` - claude-haiku-4-5
      * * `claude-sonnet-4-6` - claude-sonnet-4-6
-     * * `claude-sonnet-5` - claude-sonnet-5 */
+     * * `claude-sonnet-5` - claude-sonnet-5
+     * * `claude-opus-5` - claude-opus-5 */
     model?: GenUIGenerateRequestModelEnumApi
 }
 
