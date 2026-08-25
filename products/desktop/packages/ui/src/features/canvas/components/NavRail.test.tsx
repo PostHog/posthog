@@ -167,7 +167,7 @@ describe("NavRail", () => {
       const button = screen.getByLabelText(label);
       const dot = button.querySelector('[data-slot="dot"]');
 
-      expect(dot).toHaveClass("absolute", "-top-1", "-right-1");
+      expect(dot).toHaveClass("absolute", "top-0", "right-0");
       expect(dot).toHaveTextContent("");
     }
   });
