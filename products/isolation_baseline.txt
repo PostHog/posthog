@@ -25,6 +25,7 @@ analytics_platform
 annotations
 apm
 approvals
+autoresearch
 batch_exports
 billing_alerts
 business_knowledge

@@ -185,6 +185,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.autoresearch"
+depends_on = []
+layer = "modules"
+
+[[modules]]
 path = "products.batch_exports"
 depends_on = [
     "ee",
