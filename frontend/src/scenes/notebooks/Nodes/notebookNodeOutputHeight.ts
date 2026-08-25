@@ -3,7 +3,7 @@
 // actually came back and cap it, instead of snapping every result to one large default.
 
 /** Output header row, dataframe-name footer, and the padding around the output area. */
-const NODE_CHROME_HEIGHT = 80
+const NODE_CHROME_HEIGHT = 88
 /** Table header plus the pagination bar under it. */
 const TABLE_CHROME_HEIGHT = 68
 const ROW_HEIGHT = 28
