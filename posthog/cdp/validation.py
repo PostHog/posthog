@@ -910,9 +910,15 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 del data["bytecode"]
         else:
             cohort_membership_supported = bool(self.context.get("cohort_membership_supported"))
+            validated_cohort_ids: Optional[set[int]] = None
             if cohort_membership_supported:
-                self._validate_realtime_cohorts(data, team)
-            data = compile_filters_bytecode(data, team, cohort_membership_supported=cohort_membership_supported)
+                validated_cohort_ids = self._validate_realtime_cohorts(data, team)
+            data = compile_filters_bytecode(
+                data,
+                team,
+                cohort_membership_supported=cohort_membership_supported,
+                allowed_cohort_ids=validated_cohort_ids,
+            )
             # Uncompilable filters are only fatal when the function will run (stay enabled).
             # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
             # via context; the error stays persisted on the filters for the UI to surface.
@@ -921,8 +927,13 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         return data
 
-    def _validate_realtime_cohorts(self, data: dict, team: Team) -> None:
-        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member."""
+    def _validate_realtime_cohorts(self, data: dict, team: Team) -> set[int]:
+        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member.
+
+        Returns the validated ids so the compiler can reject any IN COHORT operand outside them.
+        Error messages carry the id rather than the name: they surface to callers holding only
+        workflow scopes, and a name would hand them a cohort-metadata oracle.
+        """
         collected = set(filter_cohort_ids(data))
         # A referenced Action's stored steps can carry cohort properties too, which
         # action_to_expr inlines into the same compiled expression
@@ -934,7 +945,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                     collected |= collect_property_cohort_ids(step.properties or [])
         cohort_ids = sorted(collected)
         if not cohort_ids:
-            return
+            return set()
 
         cohorts = {
             cohort.pk: cohort
@@ -946,13 +957,14 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this project.")
             if cohort.is_static:
                 raise serializers.ValidationError(
-                    f"Cohort '{cohort.name}' is a static cohort. Conditions can only use realtime cohorts."
+                    f"Cohort {cohort_id} is a static cohort. Conditions can only use realtime cohorts."
                 )
             if not cohort.is_flag_compatible:
                 raise serializers.ValidationError(
-                    f"Cohort '{cohort.name}' isn't ready for realtime evaluation. "
+                    f"Cohort {cohort_id} isn't ready for realtime evaluation. "
                     f"Conditions can only use realtime cohorts that have finished calculating."
                 )
+        return set(cohort_ids)
 
 
 class MappingsSerializer(serializers.Serializer):

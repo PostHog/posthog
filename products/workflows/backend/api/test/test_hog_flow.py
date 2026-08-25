@@ -1327,6 +1327,81 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "is a static cohort" in response.json()["detail"]
 
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
+        # The enablement gate can't see into a referenced Action's stored steps, so it must switch
+        # cohort support on for the action reference alone — otherwise an eligible cohort that only
+        # lives there still hits the legacy rejection while the validator would have cleared it.
+        eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        action = Action.objects.create(
+            team=self.team,
+            name="action with eligible cohort step",
+            steps_json=[{"event": "$pageview", "properties": [{"key": "id", "type": "cohort", "value": eligible.id}]}],
+        )
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch", {"actions": [{"id": action.id, "type": "actions"}]}
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        bytecode = response.json()["actions"][1]["config"]["conditions"][0]["filters"]["bytecode"]
+        assert "inCohort" in bytecode
+
+    @parameterized.expand(
+        [
+            ("unvalidated_id", "person.properties.plan in cohort 999999", "can't be used here"),
+            ("non_constant_id", "person.properties.plan in cohort person.properties.x", "constant cohort id"),
+        ]
+    )
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_hog_flow_rejects_in_cohort_operator_smuggled_through_hogql(
+        self, _name, hogql_key, expected_detail, _mock_flag
+    ):
+        # One eligible structured leaf turns cohort support on for the whole filter set; an
+        # IN COHORT operator in a hogql leaf must not ride along with an id the eligibility
+        # validation never saw.
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch",
+            {
+                "properties": [
+                    {"key": "id", "type": "cohort", "value": cohort.id},
+                    {"key": hogql_key, "type": "hogql"},
+                ]
+            },
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert expected_detail in response.json()["detail"]
+
+    @patch("products.workflows.backend.api.hog_flow.feature_enabled_or_false")
+    def test_hog_flow_cohort_flag_evaluates_the_target_teams_organization(self, mock_flag):
+        # A user saving into a project outside their active organization must get the target
+        # organization's rollout decision, not their own org's.
+        other_org = Organization.objects.create(name="Other Org")
+        OrganizationMembership.objects.create(user=self.user, organization=other_org)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        cohort = Cohort.objects.create(
+            team=other_team,
+            name="other-org-cohort",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=datetime.now(tz=UTC),
+            last_backfill_events_at=datetime.now(tz=UTC),
+            filters=self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True).filters,
+        )
+        mock_flag.return_value = True
+        hog_flow = self._hog_flow_with_condition_filters(
+            "conditional_branch", {"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}
+        )
+
+        response = self.client.post(f"/api/projects/{other_team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 201, response.json()
+        assert mock_flag.call_args.kwargs["groups"] == {"organization": str(other_org.id)}
+
     def test_hog_flow_wait_until_condition_rejects_cohort_filters(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         hog_flow = self._hog_flow_with_condition_filters(

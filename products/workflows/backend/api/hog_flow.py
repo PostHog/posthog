@@ -60,7 +60,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import compile_filters_expr, filter_cohort_ids
+from posthog.cdp.filters import compile_filters_expr, filter_action_ids, filter_cohort_ids
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
@@ -1196,11 +1196,18 @@ class HogFlowActionSerializer(serializers.Serializer):
             user = getattr(request, "user", None)
             if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
                 return False
+            get_team = self.context.get("get_team")
+            if get_team is None:
+                return False
+            # The flag targets organizations, so evaluate against the organization that owns the
+            # team being written to — a user saving into a project outside their active
+            # organization must get that project's rollout decision, not their own org's.
+            organization_id = str(get_team().organization_id)
             return feature_enabled_or_false(
                 WORKFLOWS_COHORT_CONDITIONS_FLAG,
                 user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )
@@ -1532,8 +1539,14 @@ class HogFlowActionSerializer(serializers.Serializer):
                     # Cohorts are allowed in conditional_branch only: a wait_until_condition has no
                     # membership wake stream, so it would only ever advance via the polling backstop.
                     # With the flag off, cohorts fail compilation exactly as before.
+                    # Action references count too: a referenced Action's stored steps can carry
+                    # cohort properties this shallow scan can't see. Enabling on the reference alone
+                    # is safe — the validator resolves the Action's steps and the compiler rejects
+                    # any cohort id the validator didn't clear.
                     cohorts_supported = (
-                        is_conditional_branch and bool(filter_cohort_ids(filters)) and self._cohort_conditions_enabled()
+                        is_conditional_branch
+                        and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
+                        and self._cohort_conditions_enabled()
                     )
                     serializer = HogFunctionFiltersSerializer(
                         data=filters,

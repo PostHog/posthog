@@ -408,6 +408,7 @@ def compile_filters_bytecode(
     team: Team,
     actions: Optional[dict[int, Action]] = None,
     cohort_membership_supported: bool = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
 ) -> dict:
     filters = filters or {}
     try:
@@ -418,7 +419,10 @@ def compile_filters_bytecode(
         expr = _LowerConstantMembership().visit(expr)
         context = HogQLContext(team_id=team.id)
         filters["bytecode"] = create_bytecode(
-            expr, context=context, cohort_membership_supported=cohort_membership_supported
+            expr,
+            context=context,
+            cohort_membership_supported=cohort_membership_supported,
+            allowed_cohort_ids=allowed_cohort_ids,
         ).bytecode
 
         # context.errors here only contains "function not implemented" errors from the

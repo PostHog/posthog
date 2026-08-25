@@ -96,6 +96,7 @@ def create_bytecode(
     locals: Optional[list[Local]] = None,
     cohort_membership_supported: Optional[bool] = False,
     null_safe_comparisons: Optional[bool] = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
@@ -111,6 +112,7 @@ def create_bytecode(
         locals,
         cohort_membership_supported,
         null_safe_comparisons,
+        allowed_cohort_ids,
     )
     bytecode.extend(compiler.visit(expr))
     return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
@@ -129,6 +131,7 @@ class BytecodeCompiler(Visitor):
         locals: Optional[list[Local]] = None,
         cohort_membership_supported: Optional[bool] = False,
         null_safe_comparisons: Optional[bool] = False,
+        allowed_cohort_ids: Optional[set[int]] = None,
     ):
         super().__init__()
         self.enclosing = enclosing
@@ -141,6 +144,10 @@ class BytecodeCompiler(Visitor):
         self.args = args
         self.cohort_membership_supported = cohort_membership_supported
         self.null_safe_comparisons = null_safe_comparisons
+        # When set, every IN COHORT operand must be a constant id from this set. Callers that
+        # eligibility-validate cohorts before compiling (workflow conditions) pass the validated
+        # ids, so an id smuggled in through a hogql property can't skip those checks.
+        self.allowed_cohort_ids = allowed_cohort_ids
         # True only while compiling the call visit_compare_operation generates for IN COHORT;
         # visit_call rejects inCohort/notInCohort outside of it
         self._compiling_cohort_membership_call = False
@@ -228,6 +235,14 @@ class BytecodeCompiler(Visitor):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
             if self.cohort_membership_supported:
+                if self.allowed_cohort_ids is not None:
+                    if not isinstance(node.right, ast.Constant) or not isinstance(node.right.value, int):
+                        raise QueryError("Cohort conditions require a constant cohort id.")
+                    if node.right.value not in self.allowed_cohort_ids:
+                        raise QueryError(
+                            f"Cohort {node.right.value} can't be used here. "
+                            "Reference cohorts through a cohort filter so they can be validated."
+                        )
                 # The STL implementations are pure two-arg functions (stl/ chunks execute without
                 # globals), so pass the runtime-prefetched `cohort_ids` global as the second
                 # argument. Marked internal: only calls generated here pass the visit_call guard,
