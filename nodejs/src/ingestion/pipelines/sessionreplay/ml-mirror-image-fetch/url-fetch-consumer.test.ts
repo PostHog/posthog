@@ -203,6 +203,15 @@ describe('UrlFetchConsumer', () => {
         expect(harness.run.mock.calls[0][0]).toEqual([advanced])
     })
 
+    it('keeps a low-origin-diversity marker from either duplicate job', async () => {
+        const harness = build()
+        const marked = candidate('a', { lowOriginDiversityDeferred: true })
+
+        await harness.consumer.handleBatch([message([candidate('a')]), message([marked])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([marked])
+    })
+
     it('keeps the latest not-before time from duplicate jobs', async () => {
         const harness = build()
         const stale = candidate('a')

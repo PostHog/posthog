@@ -4,6 +4,7 @@ import { logger } from '~/common/utils/logger'
 
 import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
+import { deduplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
     DELAY_TOO_LONG,
@@ -43,7 +44,7 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
-        const candidatesByRef = new Map<string, FetchCandidate>()
+        const parsedCandidates: FetchCandidate[] = []
         let dedupedInBatch = 0
         let originCount = 0
         let registrableDomainCount = 0
@@ -60,21 +61,15 @@ export class UrlFetchConsumer {
                 for (const rejected of parsed.rejected) {
                     drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
                 }
-                for (const candidate of parsed.candidates) {
-                    const existing = candidatesByRef.get(candidate.originalRef)
-                    if (existing) {
-                        dedupedInBatch += 1
-                        candidatesByRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
-                        continue
-                    }
-                    ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
-                    candidatesByRef.set(candidate.originalRef, candidate)
-                }
+                parsedCandidates.push(...parsed.candidates)
             }
-            const candidates = [...candidatesByRef.values()]
+            const deduplicated = deduplicateFetchCandidates(parsedCandidates)
+            const candidates = deduplicated.candidates
+            dedupedInBatch = deduplicated.duplicateCount
             const origins = new Set<string>()
             const registrableDomains = new Set<string>()
             for (const candidate of candidates) {
+                ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
                 origins.add(candidate.origin)
                 registrableDomains.add(candidate.registrableDomain)
             }
@@ -256,28 +251,5 @@ export class UrlFetchConsumer {
             registrableDomains,
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
-    }
-}
-
-function foldDuplicateCandidate(left: FetchCandidate, right: FetchCandidate): FetchCandidate {
-    let preferredRoute = left
-    if (
-        right.remainingHops < left.remainingHops ||
-        (right.remainingHops === left.remainingHops && right.republishCount > left.republishCount) ||
-        (right.remainingHops === left.remainingHops &&
-            right.republishCount === left.republishCount &&
-            right.fetchCount > left.fetchCount)
-    ) {
-        preferredRoute = right
-    }
-    const latestState = left.republishCount >= right.republishCount ? left : right
-    return {
-        ...preferredRoute,
-        remainingHops: Math.min(left.remainingHops, right.remainingHops),
-        notBeforeMs: Math.max(left.notBeforeMs, right.notBeforeMs),
-        firstSeenAtMs: Math.min(left.firstSeenAtMs, right.firstSeenAtMs),
-        fetchCount: Math.max(left.fetchCount, right.fetchCount),
-        republishCount: Math.max(left.republishCount, right.republishCount),
-        lastRepublishReason: latestState.lastRepublishReason,
     }
 }

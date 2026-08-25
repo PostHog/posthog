@@ -177,6 +177,20 @@ export class ImageFetchRequestMetrics {
         help: 'Origin-policy and registrable-domain request-control decisions after block state is known',
         labelNames: ['blocked', 'reason'],
     })
+    private static readonly lowOriginDiversityPasses = new Counter({
+        name: 'ml_image_fetch_low_origin_diversity_passes_total',
+        help: 'Fetch passes that republished queued work because too few origins remained to use request capacity',
+    })
+    private static readonly lowOriginDiversityOrigins = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_origins',
+        help: 'Origins remaining when a fetch pass started low-diversity republishing',
+        buckets: [1, 2, 4, 8, 16, 32, 64],
+    })
+    private static readonly lowOriginDiversityCandidates = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_candidates',
+        help: 'Canonical URL jobs remaining when a fetch pass started low-diversity republishing',
+        buckets: [1, 8, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
+    })
     /**
      * `ok` against the sum is the yield of the lane.
      */
@@ -294,6 +308,11 @@ export class ImageFetchRequestMetrics {
     }
     public static observePolicyAndBudgetDecision(blocked: boolean, reason: PolicyAndBudgetReason = 'none'): void {
         this.policyAndBudgetDecisions.labels(blocked ? 'true' : 'false', reason).inc()
+    }
+    public static observeLowOriginDiversity(origins: number, candidates: number): void {
+        this.lowOriginDiversityPasses.inc()
+        this.lowOriginDiversityOrigins.observe(origins)
+        this.lowOriginDiversityCandidates.observe(candidates)
     }
     public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
         this.schedulerWait.labels(scope).observe(waitSeconds)
