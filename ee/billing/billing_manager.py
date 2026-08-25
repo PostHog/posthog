@@ -1068,3 +1068,6 @@ class BillingManager:
                 response_text=res.text[:500] if res.text else "",
             )
             raise Exception(f"Billing service returned {res.status_code}: {res.text}")
+
+
+# Probe for the narrowed product matrix; this file reaches a few products through the import graph.
