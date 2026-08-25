@@ -73,9 +73,7 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 ### Local review before opening
 
 When instructed to open a PR or a draft PR, run `hogli review` once on the committed branch before `gh pr create` — it runs the same Greptile reviewer that comments on every PR, so findings become pre-push edits instead of bot comments and CI re-runs.
-Invoke `/reviewing-before-pr` for the flow: it covers auth (exit 78), the run-once contract (HEAD with a completed review is re-printed, not re-reviewed), and judging findings.
-Once per PR, not per push; skip it for changes trivial enough for the `skip-agent-review` label.
-When `hogli review --check` exits 0 at PR-open time (a local review ran on this branch, even if fix commits landed after it), add `--label no-greptile` to skip the duplicate bot review — and record the review ID and finding dispositions in the PR description either way.
+Invoke `/reviewing-before-pr` for the full flow: auth, the run-once contract, the `no-greptile` label gate (`hogli review --check`), and recording findings in the PR description.
 
 ### Rules
 

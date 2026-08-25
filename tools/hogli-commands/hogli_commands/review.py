@@ -13,7 +13,8 @@ pre-push edits instead of bot comments, stale-thread cleanup, and CI re-runs.
 the branch means the local loop ran, and the label skips the duplicate bot
 pass even when fix commits landed after the review. Only a branch no review
 ever ran on (or a state where that cannot be told: signed out, no CLI) exits
-nonzero, leaving the PR bot as the reviewer.
+nonzero, leaving the PR bot as the reviewer. On a stacked branch, pass
+``-b <base>`` so the walk covers only this layer's commits.
 
 On top of ``greptile review`` itself, the wrapper:
 
@@ -33,23 +34,31 @@ import shutil
 import subprocess
 
 import click
+from hogli.manifest import REPO_ROOT
 
-EX_CONFIG = 78
+from hogli_commands import posthog_auth
+
+EX_CONFIG = posthog_auth.EXIT_NOT_CONFIGURED
 
 _INSTALL_HINT = (
     "Re-enter the flox environment (activation installs it), "
     "or install it with `brew install greptileai/tap/greptile` or `npm install -g greptile`, then re-run."
 )
-_SIGNIN_HINT = "Run `greptile login`, or set GREPTILE_API_KEY in .env.local (op:// references resolve there)."
+_SIGNIN_HINT = "Run `greptile login`, or set GREPTILE_API_KEY in .env.local (see .env.local.example)."
 
 # From the Greptile CLI reference for `review status`: exit 0 means a completed
 # review exists for the commit, 3 means one is still running.
 _STATUS_COMPLETED = 0
 _STATUS_RUNNING = 3
 
-# The probes are one config read and one status lookup; the review itself runs
-# uncapped because a large diff legitimately takes minutes.
+# The probes are short subprocess calls; the review itself runs uncapped
+# because a large diff legitimately takes minutes.
 _PROBE_TIMEOUT_SECONDS = 60
+
+# Newest-first probe window for --check. Each probe is a network call, and the
+# gate only asserts "the local loop ran on this branch", so a hit is expected
+# within the last few commits.
+_CHECK_COMMIT_LIMIT = 20
 
 
 def _probe(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
@@ -60,37 +69,42 @@ def _probe(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
 
 
 def _signed_in(binary: str) -> bool:
-    """False only on Greptile's explicit signed-out error. Any other ``config``
-    failure falls through to the review call, which reports the real problem."""
+    """False only on Greptile's explicit signed-out error; any other ``config``
+    failure falls through to the review call, which reports the real problem.
+    The string match is forced: greptile exits 1 for signed-out and for
+    ordinary failures alike."""
     result = _probe([binary, "config"])
-    if result is None or result.returncode == 0:
-        return True
-    return "not signed in" not in (result.stdout + result.stderr).lower()
+    return result is None or result.returncode == 0 or "not signed in" not in (result.stdout + result.stderr).lower()
 
 
-# Newest-first probe cap: a branch this deep is stacked wrong long before the
-# cap matters, and each probe is a network call.
-_CHECK_COMMIT_LIMIT = 100
+def _branch_commits(base: str | None) -> list[str]:
+    # Match change_detection's base convention: origin/master, then master for
+    # clones without the remote ref.
+    for ref in [base] if base is not None else ["origin/master", "master"]:
+        result = _probe(["git", "-C", str(REPO_ROOT), "rev-list", f"--max-count={_CHECK_COMMIT_LIMIT}", f"{ref}..HEAD"])
+        if result is not None and result.returncode == 0:
+            return result.stdout.split() or ["HEAD"]
+    return ["HEAD"]
 
 
-def _branch_commits() -> list[str]:
-    result = _probe(["git", "rev-list", f"--max-count={_CHECK_COMMIT_LIMIT}", "origin/master..HEAD"])
-    if result is None or result.returncode != 0:
-        return ["HEAD"]
-    return result.stdout.split() or ["HEAD"]
-
-
-def check(binary: str) -> int:
-    for commit in _branch_commits():
+def check(binary: str, base: str | None) -> int:
+    for commit in _branch_commits(base):
         status = _probe([binary, "review", "status", "--commit", commit])
-        if status is not None and status.returncode == _STATUS_COMPLETED:
-            click.secho(f"Commit {commit[:11]} has a completed review.", fg="green", err=True)
+        if status is None:
+            # A hung or broken probe would hang or break for every commit too.
+            break
+        if status.returncode == _STATUS_COMPLETED:
+            click.secho(
+                f"Commit {commit[:11]} has a completed review. Open the PR with `--label no-greptile`.",
+                fg="green",
+                err=True,
+            )
             return 0
     click.secho("No commit on this branch has a completed review.", fg="yellow", err=True)
     return 1
 
 
-def run(branch: str | None, instructions: str | None, force: bool, as_json: bool, do_check: bool) -> int:
+def run(branch: str | None, instructions: str | None, force: bool, do_check: bool) -> int:
     binary = shutil.which("greptile")
     if binary is None:
         click.secho(f"Greptile CLI not found. {_INSTALL_HINT}", fg="red", err=True)
@@ -99,12 +113,10 @@ def run(branch: str | None, instructions: str | None, force: bool, as_json: bool
         click.secho(f"Not signed in to Greptile. {_SIGNIN_HINT}", fg="yellow", err=True)
         return EX_CONFIG
     if do_check:
-        return check(binary)
+        return check(binary, branch)
 
-    output_flags = ["--json"] if as_json else []
-    resume = False
     if not force:
-        status = _probe([binary, "review", "status", "--commit", "HEAD", *output_flags])
+        status = _probe([binary, "review", "status", "--commit", "HEAD"])
         if status is not None and status.returncode == _STATUS_COMPLETED:
             click.secho(
                 "HEAD already has a completed review. Showing it. Pass --force to start a new one.",
@@ -113,17 +125,15 @@ def run(branch: str | None, instructions: str | None, force: bool, as_json: bool
             )
             click.echo(status.stdout, nl=False)
             return 0
-        resume = status is not None and status.returncode == _STATUS_RUNNING
+        if status is not None and status.returncode == _STATUS_RUNNING:
+            click.secho("A review for this branch is still running. Resuming it.", fg="cyan", err=True)
+            return subprocess.run([binary, "review", "--resume"]).returncode
 
-    cmd = [binary, "review", *output_flags]
-    if resume:
-        click.secho("A review for this branch is still running. Resuming it.", fg="cyan", err=True)
-        cmd.append("--resume")
-    else:
-        if branch is not None:
-            cmd += ["--branch", branch]
-        if instructions is not None:
-            cmd += ["--instructions", instructions]
+    cmd = [binary, "review"]
+    if branch is not None:
+        cmd += ["--branch", branch]
+    if instructions is not None:
+        cmd += ["--instructions", instructions]
     # Inherit stdio so Greptile's own progress and interactive review view work.
     return subprocess.run(cmd).returncode
 
@@ -135,12 +145,11 @@ def run(branch: str | None, instructions: str | None, force: bool, as_json: bool
 @click.option("-b", "--branch", default=None, help="Base branch to review against. Omit to use the repository default.")
 @click.option("--instructions", default=None, help="Extra instructions for this review, like an @greptile PR comment.")
 @click.option("--force", is_flag=True, help="Start a new review even when HEAD already has a completed one.")
-@click.option("--json", "as_json", is_flag=True, help="Print review comments as JSON.")
 @click.option(
     "--check",
     "do_check",
     is_flag=True,
     help="Only report whether any commit on this branch has a completed review (exit 0 when one does); reviews nothing.",
 )
-def review(branch: str | None, instructions: str | None, force: bool, as_json: bool, do_check: bool) -> None:
-    raise SystemExit(run(branch, instructions, force, as_json, do_check))
+def review(branch: str | None, instructions: str | None, force: bool, do_check: bool) -> None:
+    raise SystemExit(run(branch, instructions, force, do_check))
