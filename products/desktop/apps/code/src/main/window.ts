@@ -109,6 +109,7 @@ export function saveWindowState(window: BrowserWindow): void {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const appWindows = new Set<BrowserWindow>();
 let trpcIpcHandler: ReturnType<typeof createIPCHandler> | null = null;
 
 /**
@@ -133,16 +134,18 @@ export function onMainWindowClosed(listener: () => void): void {
 }
 
 export function focusMainWindow(reason: string): void {
-  if (mainWindow) {
+  const window =
+    [...appWindows].find((candidate) => candidate.isFocused()) ?? mainWindow;
+  if (window) {
     log.info("focusMainWindow called", {
       reason,
-      isMinimized: mainWindow.isMinimized(),
-      isFocused: mainWindow.isFocused(),
-      isVisible: mainWindow.isVisible(),
+      isMinimized: window.isMinimized(),
+      isFocused: window.isFocused(),
+      isVisible: window.isVisible(),
       stack: new Error().stack,
     });
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+    if (window.isMinimized()) window.restore();
+    window.focus();
   }
 }
 
@@ -266,7 +269,7 @@ export function createWindow(): void {
         : path.join(app.getAppPath(), "build/app-icon.png")
       : undefined;
 
-  mainWindow = new BrowserWindow({
+  const window = new BrowserWindow({
     ...(savedState.x !== undefined && { x: savedState.x }),
     ...(savedState.y !== undefined && { y: savedState.y }),
     width: savedState.width,
@@ -293,6 +296,8 @@ export function createWindow(): void {
       ...(isDev && { webSecurity: false }),
     },
   });
+  appWindows.add(window);
+  mainWindow = window;
 
   let windowShown = false;
   const showWindow = () => {
@@ -300,45 +305,40 @@ export function createWindow(): void {
     windowShown = true;
     clearTimeout(showFallback);
     if (restoreFullScreen) {
-      mainWindow?.setFullScreen(true);
+      window.setFullScreen(true);
     } else if (savedState.isMaximized) {
-      mainWindow?.maximize();
+      window.maximize();
     }
-    mainWindow?.show();
-    mainWindow?.moveTop();
-    mainWindow?.focus();
+    window.show();
+    window.moveTop();
+    window.focus();
     app.focus({ steal: true });
   };
 
-  mainWindow.once("ready-to-show", showWindow);
+  window.once("ready-to-show", showWindow);
   const showFallback = setTimeout(showWindow, 3000);
 
-  setupWindowZoom(mainWindow);
+  setupWindowZoom(window);
 
   // Persist window state on changes
-  mainWindow.on(
-    "resize",
-    () => mainWindow && scheduleSaveWindowState(mainWindow),
-  );
-  mainWindow.on(
-    "move",
-    () => mainWindow && scheduleSaveWindowState(mainWindow),
-  );
-  mainWindow.on("maximize", () => mainWindow && saveWindowState(mainWindow));
-  mainWindow.on("unmaximize", () => mainWindow && saveWindowState(mainWindow));
-  mainWindow.on("close", () => mainWindow && saveWindowState(mainWindow));
+  window.on("resize", () => scheduleSaveWindowState(window));
+  window.on("move", () => scheduleSaveWindowState(window));
+  window.on("maximize", () => saveWindowState(window));
+  window.on("unmaximize", () => saveWindowState(window));
+  window.on("close", () => saveWindowState(window));
+  window.on("focus", () => {
+    mainWindow = window;
+  });
 
   // Live-track fullscreen (and which display it is on) so the update-quit
   // path can restore the same monitor after the relaunch.
-  mainWindow.on("enter-full-screen", () => {
+  window.on("enter-full-screen", () => {
     saveFullScreenState(true);
-    if (mainWindow) {
-      saveFullScreenDisplayBounds(
-        screen.getDisplayMatching(mainWindow.getBounds()).bounds,
-      );
-    }
+    saveFullScreenDisplayBounds(
+      screen.getDisplayMatching(window.getBounds()).bounds,
+    );
   });
-  mainWindow.on("leave-full-screen", () => saveFullScreenState(false));
+  window.on("leave-full-screen", () => saveFullScreenState(false));
 
   // Only watch for Mission Control while the window could actually show up in
   // it. A hidden or minimized window never appears there, so polling then would
@@ -346,35 +346,52 @@ export function createWindow(): void {
   const missionControl = container.get<MissionControlService>(
     MISSION_CONTROL_SERVICE,
   );
-  mainWindow.on("show", () => missionControl.arm());
-  mainWindow.on("restore", () => missionControl.arm());
-  mainWindow.on("hide", () => missionControl.disarm());
-  mainWindow.on("minimize", () => missionControl.disarm());
-  mainWindow.on("closed", () => missionControl.disarm());
+  const syncMissionControl = (): void => {
+    const hasVisibleWindow = [...appWindows].some(
+      (candidate) =>
+        !candidate.isDestroyed() &&
+        candidate.isVisible() &&
+        !candidate.isMinimized(),
+    );
+    if (hasVisibleWindow) missionControl.arm();
+    else missionControl.disarm();
+  };
+  window.on("show", syncMissionControl);
+  window.on("restore", syncMissionControl);
+  window.on("hide", syncMissionControl);
+  window.on("minimize", syncMissionControl);
 
   container
     .get<ElectronMainWindow>(MAIN_WINDOW_SERVICE)
     .setMainWindowGetter(() => mainWindow);
 
-  trpcIpcHandler = createIPCHandler({
-    router: trpcRouter,
-    windows: [mainWindow],
-    createContext: async () => ({ container }),
-    // Input is deliberately not logged — it can carry tokens or file contents.
-    onError: ({ error, path, type }) => {
-      trpcLog.error(`${type} '${path ?? "<unknown>"}' failed (${error.code})`, {
-        message: error.message,
-        cause: error.cause instanceof Error ? error.cause.stack : error.cause,
-      });
-    },
-    onNavigationCleanup: ({ webContentsId, url, aborted }) => {
-      trpcLog.info("Main-frame navigation committed", {
-        webContentsId,
-        url,
-        abortedOperations: aborted,
-      });
-    },
-  });
+  if (trpcIpcHandler) {
+    trpcIpcHandler.attachWindow(window);
+  } else {
+    trpcIpcHandler = createIPCHandler({
+      router: trpcRouter,
+      windows: [window],
+      createContext: async () => ({ container }),
+      // Input is deliberately not logged — it can carry tokens or file contents.
+      onError: ({ error, path, type }) => {
+        trpcLog.error(
+          `${type} '${path ?? "<unknown>"}' failed (${error.code})`,
+          {
+            message: error.message,
+            cause:
+              error.cause instanceof Error ? error.cause.stack : error.cause,
+          },
+        );
+      },
+      onNavigationCleanup: ({ webContentsId, url, aborted }) => {
+        trpcLog.info("Main-frame navigation committed", {
+          webContentsId,
+          url,
+          abortedOperations: aborted,
+        });
+      },
+    });
+  }
 
   const rendererFilePath = path.join(
     __dirname,
@@ -387,26 +404,32 @@ export function createWindow(): void {
     ? new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
     : pathToFileURL(rendererFilePath);
 
-  setupExternalLinkHandlers(mainWindow, appHome);
-  setupArtifactPreviewWebviews(mainWindow);
-  setupEditableContextMenu(mainWindow);
-  setupCrashLogging(mainWindow);
-  buildApplicationMenu();
+  setupExternalLinkHandlers(window, appHome);
+  setupArtifactPreviewWebviews(window);
+  setupEditableContextMenu(window);
+  setupCrashLogging(window);
+  buildApplicationMenu(createWindow);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    mainWindow.loadFile(rendererFilePath);
+    window.loadFile(rendererFilePath);
   }
 
-  mainWindow.on("closed", () => {
+  window.on("closed", () => {
     if (saveTimeout) {
       clearTimeout(saveTimeout);
       saveTimeout = null;
     }
-    mainWindow = null;
-    for (const listener of mainWindowClosedListeners) {
-      listener();
+    appWindows.delete(window);
+    syncMissionControl();
+    if (mainWindow === window) {
+      mainWindow = [...appWindows].at(-1) ?? null;
+    }
+    if (appWindows.size === 0) {
+      for (const listener of mainWindowClosedListeners) {
+        listener();
+      }
     }
   });
 }

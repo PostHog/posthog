@@ -70,10 +70,10 @@ function getSystemInfo(): string {
   ].join("\n");
 }
 
-export function buildApplicationMenu(): void {
+export function buildApplicationMenu(createWindow: () => void): void {
   const template: MenuItemConstructorOptions[] = [
     buildAppMenu(),
-    buildFileMenu(),
+    buildFileMenu(createWindow),
     buildEditMenu(),
     buildViewMenu(),
     buildWindowMenu(),
@@ -138,10 +138,16 @@ function buildAppMenu(): MenuItemConstructorOptions {
   };
 }
 
-function buildFileMenu(): MenuItemConstructorOptions {
+function buildFileMenu(createWindow: () => void): MenuItemConstructorOptions {
   return {
     label: "File",
     submenu: [
+      {
+        label: "New window",
+        accelerator: "CmdOrCtrl+Shift+N",
+        click: createWindow,
+      },
+      { type: "separator" },
       {
         label: "New task",
         accelerator: "CmdOrCtrl+N",
