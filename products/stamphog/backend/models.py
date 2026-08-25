@@ -151,8 +151,9 @@ class PullRequest(ProductTeamModel):
 class PullRequestAudience(ProductTeamModel):
     """One digest audience a merged PR belongs to.
 
-    A PR reaches a team either because its author is on that team (`authored`) or because the team
-    owns files the PR changed (`owned`), so one merge can land in several digests. The claim marker
+    A PR reaches a team because that team owns files the PR changed (`owned`), or because its repo
+    declared one channel for everything it merges (`repo_declared`). One merge can land in several
+    digests, since several teams can own parts of it. The claim marker
     lives here rather than on the PullRequest: with several audiences per PR, a single `digest_run`
     on the PR would let the first channel to claim it hide the merge from every other channel, and
     one channel's failed post would strand the PR for all of them.
@@ -231,53 +232,36 @@ class ReviewRun(ProductTeamModel):
         return f"{self.pull_request.repo_config.repository}#{self.pull_request.pr_number} ({self.status})"
 
 
-class DigestChannel(ProductTeamModel):
-    """One Slack destination for a digest audience.
+class DigestRun(ProductTeamModel):
+    """One posted (or attempted) daily digest: one audience, one destination, one day.
 
-    The `audience_key` is a plain opaque string produced by the single audience cascade at
-    capture time (see logic/audiences.py): PR author -> GitHub team slug -> "repo:{repository}"
-    fallback. A row can be created by a human (API) or auto-provisioned when the workspace has a
-    channel named exactly like the audience_key (see logic/channel_resolution.py) —
-    `resolution_source` records which.
+    The destination is recorded here rather than looked up through a channel row, because it is a
+    historical fact. Routing is derived fresh from the repositories every run (see
+    logic/channel_resolution.py), so a row pointing at mutable config would let a later
+    re-declaration rewrite where a past digest claims it was posted.
+
+    One audience can produce several runs on one day. A repository that declares a team's channel
+    answers for its own merges, so a team's merges partition between destinations rather than
+    picking a winner.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    audience_key = models.CharField(max_length=255)
-    # Plain id of a main-DB posthog.Integration row (kind="slack"). No FK: this model lives on a
-    # separate product DB and can't hold a cross-database constraint — the id is resolved against
-    # the main DB (with a team_id + kind guard) when the digest is posted.
-    slack_integration_id = models.BigIntegerField()
-    slack_channel_id = models.CharField(max_length=64)
-    slack_channel_name = models.CharField(max_length=255, blank=True)
-    # How this row came to exist — manual (API/human), an automatic Slack-name match, or (future)
-    # an owners.yaml contact.slack resolution. Auto-provisioned rows never override a human's.
+    # The bucket this run drained, e.g. a team slug or "repo:owner/name".
+    #
+    # db_default on all four. During a rolling deploy the previous release still inserts rows here
+    # without these columns, and Django applies default= in Python only. Without a database default,
+    # those inserts fail the NOT NULL check for as long as both releases run.
+    audience_key = models.CharField(max_length=255, default="", db_default="")
+    slack_channel_id = models.CharField(max_length=64, default="", db_default="")
+    slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
+    # How the destination was decided: the repo's own digest config, an owners.yaml entry, or a
+    # plain name match on the slug. It is what answers "why did my digest go there".
     resolution_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in ChannelResolutionSource],
-        default=ChannelResolutionSource.MANUAL,
+        default=ChannelResolutionSource.SLACK_NAME_MATCH,
+        db_default=ChannelResolutionSource.SLACK_NAME_MATCH.value,
     )
-    enabled = models.BooleanField(default=True)
-    last_digest_at = models.DateTimeField(null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # Inherit the base Meta so default_manager_name="all_teams" survives (see StamphogRepoConfig.Meta).
-    class Meta(ProductTeamModel.Meta):
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team_id", "audience_key"], name="unique_stamphog_digest_audience_per_team"
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.audience_key} -> {self.slack_channel_name or self.slack_channel_id}"
-
-
-class DigestRun(ProductTeamModel):
-    """One posted (or attempted) daily digest for a channel."""
-
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    digest_channel = models.ForeignKey(DigestChannel, on_delete=models.CASCADE, related_name="runs")
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in DigestRunStatus],
@@ -291,5 +275,13 @@ class DigestRun(ProductTeamModel):
     created_at = models.DateTimeField(auto_now_add=True)
     posted_at = models.DateTimeField(null=True)
 
+    class Meta(ProductTeamModel.Meta):
+        indexes = [
+            # Two reads key off (team, audience). The first asks whether this audience ever posted,
+            # which decides how far back its claim reaches. The second is the API's history listing.
+            # Without this index both scan a table that grows by one row per audience per weekday.
+            models.Index(fields=["team_id", "audience_key"], name="stamphog_digest_run_audience"),
+        ]
+
     def __str__(self) -> str:
-        return f"digest {self.digest_channel_id} ({self.status})"
+        return f"digest {self.audience_key} -> {self.slack_channel_name or self.slack_channel_id} ({self.status})"
