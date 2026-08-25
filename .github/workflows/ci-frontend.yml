@@ -979,10 +979,11 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Prints the per-shard/per-test slow-down breakdown to the job log and step
-        # summary. Mirrors ci-nodejs's report-test-speed: trusted-base checkout (the
-        # parser receives no secrets, but keeping one trusted source for the reporter
-        # means a PR cannot swap in something that exfiltrates its own artifacts).
+        permissions:
+            actions: read
+            contents: read
+        # Prints the per-shard/per-test slow-down breakdown to the job log and summary.
+        # It runs only the PR's reporter against uploaded JUnit and has no write permissions.
         if: >-
             !cancelled() &&
             needs.jest.result != 'skipped' &&
@@ -995,7 +996,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
                   fetch-depth: 1
             - name: Check for trusted test reporter
               id: test-reporter

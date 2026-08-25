@@ -20,11 +20,6 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# `dorny/test-reporter` publishes a check run per shard; the workflow-level
-# permissions.window has to grow for it, and the SHA-pinned action is why.
-permissions:
-    checks: write
-
 jobs:
     # Job to decide if we should run nodejs services ci
     # See .github/actions/paths-filter/README.md for filter semantics
@@ -549,24 +544,6 @@ jobs:
                   if-no-files-found: ignore
                   retention-days: 1
 
-            # Human-readable per-test breakdown in Checks — the slowest-test list and the
-            # per-file annotation table are the fastest "is this run healthy" scan a reviewer
-            # gets. Renders before the quarantine gate, so a fourth-party lookup in the
-            # artifact UI never has to happen first. Skipped on forks (no checks: write on
-            # the fork token) and paralleized by shard so one broken run doesn't mask the rest.
-            # fail-on-error: false matches the upload's `if-no-files-found: ignore` posture —
-            # a cache-hit/skipped shard must never red the job over a missing report.
-            - name: Publish test report
-              if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-              uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-              with:
-                  name: nodejs tests (shard ${{ matrix.shard }})
-                  path: |
-                      junit-results/junit-nodejs-*.xml
-                      nodejs/junit-results/junit-nodejs-*.xml
-                  reporter: jest-junit
-                  fail-on-error: 'false'
-
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
             # secret).
@@ -819,9 +796,11 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        # Prints the per-shard/per-test slow-down breakdown to the job log and the step
-        # summary. Never touches PostHog tokens — renders only from the uploaded JUnit,
-        # so the trusted-base checkout is the same posture as the rest of these jobs.
+        permissions:
+            actions: read
+            contents: read
+        # Prints the per-shard/per-test slow-down breakdown to the job log and summary.
+        # It runs only the PR's reporter against uploaded JUnit and has no write permissions.
         if: >-
             !cancelled() &&
             needs.tests.result != 'skipped' &&
@@ -834,7 +813,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
                   fetch-depth: 1
             - name: Check for trusted test reporter
               id: test-reporter

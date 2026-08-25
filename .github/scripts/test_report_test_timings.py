@@ -894,6 +894,7 @@ def test_job_trace_key_distinguishes_jobs() -> None:
 def test_emission_tokens(env: dict[str, str], expected: list[str]) -> None:
     assert report_test_timings.emission_tokens(env) == expected
 
+
 # ---------- jest timings: per-file launch + teardown ----------
 
 

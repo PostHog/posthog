@@ -925,7 +925,7 @@ def shard_metrics(shard: Shard) -> dict[str, Any]:
     launch_seconds = sum(launch_overhead.values()) if launch_overhead else sum(shard.file_launch_seconds or [])
 
     durations = sorted(t.duration_seconds for t in shard.tests)
-    slowest = sorted(shard.tests, key=lambda t: t.duration_seconds, reverse=True)[:20]
+    slowest = sorted(shard.tests, key=lambda t: t.duration_seconds, reverse=True)
     result: dict[str, Any] = {
         "suite": info.suite,
         "segment": info.segment,

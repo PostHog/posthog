@@ -26,7 +26,7 @@ TIMINGS_PY="$REPO_ROOT/.github/scripts/report_test_timings.py"
 MODE=""
 SOURCE=""
 RUNNER="jest"
-TOP=12
+TOP=1000000
 SUITE=""
 MARKDOWN=0
 UV="${UV:-uv}"
@@ -139,7 +139,7 @@ print(f"  tests {all_counts} | shard medians {fmt(sum_median[0])}–{fmt(sum_med
 print()
 
 # ---- slowest individual tests ----------------------------------------------
-print(f"{BOLD}Slowest individual tests (top {TOP} per shard){RST}")
+print(f"{BOLD}Individual tests, slowest first{RST}")
 rows = []
 for s in shards:
     for t in s.get("slowest_tests", []):
