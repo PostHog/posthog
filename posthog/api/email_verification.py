@@ -84,10 +84,9 @@ class EmailVerificationCodeVerifier:
             # Signup verification always proves the account address. Only a verified user's
             # email change targets the staged address; an unverified user's staged change must
             # not let a code sent to the unverified new address verify the account.
-            if target_email is not None:
-                target = target_email
-            else:
-                target = user.pending_email if user.is_email_verified else None
+            target: str | None = target_email
+            if target is None and user.is_email_verified:
+                target = user.pending_email
             issued_at = int(time.time())
             code = code_based_verification_token_generator.make_code(user, issued_at)
             # Write the state before the send, so a delivered code can always verify.
