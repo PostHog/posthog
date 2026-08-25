@@ -93,29 +93,26 @@ describe('issueFilterPreviewLogic', () => {
         preview.actions.applyPropertyFilter('$browser', 'Chrome')
         const beforeRelease = filters.values.filterGroup
         preview.actions.applyPropertyFilters([
-            { key: '$app_namespace', value: 'com.example.ios', operator: PropertyOperator.Exact },
             { key: '$app_version', value: '3.2.0', operator: PropertyOperator.Exact },
             { key: '$app_build', value: null, operator: PropertyOperator.IsNotSet },
         ])
         const afterFirstRelease = filters.values.filterGroup
         expect(chips()).toEqual([
             { key: '$browser', value: ['Chrome'], operator: PropertyOperator.Exact },
-            { key: '$app_namespace', value: ['com.example.ios'], operator: PropertyOperator.Exact },
             { key: '$app_version', value: ['3.2.0'], operator: PropertyOperator.Exact },
             { key: '$app_build', value: undefined, operator: PropertyOperator.IsNotSet },
         ])
         // FilterGroup opens the popover of every chip it does not count as preview-added.
-        expect(filters.values.filterAddedFromPreview).toBe(3)
+        expect(filters.values.filterAddedFromPreview).toBe(2)
 
-        // A second release replaces the three keys and leaves other chips alone.
+        // A second release replaces both keys and leaves other chips alone.
         preview.actions.applyPropertyFilters([
-            { key: '$app_namespace', value: 'com.example.android', operator: PropertyOperator.Exact },
             { key: '$app_version', value: '3.3.0', operator: PropertyOperator.Exact },
             { key: '$app_build', value: '20901', operator: PropertyOperator.Exact },
         ])
-        expect(chips().map((chip) => chip.key)).toEqual(['$browser', '$app_namespace', '$app_version', '$app_build'])
-        expect(chips()[3]).toEqual({ key: '$app_build', value: ['20901'], operator: PropertyOperator.Exact })
-        expect(filters.values.filterAddedFromPreview).toBe(3)
+        expect(chips().map((chip) => chip.key)).toEqual(['$browser', '$app_version', '$app_build'])
+        expect(chips()[2]).toEqual({ key: '$app_build', value: ['20901'], operator: PropertyOperator.Exact })
+        expect(filters.values.filterAddedFromPreview).toBe(2)
 
         preview.actions.undoActivePreview()
         expect(filters.values.filterGroup).toEqual(afterFirstRelease)

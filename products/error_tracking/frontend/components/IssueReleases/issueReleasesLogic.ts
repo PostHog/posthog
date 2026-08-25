@@ -177,9 +177,9 @@ export const issueReleasesLogic = kea<issueReleasesLogicType>([
         ],
     }),
     selectors({}),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         selectStrip: ({ strip }) => {
-            const filters = releasePropertyFilters(strip, (values.releases?.namespaces.length ?? 0) > 1)
+            const filters = releasePropertyFilters(strip)
             if (filters.length > 0) {
                 actions.applyPropertyFilters(filters)
             }

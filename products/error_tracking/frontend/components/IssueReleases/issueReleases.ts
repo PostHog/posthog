@@ -91,15 +91,14 @@ function propertyFilter(key: string, value: string | null): PreviewPropertyFilte
 
 /**
  * The filters a click on the strip applies, empty when the strip cannot be filtered. A missing property filters on
- * "is not set" so a click never leaves a stale chip from an earlier click. The namespace only matters when the issue
- * spans more than one app.
+ * "is not set" so a click never leaves a stale chip from an earlier click. The app namespace stays with the panel's
+ * app picker and never becomes a chip.
  */
-export function releasePropertyFilters(strip: IssueReleaseStrip, scopeToNamespace: boolean): PreviewPropertyFilter[] {
+export function releasePropertyFilters(strip: IssueReleaseStrip): PreviewPropertyFilter[] {
     if (strip.kind === 'other') {
         return []
     }
     return [
-        ...(scopeToNamespace ? [propertyFilter('$app_namespace', strip.release?.namespace ?? null)] : []),
         propertyFilter('$app_version', strip.release?.version ?? null),
         propertyFilter('$app_build', strip.release?.build ?? null),
     ]
