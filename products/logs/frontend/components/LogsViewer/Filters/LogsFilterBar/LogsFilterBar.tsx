@@ -71,8 +71,8 @@ export const LogsQueryControls = (): JSX.Element => {
 }
 
 export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
-    const { filterGroup, serviceNames } = filters
+    const { filters, id, utcDateRange, queryFilterGroup, columnQueryFields } = useValues(logsViewerFiltersLogic)
+    const { filterGroup } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
     // Taxonomic value suggestions should respect any active scope (e.g. the person-tab
@@ -82,7 +82,8 @@ export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JS
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
         filterGroup: queryFilterGroup,
-        serviceNames,
+        // The suggestion lookups read their service scope off this field, not the group.
+        ...columnQueryFields,
     }
 
     return (
@@ -148,7 +149,7 @@ export function addLogsValueFilter(
 
 export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
+    const { utcDateRange, queryFilterGroup, columnQueryFields } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -166,7 +167,7 @@ export const LogsFilterSearch = (): JSX.Element => {
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
             filterGroup: queryFilterGroup,
-            serviceNames: logsFilters.serviceNames,
+            ...columnQueryFields,
         },
         onChange: (taxonomicGroup, value, item) => {
             if (item.value === undefined) {
