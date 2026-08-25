@@ -92,13 +92,8 @@ tools:
             value, and propose a bound anchored on it, such as 'alert me if this drops below 400 a day'. When no
             absolute number makes sense, propose a relative-change alert on a sudden increase or decrease. Then ask
             only for the cadence. Skip the offer for exploratory or one-off insights, high-cardinality breakdowns,
-            vanity metrics, and Retention, Paths, Stickiness and Lifecycle insights, which cannot have alerts. When the
-            dashboards field was set, this insight just landed on a dashboard, and a recurring delivery of that
-            dashboard may fit better. Offer that instead when the dashboard collects metrics someone follows over time.
-            Say what they would get, such as a weekly email every Monday with these charts attached, then use
-            subscriptions-create with the dashboard id, up to 6 insights in dashboard_export_insights, and target_type
-            email or slack. Offer the alert or the subscription, never both in one reply. If the user already declined
-            either earlier in this conversation, do not offer again.
+            vanity metrics, and Retention, Paths, Stickiness and Lifecycle insights, which cannot have alerts. If the
+            user already declined an alert earlier in this conversation, do not offer again.
         exclude_params:
             - query
         include_params:
