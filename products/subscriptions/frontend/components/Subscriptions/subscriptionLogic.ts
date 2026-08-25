@@ -855,6 +855,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     events(({ actions, values }) => ({
         afterMount: () => {
+            if (props.id === 'new' && !values.subscriptionInitialized) {
+                actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION })
+            }
             // Load the org-wide AI summary quota once per logic mount so
             // the paywall conditional in EditSubscription has data to react
             // to without depending on URL navigation. urlToAction kept its
