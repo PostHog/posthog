@@ -204,6 +204,10 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
 
     with (
         patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.is_signal_source_enabled",
+            return_value=True,
+        ),
+        patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
             new=AsyncMock(return_value=team),
         ),
@@ -251,6 +255,10 @@ async def test_burst_guard_denies_emission_before_any_render() -> None:
 
     with (
         patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.is_signal_source_enabled",
+            return_value=True,
+        ),
+        patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.consume",
             return_value=denied,
         ),
@@ -279,6 +287,10 @@ async def test_signal_emission_charge_is_refunded_when_emit_fails() -> None:
     allowed = BucketDecision(allowed=True, remaining=99, limit=SIGNAL_EMISSION_BUDGET.burst, retry_after=0, reset=1800)
 
     with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.is_signal_source_enabled",
+            return_value=True,
+        ),
         patch(
             "products.error_tracking.backend.temporal.lifecycle.side_effects.consume",
             return_value=allowed,
@@ -311,3 +323,33 @@ async def test_signal_emission_charge_is_refunded_when_emit_fails() -> None:
     # A retried attempt gives its token back, so a failing signal cannot drain the bucket over ten
     # attempts and throttle later healthy signals. The exception still propagates so Temporal retries.
     refund.assert_called_once_with("error_tracking_signal_emit_rate:42", SIGNAL_EMISSION_BUDGET)
+
+
+@pytest.mark.asyncio
+async def test_disabled_source_is_dropped_before_charging_the_bucket() -> None:
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.is_signal_source_enabled",
+            return_value=False,
+        ),
+        patch("products.error_tracking.backend.temporal.lifecycle.side_effects.consume") as consume,
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(),
+        ) as aget,
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            _inputs(),
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    # A team that never enabled error-tracking signals must not charge the burst bucket, trip the
+    # throttle counter, or pay the render — `emit_signal` would drop it anyway.
+    consume.assert_not_called()
+    aget.assert_not_awaited()
+    emit_signal.assert_not_awaited()

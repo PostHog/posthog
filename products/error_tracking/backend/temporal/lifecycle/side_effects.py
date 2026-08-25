@@ -27,7 +27,7 @@ from products.error_tracking.backend.temporal.lifecycle.rendering import (
     decode_token_prefix,
     render_stacktrace,
 )
-from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.facade.api import emit_signal, is_signal_source_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -171,6 +171,15 @@ async def emit_issue_lifecycle_signal(
     source_type: str,
     preamble: str,
 ) -> None:
+    # A source the team never enabled is dropped by `emit_signal` anyway. Check it first, so a team
+    # that never turned on error-tracking signals does not charge the burst bucket, trip the throttle
+    # counter, or pay the render and tiktoken work before that silent drop.
+    source_enabled = await sync_to_async(is_signal_source_enabled, thread_sensitive=False)(
+        inputs.team_id, "error_tracking", source_type
+    )
+    if not source_enabled:
+        return
+
     # Charge the per-team bucket before any render or tiktoken work. A denial drops the emission;
     # `BucketUnavailable` (Redis down) falls through, so a bucket outage cannot stop emission.
     bucket_key = f"error_tracking_signal_emit_rate:{inputs.team_id}"
