@@ -90,7 +90,7 @@ class AdministeredOrganization:
     name: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LinkedinPagesResumeConfig:
     """Where a previous attempt stopped.
 
