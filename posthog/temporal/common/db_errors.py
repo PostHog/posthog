@@ -64,3 +64,4 @@ def is_transient_db_error(error: BaseException) -> bool:
         return True
     message = str(error)
     return any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS)
+# test-marker-canary
