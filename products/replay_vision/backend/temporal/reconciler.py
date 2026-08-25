@@ -10,6 +10,12 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    resolve_failure_type,
+    truncate_for_temporal_payload,
+    unwrap_temporal_cause,
+)
 
 from products.replay_vision.backend.temporal.constants import (
     INLINE_SCANNER_REAP_TIMEOUT,
@@ -22,7 +28,9 @@ from products.replay_vision.backend.temporal.constants import (
     RECONCILE_SCHEDULE_OP_TIMEOUT,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
+    RECONCILER_MAX_FAILURE_DESCRIPTIONS,
     RECONCILER_SCHEDULE_ID,
+    RECONCILER_SYSTEMIC_FAILURE_MIN_OPS,
     RECONCILER_WORKFLOW_ID,
     RECONCILER_WORKFLOW_NAME,
 )
@@ -35,6 +43,16 @@ from products.replay_vision.backend.temporal.reconciler_types import (
 
 if TYPE_CHECKING:
     from temporalio.client import Client
+
+
+def _describe_failure(scanner_id: UUID, err: BaseException) -> str:
+    # Unwrap Temporal's ActivityError wrapper to the underlying cause; the wrapper repr is a constant
+    # "Activity task failed" that names no scanner and no cause. Bound the message so a big remote body
+    # can't blow the Temporal payload limit.
+    cause = unwrap_temporal_cause(err) or err
+    message = truncate_for_temporal_payload(str(cause), MAX_ERROR_MESSAGE_CHARS)
+    return f"{scanner_id}: {resolve_failure_type(cause)}: {message}"
+
 
 # `activities` pulls in Django, which the workflow sandbox can't safely re-import.
 with workflow.unsafe.imports_passed_through():
@@ -141,32 +159,41 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             ),
         )
         result = ReconcileScannerSchedulesResult(
-            upserted=[sid for sid, ok in zip(to_upsert, upsert_results) if ok],
-            deleted=[sid for sid, ok in zip(to_delete, delete_results) if ok],
-            failed_upsert=[sid for sid, ok in zip(to_upsert, upsert_results) if not ok],
-            failed_delete=[sid for sid, ok in zip(to_delete, delete_results) if not ok],
+            upserted=[sid for sid, err in zip(to_upsert, upsert_results) if err is None],
+            deleted=[sid for sid, err in zip(to_delete, delete_results) if err is None],
+            failed_upsert=[sid for sid, err in zip(to_upsert, upsert_results) if err is not None],
+            failed_delete=[sid for sid, err in zip(to_delete, delete_results) if err is not None],
         )
-        if result.failed_upsert or result.failed_delete:
+        failures = [
+            (sid, err) for sid, err in [*zip(to_upsert, upsert_results), *zip(to_delete, delete_results)] if err
+        ]
+        if failures:
+            descriptions = [_describe_failure(sid, err) for sid, err in failures]
             workflow.logger.warning(
                 "replay_vision.reconcile_partial_failure",
-                extra={
-                    "failed_upsert": [str(s) for s in result.failed_upsert],
-                    "failed_delete": [str(s) for s in result.failed_delete],
-                },
+                extra={"failures": descriptions},
             )
-        # Total failure across both fan-outs is likely systemic — surface it so Temporal retries.
-        attempted = len(to_upsert) + len(to_delete)
-        succeeded = len(result.upserted) + len(result.deleted)
-        if attempted > 0 and succeeded == 0:
-            raise ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
+            # A total failure across enough ops points at the schedule backend, not one flaky op — surface it
+            # so Temporal retries, and name the scanners and cause so the error is diagnosable.
+            attempted = len(to_upsert) + len(to_delete)
+            if attempted >= RECONCILER_SYSTEMIC_FAILURE_MIN_OPS and not result.upserted and not result.deleted:
+                # Embed only a bounded sample of descriptions; the full list is in the warning log above.
+                shown = descriptions[:RECONCILER_MAX_FAILURE_DESCRIPTIONS]
+                if len(descriptions) > len(shown):
+                    shown.append(f"… (+{len(descriptions) - len(shown)} more)")
+                raise ApplicationError(
+                    f"reconciler: all {attempted} schedule ops failed: {', '.join(shown)}"
+                ) from failures[0][1]
         return result
 
-    async def _fan_out(self, scanner_ids: list[UUID], make_coro: Callable[[UUID], Awaitable[None]]) -> list[bool]:
+    async def _fan_out(
+        self, scanner_ids: list[UUID], make_coro: Callable[[UUID], Awaitable[None]]
+    ) -> list[BaseException | None]:
         if not scanner_ids:
             return []
-        # return_exceptions so one scanner's failure doesn't block the others.
+        # return_exceptions so one scanner's failure doesn't block the others. None marks a success.
         results = await asyncio.gather(*(make_coro(sid) for sid in scanner_ids), return_exceptions=True)
-        return [not isinstance(r, BaseException) for r in results]
+        return [r if isinstance(r, BaseException) else None for r in results]
 
 
 async def create_replay_vision_reconciler_schedule(client: "Client") -> None:

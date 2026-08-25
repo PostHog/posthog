@@ -143,6 +143,15 @@ LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 
+# A normal tick touches at most a handful of scanners, so a total failure there is one flaky op,
+# not an outage. Only page when many ops all fail together, which points at the schedule backend.
+RECONCILER_SYSTEMIC_FAILURE_MIN_OPS = 5
+
+# Cap the per-op descriptions embedded in the raised systemic-failure error: a global config drift can
+# fail thousands of ops on one tick, and that message lands in the Temporal failure payload (2 MiB hard
+# limit). A few examples plus the total count diagnose it; the full list stays in the warning log.
+RECONCILER_MAX_FAILURE_DESCRIPTIONS = 10
+
 
 # Bounded so broker errors surface as activity failures instead of getting lost in the producer buffer.
 KAFKA_DELIVERY_TIMEOUT_S = 10.0
