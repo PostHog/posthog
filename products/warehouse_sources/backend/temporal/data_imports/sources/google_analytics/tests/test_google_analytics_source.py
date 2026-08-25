@@ -2,7 +2,7 @@ import pytest
 from unittest import mock
 
 import requests
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 
 from posthog.models.integration import Integration
 
@@ -199,16 +199,35 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
     assert expected_substring in (message or "")
 
 
-def test_validate_credentials_maps_timeout_and_reports_it():
-    # A slow property lookup used to hang past the gateway limit and show a bare server error.
-    # It must now return an actionable retry message and reach error tracking.
+def _transport_error(cause: Exception) -> TransportError:
+    # google-auth wraps a requests exception raised while refreshing the OAuth token. `raise ... from`
+    # sets __cause__, which validate_credentials inspects to tell a refresh-leg timeout from other
+    # transport failures.
+    error = TransportError(cause)
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    "error,expected_substring,expected_capture_count",
+    [
+        (requests.Timeout("read timed out"), "did not respond in time", 1),
+        (_transport_error(requests.Timeout("read timed out")), "did not respond in time", 1),
+        (_transport_error(requests.ConnectionError("connection reset")), "Failed to read", 0),
+    ],
+)
+def test_validate_credentials_maps_timeouts_and_transport_errors(error, expected_substring, expected_capture_count):
+    # A slow property lookup used to hang past the gateway limit and show a bare server error. A
+    # timeout on the metadata GET (requests.Timeout) or on the OAuth token refresh (google-auth wraps
+    # it as TransportError) must return the retry message and reach error tracking. Other transport
+    # failures keep the generic message and are not captured on this path.
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
-            side_effect=requests.Timeout("read timed out"),
+            side_effect=error,
         ),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
@@ -217,8 +236,8 @@ def test_validate_credentials_maps_timeout_and_reports_it():
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
-    assert "did not respond in time" in (message or "")
-    assert capture.call_count == 1
+    assert expected_substring in (message or "")
+    assert capture.call_count == expected_capture_count
 
 
 def test_validate_credentials_maps_token_refresh_error():
