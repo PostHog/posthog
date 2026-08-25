@@ -42,15 +42,22 @@ describe("buildCostChecklist", () => {
     ]);
   });
 
-  it("never shows an item twice when its trigger still fires after completion", () => {
+  it("re-fires the suggestion when the default still warrants one after completion", () => {
     const items = buildCostChecklist({
       ...base,
       defaultModelId: "claude-opus-5",
       hasCustomImage: true,
       completed: ["model-notch"],
     });
+    // A stored completion does not hold the row checked once the current
+    // default is expensive again; the cheaper-model suggestion comes back.
     expect(items).toEqual([
-      { kind: "model-notch", done: true, modelId: "claude-opus-5" },
+      {
+        kind: "model-notch",
+        done: false,
+        fromModelId: "claude-opus-5",
+        toModelId: "claude-sonnet-5",
+      },
       { kind: "custom-image", done: true },
     ]);
   });
