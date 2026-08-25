@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import posthoganalytics
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.common import MetricMeter
 
 Attributes = dict[str, str | int | float | bool]
@@ -243,6 +243,17 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         meter.create_counter(
             "tasks_sandbox_credential_refresh",
             "Sandbox credential refresh outcomes for running cloud task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def increment_pr_babysit_decision(decision: str) -> None:
+    try:
+        meter = workflow.metric_meter().with_additional_attributes({"decision": decision})
+        meter.create_counter(
+            "tasks_pr_babysit_decision",
+            "CI follow-up decisions made by the snapshot-driven PR babysit loop",
         ).add(1)
     except Exception:
         pass
