@@ -1,7 +1,7 @@
 ---
 name: review-hog-authoring
 description: >
-  How to author custom PostHog Review skills — the review perspectives, blind-spot checks, validation
+  How to author custom PostHog Review skills: the review perspectives, blind-spot checks, validation
   criteria, and resolution criteria that drive PostHog Review's automated PR reviews. Use when a user
   wants a new review perspective (a specialist lens on their PRs), a custom blind-spot sweep,
   their own validation bar for which findings get published, or their own bar for which review
