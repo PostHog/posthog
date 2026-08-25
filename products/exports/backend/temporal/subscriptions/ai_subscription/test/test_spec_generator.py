@@ -108,10 +108,9 @@ WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY
 ```
 """
 
-        assert (
-            _extract_embedded_hogql(prompt)
-            == "SELECT count()\nFROM events\nWHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY"
-        )
+        assert _extract_embedded_hogql(prompt) == [
+            "SELECT count()\nFROM events\nWHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY"
+        ]
 
     @patch(f"{_SG}.generate_query_plan")
     @patch(f"{_SG}.build_context_blob", return_value="context")
@@ -127,19 +126,40 @@ SELECT count() FROM events WHERE event = '$mcp_tool_call' AND timestamp >= now()
         spec = build_enriched_prompt(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_window())
 
         mock_generate_query_plan.assert_not_called()
-        assert spec.plan.steps[0].hogql == (
+        assert [step.hogql for step in spec.plan.steps] == [
             "SELECT count() FROM events WHERE event = '$mcp_tool_call' AND timestamp >= now() - INTERVAL 7 DAY"
-        )
+        ]
+
+    @patch(f"{_SG}.generate_query_plan")
+    @patch(f"{_SG}.build_context_blob", return_value="context")
+    def test_bypasses_planner_for_multiple_embedded_hogql_queries(
+        self, _mock_context_blob: MagicMock, mock_generate_query_plan: MagicMock
+    ) -> None:
+        prompt = """Send a report from these queries.
+```hogql
+SELECT count() FROM events WHERE event = '$mcp_tool_call'
+```
+```sql
+WITH recent AS (SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY) SELECT count() FROM recent
+```
+"""
+
+        spec = build_enriched_prompt(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_window())
+
+        mock_generate_query_plan.assert_not_called()
+        assert [step.hogql for step in spec.plan.steps] == [
+            "SELECT count() FROM events WHERE event = '$mcp_tool_call'",
+            "WITH recent AS (SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY) SELECT count() FROM recent",
+        ]
 
     @pytest.mark.parametrize(
         "prompt",
         [
             "```sql\nSELECT 1; SELECT 2\n```",
-            "```sql\nSELECT 1\n```\n```sql\nSELECT 2\n```",
         ],
     )
-    def test_ignores_ambiguous_sql(self, prompt: str) -> None:
-        assert _extract_embedded_hogql(prompt) is None
+    def test_ignores_multi_statement_sql(self, prompt: str) -> None:
+        assert _extract_embedded_hogql(prompt) == []
 
 
 class TestNoDataEventNames(APIBaseTest):

@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_QUERY_PLAN_STEPS,
     EnrichedPromptSpec,
     QueryPlan,
     QueryPlanStep,
@@ -73,7 +74,7 @@ MAX_PINNED_EVENTS = 25
 # Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
 # or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
 _QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
-# A single fenced HogQL SELECT is executable input, not planner context. Preserve it so event names
+# Fenced HogQL SELECTs are executable input, not planner context. Preserve them so event names
 # (for example `$mcp_tool_call`) and dynamic expressions such as `now()` retain their meaning.
 _EMBEDDED_HOGQL_RE = re.compile(r"```(?:sql|hogql)?\s*\n(?P<hogql>(?:SELECT|WITH)\b[\s\S]*?)```", re.IGNORECASE)
 
@@ -91,7 +92,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 6
+AI_QUERY_PLAN_VERSION = 7
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -228,15 +229,17 @@ def sanitize_prompt(raw: str | None) -> str:
     return cleaned
 
 
-def _extract_embedded_hogql(prompt: str) -> Optional[str]:
-    """Return one fenced HogQL SELECT, if the prompt contains exactly one."""
+def _extract_embedded_hogql(prompt: str) -> list[str]:
+    """Return each valid fenced HogQL query within the plan-step limit."""
     matches = list(_EMBEDDED_HOGQL_RE.finditer(prompt))
-    if len(matches) != 1:
-        return None
-    hogql = matches[0].group("hogql").strip()
-    # The query runner accepts one statement. Let the normal planner handle multi-statement examples
-    # instead of changing their meaning here.
-    return hogql if ";" not in hogql else None
+    if not matches or len(matches) > MAX_QUERY_PLAN_STEPS:
+        return []
+    hogql_queries = [match.group("hogql").strip() for match in matches]
+    # Each plan step contains one statement. Let the normal planner handle invalid or overlong input
+    # instead of producing a plan that the schema cannot execute.
+    if any(";" in hogql or len(hogql) > 5000 for hogql in hogql_queries):
+        return []
+    return hogql_queries
 
 
 def _top_event_names(team: Team, limit: int) -> list[str]:
@@ -585,9 +588,9 @@ def build_enriched_prompt(
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
     # `sanitize_prompt` is for prose sent to the LLM and can remove characters meaningful in HogQL.
-    # The embedded-query path validates its own narrow SELECT-only fenced block from the original input.
-    embedded_hogql = _extract_embedded_hogql(prompt or "")
-    if embedded_hogql is not None:
+    # The embedded-query path validates its own narrow SELECT-only fenced blocks from the original input.
+    embedded_hogql_queries = _extract_embedded_hogql(prompt or "")
+    if embedded_hogql_queries:
         # Do not route user-supplied HogQL through the planner: its fixed report window is a safety
         # rail for generated SQL, but rewriting `now()` here changes the query's semantics.
         context_blob = build_context_blob(team, window)
@@ -596,7 +599,9 @@ def build_enriched_prompt(
             context_blob=context_blob,
             plan=QueryPlan(
                 overall_intent="Run the HogQL supplied in the subscription prompt.",
-                steps=[QueryPlanStep(description="User-supplied HogQL", hogql=embedded_hogql)],
+                steps=[
+                    QueryPlanStep(description="User-supplied HogQL", hogql=hogql) for hogql in embedded_hogql_queries
+                ],
             ),
         )
     relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
