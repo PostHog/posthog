@@ -12,6 +12,13 @@ from posthog.slo.types import SloConfig
 # for the Temporal sandbox; the test pins it to ClickHouseQueryMemoryLimitExceeded.__name__.
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
+QUERY_FAILURE_MESSAGES = {
+    "ClickHouseQueryMemoryLimitExceeded": (
+        "The generated query exceeded the available memory. Narrow the analysis window or simplify the requested "
+        "breakdowns, then try again."
+    ),
+}
+
 
 def undisclosed_query_error_type(exc: BaseException) -> typing.Optional[str]:
     seen: set[int] = set()
@@ -284,6 +291,10 @@ class GenerateAIReportResult:
     def failure_error(self) -> dict[str, str]:
         # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
         # error-type names only (query_error_types are exception class names), never raw query content.
+        for error_type in self.query_error_types:
+            if message := QUERY_FAILURE_MESSAGES.get(error_type):
+                return {"message": message, "type": "AIReportQueryFailure"}
+
         disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
         detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""
         subject = (

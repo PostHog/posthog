@@ -59,16 +59,18 @@ class TestGenerateAIReportResult:
                 "All 2 queries the AI generated failed to run (ExposedHogQLError, ResolutionError), so the report could not be computed.",
             ),
             (
-                "undisclosed_type_leaves_no_detail",
+                "memory_limit_has_actionable_reason",
                 1,
                 ["ClickHouseQueryMemoryLimitExceeded"],
-                "The query the AI generated failed to run, so the report could not be computed.",
+                "The generated query exceeded the available memory. Narrow the analysis window or simplify the requested "
+                "breakdowns, then try again.",
             ),
             (
-                "undisclosed_type_dropped_from_mixed_detail",
+                "memory_limit_takes_priority_over_other_types",
                 2,
                 ["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
-                "All 2 queries the AI generated failed to run (ResolutionError), so the report could not be computed.",
+                "The generated query exceeded the available memory. Narrow the analysis window or simplify the requested "
+                "breakdowns, then try again.",
             ),
         ]
     )
