@@ -243,9 +243,11 @@ def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> li
     return [OWNERSHIP_FORMATS[source.format].build(repo_root, source) for source in sources]
 
 
-# How many of a team's changed files to keep per PR. Enough for a reader to judge whether the
-# touch was incidental; the full count travels in team_file_counts.
-TEAM_FILE_SAMPLE = 10
+# How many of a team's changed files to keep per PR. The full count travels in team_file_counts,
+# so this bounds the payload and not the answer. Set well above an ordinary PR's file count: a
+# consumer asking "does this team own anything here but generated files" can only trust the sample
+# when the count agrees with its length (see stamphog's audiences._owns_only_generated).
+TEAM_FILE_SAMPLE = 50
 
 
 def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:
@@ -274,8 +276,9 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
             all_individuals.update(owners - teams)
             for t in teams:
                 team_file_counts[t] += 1
-                # Capped: a sweeping rename can own hundreds of a team's files, and the consumer
-                # (a digest line) only needs enough to tell an incidental touch from a real one.
+                # Capped: a sweeping rename can own hundreds of a team's files and no consumer
+                # needs them all. The cap binds only on a sweep, where the count alone is the
+                # useful signal anyway.
                 paths = team_files.setdefault(t, [])
                 if len(paths) < TEAM_FILE_SAMPLE:
                     paths.append(f)

@@ -29,7 +29,7 @@ from products.stamphog.backend.logic.digest import (
     MAX_DIGEST_PRS,
     DigestPRSummary,
     DigestSummary,
-    _capped_summary,
+    _build_summary,
     _parse_llm_response,
     summarize_merged_prs,
 )
@@ -52,11 +52,11 @@ AUDIENCE = "team-devex"
 
 def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSummary:
     """Stand in for the LLM so the task never reaches a gateway. Keeps every PR: a summary that
-    keeps nothing is its own path (the digest posts nothing and releases the claim).
+    keeps nothing is its own path (the digest posts nothing and consumes the claim).
 
-    Goes through _capped_summary rather than building a DigestSummary, so a task test sees the same
-    truncation a real run would."""
-    return _capped_summary(
+    Goes through _build_summary rather than building a DigestSummary, so a task test sees the same
+    rail a real run would."""
+    return _build_summary(
         len(prs),
         [
             DigestPRSummary(
@@ -69,6 +69,7 @@ def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSum
             )
             for pr in prs
         ],
+        MAX_DIGEST_PRS,
     )
 
 
@@ -471,10 +472,11 @@ def test_claim_is_capped_per_run_and_backlog_drains_across_runs(team) -> None:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
-    # Claiming marks every PR in a run as handled, so a PR the cap truncates is consumed by a
-    # digest that never showed it and no later digest can reach it. The overflow has to go back to
-    # unclaimed, while the PRs the summarizer deliberately left out stay consumed.
+def test_prs_the_rail_left_out_stay_consumed(team) -> None:
+    # The rail is a Slack payload limit and never an editorial one, so what it removes is dropped
+    # rather than handed back. Releasing the overflow put the same merges in front of the same
+    # prompt every morning, which grew a team's claim instead of draining it and carried merges
+    # into a channel days after they landed.
     overflow = 2
     _seed_prs(team.id, pr_count=MAX_DIGEST_PRS + overflow)
 
@@ -488,8 +490,32 @@ def test_prs_the_cap_left_out_come_back_next_run(team) -> None:
     _team_id, _destination, posted = post.call_args.args
     assert len(posted.prs) == MAX_DIGEST_PRS
     with team_scope(team.id):
-        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == overflow
-        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        assert PullRequestAudience.objects.filter(digest_run__isnull=False).count() == MAX_DIGEST_PRS + overflow
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_summary_that_keeps_nothing_consumes_the_claim(team) -> None:
+    # Keeping nothing is a judgment, not a failure worth retrying. Releasing the claim sent the same
+    # merges back to the same prompt the next morning, where the same text produced the same answer,
+    # so the batch grew for a week and then aged out unseen.
+    _seed_prs(team.id, pr_count=3)
+
+    with (
+        patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
+        patch(
+            "products.stamphog.backend.logic.digest_runs.summarize_merged_prs",
+            return_value=_build_summary(3, [], MAX_DIGEST_PRS),
+        ),
+    ):
+        _run_digests(team.id)
+
+    assert not post.called
+    with team_scope(team.id):
+        assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 0
+        run = DigestRun.objects.for_team(team.id).get()
+        assert run.status == DigestRunStatus.COMPLETED
+        assert run.pr_count == 3
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

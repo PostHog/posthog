@@ -31,12 +31,23 @@ logger = structlog.get_logger(__name__)
 _DIGEST_MODEL = "claude-haiku-4-5"
 _SOURCE_PRODUCT = "stamphog_digest"
 
-# A payload rail, not an editorial rule. The bar in the prompt is what keeps a digest short, and a
-# day that genuinely produces eight things a team needs to know should show eight. In practice it
-# binds on the deterministic fallback, which judges nothing: a model outage must not dump a hundred
-# lines into a channel, and Slack rejects the message outright past 50 blocks. What it removes is
-# deferred to the next run rather than dropped (see _capped_summary).
-MAX_DIGEST_PRS = 10
+# A payload rail, never an editorial rule. Slack rejects a message past 50 blocks, so the thread
+# cannot carry more change lines than this whatever the model decides. Nothing else limits the
+# count: the bar in the prompt is the only thing that says how many changes a day is worth, and a
+# day that genuinely produces fifteen shows fifteen. Whatever the rail removes is dropped rather
+# than handed back to the next run, because a run that returns its leftovers puts the same merges
+# in front of the same prompt every morning until they age out.
+MAX_DIGEST_PRS = 40
+
+# The deterministic fallback judges nothing, so the bar above never runs on that path and this rail
+# is the only thing between a model outage and a hundred lines in a channel. Low for that reason.
+MAX_FALLBACK_PRS = 10
+
+# A team that owns exactly one file of a change this size was swept, not targeted. Derived from
+# what the audience row already carries, so it needs no capture-time decision. Flagged to the model
+# rather than dropped outright: a one-line change in a team's own product can still be the thing
+# that team needs to hear about, and only the diff says which it is.
+GRAZE_CHANGED_FILES = 8
 
 # A link the model wrote into the headline, in either a bare or a Slack-wrapped form. The channel
 # post is a paragraph a reader skims; the links belong on the change lines in the thread, where each
@@ -68,47 +79,43 @@ class DigestSummary:
     # renderer leads with the scope line instead, so an empty headline still posts a usable digest.
     headline: str = ""
     prs: list[DigestPRSummary] = field(default_factory=list)
-    # PRs that cleared the bar but did not fit under MAX_DIGEST_PRS, as "owner/repo#number". The
-    # task releases their audience rows so a later run posts them. They are not the same as the PRs
-    # the model dropped as routine: those got a decision and stay consumed, while these got no
-    # reader. Keyed on repo and number rather than URL because that pair is what identifies a PR;
-    # a blank or repeated URL would silently match rows the digest did show and re-post them.
-    deferred_prs: list[str] = field(default_factory=list)
+    # False when the deterministic fallback built this summary, so no model judged any of these
+    # merges. Every claimed merge is consumed whichever path ran, which makes the two look alike
+    # from the channel: a fallback posts a plain list and reads like a quiet day. Recorded so a
+    # reader of the run can tell them apart.
+    judged: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def pr_key(repository: str, pr_number: int) -> str:
-    """Identity of a PR across repos. Numbers repeat, so a bare number matches the wrong row."""
-    return f"{repository}#{pr_number}"
+def _build_summary(
+    considered: int,
+    prs: list[DigestPRSummary],
+    limit: int,
+    headline: str = "",
+    judged: bool = True,
+) -> DigestSummary:
+    """The only place a rail is applied, so a run stores exactly what its channel got.
 
+    Railing at render time instead would let ``DigestRun.summary`` persist every PR while the post
+    showed a subset, leaving the record of a digest disagreeing with the digest.
 
-def _capped_summary(considered: int, prs: list[DigestPRSummary], headline: str = "") -> DigestSummary:
-    """The only place MAX_DIGEST_PRS is applied, so a run stores exactly what its channel got.
-
-    Capping at render time instead would let the fallback path persist every PR in
-    ``DigestRun.summary`` while the post showed ten, leaving the record of a digest disagreeing
-    with the digest.
-
-    Whatever the cap removes is named rather than dropped. The claim marks every PR in a run as
-    handled once it posts, so a truncated PR that nobody releases is not delayed, it is gone.
+    The two paths rail at different counts because only one of them judged anything. A model answer
+    is already short and needs the rail only to stay inside Slack's block limit; the fallback needs
+    a real ceiling.
     """
-    return DigestSummary(
-        considered=considered,
-        headline=headline,
-        prs=prs[:MAX_DIGEST_PRS],
-        deferred_prs=[pr_key(pr.repository, pr.pr_number) for pr in prs[MAX_DIGEST_PRS:]],
-    )
+    return DigestSummary(considered=considered, headline=headline, prs=prs[:limit], judged=judged)
 
 
 def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
     """Deterministic no-LLM summary: no PR is judged, and each one's title becomes its sentence.
 
-    Keeps every PR up to MAX_DIGEST_PRS, and the rest are deferred rather than dropped. Without a
-    model there is nothing to rank, so which PRs land in the overflow is merge order and not merit.
+    Keeps the oldest MAX_FALLBACK_PRS merges and drops the rest. Without a model there is nothing
+    to weigh, so which merges survive is merge order and not merit, and the reader gets a plain
+    list rather than a digest. ``judged`` records that, because the post itself does not show it.
     """
-    return _capped_summary(
+    return _build_summary(
         len(prs),
         [
             DigestPRSummary(
@@ -121,6 +128,8 @@ def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
             )
             for pr in prs
         ],
+        MAX_FALLBACK_PRS,
+        judged=False,
     )
 
 
@@ -160,15 +169,16 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "Keeping nothing is a correct answer, and the common one. Return an empty prs list. Never",
         "pad the digest to make it look worth sending.",
         "",
-        "HOW MUCH TO KEEP",
+        "HOW MANY TO KEEP",
         "",
-        "Zero to three is a normal day. Four is a heavy one. If you are holding more than that, the",
-        "bar slipped while you worked: go back over what you kept and drop everything you would not",
-        "defend to a busy engineer who asks why it was worth their morning.",
+        "There is no target count. Judge each pull request on its own and keep every one that clears",
+        "the bar. Zero on a quiet day and nine on a heavy one are both correct answers.",
         "",
-        "The reader gets one of these every weekday. Two things they needed is worth more than those",
-        "same two plus six they did not, because the second digest costs them the habit of reading",
-        "the next one.",
+        "Do not pad the list to make the digest look worth sending, and do not trim it to look brief.",
+        "The bar decides the length.",
+        "",
+        "The reader gets one of these every weekday. A list with nothing they needed teaches them to",
+        "skip the next one, so a short list is better than a padded one.",
         "",
         "CALIBRATION (real merges in this codebase)",
         "- Keep: a scanner auto-materializes hot event properties for the heaviest teams, off by",
@@ -181,13 +191,19 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "- Drop: a test now covers an id flowing through auth. Nothing observable changed.",
         "",
         "A <reviewed_summary> is stamphog's own one-line description, written while it reviewed the",
-        "diff. Prefer it over the title and description, which are the author's claim about the",
-        "change. Rewrite it to the rules below, or keep it when it already follows them.",
+        "diff. It is the input to trust. Rewrite it to the rules below, or keep it when it already",
+        "follows them. A <description> appears only for a pull request stamphog never summarized,",
+        "and it is the author's claim about their own change rather than a reviewed fact.",
         "",
         "A `your_files` line means this digest goes to the team owning those files, so judge the PR",
         "from their side: keep it when it changes how their area behaves, and drop it when it only",
         "grazed them (a repo-wide rename, a shared type bump, an import fix). Say what changed for",
         "them, not what the PR was about overall.",
+        "",
+        "A `grazed` line means the team owns exactly one file of a large change. Drop the pull",
+        "request unless that one file changes how their area behaves. Being caught by a sweep is not",
+        "news. Treat this as an instruction and not a hint: an unexplained one-file touch is the",
+        "most common way this digest wastes a team's morning.",
         "",
         "HOW TO WRITE THE LINE",
         "- One sentence. 20 words or fewer. Present tense. Active voice. One idea.",
@@ -225,7 +241,8 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "The headline is the only part posted in the channel. The per-PR lines sit in a thread under",
         "it, which most readers never open, so the headline has to stand alone: someone who reads it",
         "and nothing else must still learn the thing that could catch them out.",
-        "- Cover the one or two changes with the most consequence. Do not summarize the whole list.",
+        "- Cover the changes with the most consequence, usually one or two of them. Do not summarize",
+        "  the whole list. The thread carries every change you kept, each with its own link.",
         "- One to three sentences that run on from each other as a single paragraph. It is read the",
         "  way a person reads a message from a colleague, not scanned the way a list is.",
         "- Every style rule above applies to it unchanged.",
@@ -266,7 +283,10 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         lines.append(f"  <title index={index}>{pr.title}</title>")
         if pr.summary_line:
             lines.append(f"  <reviewed_summary index={index}>{pr.summary_line}</reviewed_summary>")
-        if pr.body_excerpt:
+        elif pr.body_excerpt:
+            # Only when stamphog wrote no summary of its own. The reviewed summary already says what
+            # changed, in 200 characters a reviewer stood behind, so sending the body alongside it
+            # buys nothing and hands a contributor 2000 characters of prompt to write in.
             lines.append(f"  <description index={index}>{pr.body_excerpt}</description>")
         if index in owned_by_index:
             owned, owned_count = owned_by_index[index]
@@ -275,6 +295,8 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
             lines.append(f"  your_files index={index} count={owned_count} of {pr.changed_files}")
             if owned:
                 lines.append(f"  <your_file_sample index={index}>{', '.join(owned)}</your_file_sample>")
+            if owned_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES:
+                lines.append(f"  grazed index={index}")
     return "\n".join(lines)
 
 
@@ -341,7 +363,7 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
     # wearing its shape, and accepting it would consume every claimed audience for an empty post.
     if not picked and raw_prs != []:
         raise ValueError("LLM returned no recognizable PRs")
-    return _capped_summary(len(prs_by_index), picked, _headline(data))
+    return _build_summary(len(prs_by_index), picked, MAX_DIGEST_PRS, _headline(data))
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
@@ -352,7 +374,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     that merely grazed the team's files while keeping one that changed their area.
     """
     if not prs:
-        return _capped_summary(0, [])
+        return _build_summary(0, [], MAX_DIGEST_PRS)
 
     team_id = prs[0].team_id
     try:
