@@ -16,6 +16,7 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
@@ -32,6 +33,8 @@ _CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
 # the same call, in a loop, with nothing between it and storage. Counted the way `extract_cells`
 # counts, so this ceiling and what the API reports as a cell are the same number.
 MAX_NOTEBOOK_CELLS = 50
+
+__all__ = ["NotebookCellLimitExceeded"]
 _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
@@ -72,10 +75,6 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             )
         )
     return cells
-
-
-class NotebookCellLimitExceeded(Exception):
-    """Raised when a save would grow a notebook past MAX_NOTEBOOK_CELLS."""
 
 
 def validate_cell_count(previous_content: Any, next_content: Any) -> None:
