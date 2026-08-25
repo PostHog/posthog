@@ -607,9 +607,6 @@ describe('CDP API', () => {
                   "now": "",
                   "properties": {
                     "$lib_version": "1.0.0",
-                    "$transformations_succeeded": [
-                      "Filter Out Plugin (<REPLACED-UUID-1>)",
-                    ],
                   },
                   "site_url": "http://localhost:8000/project/2",
                   "team_id": 2,
@@ -1737,7 +1734,7 @@ describe('CDP API', () => {
         const mintCancelToken = (
             teamId: number,
             hogFlowId: string,
-            { secret = 'local-dev-workflows-reschedule-jwt', audience = 'posthog:workflows:cancel_invocations' } = {}
+            { secret = 'local-dev-workflows-cancel-jwt', audience = 'posthog:workflows:cancel_invocations' } = {}
         ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
 
         // No hog flow row exists for this id: cancel deliberately skips the flow lookup so it
@@ -1789,12 +1786,22 @@ describe('CDP API', () => {
             ],
             ["another team's token", () => ({ Authorization: `Bearer ${mintCancelToken(team.id + 1, cancelFlowId)}` })],
             [
-                // The cancel purpose shares its signing key with reschedule_parked, so the audience
-                // is the only thing keeping a reschedule token out of cancel.
+                // Cancel and reschedule use separate keys now, so a reschedule-audience token is
+                // rejected on audience regardless of which key signed it.
                 'a reschedule-audience token',
                 () => ({
                     Authorization: `Bearer ${mintCancelToken(team.id, cancelFlowId, {
                         audience: 'posthog:workflows:reschedule_parked',
+                    })}`,
+                }),
+            ],
+            [
+                // The cancel key is dedicated: a cancel-audience token signed with the reschedule
+                // sweep's key must be rejected, or splitting the keys would buy no real isolation.
+                'a token signed with the reschedule key',
+                () => ({
+                    Authorization: `Bearer ${mintCancelToken(team.id, cancelFlowId, {
+                        secret: 'local-dev-workflows-reschedule-jwt',
                     })}`,
                 }),
             ],
@@ -1837,7 +1844,7 @@ describe('CDP API', () => {
             teamId: number,
             hogFlowId: string,
             {
-                secret = 'local-dev-workflows-reschedule-jwt',
+                secret = 'local-dev-workflows-cancel-jwt',
                 audience = 'posthog:workflows:cancel_batch',
                 batchJob = batchJobId,
             } = {}
@@ -1901,8 +1908,8 @@ describe('CDP API', () => {
                 }),
             ],
             [
-                // The batch purpose shares its signing key with the other workflows purposes, so
-                // the audience is the only thing keeping an invocations-cancel token out of here.
+                // The two cancel purposes share the cancel key, so the audience is the only thing
+                // keeping an invocations-cancel token out of the batch route.
                 'an invocations-cancel-audience token',
                 () => ({
                     Authorization: `Bearer ${mintBatchToken(team.id, batchFlowId, {

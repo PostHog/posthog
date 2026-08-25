@@ -208,11 +208,11 @@ export class CdpApi {
         )
         this.cancelInvocationsJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
-            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
         this.cancelBatchJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
-            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
     }
 
@@ -1171,7 +1171,7 @@ export class CdpApi {
             }
             if (!this.cancelInvocationsJwt.enabled) {
                 return res.status(503).json({
-                    error: 'Workflows scoped auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
                 })
             }
 
@@ -1256,7 +1256,7 @@ export class CdpApi {
             }
             if (!this.cancelBatchJwt.enabled) {
                 return res.status(503).json({
-                    error: 'Workflows scoped auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
                 })
             }
 

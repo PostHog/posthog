@@ -15,6 +15,8 @@ import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
+import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
+import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
 import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
@@ -41,6 +43,7 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
@@ -84,6 +87,8 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
+    /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
+    cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     capturedEventsService: CapturedEventsService
@@ -402,6 +407,11 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
+    // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
+    const workflowEmailRateLimiter = deps.emailValidationValkey
+        ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
+        : null
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -419,7 +429,8 @@ export function createCdpCoreServices(
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
-        messageAssetsService
+        messageAssetsService,
+        workflowEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -469,6 +480,7 @@ export function createCdpCoreServices(
     // whose capabilities execute email actions; everywhere else this is null
     // and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
+    const cohortMembershipRepository = new PostgresCohortMembershipRepository(deps.postgres)
     // Observer writes to both stores; the read source decides which verdict drives the metric.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
     const hogFlowExecutor = new HogFlowExecutorService(
@@ -513,6 +525,7 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         emailSuppressionService,
         teamWorkflowsConfigService,
+        cohortMembershipRepository,
         hogFlowExecutor,
         hogFunctionMonitoringService,
         capturedEventsService,

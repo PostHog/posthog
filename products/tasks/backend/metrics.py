@@ -222,6 +222,40 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     labelnames=["origin_product", "retryable"],
 )
 
+SANDBOX_DEADLINE_BUCKETS = [5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0]
+
+SANDBOX_DEADLINE_TOTAL = Counter(
+    "posthog_tasks_sandbox_deadline_total",
+    "Interactive cloud runs that reached the pre-deadline lead time on their sandbox, "
+    "by what the run ended up on. rotated moved onto a replacement sandbox; snapshot_only "
+    "kept the sandbox it had and saved the session; snapshot_failed kept it with nothing "
+    "saved; routing_lost backed out of a rotation and could not repoint the run, so it can "
+    "take no more messages.",
+    labelnames=["outcome", "reason", "origin_product"],
+)
+
+SANDBOX_ROTATION_DURATION_SECONDS = Histogram(
+    "posthog_tasks_sandbox_rotation_duration_seconds",
+    "Wall time a run spent handling its sandbox deadline. The run answers no messages for "
+    "this long, so it is the user-visible cost of a rotation.",
+    labelnames=["outcome"],
+    buckets=SANDBOX_DEADLINE_BUCKETS,
+)
+
+FOLLOWUP_SANDBOX_STOPPED_TOTAL = Counter(
+    "posthog_tasks_followup_sandbox_stopped_total",
+    "Follow-up deliveries rejected because the control plane reports the run's sandbox "
+    "stopped, by where the check caught it",
+    labelnames=["origin_product", "detected_by"],
+)
+
+FOLLOWUP_DENIED_PERMISSION_STOP_TOTAL = Counter(
+    "posthog_tasks_followup_denied_permission_stop_total",
+    "Follow-up deliveries dropped instead of retried because the turn ended on a permission "
+    "the actor denied. A retry would re-ask the refused question.",
+    labelnames=["origin_product"],
+)
+
 TASK_RUN_WIZARD_UNBOUND_TOTAL = Counter(
     "posthog_tasks_wizard_run_unbound_total",
     "Wizard cloud runs that reached a terminal status without an output.pr_url binding",
@@ -255,6 +289,15 @@ LOOP_AUTO_PAUSED_TOTAL = Counter(
 
 CodeUsageGateOutcome = Literal["checked_allowed", "checked_blocked", "fail_open", "org_deactivated"]
 ComputeQuotaOutcome = Literal["checked_allowed", "checked_blocked", "fail_open"]
+DesktopAccessOutcome = Literal[
+    "allowed",
+    "legacy_allowed",
+    "legacy_denied",
+    "startup_plan",
+    "prepaid_credits",
+    "override",
+    "resolution_failure",
+]
 
 # outcome: checked_allowed/checked_blocked when the LLM gateway answered the usage check,
 # fail_open when a gateway/token error let the run proceed unchecked (see LOOPS.md Security:
@@ -269,6 +312,12 @@ CODE_USAGE_GATE_CHECK_TOTAL = Counter(
 COMPUTE_QUOTA_CHECK_TOTAL = Counter(
     "posthog_tasks_compute_quota_check_total",
     "Compute quota-check outcomes for billable PostHog Desktop runs",
+    labelnames=["outcome"],
+)
+
+DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
+    "posthog_tasks_desktop_access_decisions_total",
+    "PostHog Desktop access decisions by bounded outcome",
     labelnames=["outcome"],
 )
 
@@ -523,6 +572,43 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
     ).inc()
 
 
+_SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "routing_lost"}
+_SANDBOX_DEADLINE_REASONS = {
+    "none",
+    "no_sandbox",
+    "flag_disabled",
+    "agent_active",
+    "followup_in_flight",
+    "run_completed",
+    "snapshot_missing",
+    "provision_failed",
+    "snapshot_unused",
+}
+
+
+def observe_sandbox_deadline(properties: dict[str, object]) -> None:
+    outcome = _bounded_metric_label(properties.get("outcome"), _SANDBOX_DEADLINE_OUTCOMES)
+    SANDBOX_DEADLINE_TOTAL.labels(
+        outcome=outcome,
+        reason=_bounded_metric_label(properties.get("reason"), _SANDBOX_DEADLINE_REASONS),
+        origin_product=_metric_label(properties.get("origin_product")),
+    ).inc()
+    duration = properties.get("duration_seconds")
+    if isinstance(duration, int | float) and not isinstance(duration, bool):
+        SANDBOX_ROTATION_DURATION_SECONDS.labels(outcome=outcome).observe(float(duration))
+
+
+def observe_followup_sandbox_stopped(task_run: "TaskRun | None", *, detected_by: str) -> None:
+    FOLLOWUP_SANDBOX_STOPPED_TOTAL.labels(
+        origin_product=origin_product_label(task_run),
+        detected_by=detected_by,
+    ).inc()
+
+
+def observe_followup_denied_permission_stop(task_run: "TaskRun | None") -> None:
+    FOLLOWUP_DENIED_PERMISSION_STOP_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
+
+
 def observe_loop_fire(*, reason: str) -> None:
     LOOP_FIRE_TOTAL.labels(reason=reason).inc()
 
@@ -533,3 +619,7 @@ def observe_loop_auto_paused() -> None:
 
 def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
     CODE_USAGE_GATE_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
+    DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()

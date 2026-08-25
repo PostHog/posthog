@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable legacy access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreateBodyCodeMax = 50
@@ -1107,14 +1107,15 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'loop',
                 'mcp_analytics',
                 'signals_chat',
+                'task_analysis',
                 'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1274,14 +1275,15 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'loop',
                 'mcp_analytics',
                 'signals_chat',
+                'task_analysis',
                 'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -1420,14 +1422,15 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'loop',
                 'mcp_analytics',
                 'signals_chat',
+                'task_analysis',
                 'workflow',
             ])
             .describe(
-                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
+                '\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             )
             .optional()
             .describe(
-                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `workflow` - Workflow'
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow'
             ),
         repository: zod
             .string()
@@ -2309,6 +2312,12 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('State keys to remove atomically before applying any state updates.'),
+    state_append: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'State keys whose value to append to the list stored at that key, atomically under the row lock. Use instead of sending the whole list back through `state`, which loses concurrent appends to a read-modify-write race.'
+        ),
     error_message: zod.string().nullish().describe('Error message if execution failed'),
     environment: zod
         .enum(['local'])
@@ -2318,6 +2327,168 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Transition a cloud run to local. Use the resume_in_cloud action to move a run into cloud.\n\n\* `local` - local'
         ),
 })
+
+/**
+ * Store one verified inefficiency finding on a task-analysis run. Only the run's own task-bound sandbox agent may call it, and only on a task-analysis run. The findings list is server-owned: it is not writable through the run update endpoint.
+ * @summary Report an analysis finding
+ */
+export const tasksRunsAnalysisInsightCreateBodyObservationMin = 80
+export const tasksRunsAnalysisInsightCreateBodyObservationMax = 500
+
+export const tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMin = 20
+export const tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMax = 300
+
+export const tasksRunsAnalysisInsightCreateBodyOtherJustificationMin = 50
+export const tasksRunsAnalysisInsightCreateBodyOtherJustificationMax = 200
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMin = 50
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMax = 400
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMin = 30
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMax = 200
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsItemMax = 500
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsMax = 10
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesItemMax = 100
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesMax = 10
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesItemMax = 100
+
+export const tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesMax = 10
+
+export const TasksRunsAnalysisInsightCreateBody = /* @__PURE__ */ zod
+    .object({
+        no_findings_reason: zod
+            .enum(['run_was_efficient', 'too_short_to_judge', 'insufficient_visibility'])
+            .describe(
+                '\* `run_was_efficient` - run_was_efficient\n\* `too_short_to_judge` - too_short_to_judge\n\* `insufficient_visibility` - insufficient_visibility'
+            )
+            .optional()
+            .describe(
+                'Only for a run with zero findings; never combined with a finding.\n\n\* `run_was_efficient` - run_was_efficient\n\* `too_short_to_judge` - too_short_to_judge\n\* `insufficient_visibility` - insufficient_visibility'
+            ),
+        observation: zod
+            .string()
+            .min(tasksRunsAnalysisInsightCreateBodyObservationMin)
+            .max(tasksRunsAnalysisInsightCreateBodyObservationMax)
+            .optional()
+            .describe('What happened, 1-3 sentences.'),
+        evidence: zod
+            .array(
+                zod.object({
+                    quote: zod
+                        .string()
+                        .min(tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMin)
+                        .max(tasksRunsAnalysisInsightCreateBodyEvidenceItemQuoteMax)
+                        .describe('Verbatim span copied from the analysed run log.'),
+                    evidence_type: zod
+                        .enum(['transcript_quote', 'command_output', 'measured_count'])
+                        .describe(
+                            '\* `transcript_quote` - transcript_quote\n\* `command_output` - command_output\n\* `measured_count` - measured_count'
+                        )
+                        .describe(
+                            'What kind of log content the quote was taken from.\n\n\* `transcript_quote` - transcript_quote\n\* `command_output` - command_output\n\* `measured_count` - measured_count'
+                        ),
+                })
+            )
+            .optional()
+            .describe('Quotes from the analysed log backing the observation.'),
+        occurrence_count: zod.number().min(1).optional().describe('How often this happened.'),
+        category: zod
+            .enum([
+                'environment_failure',
+                'missing_tool',
+                'verbose_output',
+                'redundant_work',
+                'missing_capability',
+                'instruction_gap',
+                'wasted_retry',
+                'other',
+            ])
+            .describe(
+                '\* `environment_failure` - environment_failure\n\* `missing_tool` - missing_tool\n\* `verbose_output` - verbose_output\n\* `redundant_work` - redundant_work\n\* `missing_capability` - missing_capability\n\* `instruction_gap` - instruction_gap\n\* `wasted_retry` - wasted_retry\n\* `other` - other'
+            )
+            .optional()
+            .describe(
+                'The kind of inefficiency observed.\n\n\* `environment_failure` - environment_failure\n\* `missing_tool` - missing_tool\n\* `verbose_output` - verbose_output\n\* `redundant_work` - redundant_work\n\* `missing_capability` - missing_capability\n\* `instruction_gap` - instruction_gap\n\* `wasted_retry` - wasted_retry\n\* `other` - other'
+            ),
+        other_justification: zod
+            .string()
+            .min(tasksRunsAnalysisInsightCreateBodyOtherJustificationMin)
+            .max(tasksRunsAnalysisInsightCreateBodyOtherJustificationMax)
+            .optional()
+            .describe("Required when category is 'other'."),
+        wasted_effort: zod
+            .object({
+                tool_calls: zod.number().min(1).optional().describe('Wasted tool calls, counted from the log.'),
+                seconds: zod.number().min(1).optional().describe('Wall-clock seconds across the wasted span.'),
+                tokens: zod.number().min(1).optional().describe('Token delta across the wasted span.'),
+                output_bytes: zod
+                    .number()
+                    .min(1)
+                    .optional()
+                    .describe('Sum of tool-output sizes across the wasted span.'),
+            })
+            .optional()
+            .describe('Effort measured from the log, never estimated.'),
+        recurrence: zod
+            .enum(['every_run_in_this_repo', 'runs_touching_this_area', 'one_off'])
+            .describe(
+                '\* `every_run_in_this_repo` - every_run_in_this_repo\n\* `runs_touching_this_area` - runs_touching_this_area\n\* `one_off` - one_off'
+            )
+            .optional()
+            .describe(
+                'How widely this is expected to recur.\n\n\* `every_run_in_this_repo` - every_run_in_this_repo\n\* `runs_touching_this_area` - runs_touching_this_area\n\* `one_off` - one_off'
+            ),
+        confidence_basis: zod
+            .enum(['directly_observed', 'inferred'])
+            .describe('\* `directly_observed` - directly_observed\n\* `inferred` - inferred')
+            .optional()
+            .describe(
+                'How the finding was established.\n\n\* `directly_observed` - directly_observed\n\* `inferred` - inferred'
+            ),
+        suggested_fix: zod
+            .object({
+                change: zod
+                    .string()
+                    .min(tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMin)
+                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneChangeMax)
+                    .describe('The specific change to make.'),
+                done_when: zod
+                    .string()
+                    .min(tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMin)
+                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneDoneWhenMax)
+                    .describe('A checkable condition confirming the fix worked.'),
+                setup_commands: zod
+                    .array(
+                        zod.string().min(1).max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsItemMax)
+                    )
+                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneSetupCommandsMax)
+                    .optional()
+                    .describe('Single-line commands only; these may become image build steps.'),
+                required_services: zod
+                    .array(
+                        zod
+                            .string()
+                            .min(1)
+                            .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesItemMax)
+                    )
+                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneRequiredServicesMax)
+                    .optional()
+                    .describe('Services the fix needs available.'),
+                env_var_names: zod
+                    .array(zod.string().min(1).max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesItemMax))
+                    .max(tasksRunsAnalysisInsightCreateBodySuggestedFixOneEnvVarNamesMax)
+                    .optional()
+                    .describe('Environment variable names only, never values.'),
+            })
+            .optional()
+            .describe('The fix the finding argues for.'),
+    })
+    .describe('One analysis finding. The shape the server stores, independent of what the tool sent.')
 
 /**
  * Append one or more log entries to the task run log array

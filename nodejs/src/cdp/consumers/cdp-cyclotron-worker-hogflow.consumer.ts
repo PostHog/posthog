@@ -193,14 +193,36 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     variables: hogFlowInvocationState.variables || {},
                 })
 
-                loadedInvocations.push({
+                const loaded: CyclotronJobInvocationHogFlow = {
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
                     person: person ?? undefined,
                     groups,
                     filterGlobals,
-                })
+                }
+
+                if (personIdOrDistinctId) {
+                    loaded.refreshPerson = async () => {
+                        const fresh = await this.personsManager.getCyclotronPerson(
+                            hogFlow.team_id,
+                            personIdOrDistinctId,
+                            kind,
+                            { forceFresh: true }
+                        )
+                        return {
+                            person: fresh ?? undefined,
+                            filterGlobals: convertToHogFunctionFilterGlobal({
+                                event: hogFlowInvocationState.event,
+                                person: fresh ?? undefined,
+                                groups,
+                                variables: hogFlowInvocationState.variables || {},
+                            }),
+                        }
+                    }
+                }
+
+                loadedInvocations.push(loaded)
             })
         )
 

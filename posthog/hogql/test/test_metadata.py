@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db import DatabaseError
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     HogLanguage,
     HogQLMetadata,
@@ -181,6 +183,34 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    @parameterized.expand(
+        [
+            ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
+            ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+        ]
+    )
+    def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):
+        metadata = self._select(query)
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        error = metadata.errors[0]
+        self.assertIn(f"Did you mean: {expected_fix}", error.message)
+        self.assertEqual(error.fix, expected_fix)
+        # The editor substitutes `fix` for the marked range, so the range has to cover the
+        # misspelling and nothing else. A span of None marks the whole query.
+        self.assertEqual(query[error.start : error.end], misspelling)
+
+    def test_metadata_offers_no_quick_fix_when_the_misspelling_heads_a_chain(self):
+        metadata = self._select("SELECT evnt.foo FROM events")
+
+        self.assertFalse(metadata.isValid)
+        self.assertEqual(len(metadata.errors), 1)
+        # Asserting the suggestion is present keeps this pinned on the chain rule: the marked range
+        # covers `evnt.foo`, so substituting `event` for it would drop the rest of the chain.
+        self.assertIn("Did you mean: event", metadata.errors[0].message)
+        self.assertIsNone(metadata.errors[0].fix)
 
     def test_metadata_warns_for_unknown_event_literal(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")

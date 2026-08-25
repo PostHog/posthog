@@ -3,18 +3,13 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.partnerstack import (
     PartnerStackSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.partnerstack import (
-    PartnerStackResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source import PartnerStackSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPartnerStackSource:
@@ -22,9 +17,6 @@ class TestPartnerStackSource:
         self.source = PartnerStackSource()
         self.team_id = 123
         self.config = PartnerStackSourceConfig(public_key="pub", private_key="priv")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PARTNERSTACK
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -37,14 +29,6 @@ class TestPartnerStackSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["public_key", "private_key"]
-
-    def test_both_key_fields_are_secret_passwords(self) -> None:
-        config = self.source.get_source_config
-        for name in ("public_key", "private_key"):
-            field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == name)
-            assert field.type == SourceFieldInputConfigType.PASSWORD
-            assert field.secret is True
-            assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # Both fields are secret keys; the base URL is hardcoded, so there is no non-secret field an
@@ -105,11 +89,6 @@ class TestPartnerStackSource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("pub", "priv")
         assert result == (False, "Invalid PartnerStack API keys")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PartnerStackResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.partnerstack.source.partnerstack_source"

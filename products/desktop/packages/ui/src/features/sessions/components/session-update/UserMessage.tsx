@@ -22,6 +22,10 @@ import { extractCanvasInstructions } from "./canvasInstructions";
 import { extractChannelContext } from "./channelContext";
 import { extractCustomInstructions } from "./customInstructions";
 import {
+  extractOnboardingBrief,
+  ONBOARDING_BRIEF_LABEL,
+} from "./onboardingBrief";
+import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
@@ -104,8 +108,15 @@ export const UserMessage = memo(function UserMessage({
     () => extractCustomInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
+  const afterCustomInstructions = customInstructions
+    ? customInstructions.stripped
+    : afterCanvasInstructions;
+  const onboardingBrief = useMemo(
+    () => extractOnboardingBrief(afterCustomInstructions),
+    [afterCustomInstructions],
+  );
   const displayContent = collapsePiSkillInvocation(
-    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
   );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
@@ -153,7 +164,8 @@ export const UserMessage = memo(function UserMessage({
           )}
           {(!!peerAgentMessage ||
             showChannelContextTag ||
-            showCanvasInstructionsTag) && (
+            showCanvasInstructionsTag ||
+            !!onboardingBrief) && (
             <Flex
               wrap="wrap"
               gap="1"
@@ -163,6 +175,12 @@ export const UserMessage = memo(function UserMessage({
                 <MentionChip
                   icon={<Robot size={12} />}
                   label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
+                />
+              )}
+              {onboardingBrief && (
+                <MentionChip
+                  icon={<FileText size={12} />}
+                  label={ONBOARDING_BRIEF_LABEL}
                 />
               )}
               {showChannelContextTag && channelContext && (

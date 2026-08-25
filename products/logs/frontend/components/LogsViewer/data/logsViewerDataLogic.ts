@@ -24,7 +24,6 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -184,7 +183,6 @@ export interface logsViewerDataLogicValues {
             values: number[]
         }[]
         dates: string[]
-        labels: string[]
     }
     sparklineIncompleteBarIndices: number[]
     sparklineLoading: boolean
@@ -460,7 +458,6 @@ export interface logsViewerDataLogicMeta {
                 values: number[]
             }[]
             dates: string[]
-            labels: string[]
         }
         sparklineIncompleteBarIndices: (
             sparklineData: {
@@ -470,7 +467,6 @@ export interface logsViewerDataLogicMeta {
                     values: number[]
                 }[]
                 dates: string[]
-                labels: string[]
             },
             liveLogsCheckpoint: string | null,
             sparklineLoading: boolean
@@ -865,23 +861,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             (s) => [s.sparkline, s.sparklineBreakdownBy],
             (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
                 if (!sparkline) {
-                    return { labels: [], dates: [], data: [] }
+                    return { dates: [], data: [] }
                 }
 
                 const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
                 let i = -1
-                const labels: string[] = []
                 const dates: string[] = []
                 const accumulated = sparkline.reduce(
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    timestampStyle: 'absolute',
-                                })
-                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
@@ -902,6 +892,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                // A key with no rows in the newest buckets stops accumulating early, leaving an array
+                // shorter than `dates`. Quill requires `data.length === labels.length`: a ragged array
+                // desyncs bar positions and clamps `stroke.partial.fromIndex` onto a complete bar,
+                // rendering it as still-ingesting.
+                const padToDatesLength = (values: number[]): number[] => {
+                    while (values.length < dates.length) {
+                        values.push(0)
+                    }
+                    return values
+                }
+
                 // The endpoint folds everything past its top-N into one bucket under a sentinel key.
                 // Left as-is that sorts to the front (it starts with '$') and draws as a breakdown
                 // value literally named "$$_posthog_breakdown_other_$$".
@@ -910,7 +911,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([name, values], index) => ({
                         name,
-                        values: values as number[],
+                        values: padToDatesLength(values as number[]),
                         color:
                             sparklineBreakdownBy === 'service'
                                 ? dataColorVars[index % dataColorVars.length]
@@ -926,10 +927,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
                 if (otherValues) {
                     // Last and muted, so it reads as an aggregate rather than as another breakdown value.
-                    data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
+                    data.push({
+                        name: OTHER_BREAKDOWN_LABEL,
+                        values: padToDatesLength(otherValues as number[]),
+                        color: 'muted',
+                    })
                 }
 
-                return { data, labels, dates }
+                return { data, dates }
             },
         ],
         // Sparkline bar indices that are still being ingested (incomplete), to be hatched. A bucket is

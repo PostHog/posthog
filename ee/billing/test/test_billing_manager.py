@@ -27,7 +27,11 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
     BillingManager,
+    FundingStatusUnavailable,
+    OrganizationFundingStatus,
+    PrepaidCreditState,
     _get_user_organization_role,
+    _parse_funding_status,
     build_billing_token,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
@@ -57,6 +61,60 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
 
     data.update(kwargs)
     return data
+
+
+class TestFundingStatusParsing(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "normal",
+                {"startup_program_label": None, "prepaid_credit_state": "none"},
+                OrganizationFundingStatus(
+                    startup_program_label=None,
+                    prepaid_credit_state=PrepaidCreditState.NONE,
+                ),
+            ),
+            (
+                "startup_active",
+                {"startup_program_label": "Startup", "prepaid_credit_state": "active"},
+                OrganizationFundingStatus(
+                    startup_program_label="Startup",
+                    prepaid_credit_state=PrepaidCreditState.ACTIVE,
+                ),
+            ),
+            (
+                "yc_expired",
+                {"startup_program_label": "YC", "prepaid_credit_state": "expired"},
+                OrganizationFundingStatus(
+                    startup_program_label="YC",
+                    prepaid_credit_state=PrepaidCreditState.EXPIRED,
+                ),
+            ),
+        ]
+    )
+    def test_parses_funding_status(
+        self, _name: str, payload: dict[str, str | None], expected: OrganizationFundingStatus
+    ) -> None:
+        self.assertEqual(_parse_funding_status(payload), expected)
+
+    @parameterized.expand(
+        [
+            ("not_an_object", []),
+            (
+                "invalid_program_label",
+                {"startup_program_label": "Growth", "prepaid_credit_state": "none"},
+            ),
+            ("missing_program_label", {"prepaid_credit_state": "none"}),
+            ("missing_credit_state", {"startup_program_label": None}),
+            (
+                "invalid_credit_state",
+                {"startup_program_label": None, "prepaid_credit_state": "paid"},
+            ),
+        ]
+    )
+    def test_rejects_invalid_funding_status(self, _name: str, payload: object) -> None:
+        with self.assertRaises(FundingStatusUnavailable):
+            _parse_funding_status(payload)
 
 
 class TestBillingManager(BaseTest):
@@ -129,6 +187,80 @@ class TestBillingManager(BaseTest):
         assert ("X-PostHog-Actor-IP" in headers) is expect_header
         if expect_header:
             assert headers["X-PostHog-Actor-IP"] == ip_address
+
+    @patch("ee.billing.billing_manager.BILLING_SERVICE_URL", "https://billing.posthog.com")
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_get_funding_status_uses_organization_scoped_billing_token(
+        self, mock_get: MagicMock, mock_cache: MagicMock
+    ) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        payload = {"startup_program_label": None, "prepaid_credit_state": "none"}
+        mock_cache.get.return_value = None
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value=payload))
+
+        result = BillingManager(license, self.user).get_funding_status(self.organization)
+
+        assert result == OrganizationFundingStatus(
+            startup_program_label=None,
+            prepaid_credit_state=PrepaidCreditState.NONE,
+        )
+        mock_get.assert_called_once()
+        call = mock_get.call_args
+        assert call.args[0] == "https://billing.posthog.com/api/billing/funding-status/"
+        assert call.kwargs["headers"]["Authorization"].startswith("Bearer ")
+        assert call.kwargs["timeout"] == 5
+        mock_cache.set.assert_called_once_with(
+            f"organization_funding_status:{self.organization.id}", payload, timeout=30
+        )
+
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_get_funding_status_uses_cached_value(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        mock_cache.get.return_value = {"startup_program_label": "YC", "prepaid_credit_state": "expired"}
+
+        result = BillingManager(MagicMock(), self.user).get_funding_status(self.organization)
+
+        assert result == OrganizationFundingStatus(
+            startup_program_label="YC",
+            prepaid_credit_state=PrepaidCreditState.EXPIRED,
+        )
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_get_funding_status_ignores_cache_failure(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        payload = {"startup_program_label": None, "prepaid_credit_state": "active"}
+        mock_cache.get.side_effect = RuntimeError("cache unavailable")
+        mock_cache.set.side_effect = RuntimeError("cache unavailable")
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value=payload))
+
+        manager = BillingManager(MagicMock(), self.user)
+        with patch.object(manager, "get_auth_headers", return_value={}):
+            result = manager.get_funding_status(self.organization)
+
+        assert result.prepaid_credit_state == PrepaidCreditState.ACTIVE
+
+    @patch("ee.billing.billing_manager.cache")
+    @patch("ee.billing.billing_manager.requests.get", side_effect=requests.Timeout)
+    def test_get_funding_status_caches_billing_failure(self, mock_get: MagicMock, mock_cache: MagicMock) -> None:
+        cached_values: list[object | None] = [None]
+        mock_cache.get.side_effect = lambda _key: cached_values[-1]
+        mock_cache.set.side_effect = lambda _key, value, timeout: cached_values.append(value)
+
+        manager = BillingManager(MagicMock(), self.user)
+        with patch.object(manager, "get_auth_headers", return_value={}):
+            with self.assertRaises(FundingStatusUnavailable):
+                manager.get_funding_status(self.organization)
+            with self.assertRaises(FundingStatusUnavailable):
+                manager.get_funding_status(self.organization)
+
+        mock_get.assert_called_once()
+        assert mock_cache.set.call_args.kwargs["timeout"] == 5
 
     @patch(
         "ee.billing.billing_manager.requests.patch",

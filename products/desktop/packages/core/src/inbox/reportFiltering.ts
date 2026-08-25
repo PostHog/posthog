@@ -40,6 +40,27 @@ export const INBOX_DISMISSED_STATUS_FILTER = "suppressed,resolved";
  */
 export const INBOX_PULL_REQUEST_STATUS_FILTER = "ready";
 
+/**
+ * Status filter for the reports inbox page (and its badges). Excludes
+ * `potential`: embryonic reports the pipeline hasn't promoted yet, which no
+ * surface has ever displayed — fetching them bloats Monitoring with rows
+ * nobody can act on and spends the page's row budget on noise. The legacy
+ * inbox keeps the broader filter for its Runs accounting.
+ */
+export const REPORTS_INBOX_STATUS_FILTER = INBOX_PIPELINE_STATUSES.filter(
+  (status) => status !== "potential",
+).join(",");
+
+/**
+ * Status filter for the Reports tab's count. `isReportTabReport` keeps a report
+ * only when it is `ready` and carries no PR, because every other pipeline status
+ * is either a queued/live run that belongs to the Runs tab or a `failed` run
+ * that is filtered out. Pairing this with `has_implementation_pr: false`
+ * reproduces that predicate server-side, so the badge can be counted rather than
+ * derived from the loaded pages.
+ */
+export const INBOX_REPORTS_TAB_STATUS_FILTER = "ready";
+
 /** Polling interval for inbox queries while the Electron window is focused. */
 export const INBOX_REFETCH_INTERVAL_MS = 3000;
 

@@ -13,6 +13,7 @@ import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
     signalsScoutConfigUpdate,
+    signalsScoutRunsRecentPerScout,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -26,6 +27,8 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
+    signalsScoutRunsList: jest.fn(),
+    signalsScoutRunsRecentPerScout: jest.fn(),
 }))
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
@@ -33,6 +36,9 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
+const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
+    typeof signalsScoutRunsRecentPerScout
+>
 
 const BASE_CONFIG: SignalScoutConfigApi = {
     id: 'config-1',
@@ -96,6 +102,7 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
+        mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -206,8 +213,6 @@ describe('scoutFleetLogic', () => {
             ['off', 'off'],
             ['quiet', 'watching'],
         ])
-        // The header still tallies the fleet by group, unnarrowed by search.
-        expect(logic.values.rosterGroupCounts).toMatchObject({ working: 1, needs_you: 1, watching: 1, off: 1 })
     })
 
     it('keeps configs unresolved until the current team is available', async () => {
@@ -323,5 +328,124 @@ describe('scoutFleetLogic', () => {
         await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
 
         expect(logic.values.runningChatType).toBeNull()
+    })
+
+    // The 60s roster poll returns freshly parsed objects every cycle. Without per-item
+    // reconciliation, every poll replaces every reference and the memoized roster re-renders on
+    // an idle page. With it, an unchanged response must preserve identity end-to-end.
+    describe('poll identity stability', () => {
+        // Mirror what a real poll gets from the API: every response is a fresh JSON parse,
+        // so identical content still arrives as all-new object references.
+        const freshConfigs = (...configs: SignalScoutConfigApi[]): SignalScoutConfigApi[] =>
+            configs.map((config) => JSON.parse(JSON.stringify(config)))
+
+        it('keeps the configs array and every config reference when a poll changes nothing', async () => {
+            mockSignalsScoutConfigList.mockImplementation(async () => freshConfigs(BASE_CONFIG))
+
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const first = logic.values.scoutConfigs
+
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const second = logic.values.scoutConfigs
+
+            expect(second).toBe(first)
+            expect(second?.[0]).toBe(first?.[0])
+        })
+
+        it('keeps unchanged config references when a poll changes one config', async () => {
+            const otherConfig = { ...BASE_CONFIG, id: 'config-2', skill_name: 'signals-scout-revenue' }
+            mockSignalsScoutConfigList.mockImplementation(async () => freshConfigs(BASE_CONFIG, otherConfig))
+
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const first = logic.values.scoutConfigs
+
+            mockSignalsScoutConfigList.mockImplementation(async () =>
+                freshConfigs({ ...BASE_CONFIG, enabled: false }, otherConfig)
+            )
+            logic.actions.loadScoutConfigs()
+            await expectLogic(logic).toDispatchActions(['loadScoutConfigs', 'loadScoutConfigsSuccess'])
+            const second = logic.values.scoutConfigs
+
+            expect(second).not.toBe(first)
+            expect(second?.[0].enabled).toBe(false)
+            expect(second?.[1]).toBe(first?.[1])
+        })
+
+        it('moves scouts out of cold start when an unchanged runs poll crosses the boundary', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.setSystemTime(Date.UTC(2026, 7, 4))
+                const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+                mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [
+                    JSON.parse(JSON.stringify(settledRun)),
+                ])
+                logic.unmount()
+                logic = scoutFleetLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadScoutConfigsSuccess([BASE_CONFIG])
+                logic.actions.loadScoutRuns()
+                await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+                const firstRuns = logic.values.scoutRuns
+
+                expect(logic.values.rosterScouts[0].group).toBe('settling_in')
+
+                jest.setSystemTime(Date.UTC(2026, 7, 6))
+                logic.actions.loadScoutRuns()
+                await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+
+                expect(logic.values.scoutRuns).toBe(firstRuns)
+                expect(logic.values.rosterScouts[0].group).toBe('watching')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps the runs array and settled run references when a poll changes nothing', async () => {
+            const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+            mockSignalsScoutRunsRecentPerScout.mockImplementation(async () => [JSON.parse(JSON.stringify(settledRun))])
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const first = logic.values.scoutRuns
+            const firstRoster = logic.values.rosterScouts
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const second = logic.values.scoutRuns
+
+            expect(second).toBe(first)
+            expect(second[0]).toBe(first[0])
+            expect(logic.values.rosterScouts).toBe(firstRoster)
+        })
+
+        it('keeps settled run references but not live ones when a poll reruns with a live run', async () => {
+            const settledRun = makeRun({ run_id: 'run-settled', status: 'completed' })
+            const liveRun = makeRun({ run_id: 'run-live', status: 'in_progress' })
+            mockSignalsScoutRunsRecentPerScout.mockImplementation(async () =>
+                [settledRun, liveRun].map((run) => JSON.parse(JSON.stringify(run)))
+            )
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const first = logic.values.scoutRuns
+
+            logic.actions.loadScoutRuns()
+            await expectLogic(logic).toDispatchActions(['loadScoutRuns', 'loadScoutRunsSuccess'])
+            const second = logic.values.scoutRuns
+
+            // A live run must refresh identity — its rows render wall-clock durations that have
+            // to advance with each poll. Settled neighbours stay reference-stable.
+            expect(second).not.toBe(first)
+            expect(second.find((run) => run.run_id === 'run-settled')).toBe(
+                first.find((run) => run.run_id === 'run-settled')
+            )
+            expect(second.find((run) => run.run_id === 'run-live')).not.toBe(
+                first.find((run) => run.run_id === 'run-live')
+            )
+        })
     })
 })

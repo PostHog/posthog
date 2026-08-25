@@ -394,6 +394,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     person?: CyclotronPerson
     groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
+    // Re-reads the person uncached and rebuilds filterGlobals from it. The worker supplies this; a
+    // wait step calls it before its first evaluation, where a stale person parks the run for good.
+    // It returns the values rather than mutating, so it stays correct on a cloned invocation.
+    refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type HogFlowInvocationContext = {
@@ -425,6 +429,14 @@ export type HogFlowInvocationContext = {
     currentAction?: {
         id: string
         startedAtTimestamp: number
+        // The instant a delay_until step resolved to when it first parked, as an ISO string. A resumed
+        // invocation rebuilds its filter globals from stored state, which can arrive without the event
+        // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
+        delayUntilAt?: string
+        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
+        // run the next step immediately, which for a "N days before X" message is worse than not sending.
+        delayUntilUnresolved?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).

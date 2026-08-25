@@ -14,6 +14,9 @@ import { isProdEnv } from '~/common/utils/env-utils'
 
 import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 
+export const DEFAULT_PATTERN_MAX_INPUT_CHARS = 8192
+export const DEFAULT_PATTERN_MAX_OUTPUT_CHARS = 1024
+
 export type LogsIngestionOutputsConfig = {
     LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: LogsProducerName

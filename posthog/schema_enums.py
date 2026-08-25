@@ -2586,6 +2586,10 @@ class ExternalDataSourceType(StrEnum):
     CAPTERRA = "Capterra"
     GOOGLE_POSTMASTER_TOOLS = "GooglePostmasterTools"
     GROWI = "Growi"
+    CLARIFY = "Clarify"
+    DATO_CMS = "DatoCMS"
+    WPS_OFFICE = "WPSOffice"
+    TERA_BOX = "TeraBox"
 
 
 class ExternalQueryErrorCode(StrEnum):

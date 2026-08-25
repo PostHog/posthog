@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   items: [] as ChannelItemModel[],
   isLoading: false,
   channelMissing: false,
-  pathname: "/website/channel-1",
+  pathname: "/spaces/channel-1",
+  channelReportsFlag: false,
   open: vi.fn(),
 }));
 
@@ -22,7 +23,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports"
+      ? mocks.channelReportsFlag
+      : false,
+}));
+// Reaches for a QueryClient and auth this suite has no stack for.
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -39,7 +47,7 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 }));
 
 // The row menu's spaces list reaches for a QueryClient the unit test has no
-// stack for. Stubbed at the module boundary, as WebsiteLayout.test.tsx does for
+// stack for. Stubbed at the module boundary, as ShellLayout.test.tsx does for
 // the same reason.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
@@ -113,7 +121,8 @@ describe("ChannelSidebar", () => {
     mocks.items = [];
     mocks.isLoading = false;
     mocks.channelMissing = false;
-    mocks.pathname = "/website/channel-1";
+    mocks.pathname = "/spaces/channel-1";
+    mocks.channelReportsFlag = false;
   });
 
   it.each([
@@ -377,7 +386,7 @@ describe("ChannelSidebar multi-select", () => {
   beforeEach(() => {
     mocks.isLoading = false;
     mocks.channelMissing = false;
-    mocks.pathname = "/website/channel-1";
+    mocks.pathname = "/spaces/channel-1";
     mocks.open.mockClear();
     useTaskSelectionStore.setState({
       selectedTaskIds: [],
@@ -430,7 +439,7 @@ describe("ChannelSidebar multi-select", () => {
   });
 
   it("does not style the open session as selected when another session is selected", () => {
-    mocks.pathname = "/website/channel-1/tasks/a";
+    mocks.pathname = "/spaces/channel-1/tasks/a";
     useTaskSelectionStore.setState({ selectedTaskIds: ["b"] });
 
     renderSidebar();

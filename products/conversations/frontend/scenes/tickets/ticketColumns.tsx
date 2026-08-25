@@ -245,6 +245,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                     channel={ticket.channel_source}
                     detail={ticket.channel_detail}
                     to={getChannelThreadUrl(ticket)}
+                    emailTo={ticket.email_to}
                 />
             ),
         },

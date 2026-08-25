@@ -32,7 +32,7 @@ describe("orderedNavItems", () => {
 
     const ids = orderedNavItems(withoutConfigure).map((item) => item.id);
 
-    expect(ids.indexOf("configure")).toBe(ids.indexOf("command-center") + 1);
+    expect(ids.indexOf("configure")).toBe(ids.indexOf("contexts") + 1);
   });
 
   it("keeps Activity directly below Inbox in an existing persisted order", () => {
@@ -45,10 +45,13 @@ describe("orderedNavItems", () => {
     ]).map((item) => item.id);
 
     expect(ids.indexOf("activity")).toBe(ids.indexOf("inbox") + 1);
+    // "contexts" is absent from the persisted order (it shipped later), so it
+    // slots in after its default predecessor.
     expect(ids.filter((id) => id !== "activity")).toEqual([
       "inbox",
       "loops",
       "command-center",
+      "contexts",
       "configure",
     ]);
   });

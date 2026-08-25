@@ -539,6 +539,9 @@ tools:
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
         enabled: false
+    users-integrations-github-install-requests-destroy:
+        operation: users_integrations_github_install_requests_destroy
+        enabled: false
     users-integrations-github-install-requests-retrieve:
         operation: users_integrations_github_install_requests_retrieve
         enabled: false
