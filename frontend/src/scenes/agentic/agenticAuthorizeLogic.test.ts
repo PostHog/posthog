@@ -13,7 +13,7 @@ jest.mock('posthog-js')
 describe('agenticAuthorizeLogic', () => {
     let logic: ReturnType<typeof agenticAuthorizeLogic.build>
     let errorToast: jest.SpyInstance
-    let confirmResponse: [number, any]
+    let confirmResponse: [number, any?]
 
     const startConfirm = (): void => {
         logic = agenticAuthorizeLogic()
@@ -41,8 +41,11 @@ describe('agenticAuthorizeLogic', () => {
         logic?.unmount()
     })
 
-    it('surfaces an error and stops submitting when confirm returns no redirect URL', async () => {
-        confirmResponse = [200, {}]
+    it.each<[string, [number, any?]]>([
+        ['a 200 with an empty object body', [200, {}]],
+        ['a 204 with no body', [204]],
+    ])('surfaces an error and stops submitting when confirm returns %s', async (_label, response) => {
+        confirmResponse = response
         startConfirm()
 
         await expectLogic(logic).toDispatchActions(['submitAgenticAuthorizationFailure']).toMatchValues({

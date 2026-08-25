@@ -310,12 +310,14 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                     window.clearTimeout(timeoutId)
                 }
 
-                if (response.redirect_url) {
+                if (response?.redirect_url) {
                     window.location.href = response.redirect_url
                     return
                 }
 
-                // A 200 with no redirect_url dead-ended the page silently; treat it as a failure.
+                // A 2xx with no redirect_url dead-ended the page silently; treat it as a failure.
+                // An empty body (204, or a gateway answering 2xx with nothing) parses to a null
+                // response, so read redirect_url optionally to route that through here too.
                 presentConfirmFailure(
                     {
                         reason: 'missing_redirect_url',
