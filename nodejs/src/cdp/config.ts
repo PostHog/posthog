@@ -201,8 +201,9 @@ export type CdpConfig = ClickhouseConfig & {
 export function getDefaultCdpConfig(): CdpConfig {
     return {
         ...getDefaultClickhouseConfig(),
-        // Off by default: enabling fleet-wide auto-disable is a rollout decision, made per
-        // environment in charts. Only bites above CDP_WATCHER_REFILL_RATE errors/sec.
+        // Off by default because enabling shedding across every destination is a rollout
+        // decision, taken per environment in charts. A non-zero cost only drains the bucket on
+        // net once a function exceeds CDP_WATCHER_REFILL_RATE failures per second.
         CDP_WATCHER_COST_ERROR: 0,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,

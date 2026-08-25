@@ -435,9 +435,9 @@ export class HogWatcherService {
                 hogFunction: result.invocation.hogFunction,
             }
 
-            // A function that fails fast accrues almost no timing cost, so without this a
-            // destination erroring thousands of times a second stays healthy forever and keeps
-            // hammering the third party. Charged once per terminal failure, not per retry.
+            // The timing costs below only charge for slow execution, so a function that fails
+            // quickly accrues nothing and never leaves the healthy state, however often it fails.
+            // Charged once per terminal failure, so a retried invocation pays when it gives up.
             if (result.error) {
                 functionCost.cost += this.config.costError
             }
