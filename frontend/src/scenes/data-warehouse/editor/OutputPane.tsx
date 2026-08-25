@@ -81,6 +81,7 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { columnMaxContentLength } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
@@ -653,17 +654,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 const type = types?.[index]?.[1]
                 const isDateTimeColumn = isDateTimeType(type)
 
-                const maxContentLength = Math.max(
-                    column.length,
-                    ...(response.results || (response as any).result).map((row: any[]) => {
-                        const content = row[index]
-                        return typeof content === 'string'
-                            ? content.length
-                            : content === null
-                              ? 0
-                              : content.toString().length
-                    })
-                )
+                const rows = response.results || (response as any).result || []
+                const maxContentLength = columnMaxContentLength(rows, index, column.length)
                 const isLongContent = maxContentLength > 100
                 const finalWidth = isLongContent ? 600 : undefined
 
