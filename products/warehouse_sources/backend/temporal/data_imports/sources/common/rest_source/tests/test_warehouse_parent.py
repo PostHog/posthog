@@ -560,6 +560,22 @@ def test_scan_position_matches_only_its_own_table_version_and_filter() -> None:
     assert not position.matches(ParentTableRef(uri="s3://bucket/rebuilt", version=7), "last_seen>=2026-05-01")
 
 
+def test_position_after_stamps_the_table_identity_it_was_given(tmp_path: Path) -> None:
+    # The guard in `matches` is only worth anything if the positions the scan hands out carry
+    # the identity to check. A checkpoint that recorded version alone would pass validation
+    # against a rebuilt table sitting at the same version number.
+    uri = _write_multi_fragment_table(tmp_path, fragments=2, rows_per_fragment=3)
+    ref = ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version())
+    page = _patched_positioned_reader(uri, columns=["id"], page_size=10)[0]
+
+    position = page.position_after(0, table=ref)
+
+    assert position.table_uri == uri
+    assert position.version == ref.version
+    assert position.matches(ref, None)
+    assert not position.matches(ParentTableRef(uri=str(tmp_path / "rebuilt"), version=ref.version), None)
+
+
 def test_the_plain_reader_reraises_even_if_the_scan_swallows_the_exception() -> None:
     # The wrapper hands the consumer's exception to the scan so the outcome is classified
     # correctly. A scan that swallowed it and kept yielding would leave the consumer's error
