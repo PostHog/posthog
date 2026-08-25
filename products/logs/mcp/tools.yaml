@@ -298,6 +298,9 @@ tools:
         response:
             exclude:
                 - series.*.buckets
+    logs-anomalies-series-bands-create:
+        operation: logs_anomalies_series_bands_create
+        enabled: false
     logs-attribute-values-list:
         operation: logs_values_retrieve
         enabled: true
