@@ -7,8 +7,6 @@ This is the cheap, boring, high-frequency half of the product — it runs on the
 
 The cardinal rule: **inference never fits.** Fitting happens once, at training completion. If you find yourself calling a `fit` here on the scoring path, something has gone wrong.
 
-This package landed ahead of its scheduler. `../temporal/` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 ## What lives here
 
 - `sandbox.py`
