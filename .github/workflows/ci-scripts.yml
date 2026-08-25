@@ -9,6 +9,9 @@ on:
             - .github/scripts/**
             - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
+            # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
+            # table does not declare, so adding one has to run these tests.
+            - proto/**
             # turbo-discover.test.js pins the Django segment table to these.
             - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
@@ -61,6 +64,12 @@ jobs:
             - name: Durations optimizer tests (Python)
               if: ${{ hashFiles('.github/scripts/test_optimize_test_durations.py') != '' }}
               run: python -m pytest .github/scripts/test_optimize_test_durations.py -v -c /dev/null -p no:cacheprovider --noconftest
+
+            # A wrong fingerprint is silent: the Jest bytecode cache either serves stale entries or
+            # never hits, and nothing goes red either way. hashFiles guard for unrebased PRs.
+            - name: Hog compiler fingerprint tests (Python)
+              if: ${{ hashFiles('.github/scripts/test_hog_compiler_fingerprint.py') != '' }}
+              run: python -m pytest .github/scripts/test_hog_compiler_fingerprint.py -v -c /dev/null -p no:cacheprovider --noconftest
 
             # hashFiles guard so an unrebased PR predating this script doesn't fail here.
             - name: Workflow-run trace reporter tests (Python)

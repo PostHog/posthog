@@ -31,6 +31,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
@@ -39,8 +41,6 @@ from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUE
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 
 # Patch on_commit to execute immediately in tests
