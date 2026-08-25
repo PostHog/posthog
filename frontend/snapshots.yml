@@ -5764,6 +5764,10 @@ snapshots:
         hash: v1.k794b7964.4b8d5226ee154debdf333ff93d65a90ca766bcb25951e1baf36affb8b84b548d.dWZSHssPc83RkHVE-JPJA562bJR7MUim2yfqhjfNE50
     scenes-app-customer-analytics-accounts--feature-gate-off--light:
         hash: v1.k794b7964.e8b91bf6a0dd1b5d31064f4cbb94e9791e999c210831c455a498d0c7cc7e6bbb.IkZPJrJz33sKS8zzKwoy8V3s0GvmKpe5EGYTCIljhLs
+    scenes-app-customer-analytics-accounts--row-expanded-conversations--dark:
+        hash: v1.k794b7964.c83d3e0351279053117a4376654ece30522ea04e0d17a21d084e58be220395e9.coxsJkBmbXdsAZSUNvss_RtW7LQ6MVRxvqbiW61JfQI
+    scenes-app-customer-analytics-accounts--row-expanded-conversations--light:
+        hash: v1.k794b7964.9ffbe7d6153dbbd3812945e1f0e70e48bf941371a6d8b30027d0b0eab61f98e4.86uwFxkcB9kgOSyT445fxXt_x_ckpJp3GRukqn62BGY
     scenes-app-customer-analytics-accounts--row-expanded-email-threads--dark:
         hash: v1.k794b7964.0b52a6a4b48bc77bd2f0cf6d4550c4ec9d5262aaf9ac1a1aee9e2e57f311bbf1.moW1nKPfmZWFyn0i-N8hewBU7i250wMB4P8xCmMt9w8
     scenes-app-customer-analytics-accounts--row-expanded-email-threads--light:
@@ -6265,13 +6269,17 @@ snapshots:
     scenes-app-events-mcp-tool-calls--mcp-tool-calls--light:
         hash: v1.k794b7964.a3ac44acd481d94af4b46505f08e8289217cac51ea3ad8f0d7b7ab01599774c1.OKuFOul1hEuNHr4ELFZgBQP0KTGTm_OKbMTl7lF3Jxk
     scenes-app-experiments--draft-experiment--dark:
-        hash: v1.k794b7964.862ae6da1335a0cec5825234d2a6baf1d5e4eb5c1dec6650924d62d0e117e56b.9_kP5gSMifRjF9JZKyTMqKI2rD78F8UYSBa8ENH_GXU
+        hash: v1.k794b7964.c54bc70ed3ef1f9da5493475a002cd1eb1effa331f8ccbb54dda180bbecb7507.Okif3ufUoD3KpD1568ZzpvAxTcJkFR7s6KZHUQmpc6Q
     scenes-app-experiments--draft-experiment--light:
-        hash: v1.k794b7964.7355787f803ecf45b38311ba4494e1744c4e4cba40629fdb625adf5187dbe1a2.jJTifUL_cmDr_Evsxg-lPWmRkjh2zZuQJTXkBmHgu_8
+        hash: v1.k794b7964.c25f2146cdcd2142f7b2c1bcd45890b6a0a7d9b03e82bccb1ef891b64cf2f493.2D2m-q3OCoqqC_zQqtJPYL4me6M9Ajd-esVxbM8bur4
     scenes-app-experiments--experiment-asymmetric-intervals--dark:
         hash: v1.k794b7964.bf7de0d95fd6957a66852dd17ca6a9337bd52d161640743753affa3ac6447274.srHzGS4gYQ64kYkVNSiLB3SSboJUj6wdl9jmfuxovKU
     scenes-app-experiments--experiment-asymmetric-intervals--light:
         hash: v1.k794b7964.b2f88c3e5cf6d621251402158277210de513f053465f9bd7457dd474d47c58ce.mlXqwZI6iFPTGP29XubXnVvM-KG6i50XjGVau81jpJg
+    scenes-app-experiments--experiment-code-tab--dark:
+        hash: v1.k794b7964.a6d2aea20a3beea31a02b496003e06c9ead29a5739b67fe373f3a6691483667e.9NjTP48PGseyxT2-jbYawzRWiiSE7acbF_ES5TbLi4w
+    scenes-app-experiments--experiment-code-tab--light:
+        hash: v1.k794b7964.e7058a4c235c2202d5a63a7c5e32ab4eae2c69a422def4f9b494f7e18a61681a.30IpMGKStgL22CU4wcSp_p3KotOGPoTX5L146C-9tLg
     scenes-app-experiments--experiment-exposures-expanded--dark:
         hash: v1.k794b7964.0a4465a38b5d6bdb99882c5e15112c7c84ee7dd51658e3ef6691c8e67152c6de.Gn0quaLD1veID5PR0yx-hItLfNo6CbGjz6DxSRyrIAU
     scenes-app-experiments--experiment-exposures-expanded--light:
