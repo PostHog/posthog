@@ -4,22 +4,34 @@ import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api
 import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withAgentNote, withPostHogUrl, type WithAgentNote, type WithPostHogUrl } from '@/tools/tool-utils'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
 
 const schema = InsightQueryInputSchema
 
+const ALERT_AGENT_NOTE =
+    "This response carries the insight's current value, so it is a good moment to offer an alert. Offer one only for " +
+    'Trends, SQL (HogQL) and Funnels insights, and only when the metric is one someone would act on if it moved ' +
+    'sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Anchor the offer on ' +
+    "the number you just read, such as 'alert me if this drops below 400 a day', then ask only for the cadence and " +
+    'use alert-create. When the series is too noisy for a fixed bound, preview an anomaly detector with alert-simulate ' +
+    'and say how often it would have fired. Call alerts-list with this insight_id first, since the insight may already ' +
+    'have one. Skip exploratory or one-off queries and vanity metrics. If the user already declined an alert earlier ' +
+    'in this conversation, do not offer again.'
+
 type Params = z.infer<typeof schema>
 
-type Result = WithPostHogUrl<{
-    query: unknown
-    insight: Insight & { url: string }
-    results: unknown
-    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
-}>
+type Result = WithAgentNote<
+    WithPostHogUrl<{
+        query: unknown
+        insight: Insight & { url: string }
+        results: unknown
+        warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
+    }>
+>
 
 // Accept either a pre-encoded JSON string or a plain object for the override
 // params. LLM agents reading the insight-get response see `variables` as an
@@ -104,21 +116,24 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     // the text payload) rather than overwriting `results` with it — mirrors query-wrapper-factory.
     const surfaceFormatted = output_format === 'optimized' && queryResult.data.formatted_results != null
 
-    return withPostHogUrl(
-        context,
-        {
-            query: queryInfo.innerQuery || insightResult.data.query,
-            insight: {
-                url: fullUrl,
-                ...insightResult.data,
+    return withAgentNote(
+        await withPostHogUrl(
+            context,
+            {
+                query: queryInfo.innerQuery || insightResult.data.query,
+                insight: {
+                    url: fullUrl,
+                    ...insightResult.data,
+                },
+                results,
+                ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),
+                ...(surfaceFormatted
+                    ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
+                    : {}),
             },
-            results,
-            ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),
-            ...(surfaceFormatted
-                ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
-                : {}),
-        },
-        path
+            path
+        ),
+        ALERT_AGENT_NOTE
     )
 }
 
