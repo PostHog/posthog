@@ -13,6 +13,7 @@ from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
     CustomHostname,
     CustomHostnameSSL,
     CustomHostnameSSLStatus,
@@ -179,7 +180,10 @@ class TestProxyRecordAPI(APIBaseTest):
 
     @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
-    def test_restores_root_redirect_metadata_when_database_write_fails(self, get_hostname, update_metadata):
+    @patch("posthog.api.proxy_record.reconcile_proxy_root_redirect.delay")
+    def test_reconciles_root_redirect_when_database_write_and_cloudflare_rollback_fail(
+        self, reconcile_root_redirect, get_hostname, update_metadata
+    ):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
@@ -195,6 +199,7 @@ class TestProxyRecordAPI(APIBaseTest):
             ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
         )
         get_hostname.return_value = hostname
+        update_metadata.side_effect = [None, CloudflareAPIError("rollback failed")]
 
         with (
             self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"),
@@ -212,6 +217,7 @@ class TestProxyRecordAPI(APIBaseTest):
                 call(hostname, {"root_redirect_url": "https://old.example.com/"}),
             ]
         )
+        reconcile_root_redirect.assert_called_once_with(str(record.id))
 
     @parameterized.expand(
         [

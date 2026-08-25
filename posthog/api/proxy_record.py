@@ -26,6 +26,7 @@ from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
 from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+from posthog.tasks.proxy import reconcile_proxy_root_redirect
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
 from posthog.temporal.proxy_service.cloudflare import (
@@ -293,6 +294,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         responses={200: ProxyRecordSerializer},
     )
     def partial_update(self, request, *args, pk=None, **kwargs):
+        reconciliation_required = False
         try:
             with transaction.atomic():
                 record = self.organization.proxy_records.select_for_update().get(id=pk)
@@ -332,11 +334,14 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                             hostname, {"root_redirect_url": previous_root_redirect_url or ""}
                         )
                     except (CloudflareAPIError, requests.RequestException) as rollback_error:
+                        reconciliation_required = True
                         capture_exception(rollback_error, {"domain": record.domain, "proxy_record_id": str(record.id)})
                     raise
         except ProxyRecord.DoesNotExist:
             raise NotFound()
         except DatabaseError as error:
+            if reconciliation_required:
+                reconcile_proxy_root_redirect.delay(str(pk))
             capture_exception(error, {"organization_id": str(self.organization.id), "proxy_record_id": str(pk)})
             return Response(
                 {"detail": "Could not save the root redirect. Please try again."},
