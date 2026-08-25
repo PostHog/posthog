@@ -9,9 +9,7 @@ access-control facade's `decide()` can read this module later to apply the same 
 object-level decisions.
 """
 
-from django.http import HttpRequest
-
-from rest_framework.request import Request
+from typing import Any, Protocol
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
@@ -24,7 +22,14 @@ from posthog.models.organization import Organization
 MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
 
-def is_mcp_request(request: HttpRequest | Request) -> bool:
+class RequestLike(Protocol):
+    """The slice of a Django or DRF request this module reads. A structural type, because the
+    facade layer must not import DRF."""
+
+    headers: Any
+
+
+def is_mcp_request(request: RequestLike) -> bool:
     """Returns True when a token-authenticated request comes through the MCP server."""
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
@@ -32,9 +37,7 @@ def is_mcp_request(request: HttpRequest | Request) -> bool:
     return False
 
 
-def mcp_access_denial_for_request(
-    request: HttpRequest | Request, organization: Organization, writes: bool
-) -> str | None:
+def mcp_access_denial_for_request(request: RequestLike, organization: Organization, writes: bool) -> str | None:
     """Makes the MCP read-only decision for one request. Returns a denial message for the
     user when the organization restricts MCP access and the action writes. Returns None
     to allow the request."""

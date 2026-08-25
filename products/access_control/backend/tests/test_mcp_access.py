@@ -1,7 +1,5 @@
 from posthog.test.base import APIBaseTest
 
-from django.http import HttpResponse
-
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -34,7 +32,7 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         self.organization.mcp_access_read_only = value
         self.organization.save()
 
-    def _request(self, method: str, body: dict | None = None, mcp: bool = True) -> HttpResponse:
+    def _request(self, method: str, body: dict | None = None, mcp: bool = True):
         return getattr(self.client, method)(
             f"/api/projects/{self.team.id}/feature_flags/",
             body or {},
