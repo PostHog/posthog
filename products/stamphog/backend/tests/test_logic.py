@@ -601,41 +601,30 @@ class ResolveAudiencesTests(SimpleTestCase):
 class GeneratedOwnershipTests(SimpleTestCase):
     @parameterized.expand(
         [
-            ("only_generated_files", ["products/pa/frontend/generated/api.schemas.ts"], 1, []),
-            (
-                "a_real_file_alongside_a_generated_one",
-                ["products/pa/frontend/generated/api.schemas.ts", "products/pa/backend/api.py"],
-                2,
-                [("team-replay", AudienceReason.OWNED)],
-            ),
-            (
-                "more_files_than_the_sample_carries",
-                ["products/pa/frontend/generated/api.schemas.ts"],
-                40,
-                [("team-replay", AudienceReason.OWNED)],
-            ),
+            ("every_file_was_generated", 1, 1, []),
+            ("a_real_file_alongside_a_generated_one", 2, 1, [("team-replay", AudienceReason.OWNED)]),
+            # The count is exact, so this holds however far past the engine's path sample it goes.
+            ("more_generated_files_than_the_sample_carries", 40, 40, []),
+            ("a_run_recorded_before_the_engine_counted_them", 1, None, [("team-replay", AudienceReason.OWNED)]),
         ]
     )
     def test_a_team_owning_only_generated_files_is_not_an_audience(
-        self, _name: str, files: list[str], count: int, expected: list
+        self, _name: str, count: int, generated: int | None, expected: list
     ) -> None:
         # `hogli build:openapi` rewrites a product's generated API types whenever any shared
         # serializer changes anywhere in the repo, so owning one says nothing about whether the team
         # was touched. An error-tracking change reached the product analytics channel that way, and
-        # its reader asked why it was there. The sample the engine sends is capped, so the drop
-        # applies only while the count agrees the sample holds every file the team owns.
+        # its reader asked why it was there.
         repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
-        gate_result = {
-            "classification": {
-                "ownership": {
-                    "teams": ["@PostHog/team-replay"],
-                    "team_files": {"@PostHog/team-replay": files},
-                    "team_file_counts": {"@PostHog/team-replay": count},
-                }
-            }
+        ownership: dict = {
+            "teams": ["@PostHog/team-replay"],
+            "team_files": {"@PostHog/team-replay": ["products/pa/frontend/generated/api.schemas.ts"]},
+            "team_file_counts": {"@PostHog/team-replay": count},
         }
+        if generated is not None:
+            ownership["team_generated_file_counts"] = {"@PostHog/team-replay": generated}
         with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
-            audiences = resolve_audiences(repo_config, gate_result)
+            audiences = resolve_audiences(repo_config, {"classification": {"ownership": ownership}})
         assert [(a.key, a.reason) for a in audiences] == expected
 
 

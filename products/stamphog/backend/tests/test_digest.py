@@ -27,6 +27,7 @@ from products.stamphog.backend.logic.channel_resolution import (
 )
 from products.stamphog.backend.logic.digest import (
     MAX_DIGEST_PRS,
+    MAX_FALLBACK_PRS,
     DigestPRSummary,
     DigestSummary,
     _build_summary,
@@ -69,7 +70,6 @@ def _summary(prs: list[PullRequest], audiences: list | None = None) -> DigestSum
             )
             for pr in prs
         ],
-        MAX_DIGEST_PRS,
     )
 
 
@@ -505,7 +505,7 @@ def test_a_summary_that_keeps_nothing_consumes_the_claim(team) -> None:
         patch("products.stamphog.backend.logic.digest_runs.post_digest_lead") as post,
         patch(
             "products.stamphog.backend.logic.digest_runs.summarize_merged_prs",
-            return_value=_build_summary(3, [], MAX_DIGEST_PRS),
+            return_value=_build_summary(3, []),
         ),
     ):
         _run_digests(team.id)
@@ -650,6 +650,21 @@ def _pr_stub(repository: str, pr_number: int, title: str, url: str) -> PullReque
 def _fake_llm_client(content: str) -> Any:
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
     return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
+
+
+def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
+    # The fallback keeps merge order and judges nothing, so it needs its own low rail: the bar that
+    # normally keeps a digest short never runs on this path. It also has to mark itself, because a
+    # run consumes every merge it claims either way and the post reads like an ordinary quiet day.
+    prs = [_pr_stub("o/r", n, f"Change {n}", f"https://github.com/o/r/pull/{n}") for n in range(MAX_FALLBACK_PRS + 3)]
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", side_effect=RuntimeError("gateway down")):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is False
+    assert len(summary.prs) == MAX_FALLBACK_PRS
+    assert summary.considered == len(prs)
+    assert summary.headline == ""
 
 
 def test_same_pr_number_across_repos_both_survive_summarization() -> None:

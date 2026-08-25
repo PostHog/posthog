@@ -31,13 +31,13 @@ logger = structlog.get_logger(__name__)
 _DIGEST_MODEL = "claude-haiku-4-5"
 _SOURCE_PRODUCT = "stamphog_digest"
 
-# A payload rail, never an editorial rule. Slack rejects a message past 50 blocks, so the thread
-# cannot carry more change lines than this whatever the model decides. Nothing else limits the
-# count: the bar in the prompt is the only thing that says how many changes a day is worth, and a
-# day that genuinely produces fifteen shows fifteen. Whatever the rail removes is dropped rather
-# than handed back to the next run, because a run that returns its leftovers puts the same merges
-# in front of the same prompt every morning until they age out.
-MAX_DIGEST_PRS = 40
+# A payload rail, never an editorial rule. Slack rejects a message past 50 blocks and the thread
+# spends one on its lead line, so this sits well under that with room for a block someone adds
+# later. Nothing else limits the count: the bar in the prompt is the only thing that says how many
+# changes a day is worth, and a day that genuinely produces a dozen shows a dozen. Whatever the rail
+# removes is dropped rather than handed back to the next run, because a run that returns its
+# leftovers puts the same merges in front of the same prompt every morning until they age out.
+MAX_DIGEST_PRS = 25
 
 # The deterministic fallback judges nothing, so the bar above never runs on that path and this rail
 # is the only thing between a model outage and a hundred lines in a channel. Low for that reason.
@@ -96,21 +96,18 @@ class DigestSummary:
 
 
 def _build_summary(
-    considered: int,
-    prs: list[DigestPRSummary],
-    limit: int,
-    headline: str = "",
-    judged: bool = True,
+    considered: int, prs: list[DigestPRSummary], headline: str = "", judged: bool = True
 ) -> DigestSummary:
     """The only place a rail is applied, so a run stores exactly what its channel got.
 
     Railing at render time instead would let ``DigestRun.summary`` persist every PR while the post
     showed a subset, leaving the record of a digest disagreeing with the digest.
 
-    The two paths rail at different counts because only one of them judged anything. A model answer
-    is already short and needs the rail only to stay inside Slack's block limit; the fallback needs
-    a real ceiling.
+    ``judged`` picks the rail rather than the caller, because the two always go together: a model
+    answer is already short and needs the rail only to stay inside Slack's block limit, and the
+    fallback judged nothing so it needs a real ceiling.
     """
+    limit = MAX_DIGEST_PRS if judged else MAX_FALLBACK_PRS
     return DigestSummary(considered=considered, headline=headline, prs=prs[:limit], judged=judged)
 
 
@@ -134,7 +131,6 @@ def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
             )
             for pr in prs
         ],
-        MAX_FALLBACK_PRS,
         judged=False,
     )
 
@@ -182,8 +178,7 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "work all along, and nothing they do changes.",
         "",
         "Drop a pull request when any of these is true, whatever else it does:",
-        "- It repairs something that was broken. Fixing a bug is the work, not news. Keep a fix only",
-        "  when people had built on the broken behavior, or when it also changes a contract above.",
+        "- It repairs something that was broken. See the override above.",
         "- It handles one more error, retry, timeout, status code, or edge case in one integration.",
         "  This is the most common merge this team makes, and almost none of it is worth a morning.",
         "- It adds, scaffolds, or promotes something nobody can use yet.",
@@ -400,7 +395,7 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
     # wearing its shape, and accepting it would consume every claimed audience for an empty post.
     if not picked and raw_prs != []:
         raise ValueError("LLM returned no recognizable PRs")
-    return _build_summary(len(prs_by_index), picked, MAX_DIGEST_PRS, _headline(data))
+    return _build_summary(len(prs_by_index), picked, _headline(data))
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
@@ -411,7 +406,7 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
     that merely grazed the team's files while keeping one that changed their area.
     """
     if not prs:
-        return _build_summary(0, [], MAX_DIGEST_PRS)
+        return _build_summary(0, [])
 
     team_id = prs[0].team_id
     try:
