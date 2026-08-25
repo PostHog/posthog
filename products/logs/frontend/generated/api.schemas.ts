@@ -1065,6 +1065,76 @@ export interface LogsAnomalyScanErrorApi {
     error: string
 }
 
+/**
+ * * `60` - 60
+ */
+export type IntervalMinutesEnumApi = (typeof IntervalMinutesEnumApi)[keyof typeof IntervalMinutesEnumApi]
+
+export const IntervalMinutesEnumApi = {
+    Number60: 60,
+} as const
+
+export interface LogsSeriesBandsRequestApi {
+    /** Service whose per-series volume to chart (the log record's service_name). */
+    serviceName: string
+    /** Display grain in minutes for buckets and bands. Only hourly is supported today.
+     *
+     * * `60` - 60 */
+    intervalMinutes?: IntervalMinutesEnumApi
+}
+
+export interface LogsSeriesBandBucketApi {
+    /** Start of the display bucket (UTC). */
+    time: string
+    /** Log count observed in this bucket. */
+    observed: number
+    /**
+     * Lower edge of the expected band. Null while the series has too little history to band.
+     * @nullable
+     */
+    lower: number | null
+    /**
+     * Upper edge of the expected band. Null while the series has too little history to band.
+     * @nullable
+     */
+    upper: number | null
+}
+
+export interface LogsSeriesBandSeriesApi {
+    /** Namespace of the emitting resource; empty when the logs carry none. */
+    namespace: string
+    /** Deployment environment of the emitting resource; empty when the logs carry none. */
+    environment: string
+    /** Lowercased log severity of this series (for example info, error). */
+    severity: string
+    /** Total observed log count over the window. Series are ordered by this, descending. */
+    total_count: number
+    /** Full weeks of history behind the band, 0 to 5. Below 2 the series is still learning and its buckets carry no band. */
+    baseline_weeks: number
+    /** One entry per display bucket across the whole window, oldest first, zero-filled. */
+    buckets: LogsSeriesBandBucketApi[]
+}
+
+export interface LogsSeriesBandsResponseApi {
+    /** Service the series belong to. */
+    service_name: string
+    /** Start of the observed window (UTC, inclusive). */
+    window_start: string
+    /** End of the observed window (UTC, exclusive). */
+    window_end: string
+    /** Display grain of the buckets, in minutes. */
+    interval_minutes: number
+    /** True when the service has more series than the response carries; the quietest were dropped. */
+    series_truncated: boolean
+    /** One entry per (namespace, environment, severity) series, ordered by observed volume descending. */
+    series: LogsSeriesBandSeriesApi[]
+}
+
+export interface LogsSeriesBandsErrorApi {
+    /** Human readable description of why the series could not be charted. */
+    error: string
+}
+
 export interface _DateRangeApi {
     /**
      * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.

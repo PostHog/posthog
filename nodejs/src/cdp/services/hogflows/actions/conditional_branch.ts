@@ -37,6 +37,7 @@ export class ConditionalBranchHandler implements ActionHandler {
     async execute({
         invocation,
         action,
+        result,
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
@@ -58,6 +59,26 @@ export class ConditionalBranchHandler implements ActionHandler {
             return {
                 nextAction: findNextAction(invocation.hogFlow, action.id, 0),
                 result: { eventMatched: true },
+            }
+        }
+
+        // The person the worker read at dequeue can predate a write this wait is waiting for, and a
+        // wait that parks on that read is stuck: the write already happened, so no person message
+        // follows to wake it. Re-read before the first evaluation of each wait — including a wait
+        // reached later in the same dequeue. Re-checks of a wait that already parked run 10 minutes
+        // apart, by when the cache has expired, so they keep the cheaper read.
+        if (action.type === 'wait_until_condition' && !invocation.state?.currentAction?.pollReparked) {
+            const refreshed = await invocation.refreshPerson?.()
+            // A refresh that finds no person keeps the dequeue's read. The refresh exists to make a
+            // just-written property visible, not to drop a person: a lookup that comes back empty
+            // (replica lag, a transient miss) would otherwise evaluate the condition against nothing.
+            if (refreshed?.person) {
+                invocation.person = refreshed.person
+                invocation.filterGlobals = refreshed.filterGlobals
+                // The result carries a shallow clone, so rebinding only `invocation` would leave it
+                // pointing at the pre-refresh globals for anything that reads it later.
+                result.invocation.person = refreshed.person
+                result.invocation.filterGlobals = refreshed.filterGlobals
             }
         }
 

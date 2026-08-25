@@ -274,7 +274,6 @@ function CustomPropertyHistoryCell({
                     data={chartPoints.map(([, value]) => value)}
                     labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
                     renderTooltipValue={formatValue}
-                    maximumIndicator={false}
                 />
             </div>
         )

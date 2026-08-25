@@ -3,8 +3,8 @@ import { Message } from 'node-rdkafka'
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
 import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
-import { FrontierPublisher, RepublishResult } from './frontier-publisher'
-import { ImageFetchConsumerMetrics } from './metrics'
+import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
+import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
 const NOW_MS = 1_700_000_000_000
@@ -90,6 +90,7 @@ interface Harness {
     history: FakeCrawlHistory
     run: jest.Mock<Promise<FetchAttempt[]>, [FetchCandidate[], Map<string, CrawlHistoryItem>]>
     republish: jest.Mock<Promise<RepublishResult>, any[]>
+    flush: jest.Mock<Promise<RepublishFlushResult>, []>
 }
 
 function build(dryRun = false): Harness {
@@ -97,14 +98,15 @@ function build(dryRun = false): Harness {
     const run = jest.fn((candidates: FetchCandidate[], _stored: Map<string, CrawlHistoryItem>) =>
         Promise.resolve(candidates.map((item) => terminal(item)))
     )
-    const republish = jest.fn(() => Promise.resolve('published' as const))
+    const republish = jest.fn(() => Promise.resolve('queued' as const))
+    const flush = jest.fn(() => Promise.resolve({ failedUrls: 0 }))
     const consumer = new UrlFetchConsumer(
         history,
-        { republish } as unknown as FrontierPublisher,
+        { createRepublishBatch: () => ({ republish, flush }) } as unknown as FrontierPublisher,
         { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
         dryRun ? undefined : ({ run } as FetchPass)
     )
-    return { consumer, history, run, republish }
+    return { consumer, history, run, republish, flush }
 }
 
 describe('UrlFetchConsumer', () => {
@@ -151,6 +153,29 @@ describe('UrlFetchConsumer', () => {
         ])
         expect(harness.run.mock.calls[0][0]).toEqual([candidate('a'), candidate('b')])
         expect(harness.history.writes[0]).toHaveLength(2)
+    })
+
+    it('records distinct origins and registrable domains for the poll batch', async () => {
+        const harness = build()
+        const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const otherExampleOrigin = candidate('b', {
+            currentUrl: 'https://img.example.com/b.png',
+            host: 'img.example.com',
+            origin: 'https://img.example.com',
+        })
+        const otherRegistrableDomain = candidate('c', {
+            currentUrl: 'https://img.other.net/c.png',
+            host: 'img.other.net',
+            origin: 'https://img.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        await harness.consumer.handleBatch(
+            [message([candidate('a'), otherExampleOrigin]), message([otherRegistrableDomain], 'other.net')],
+            NOW_MS
+        )
+
+        expect(observeBatch).toHaveBeenCalledWith(3, 2, expect.any(Number))
     })
 
     it('deduplicates one global ref within the batch', async () => {
@@ -259,13 +284,55 @@ describe('UrlFetchConsumer', () => {
         ])
     })
 
-    it('throws when a not-ready republish fails', async () => {
+    it('throws when a not-ready republish delivery fails', async () => {
         const harness = build()
-        harness.republish.mockResolvedValue('failed')
+        harness.flush.mockResolvedValue({ failedUrls: 1 })
         const early = candidate('a', { notBeforeMs: NOW_MS + 30_000 })
 
         await expect(harness.consumer.handleBatch([message([early])], NOW_MS)).rejects.toThrow('account for 1 URLs')
         expect(harness.history.writes).toEqual([])
+    })
+
+    it('records a retry cause after the republish batch is durable', async () => {
+        const harness = build()
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'server_error',
+                    finished: false,
+                    lost: false,
+                    configurationUpdates: [],
+                }))
+            )
+        )
+
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(retryCause).toHaveBeenCalledWith('server_error')
+    })
+
+    it('does not record a retry cause when the republish batch fails', async () => {
+        const harness = build()
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
+        harness.flush.mockResolvedValue({ failedUrls: 1 })
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'server_error',
+                    finished: false,
+                    lost: false,
+                    configurationUpdates: [],
+                }))
+            )
+        )
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow(
+            'account for 1 URLs'
+        )
+        expect(retryCause).not.toHaveBeenCalled()
     })
 
     it('drops a malformed record without running the fetch pass', async () => {
@@ -301,7 +368,7 @@ describe('UrlFetchConsumer', () => {
         const finishBatch = jest.spyOn(ImageFetchConsumerMetrics, 'finishBatch')
 
         await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('read failed')
-        expect(observeBatch).toHaveBeenCalledWith(1, expect.any(Number))
+        expect(observeBatch).toHaveBeenCalledWith(1, 1, expect.any(Number))
         expect(observeStoreDuration).toHaveBeenCalledWith('read', 'error', expect.any(Number))
         expect(startBatch).toHaveBeenCalledTimes(1)
         expect(finishBatch).toHaveBeenCalledTimes(1)
