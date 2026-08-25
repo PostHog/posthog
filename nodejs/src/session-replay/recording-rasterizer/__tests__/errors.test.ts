@@ -1,4 +1,4 @@
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { RasterizationError, asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 
 describe('RasterizationError', () => {
     it('sets name, message, retryable, and code', () => {
@@ -42,6 +42,34 @@ describe('RasterizationError', () => {
             const json = err.toJSON()
             expect(json).not.toHaveProperty('cause')
             expect(json).not.toHaveProperty('stack')
+        })
+    })
+
+    describe('asRasterizationError', () => {
+        it('returns a RasterizationError unchanged', () => {
+            const err = new RasterizationError('boom', false, 'NO_SNAPSHOTS')
+            expect(asRasterizationError(err)).toBe(err)
+        })
+
+        // Puppeteer names the in-flight CDP method in the message; every method must map to one
+        // retryable code with a stable message so error tracking sees a single fingerprint.
+        it.each([
+            'Protocol error (Page.captureScreenshot): Target closed',
+            'Protocol error (Runtime.callFunctionOn): Target closed',
+            'Protocol error (Target.attachToTarget): Target closed',
+        ])('classifies "%s" as a retryable TARGET_CLOSED', (message) => {
+            const raw = new Error(message)
+            const classified = asRasterizationError(raw)
+            expect(classified).toMatchObject({
+                code: 'TARGET_CLOSED',
+                retryable: true,
+                message: 'chrome target closed mid-render',
+            })
+            expect(classified?.cause).toBe(raw)
+        })
+
+        it('returns null for an unrelated error', () => {
+            expect(asRasterizationError(new Error('S3 access denied'))).toBeNull()
         })
     })
 })

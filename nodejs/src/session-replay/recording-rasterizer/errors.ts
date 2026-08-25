@@ -6,6 +6,7 @@ export const RASTERIZATION_ERROR_CODES = [
     'OTHER',
     'TIMEOUT',
     'CAPTURE_ABORTED',
+    'TARGET_CLOSED',
     'BEGINFRAME_DEADLOCK',
     'INVALID_INPUT',
     'BLOCK_LISTING_FAILED',
@@ -44,4 +45,20 @@ export class RasterizationError extends Error {
             code: this.code,
         }
     }
+}
+
+// Puppeteer rejects whatever CDP call is in flight when the Chrome target dies mid-render. The
+// rejection message names that method ("Protocol error (Page.captureScreenshot): Target closed"),
+// so left raw it mints a distinct error-tracking fingerprint per method. Classify it once, at the
+// activity boundary, to a single retryable code with a stable message, and keep the original as the
+// cause for logs.
+export function asRasterizationError(err: unknown): RasterizationError | null {
+    if (err instanceof RasterizationError) {
+        return err
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    if (message.includes('Target closed')) {
+        return new RasterizationError('chrome target closed mid-render', true, 'TARGET_CLOSED', err)
+    }
+    return null
 }
