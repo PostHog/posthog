@@ -1,3 +1,5 @@
+from typing import Any
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -30,11 +32,20 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
     )
 
 
+# A notebook is authored by hand, so these are far above real use and only bound the abuse
+# case: values ride a Temporal payload (~2 MiB hard limit) to the kernel, and a placeholder
+# repeated across a query multiplies the value into the SQL the engine receives.
+MAX_VARIABLES_PER_NOTEBOOK = 100
+MAX_VARIABLE_NAME_CHARS = 200
+MAX_VARIABLE_VALUE_CHARS = 10_000
+
+
 class NotebookVariableSerializer(serializers.Serializer):
     """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
 
     name = serializers.CharField(
-        help_text="Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell."
+        max_length=MAX_VARIABLE_NAME_CHARS,
+        help_text="Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
     )
     # CharField, not ChoiceField: a `type` enum collides with other generated enums under
     # --fail-on-warn (same precedent as the status fields below).
@@ -49,6 +60,12 @@ class NotebookVariableSerializer(serializers.Serializer):
             "expression ('-7d', 'mStart'), resolved against the project timezone."
         ),
     )
+
+    def validate_value(self, value: Any) -> Any:
+        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
+        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+            raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
+        return value
 
     def validate_name(self, value: str) -> str:
         name = value.strip()
@@ -99,6 +116,9 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
         many=True,
         required=False,
         default=list,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
         help_text=(
             "Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to "
             "its value before dispatch; a Python node gets them as globals in the kernel namespace. "

@@ -107,6 +107,7 @@ import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookKernelInfo } from './notebookKernelInfoLogic'
+import { notebookNodeStalenessLogic } from './notebookNodeStalenessLogic'
 import {
     NOTEBOOK_AI_PRESENCE_CLIENT_ID,
     NOTEBOOK_AI_PRESENCE_NAME,
@@ -406,6 +407,9 @@ export interface notebookLogicActions {
     clearLocalContent: () => {
         value: true
     }
+    clearLocalVariables: () => {
+        value: true
+    }
     clearPreviewContent: () => {
         value: true
     }
@@ -651,7 +655,8 @@ export interface notebookLogicMeta {
             notebookLoading: boolean,
             localContent: JSONContent | null,
             isLocalOnly: boolean,
-            previewContent: JSONContent | null
+            previewContent: JSONContent | null,
+            localVariables: NotebookVariable[] | null
         ) => NotebookSyncStatus
         editingNodeLogics: (
             editingNodeIds: Record<string, true>,
@@ -765,6 +770,7 @@ export const notebookLogic = kea<notebookLogicType>([
         }),
         clearLocalContent: true,
         setVariables: (variables: NotebookVariable[]) => ({ variables }),
+        clearLocalVariables: true,
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
@@ -830,6 +836,9 @@ export const notebookLogic = kea<notebookLogicType>([
             null as NotebookVariable[] | null,
             {
                 setVariables: (_, { variables }) => variables,
+                // Dropped once the save round-trips, so `variables` falls back to the server's
+                // copy and the bar stops reporting an unsaved edit that already landed.
+                clearLocalVariables: () => null,
             },
         ],
         previewContent: [
@@ -1164,6 +1173,9 @@ export const notebookLogic = kea<notebookLogicType>([
                         content,
                         text_content: textContent,
                         title,
+                        // The copied cells keep their `{name}` references, so a duplicate without
+                        // the variables fails every SQL cell that reads one.
+                        ...(values.variables.length ? { variables: values.variables } : {}),
                     })
 
                     posthog.capture(`notebook duplicated`, {
@@ -1298,13 +1310,14 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent],
+            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent, s.localVariables],
             (
                 notebook: NotebookType | null,
                 notebookLoading: boolean,
                 localContent: JSONContent | null,
                 isLocalOnly: boolean,
-                previewContent: JSONContent | null
+                previewContent: JSONContent | null,
+                localVariables: NotebookVariable[] | null
             ): NotebookSyncStatus => {
                 if (previewContent || notebook?.is_template) {
                     return 'synced'
@@ -1313,7 +1326,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 if (isLocalOnly) {
                     return 'local'
                 }
-                if (!notebook || !localContent) {
+                // Variables save on their own PATCH, so an edit to them is unsaved work even
+                // when the document itself is clean.
+                if (!notebook || (!localContent && !localVariables)) {
                     return 'synced'
                 }
 
@@ -1510,10 +1525,32 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, cache, props }) => ({
+    listeners(({ values, actions, cache, props, selectors }) => ({
         // Variables save on their own PATCH rather than through the markdown save path: they are
         // a notebook property, not document content. Debounced so typing a name is one request.
-        setVariables: async (_, breakpoint) => {
+        setVariables: async ({ variables }, breakpoint, _action, previousState) => {
+            // Every cell that reads a changed variable now shows a result computed from the old
+            // value, so mark it (and its downstream) stale — the same contract as an upstream
+            // cell's run landing. Diffed against the pre-reducer state so a rename counts as
+            // both halves: the old name disappeared and the new one appeared.
+            const previous = selectors.variables(previousState)
+            const previousByName = new Map(previous.map((variable) => [variable.name, variable.value]))
+            const nextByName = new Map(variables.map((variable) => [variable.name, variable.value]))
+            const affected = new Set<string>()
+            for (const [name, value] of nextByName) {
+                if (!previousByName.has(name) || previousByName.get(name) !== value) {
+                    affected.add(name)
+                }
+            }
+            for (const name of previousByName.keys()) {
+                if (!nextByName.has(name)) {
+                    affected.add(name)
+                }
+            }
+            notebookNodeStalenessLogic
+                .findMounted({ shortId: props.shortId })
+                ?.actions.variablesChanged([...affected].filter(Boolean), values.content)
+
             if (values.isLocalOnly || !values.notebook) {
                 return
             }
@@ -1521,6 +1558,11 @@ export const notebookLogic = kea<notebookLogicType>([
             try {
                 const response = await api.notebooks.update(props.shortId, { variables: values.variables })
                 actions.receiveNotebookUpdate(response)
+                // Only drop the local copy when it still matches what we just saved — a keystroke
+                // that landed during the request is newer and must survive to its own save.
+                if (values.localVariables === variables) {
+                    actions.clearLocalVariables()
+                }
             } catch (error) {
                 // The bar keeps the edit, so the next change retries it. Losing a value silently
                 // would be worse than an error the user can act on.

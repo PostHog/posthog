@@ -19,7 +19,7 @@ whatever HogQL refs it also reads — the same input shape Python nodes use.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from posthog.hogql import ast
@@ -34,8 +34,9 @@ from posthog.dataclasses import frozen
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
+    NotebookVariableValue,
+    substitute_duckdb_variables,
     substitute_hogql_variables,
-    substitute_text_variables,
 )
 
 # String literals ('' or backslash escapes) and comments, for the routing fallback to blank
@@ -84,6 +85,9 @@ class SQLV2RunPlan:
     code: str
     # Frames the kernel must materialize first; always empty on the ClickHouse lane.
     inputs: list[dict[str, Any]]
+    # DuckDB lane only: values for the `$name` parameters `code` now carries, bound by the
+    # driver rather than written into the SQL. Empty on every other lane.
+    variables: dict[str, NotebookVariableValue] = field(default_factory=dict)
 
 
 class _ReferenceCollector(TraversingVisitor):
@@ -307,9 +311,9 @@ def resolve_sql_node_run(
     sandbox) and assert the local ones.
 
     Notebook variables are bound per lane, once the lane is known: the ClickHouse query gets
-    AST substitution, while the DuckDB query is that engine's dialect and gets escaped
-    literals instead (see sql_v2_variables). Raises NotebookVariableError when the query reads
-    an undeclared `{name}`.
+    AST substitution, while the DuckDB query keeps `$name` parameters for the driver to bind
+    (see sql_v2_variables). Raises NotebookVariableError when the query reads an undeclared
+    `{name}`.
 
     Raises SQLV2ReferenceError for unrunnable refs, and lets the HogQL parser's own error
     surface for a malformed query that doesn't touch any local frame.
@@ -353,4 +357,5 @@ def resolve_sql_node_run(
             inputs.append({"name": name, "kind": "local"})
         else:
             inputs.append(_hogql_input(name, hogql_refs[name]))
-    return SQLV2RunPlan(node_type="duckdb", code=substitute_text_variables(code, variables), inputs=inputs)
+    duckdb_code, duckdb_params = substitute_duckdb_variables(code, variables)
+    return SQLV2RunPlan(node_type="duckdb", code=duckdb_code, inputs=inputs, variables=duckdb_params)

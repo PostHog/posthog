@@ -7,17 +7,19 @@ see `sandbox/kernel/bootstrap.py`, not here).
 Substitution happens once at dispatch, like reference inlining, so the run stores a
 self-contained query and paging re-queries it without re-resolving anything.
 
-Which substitution runs depends on the lane the run took, because only one of them has a
-HogQL AST to work with:
+No lane ever renders a value as SQL text. Escaping rules differ by engine and by server
+setting, and a hand-rolled quote is one dialect quirk away from an injection, so each lane
+passes the value as data instead:
 
-* the **hogql** lane parses the query and swaps each placeholder for an ``ast.Constant``, so
-  the value is never spliced into SQL text;
-* the **duckdb** lane and a **raw connection** query are the engine's own dialect, which the
-  HogQL parser cannot read — those get a textual substitution, and the value is rendered as
-  an escaped SQL literal (`_sql_literal`) rather than pasted in raw.
+* the **hogql** lane parses the query and swaps each placeholder for an ``ast.Constant``;
+* the **duckdb** lane rewrites each ``{name}`` to DuckDB's own ``$name`` parameter and hands
+  the values to the driver, which binds them (`_run_duckdb_node` in the kernel);
+* a **raw connection** query refuses variables outright — it is the target engine's dialect,
+  and the direct-query path carries no parameter binding yet.
 """
 
 import re
+from collections.abc import Iterator
 from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Any
@@ -123,30 +125,67 @@ def substitute_hogql_variables(code: str, variables: list[NotebookVariable]) -> 
     return print_prepared_ast(substituted, context=HogQLContext(team_id=None), dialect="hogql")
 
 
-def _sql_literal(value: NotebookVariableValue) -> str:
-    """Render a value as a DuckDB literal.
+# DuckDB lexical regions a `{name}` inside is text, not a placeholder. Matched in one pass so
+# the scanner can skip whole regions: single-quoted strings (with `''` escape and the `E'...'`
+# backslash form), double-quoted identifiers, dollar-quoted strings (`$tag$…$tag$`, tag
+# optional), line comments and block comments. Dollar quoting is the one the naive scan missed:
+# it makes every character between the tags literal, including a quote, so a value spliced
+# there could close the literal and run as SQL.
+_DUCKDB_SKIP_REGION = re.compile(
+    r"""
+      [eE]'(?:[^'\\]|\\.|'')*'      # E'...' — backslash escapes allowed
+    | '(?:[^']|'')*'                  # '...'  — '' is the only escape
+    | "(?:[^"]|"")*"                  # "..."  — quoted identifier
+    | \$(?P<tag>[A-Za-z_][A-Za-z0-9_]*|)\$.*?\$(?P=tag)\$   # $tag$...$tag$ and $$...$$
+    | --[^\n]*                        # line comment
+    | /\*.*?\*/                        # block comment
+    """,
+    re.DOTALL | re.VERBOSE,
+)
 
-    DuckDB follows the SQL standard for string literals: a backslash is an ordinary character
-    and `''` is the only escape, so doubling quotes is sufficient. Do not reuse this for an
-    arbitrary engine — MySQL enables backslash escapes by default, where `\\'` would consume
-    the first of a doubled pair and let the second close the literal.
+
+def _executable_placeholders(code: str) -> Iterator[re.Match[str]]:
+    """Yield each `{name}` that sits in executable SQL, skipping literals and comments."""
+    cursor = 0
+    for region in _DUCKDB_SKIP_REGION.finditer(code):
+        if region.start() > cursor:
+            yield from _BARE_PLACEHOLDER.finditer(code, cursor, region.start())
+        cursor = max(cursor, region.end())
+    yield from _BARE_PLACEHOLDER.finditer(code, cursor, len(code))
+
+
+def substitute_duckdb_variables(
+    code: str, variables: list[NotebookVariable]
+) -> tuple[str, dict[str, NotebookVariableValue]]:
+    """Rewrite each `{name}` to DuckDB's `$name` parameter; return the code and the values to bind.
+
+    Nothing is escaped, so a value can never become SQL — DuckDB binds it through the driver
+    (see `_run_duckdb_node`). Only placeholders in executable positions are rewritten: a
+    `{name}` inside a string, a quoted identifier, a dollar-quoted block, or a comment is
+    left exactly as written.
+
+    Raises NotebookVariableError when an executable `{name}` is not a declared variable.
     """
-    if value is None:
-        return "NULL"
-    # Checked before int: bool is a subclass of it.
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, datetime):
-        return _quoted(value.isoformat(sep=" "))
-    if isinstance(value, date):
-        return _quoted(value.isoformat())
-    return _quoted(str(value))
+    if not _BARE_PLACEHOLDER.search(code):
+        return code, {}
 
+    values = {variable.name: variable.value for variable in variables}
+    used: dict[str, NotebookVariableValue] = {}
+    pieces: list[str] = []
+    cursor = 0
 
-def _quoted(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
+    for match in _executable_placeholders(code):
+        name = match.group(1)
+        if name in RESERVED_VARIABLE_NAMES:
+            continue
+        if name not in values:
+            raise _undeclared_error(name, list(values))
+        pieces.append(code[cursor : match.start()])
+        pieces.append(f"${name}")
+        used[name] = values[name]
+        cursor = match.end()
+    pieces.append(code[cursor:])
+    return "".join(pieces), used
 
 
 def reject_variables_in_raw_query(code: str, variables: list[NotebookVariable]) -> None:
@@ -172,35 +211,6 @@ def reject_variables_in_raw_query(code: str, variables: list[NotebookVariable]) 
             f"Notebook variables ({', '.join(used)}) can't be used in a raw query. "
             "Turn off 'send raw query' to run it as HogQL, or write the value into the SQL."
         )
-
-
-def substitute_text_variables(code: str, variables: list[NotebookVariable]) -> str:
-    """Bind notebook variables into a DuckDB query, which has no HogQL AST.
-
-    Each `{name}` becomes an escaped literal (`_sql_literal`). Names inside string literals and
-    comments are left alone, matching the reference scan. DuckDB only — see `_sql_literal`.
-    """
-    if not _BARE_PLACEHOLDER.search(code):
-        return code
-
-    values = {variable.name: variable.value for variable in variables}
-    # Blanked copy used only to decide which matches are real; offsets line up with `code`
-    # because the substitution preserves length.
-    scannable = _SQL_LITERALS_AND_COMMENTS.sub(lambda match: " " * len(match.group(0)), code)
-    substitutable = {match.start() for match in _BARE_PLACEHOLDER.finditer(scannable)}
-
-    for match in _BARE_PLACEHOLDER.finditer(scannable):
-        name = match.group(1)
-        if name not in RESERVED_VARIABLE_NAMES and name not in values:
-            raise _undeclared_error(name, list(values))
-
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if match.start() not in substitutable or name in RESERVED_VARIABLE_NAMES or name not in values:
-            return match.group(0)
-        return _sql_literal(values[name])
-
-    return _BARE_PLACEHOLDER.sub(replace, code)
 
 
 def build_notebook_variables(items: list[dict[str, Any]], timezone_info: ZoneInfo) -> list[NotebookVariable]:

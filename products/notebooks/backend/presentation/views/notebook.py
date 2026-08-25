@@ -84,6 +84,7 @@ from products.notebooks.backend.sql_v2_references import (
 )
 from products.notebooks.backend.sql_v2_runs import finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
+    MAX_VARIABLES_PER_NOTEBOOK,
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
@@ -208,6 +209,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
         help_text=(
             "Notebook-level variables, in display order. A SQL cell reads one as a `{name}` "
             "placeholder and a Python cell as a global. Names must be unique."
@@ -1308,9 +1312,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         node_type=plan.node_type,
                         output_name=output_name,
                         inputs=plan.inputs,
-                        # Only a python node reads these in the kernel; a duckdb run already
-                        # has its values substituted into the SQL.
-                        variables=python_variable_bindings(variables) if plan.node_type == "python" else {},
+                        # A python node reads these as globals; a duckdb node binds them as
+                        # `$name` query parameters, so it carries only the ones its SQL uses.
+                        variables=(
+                            python_variable_bindings(variables) if plan.node_type == "python" else plan.variables
+                        ),
                     )
                 )
         except Exception:

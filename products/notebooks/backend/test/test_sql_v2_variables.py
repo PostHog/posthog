@@ -14,8 +14,8 @@ from products.notebooks.backend.sql_v2_variables import (
     build_notebook_variables,
     python_variable_bindings,
     reject_variables_in_raw_query,
+    substitute_duckdb_variables,
     substitute_hogql_variables,
-    substitute_text_variables,
 )
 
 UTC = ZoneInfo("UTC")
@@ -73,47 +73,55 @@ class TestSubstituteHogqlVariables(SimpleTestCase):
         self.assertIn(expected, str(error.exception))
 
 
-class TestSubstituteTextVariables(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("string", "US", "'US'"),
-            ("string_with_quote", "O'Hara", "'O''Hara'"),
-            ("number", 30, "30"),
-            ("float", 1.5, "1.5"),
-            ("boolean_true", True, "TRUE"),
-            ("boolean_false", False, "FALSE"),
-            ("null", None, "NULL"),
-        ]
-    )
-    def test_renders_an_escaped_literal(self, _name: str, value: object, expected: str) -> None:
-        self.assertEqual(
-            substitute_text_variables("select {v}", [NotebookVariable(name="v", value=value)]),  # type: ignore[arg-type]
-            f"select {expected}",
-        )
+class TestSubstituteDuckdbVariables(SimpleTestCase):
+    def test_a_placeholder_becomes_a_bound_parameter(self):
+        # The value never enters the SQL, so nothing about it can be parsed as SQL.
+        code, params = substitute_duckdb_variables("select * from t where c = {country}", [COUNTRY])
+        self.assertEqual(code, "select * from t where c = $country")
+        self.assertEqual(params, {"country": "US"})
 
-    def test_a_quote_in_a_value_cannot_close_the_literal(self):
-        # Doubling is the SQL-standard escape: the payload stays one string literal.
-        printed = substitute_text_variables(
-            "select * from t where c = {v}", [NotebookVariable(name="v", value="a' or 'x'='x")]
-        )
-        self.assertEqual(printed, "select * from t where c = 'a'' or ''x''=''x'")
+    def test_only_the_names_the_query_uses_are_bound(self):
+        # DuckDB rejects a parameter the query never references, so an unused declaration
+        # must not be sent.
+        code, params = substitute_duckdb_variables("select {country}", [COUNTRY, DAYS])
+        self.assertEqual(code, "select $country")
+        self.assertEqual(params, {"country": "US"})
 
     @parameterized.expand(
         [
-            (
-                "string_literal",
-                "select '{country}' as label, {country} as value",
-                "select '{country}' as label, 'US' as value",
-            ),
-            ("line_comment", "-- uses {country}\nselect {country}", "-- uses {country}\nselect 'US'"),
+            ("single_quoted", "select '{country}' as label"),
+            ("double_quoted_identifier", 'select 1 as "{country}"'),
+            # The region the escaping scanner missed: everything between the tags is literal,
+            # so a value written here could have closed the string and run as SQL.
+            ("dollar_quoted", "select $tag${country}$tag$"),
+            ("dollar_quoted_bare", "select $${country}$$"),
+            ("line_comment", "-- {country}\nselect 1"),
+            ("block_comment", "/* {country} */ select 1"),
         ]
     )
-    def test_a_name_outside_a_placeholder_position_is_left_alone(self, _name: str, code: str, expected: str) -> None:
-        self.assertEqual(substitute_text_variables(code, [COUNTRY]), expected)
+    def test_a_placeholder_outside_executable_sql_is_left_alone(self, _name: str, code: str) -> None:
+        rewritten, params = substitute_duckdb_variables(code, [COUNTRY])
+        self.assertEqual(rewritten, code)
+        self.assertEqual(params, {})
+
+    def test_a_value_cannot_escape_a_dollar_quoted_string(self):
+        # The reported injection: with textual escaping this produced
+        # `select $tag$'$tag$ UNION ALL SELECT version() --'$tag$`, where the payload closed
+        # the literal and ran. Now the placeholder is literal text and nothing is bound.
+        code = "select $tag${country}$tag$"
+        rewritten, params = substitute_duckdb_variables(
+            code, [NotebookVariable(name="country", value="$tag$ UNION ALL SELECT version() --")]
+        )
+        self.assertEqual(rewritten, code)
+        self.assertEqual(params, {})
+
+    def test_a_query_without_placeholders_is_returned_verbatim(self):
+        code = "select * from py_df"
+        self.assertEqual(substitute_duckdb_variables(code, [COUNTRY]), (code, {}))
 
     def test_an_undeclared_name_raises(self):
         with self.assertRaises(NotebookVariableError):
-            substitute_text_variables("select {nope}", [COUNTRY])
+            substitute_duckdb_variables("select {nope}", [COUNTRY])
 
 
 class TestBuildNotebookVariables(SimpleTestCase):
@@ -184,13 +192,15 @@ class TestResolveSqlNodeRunWithVariables(SimpleTestCase):
         self.assertEqual(plan.inputs, [])
         self.assertIn("'US'", plan.code)
 
-    def test_the_duckdb_lane_binds_as_a_literal_without_reformatting(self):
+    def test_the_duckdb_lane_carries_parameters_without_reformatting(self):
         # A local ref reroutes to DuckDB, whose dialect the HogQL printer must not rewrite.
+        # The value rides alongside as a bound parameter rather than inside the SQL.
         plan = resolve_sql_node_run(
             "select * from py_df where country = {country}", {"py_df": SQLV2Ref(kind="local")}, [COUNTRY]
         )
         self.assertEqual(plan.node_type, "duckdb")
-        self.assertEqual(plan.code, "select * from py_df where country = 'US'")
+        self.assertEqual(plan.code, "select * from py_df where country = $country")
+        self.assertEqual(plan.variables, {"country": "US"})
 
     def test_a_variable_binds_in_a_query_that_also_inlines_a_reference(self):
         # Both rewrites have to survive each other: the CTE merge reprints the AST, which fails
