@@ -1900,6 +1900,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             query: {
                                 kind: NodeKind.WebVitalsQuery,
                                 properties: webAnalyticsFilters,
+                                // Match the path-breakdown tile below so both tiles' precompute
+                                // reads hash to the same bucket job and share warm buckets. The
+                                // timeseries merges across all paths, so cleaning is result-neutral
+                                // here, but the hash is not — a mismatch builds a second bucket set.
+                                doPathCleaning: isPathCleaningEnabled,
                                 source: {
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
