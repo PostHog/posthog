@@ -214,7 +214,7 @@ export class HttpImageFetcher implements ImageFetcher {
             headers['if-modified-since'] = previousCache.lastModified
         }
         try {
-            const response = await fetchStreamed(url, { headers, timeoutMs })
+            const response = await fetchStreamed(url, { headers, timeoutMs, allowH2: true })
             const status = response.status
             requestOutcome = ImageFetchRequestMetrics.outcomeForHttpStatus(status)
             const cache = cacheMetadata(requestTimeMs, Date.now(), response.headerLines)

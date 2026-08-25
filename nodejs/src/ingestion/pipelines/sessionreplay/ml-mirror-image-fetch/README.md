@@ -311,6 +311,8 @@ This rule lets later Kafka records add domain and origin diversity when the curr
 
 **6.5** These controls prevent server-side request forgery. A page must not make the lane connect to an internal service, a loopback address, a link-local address, or a cloud metadata service. Smokescreen must check the resolved address for every connection so that DNS rebinding cannot bypass this control.
 
+**6.6** The lane negotiates HTTP/2 with each origin inside the Smokescreen tunnel. One HTTP/2 connection carries at most six active streams. The registrable-domain scheduler keeps the combined limit at six across sibling origins.
+
 ### 7. Back-off and retry delay
 
 **7.1** This section applies to image requests. Configuration-file requests use the failure and retry rules in section 3 and do not change a registrable domain's image back-off or circuit-breaker state.

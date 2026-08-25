@@ -62,6 +62,7 @@ describe('HttpImageFetcher', () => {
         expect(fetchStreamedMock).toHaveBeenCalledWith(
             'https://cdn.example.com/a.png',
             expect.objectContaining({
+                allowH2: true,
                 headers: expect.objectContaining({
                     'user-agent':
                         'PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)',

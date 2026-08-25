@@ -354,6 +354,10 @@ describe('HttpConfigurationFetcher', () => {
         fetchStreamedMock.mockResolvedValue(response(status))
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome })
+        expect(fetchStreamedMock).toHaveBeenCalledWith(
+            'https://example.com/robots.txt',
+            expect.objectContaining({ allowH2: true })
+        )
     })
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {

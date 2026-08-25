@@ -34,6 +34,27 @@ describe('fetchStreamed', () => {
         expect(bytes.toString()).toBe('abcde')
     })
 
+    it('uses one shared HTTP/2 dispatcher when requested', async () => {
+        respond([])
+        const first = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000, allowH2: true })
+        first.discard()
+        const firstDispatcher = requestMock.mock.calls[0]?.[1]?.dispatcher
+
+        respond([])
+        const second = await fetchStreamed('https://example.com/b.png', { timeoutMs: 1000, allowH2: true })
+        second.discard()
+        const secondDispatcher = requestMock.mock.calls[1]?.[1]?.dispatcher
+
+        respond([])
+        const fallback = await fetchStreamed('https://example.com/c.png', { timeoutMs: 1000 })
+        fallback.discard()
+        const fallbackDispatcher = requestMock.mock.calls[2]?.[1]?.dispatcher
+
+        expect(firstDispatcher).toBeDefined()
+        expect(firstDispatcher).toBe(secondDispatcher)
+        expect(firstDispatcher).not.toBe(fallbackDispatcher)
+    })
+
     it.each([
         ['one chunk already past it', [Buffer.alloc(20)]],
         ['several chunks that cross it together', [Buffer.alloc(4), Buffer.alloc(4), Buffer.alloc(4)]],

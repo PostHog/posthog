@@ -253,19 +253,6 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
     await staticLookupAsync(parsedUrl.hostname)
 }
 
-class SecureAgent extends Agent {
-    constructor() {
-        super({
-            keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            connect: {
-                lookup: httpStaticLookup,
-                timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-            },
-        })
-    }
-}
-
 // Safe way to use the same helpers for talking to internal endpoints such as other services
 class InsecureAgent extends Agent {
     constructor() {
@@ -282,34 +269,46 @@ class InsecureAgent extends Agent {
 // When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
-function makeSecureDispatcher(): Dispatcher {
+type SecureDispatcherOptions = {
+    allowH2?: boolean
+    connections?: number
+    maxConcurrentStreams?: number
+}
+
+function makeSecureDispatcher(options: SecureDispatcherOptions = {}): Dispatcher {
     const proxyUrl =
         process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    const allowH2 = options.allowH2 ?? false
+    const connections = options.connections ?? requestConfig.EXTERNAL_REQUEST_CONNECTIONS
 
     if (proxyUrl) {
         return new ProxyAgent({
             uri: proxyUrl,
             keepAliveTimeout: requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
-            connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
-            requestTls: {},
+            connections,
+            allowH2,
+            maxConcurrentStreams: options.maxConcurrentStreams,
+            requestTls: { allowH2 },
         })
     }
-    return new SecureAgent()
+    return new Agent({
+        keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
+        connections,
+        allowH2,
+        maxConcurrentStreams: options.maxConcurrentStreams,
+        connect: {
+            lookup: httpStaticLookup,
+            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+        },
+    })
 }
 
 const sharedSecureAgent = makeSecureDispatcher()
-// Unlike `makeSecureDispatcher`, this agent deliberately skips the ProxyAgent branch: CDP workers don't
-// set the proxy env vars, and SSRF stays covered via `httpStaticLookup`. If CDP egress ever moves behind
-// the proxy (see #49170), swap this for a `ProxyAgent` — undici's `ProxyAgent` supports `allowH2` — so
-// H2 traffic (e.g. APNs) doesn't silently keep going direct.
-const sharedSecureH2Agent = new Agent({
-    keepAliveTimeout: Number(requestConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
-    connections: requestConfig.EXTERNAL_REQUEST_CONNECTIONS,
+const sharedSecureH2Agent = makeSecureDispatcher({ allowH2: true })
+const sharedSecureStreamedH2Agent = makeSecureDispatcher({
     allowH2: true,
-    connect: {
-        lookup: httpStaticLookup,
-        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-    },
+    connections: 1,
+    maxConcurrentStreams: 6,
 })
 const sharedInsecureAgent = new InsecureAgent()
 
@@ -434,6 +433,7 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
 export type StreamedFetchOptions = {
     headers?: HeadersInit
     timeoutMs: number
+    allowH2?: boolean
 }
 
 export type StreamedResponse = {
@@ -537,7 +537,7 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         result = await request(parsed.toString(), {
             method: 'GET',
             headers: options.headers,
-            dispatcher: sharedSecureAgent,
+            dispatcher: options.allowH2 ? sharedSecureStreamedH2Agent : sharedSecureAgent,
             signal: AbortSignal.timeout(options.timeoutMs),
             responseHeaders: 'raw',
         })
