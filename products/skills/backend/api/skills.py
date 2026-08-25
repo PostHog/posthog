@@ -11,6 +11,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -204,7 +205,7 @@ class CommunityPublishOwnerPermission(BasePermission):
         "Only an owner can publish this skill to the community. Ask an owner to publish it, or to add you as one."
     )
 
-    def has_permission(self, request: Request, view) -> bool:
+    def has_permission(self, request: Request, view: "LLMSkillViewSet") -> bool:
         if getattr(view, "action", None) != "publish_to_community":
             return True
 
@@ -222,11 +223,11 @@ class CommunityPublishOwnerPermission(BasePermission):
         if any(owner.pk == user.pk for owner in owners):
             return True
 
-        # A slug that names no skill still answers 404 from the action, the way every other
-        # `name/<slug>` action answers it. Without this it answers 403 instead, because a skill that
-        # does not exist has no owners either.
+        # A slug that names no skill answers 404, the way every other `name/<slug>` action answers it,
+        # because a skill that does not exist has no owners either. Raising here rather than passing
+        # keeps the action from loading a skill another request creates in between.
         if get_skill_by_name_from_db(team, skill_name) is None:
-            return True
+            raise NotFound(f"Skill with name '{skill_name}' not found.")
 
         self.message = self.NO_OWNERS_MESSAGE if not owners else self.NOT_OWNER_MESSAGE
         return False
