@@ -32,6 +32,12 @@ MAX_CLAUSES_PER_QUERY = 10
 # must check the same flag, or one of them becomes a bypass.
 METRICS_FEATURE_FLAG = "metrics"
 
+# Fundamentals recomputes a chart point from its raw samples so the viewer's own
+# reductions can be checked. That makes it a tool for the people who build the
+# viewer, not a feature for the teams on the alpha, so it needs a gate of its own
+# on top of METRICS_FEATURE_FLAG.
+METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:

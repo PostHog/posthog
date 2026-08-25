@@ -13,6 +13,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, AccessControlLevelResource
 
+from products.metrics.backend.facade.contracts import METRICS_FUNDAMENTALS_FEATURE_FLAG
+
 try:
     from ee.models.rbac.access_control import AccessControl
 except ImportError:
@@ -55,6 +57,23 @@ class TestMetricsFeatureFlagGate(APIBaseTest):
             patch("products.metrics.backend.presentation.api.team_has_metrics", return_value=True),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("enabled", True, status.HTTP_400_BAD_REQUEST),
+            ("disabled", False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_fundamentals_flag_gates_the_explain_action(
+        self, _name: str, fundamentals_enabled: bool, expected_status: int
+    ) -> None:
+        def feature_enabled(flag: str, *args: object, **kwargs: object) -> bool:
+            return fundamentals_enabled if flag == METRICS_FUNDAMENTALS_FEATURE_FLAG else True
+
+        with patch("posthoganalytics.feature_enabled", side_effect=feature_enabled):
+            response = self.client.post(f"/api/projects/{self.team.id}/metrics/explain/", {}, format="json")
 
         assert response.status_code == expected_status
 

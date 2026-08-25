@@ -6,13 +6,14 @@ recognizable.
 
 import datetime as dt
 from dataclasses import asdict
+from typing import cast
 
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,7 +21,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
@@ -36,6 +38,7 @@ from products.metrics.backend.facade.api import (
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
     METRICS_FEATURE_FLAG,
+    METRICS_FUNDAMENTALS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
@@ -901,6 +904,20 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Take one chart point apart into the series and samples behind it,
         and recompute it independently so the plotted number can be checked
         rather than trusted."""
+        # The class-level gate admits every team on the metrics alpha, which is wider
+        # than this action should be. Fundamentals is a correctness tool for the people
+        # who build the viewer, so it carries its own flag. Without this check the tab
+        # is hidden in the UI but the data behind it stays one POST away.
+        if not posthog_feature_flag_enabled(
+            METRICS_FUNDAMENTALS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.organization_id,
+            team_id=self.team_id,
+        ):
+            raise PermissionDenied(
+                f"This action requires feature flag {METRICS_FUNDAMENTALS_FEATURE_FLAG!r} to be enabled for your organization."
+            )
+
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
         body = _MetricExplainRequestSerializer(data=request.data)
