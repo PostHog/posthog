@@ -4,7 +4,7 @@ import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/Activi
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { type MouseEventHandler, useRef, useState } from "react";
 import { SidebarItem } from "../SidebarItem";
-import { SidebarCountBadge } from "./SidebarCountBadge";
+import { SidebarNotificationDot } from "./SidebarNotificationDot";
 
 interface ActivityItemProps {
   isActive: boolean;
@@ -13,7 +13,7 @@ interface ActivityItemProps {
 }
 
 // The Activity nav row with its unread dot. Owns the task-activity subscription
-// so the query mounts once here; the badge counts tasks whose activity is newer
+// so the query mounts once here; the dot marks activity newer
 // than the last time the Activity page was opened.
 export function ActivityItem({
   isActive,
@@ -30,8 +30,8 @@ export function ActivityItem({
       label={
         <>
           Activity
-          <SidebarCountBadge
-            count={unreadCount}
+          <SidebarNotificationDot
+            show={unreadCount > 0}
             title={`${unreadCount} new ${unreadCount === 1 ? "update" : "updates"}`}
           />
         </>

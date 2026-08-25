@@ -71,11 +71,16 @@ describe("ActivityRow", () => {
     );
 
     const title = screen.getByText("Tell me a joke");
-    const metadata = screen.getByText("just now · Agent completed · Personal");
+    const metadata = screen.getByText("just now · Agent finished in");
+    const spaceBadge = screen.getByText("Personal").closest(".quill-badge");
     expect(title.compareDocumentPosition(metadata)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(spaceBadge).toHaveClass("quill-badge--variant-default");
     const row = title.closest("button");
+    expect(row).toHaveAccessibleName(
+      "Tell me a joke just now · Agent finished in Personal",
+    );
     expect(row?.querySelector(".quill-avatar")).toHaveClass(
       "bg-primary",
       "text-primary-foreground",
