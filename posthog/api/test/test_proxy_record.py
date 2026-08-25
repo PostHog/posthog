@@ -1,9 +1,14 @@
+from types import SimpleNamespace
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.temporal.proxy_service.cloudflare import (
@@ -12,6 +17,32 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameSSLStatus,
     CustomHostnameStatus,
 )
+
+
+class TestProxyRecordUpdateSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("apex", "e.example.com", "https://example.com/"),
+            ("sibling", "e.example.com", "https://www.example.com/"),
+            ("nested", "e.example.com", "https://technology.info.example.com/welcome"),
+            ("multipart_suffix", "e.example.co.uk", "https://www.example.co.uk/"),
+        ]
+    )
+    def test_accepts_redirects_on_the_proxy_root_domain(self, _name: str, proxy_domain: str, redirect_url: str) -> None:
+        serializer = ProxyRecordUpdateSerializer(
+            data={"root_redirect_url": redirect_url}, context={"record": SimpleNamespace(domain=proxy_domain)}
+        )
+
+        assert serializer.is_valid(), serializer.errors
+
+    def test_rejects_another_registrable_domain_with_the_same_public_suffix(self) -> None:
+        serializer = ProxyRecordUpdateSerializer(
+            data={"root_redirect_url": "https://other.co.uk/"},
+            context={"record": SimpleNamespace(domain="e.example.co.uk")},
+        )
+
+        assert not serializer.is_valid()
+        assert "example.co.uk" in serializer.errors["root_redirect_url"][0]
 
 
 class TestProxyRecordAPI(APIBaseTest):
@@ -150,6 +181,9 @@ class TestProxyRecordAPI(APIBaseTest):
             ("insecure", "http://www.example.com", "https://"),
             ("credentials", "https://user:password@example.com", "credentials"),
             ("loop", "https://proxy.example.com/", "managed proxy domain"),
+            ("loop_trailing_dot", "https://proxy.example.com./", "managed proxy domain"),
+            ("unrelated_domain", "https://google.com/", "example.com"),
+            ("root_domain_prefix", "https://example.com.attacker.com/", "example.com"),
         ]
     )
     def test_rejects_unsafe_root_redirect(self, _name, redirect_url, expected_error):
@@ -168,7 +202,8 @@ class TestProxyRecordAPI(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert expected_error in response.json()["root_redirect_url"][0]
+        assert response.json()["attr"] == "root_redirect_url"
+        assert expected_error in response.json()["detail"]
 
     @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")

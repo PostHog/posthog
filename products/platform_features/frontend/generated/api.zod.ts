@@ -198,7 +198,9 @@ export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .url()
         .max(proxyRecordsPartialUpdateBodyRootRedirectUrlMax)
         .nullish()
-        .describe('HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect.'),
+        .describe(
+            'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
+        ),
 })
 
 /**

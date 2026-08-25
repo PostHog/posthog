@@ -18,6 +18,7 @@ from rest_framework.viewsets import ModelViewSet
 from posthog.api.proxy_record_diagnostics import diagnose as diagnose_proxy_record
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
+from posthog.domain_connect import extract_root_domain_and_host
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
@@ -126,7 +127,10 @@ class ProxyRecordUpdateSerializer(serializers.Serializer):
         allow_null=True,
         max_length=1024,
         required=True,
-        help_text="HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect.",
+        help_text=(
+            "HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. "
+            "The URL must use the same registrable domain as the managed proxy."
+        ),
     )
 
     def validate_root_redirect_url(self, value: str | None) -> str | None:
@@ -139,9 +143,16 @@ class ProxyRecordUpdateSerializer(serializers.Serializer):
         if parsed_url.username or parsed_url.password:
             raise serializers.ValidationError("The redirect URL cannot include credentials.")
 
-        record = self.context["record"]
-        if parsed_url.hostname and parsed_url.hostname.lower() == record.domain.lower():
+        record: ProxyRecord = self.context["record"]
+        proxy_hostname = record.domain.rstrip(".")
+        redirect_hostname = (parsed_url.hostname or "").rstrip(".")
+        if redirect_hostname.lower() == proxy_hostname.lower():
             raise serializers.ValidationError("The redirect URL cannot point to the managed proxy domain.")
+
+        proxy_root_domain, _ = extract_root_domain_and_host(proxy_hostname)
+        redirect_root_domain, _ = extract_root_domain_and_host(redirect_hostname)
+        if redirect_root_domain.lower() != proxy_root_domain.lower():
+            raise serializers.ValidationError(f"Enter a URL on {proxy_root_domain} or one of its subdomains.")
 
         return value
 

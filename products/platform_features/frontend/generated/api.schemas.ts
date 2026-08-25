@@ -534,7 +534,7 @@ export interface ProxyRecordListResponseApi {
 
 export interface PatchedProxyRecordUpdateApi {
     /**
-     * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect.
+     * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
      * @maxLength 1024
      * @nullable
      */
