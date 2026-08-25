@@ -28,7 +28,10 @@ class RequestLike(Protocol):
     because the import-linter contract bans direct DRF imports from facade modules.
     Indirect DRF use (posthog.auth) is allowed by the same contract."""
 
-    headers: Any
+    # A read-only property, not an attribute: HttpRequest.headers is a cached_property,
+    # and mypy rejects a read-only descriptor where a protocol declares a settable member.
+    @property
+    def headers(self) -> Any: ...
 
 
 def is_mcp_request(request: RequestLike) -> bool:
