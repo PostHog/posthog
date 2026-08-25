@@ -2,9 +2,9 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
-import { insertRow } from '~/tests/helpers/sql'
+import { getTeamMemberUserId, insertRow } from '~/tests/helpers/sql'
 
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
 import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
@@ -53,21 +53,6 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     } as HogFunctionType
 
     return item
-}
-
-const getTeamCreatorId = async (postgres: PostgresRouter, teamId: Team['id']): Promise<number | null> => {
-    const { rows } = await postgres.query<{ user_id: number }>(
-        PostgresUse.COMMON_READ,
-        `SELECT organizationmembership.user_id
-         FROM posthog_organizationmembership AS organizationmembership
-         JOIN posthog_team AS team ON team.organization_id = organizationmembership.organization_id
-         WHERE team.id = $1
-         ORDER BY organizationmembership.joined_at
-         LIMIT 1`,
-        [teamId],
-        'getTeamCreatorId'
-    )
-    return rows[0]?.user_id ?? null
 }
 
 export const createIntegration = (integration: Partial<IntegrationType>) => {
@@ -151,7 +136,7 @@ export const insertHogFunction = async (
     hogFunction: Partial<HogFunctionType> = {}
 ): Promise<HogFunctionType> => {
     // This is only used for testing so we need to override some values
-    const createdById = await getTeamCreatorId(postgres, team_id)
+    const createdById = await getTeamMemberUserId(postgres, team_id)
 
     const res = await insertRow(postgres, 'posthog_hogfunction', {
         ...createHogFunction({
@@ -228,7 +213,7 @@ export const insertIntegration = async (
     team_id: Team['id'],
     integration: Partial<IntegrationType> = {}
 ): Promise<IntegrationType> => {
-    const createdById = await getTeamCreatorId(postgres, team_id)
+    const createdById = await getTeamMemberUserId(postgres, team_id)
     const res = await insertRow(postgres, 'posthog_integration', {
         ...createIntegration({
             ...integration,

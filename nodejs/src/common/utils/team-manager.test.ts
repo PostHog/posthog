@@ -1,7 +1,9 @@
+import { randomUUID } from 'crypto'
+
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import {
-    createOrganization,
     createTeam,
+    createTestTeamFixture,
     getTeam,
     insertRow,
     updateOrganizationAvailableFeatures,
@@ -37,14 +39,12 @@ describe('TeamManager()', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        const fixtureOrganizationId = await createOrganization(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres, { cookieless_server_hash_mode: 2 })
+        const fixtureOrganizationId = fixture.organizationId
         await updateOrganizationAvailableFeatures(hub.postgres, fixtureOrganizationId, [
             { key: 'data_pipelines', name: 'Data Pipelines' },
         ])
-        const fixtureTeamId = await createTeam(hub.postgres, fixtureOrganizationId, undefined, {
-            cookieless_server_hash_mode: 2,
-        })
-        const team = (await getTeam(hub.postgres, fixtureTeamId))!
+        const team = (await getTeam(hub.postgres, fixture.team.id))!
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
@@ -281,7 +281,7 @@ describe('TeamManager()', () => {
     })
 
     describe('setTeamIngestedEvent()', () => {
-        const newTeamToken = 'token-for-a-team-with-no-events-yet'
+        let newTeamToken: string
         let newTeam: Team
 
         const readIngestedEvent = async (id: Team['id']): Promise<boolean> => {
@@ -295,6 +295,7 @@ describe('TeamManager()', () => {
         }
 
         beforeEach(async () => {
+            newTeamToken = randomUUID()
             await createTeam(postgres, organizationId, newTeamToken, { ingested_event: false })
             const loaded = await teamManager.getTeamByToken(newTeamToken)
             expect(loaded?.ingested_event).toBe(false)

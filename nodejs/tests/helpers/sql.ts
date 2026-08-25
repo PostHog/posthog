@@ -414,10 +414,11 @@ export const createTeam = async (
 }
 
 export async function createTestTeamFixture(
-    postgres: PostgresRouter
+    postgres: PostgresRouter,
+    teamSettings?: Record<string, any>
 ): Promise<{ organizationId: string; team: Team; userId: number }> {
     const organizationId = await createOrganization(postgres)
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(postgres, organizationId, undefined, teamSettings)
     const team = await getTeam(postgres, teamId)
 
     if (!team) {
@@ -428,6 +429,21 @@ export async function createTestTeamFixture(
     await createOrganizationMembership(postgres, organizationId, userId)
 
     return { organizationId, team, userId }
+}
+
+export async function getTeamMemberUserId(postgres: PostgresRouter, teamId: Team['id']): Promise<number | null> {
+    const { rows } = await postgres.query<{ user_id: number }>(
+        PostgresUse.COMMON_READ,
+        `SELECT organizationmembership.user_id
+         FROM posthog_organizationmembership AS organizationmembership
+         JOIN posthog_team AS team ON team.organization_id = organizationmembership.organization_id
+         WHERE team.id = $1
+         ORDER BY organizationmembership.joined_at
+         LIMIT 1`,
+        [teamId],
+        'getTeamMemberUserId'
+    )
+    return rows[0]?.user_id ?? null
 }
 
 export const createAction = async (

@@ -1,7 +1,7 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 
-import { commonUserId, createTestTeamFixture, insertRow } from '../../../tests/helpers/sql'
+import { createTestTeamFixture, insertRow } from '../../../tests/helpers/sql'
 import { Hub, PropertyOperator, RawAction } from '../../types'
 import { ActionManager } from './action-manager'
 
@@ -11,10 +11,13 @@ describe('ActionManager', () => {
 
     let teamId: number
     let actionId: number
+    let userId: number
 
     beforeEach(async () => {
         hub = await createHub()
-        teamId = (await createTestTeamFixture(hub.postgres)).team.id
+        const fixture = await createTestTeamFixture(hub.postgres)
+        teamId = fixture.team.id
+        userId = fixture.userId
         actionId = teamId
 
         await insertRow(hub.postgres, 'posthog_action', {
@@ -23,7 +26,7 @@ describe('ActionManager', () => {
             name: 'Test Action',
             description: '',
             created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
+            created_by_id: userId,
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',
