@@ -9,7 +9,9 @@ const meta: Meta<typeof CostManagementView> = {
     onSwitchModel: () => {},
     onCreateImage: () => {},
     onInstallSkill: () => {},
-    onOpenSkills: () => {},
+    onUninstallSkill: () => {},
+    onOpenSkill: () => {},
+    busySkillId: null,
   },
   decorators: [
     (Story) => (
