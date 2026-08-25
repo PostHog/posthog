@@ -9,6 +9,8 @@ export interface OtelSessionIdConfig {
 
 const PYTHON_CODE = `
 import contextvars
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Optional
 
 from opentelemetry.context import Context
@@ -26,11 +28,21 @@ class SessionIdSpanProcessor(SpanProcessor):
             span.set_attribute("$ai_session_id", session_id)
 
 
+@contextmanager
+def ai_session(session_id: str) -> Iterator[None]:
+    token = session_id_var.set(session_id)
+    try:
+        yield
+    finally:
+        session_id_var.reset(token)
+
+
 # Register it on the same provider as PostHogSpanProcessor
 provider.add_span_processor(SessionIdSpanProcessor())
 
-# Set this once per conversation, before you make the LLM call
-session_id_var.set("conversation-abc")
+# Resetting on exit keeps the ID off the next request that reuses this thread
+with ai_session("conversation-abc"):
+    reply = handle_turn(user_message)
 `.trim()
 
 const NODE_CODE = `
@@ -51,21 +63,8 @@ class SessionIdSpanProcessor implements SpanProcessor {
   async forceFlush(): Promise<void> {}
 }
 
-// Register it alongside PostHogSpanProcessor
-const sdk = new NodeSDK({
-  spanProcessors: [
-    new SessionIdSpanProcessor(),
-    new PostHogSpanProcessor({
-      projectToken: '<ph_project_token>',
-      host: '<ph_client_api_host>',
-    }),
-  ],
-})
-
-// Run each conversation inside the store
-await sessionStore.run('conversation-abc', async () => {
-  // your LLM calls
-})
+// Every span started inside the callback carries this session ID
+const reply = await sessionStore.run('conversation-abc', () => handleTurn(userMessage))
 `.trim()
 
 const CODE_BY_LANGUAGE = {
@@ -95,6 +94,16 @@ export const getOtelSessionIdStep = (ctx: OnboardingComponentsContext, config: O
                 </Markdown>
 
                 <CodeBlock blocks={config.languages.map((language) => CODE_BY_LANGUAGE[language])} />
+
+                {config.languages.includes('Node') && (
+                    <Markdown>
+                        {dedent`
+                            On Node, add \`new SessionIdSpanProcessor()\` to the \`spanProcessors\` array of the
+                            \`NodeSDK\` you configured earlier, next to \`PostHogSpanProcessor\`. Keep the rest of
+                            that setup as it is, including \`instrumentations\` and the \`sdk.start()\` call.
+                        `}
+                    </Markdown>
+                )}
 
                 <Markdown>
                     {dedent`
