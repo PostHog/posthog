@@ -40,8 +40,6 @@ export function PullRequestView({ prUrl }: PullRequestViewProps) {
   const infoQuery = usePrInfo(isPr ? prUrl : null);
   const info = infoQuery.data;
 
-  // Resolve the task and run that own this PR so the babysit banner can
-  // reach the run's Temporal workflow for staged attention.
   const task = useTaskByPrUrl(isPr ? prUrl : undefined);
   const runId = task?.latest_run?.id;
 

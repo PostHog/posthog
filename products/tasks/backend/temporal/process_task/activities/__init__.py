@@ -72,6 +72,7 @@ from .start_agent_server import (
     start_agent_server,
 )
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
+from .update_babysit_run_state import UpdateBabysitRunStateInput, update_babysit_run_state
 from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 
 __all__ = [
@@ -104,6 +105,7 @@ __all__ = [
     "StartAgentServerOutput",
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
+    "UpdateBabysitRunStateInput",
     "UpdateTaskRunStatusInput",
     "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
@@ -146,6 +148,7 @@ __all__ = [
     "await_agent_server_ready",
     "mark_repo_ready",
     "track_workflow_event",
+    "update_babysit_run_state",
     "update_task_run_status",
     "clone_repository_in_sandbox",
     "materialize_context_layer_in_sandbox",

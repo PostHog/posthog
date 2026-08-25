@@ -17295,7 +17295,7 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
-      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run.
        *
        * * `ask` - ask
        * * `auto` - auto
@@ -17697,7 +17697,7 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
-      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run.
        *
        * * `ask` - ask
        * * `auto` - auto
@@ -81158,25 +81158,6 @@ export namespace Schemas {
     }
 
     /**
-     * Attention items: failing checks, review threads, comments, conflict
-     */
-    export type TaskRunBabysitAttentionAttention = { [key: string]: unknown };
-
-    /**
-     * The staged PR attention waiting for consent in 'ask' babysit mode, or null.
-     */
-    export interface TaskRunBabysitAttention {
-      /** The PR URL the attention is about */
-      pr_url?: string;
-      /** Lowercased GitHub PR state */
-      pr_state?: string;
-      /** Head commit SHA the attention was staged at */
-      head_sha?: string;
-      /** Attention items: failing checks, review threads, comments, conflict */
-      attention?: TaskRunBabysitAttentionAttention;
-    }
-
-    /**
      * * `local` - local
      * * `cloud` - cloud
      */
@@ -81306,7 +81287,7 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
-      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run.
        *
        * * `ask` - ask
        * * `auto` - auto

@@ -32,6 +32,7 @@ import type { PrActionType } from "@posthog/shared";
 import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "../../../primitives/toast";
+import { BabysitBadgeSegment } from "../../babysit/BabysitBadgeSegment";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
 import { getPrActionIcon, getPrVisualIcon } from "../prIcon";
 import { prBadgeToneProps } from "../prTone";
@@ -127,6 +128,7 @@ export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
       <div className="no-drag">
         {pr ? (
           <PrBadgeControl
+            babysitTaskId={isCloud ? taskId : undefined}
             prUrl={pr.url}
             prState={pr.state}
             merged={merged}
@@ -279,6 +281,7 @@ interface PrBadgeControlProps {
   otherPrs: OtherPrItem[];
   isPrPending: boolean;
   gitItems: GitMenuAction[];
+  babysitTaskId?: string;
   onGitSelect: (id: GitMenuActionId) => void;
   onPrSelect: (action: PrActionType) => void;
   onOtherPrSelect: (url: string) => void;
@@ -293,6 +296,7 @@ function PrBadgeControl({
   otherPrs,
   isPrPending,
   gitItems,
+  babysitTaskId,
   onGitSelect,
   onPrSelect,
   onOtherPrSelect,
@@ -315,6 +319,17 @@ function PrBadgeControl({
 
   return (
     <ButtonGroup>
+      {babysitTaskId && (
+        <>
+          <BabysitBadgeSegment
+            taskId={babysitTaskId}
+            prUrl={prUrl}
+            variant={tone.variant}
+            toneClassName={tone.className}
+          />
+          <ButtonGroupSeparator />
+        </>
+      )}
       <PRBadgeLink
         prUrl={prUrl}
         prState={prState}

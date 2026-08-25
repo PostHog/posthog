@@ -1,6 +1,9 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { Button, Spinner } from "@posthog/quill";
-import { useApproveBabysit, useBabysitAttention } from "./useBabysitAttention";
+import {
+  useBabysitRunState,
+  useStartBabysit,
+} from "@posthog/ui/features/babysit/useBabysitRunState";
 
 interface BabysitBannerProps {
   taskId: string | undefined;
@@ -8,20 +11,15 @@ interface BabysitBannerProps {
   prUrl: string;
 }
 
-/**
- * The consent card for "ask" babysit mode. When the run's workflow has staged
- * PR attention and is waiting for consent, this banner shows what needs
- * fixing and offers to approve the wake-up. In other modes the workflow does
- * not wait, the query returns null, and the banner renders nothing.
- */
 export function BabysitBanner({ taskId, runId, prUrl }: BabysitBannerProps) {
-  const attention = useBabysitAttention(taskId, runId);
-  const approve = useApproveBabysit(taskId, runId);
+  const { uiState, staged } = useBabysitRunState(taskId, prUrl);
+  const approve = useStartBabysit(taskId, runId);
 
-  // Nothing staged or not in ask mode — the PR view shows CI checks as-is.
-  if (!attention.data) return null;
+  if (uiState !== "attention" || !staged) return null;
 
-  const attentionItems = attention.data.attention;
+  const attentionItems = staged.attention as
+    | Record<string, unknown>
+    | undefined;
   const failingCount = countFailingChecks(attentionItems);
   const reviewCount = countReviewThreads(attentionItems);
 

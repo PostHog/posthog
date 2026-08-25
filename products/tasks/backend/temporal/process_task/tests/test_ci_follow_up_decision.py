@@ -203,6 +203,7 @@ def _patch_snapshot(monkeypatch, snapshot: PRSnapshot | None) -> None:
 
     monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
     monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _patch_id: True)
 
 
 def _capture_dispatched_messages(monkeypatch) -> list[str]:
@@ -365,9 +366,6 @@ class TestBabysitOptInModes:
             monkeypatch, _babysit_snapshot(failing_checks=[BABYSIT_CHECK], unresolved_threads=[BABYSIT_THREAD])
         )
 
-        # "never" never fires the wake-up: the timer gate keeps the loop from
-        # even calling _should_run_ci_follow_up, but the decision must also be SKIP
-        # so a direct call cannot bypass the opt-out.
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.SKIP
 
     async def test_ask_mode_stages_the_wake_up_for_the_query(self, monkeypatch):
@@ -375,8 +373,7 @@ class TestBabysitOptInModes:
         _patch_snapshot(monkeypatch, _babysit_snapshot(failing_checks=[BABYSIT_CHECK]))
 
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.AWAITING_CONSENT
-        # The staged attention is exposed to the desktop via the query.
-        attention = wf.pending_babysit_attention()
+        attention = wf._serialize_babysit_pending()
         assert attention is not None
         assert attention["pr_url"] == BABYSIT_PR_URL
         assert len(attention["attention"]["failing_checks"]) == 1
@@ -388,14 +385,10 @@ class TestBabysitOptInModes:
 
         assert await wf._should_run_ci_follow_up() is CIFollowUpDecision.AWAITING_CONSENT
 
-        # No message dispatched yet — the workflow is parked on consent.
         assert sent == []
 
         await wf.approve_ci_babysit()
 
-        # wait_condition runs inside the workflow event loop at runtime; in the
-        # unit test the signal has already set the consent flag, so the wait is
-        # a no-op once patched to resolve immediately.
         async def _noop_wait_condition(_predicate):
             return True
 
@@ -408,8 +401,6 @@ class TestBabysitOptInModes:
 
     async def test_always_mode_skips_the_idle_wait(self, monkeypatch):
         wf = _babysit_workflow(babysit_mode="always")
-        # A stale last_active_time would normally force the full delay; "always"
-        # ignores it and fires on the next tick.
         wf._last_active_time = datetime(2026, 8, 18, tzinfo=UTC)
 
         result = await wf._wait_for_ci_follow_up()

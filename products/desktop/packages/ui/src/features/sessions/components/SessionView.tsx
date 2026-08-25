@@ -12,6 +12,7 @@ import {
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import { BabysitDock } from "@posthog/ui/features/babysit/BabysitDock";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
@@ -758,6 +759,12 @@ export function SessionView({
                           <SideQuestionCard
                             taskId={taskId}
                             taskRunId={activeTaskRunId}
+                          />
+                        )}
+                        {taskId && (
+                          <BabysitDock
+                            taskId={taskId}
+                            runId={activeTaskRunId}
                           />
                         )}
                         {taskId && <QueuedMessagesDock taskId={taskId} />}

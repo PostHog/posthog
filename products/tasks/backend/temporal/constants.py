@@ -113,7 +113,6 @@ WARM_IDLE_TIMEOUT = timedelta(minutes=10)
 SANDBOX_TTL_SNAPSHOT_LEAD = timedelta(minutes=10)
 
 # CI follow-up cadence after the agent has been idle.
-# Override via TASKS_CI_FOLLOW_UP_DELAY_SECONDS for local testing (0 keeps this default).
 CI_FOLLOW_UP_DELAY = (
     timedelta(seconds=settings.TASKS_CI_FOLLOW_UP_DELAY_SECONDS)
     if settings.TASKS_CI_FOLLOW_UP_DELAY_SECONDS

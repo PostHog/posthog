@@ -29,10 +29,6 @@ const MODE_DESCRIPTIONS: Record<BabysitMode, string> = {
     "The agent does not watch the PR after opening it. No follow-up turns run.",
 };
 
-/**
- * The PR babysitting setting: what the agent does after it opens a pull request
- * and the CI starts running. See BabysitMode in settingsStore for the modes.
- */
 export function BabysitSettings() {
   const babysitMode = useSettingsStore((s) => s.babysitMode);
   const setBabysitMode = useSettingsStore((s) => s.setBabysitMode);
@@ -72,7 +68,6 @@ export function BabysitSettings() {
   );
 }
 
-// Re-exported for the composer indicator's tooltip label.
 export const BABYSIT_MODE_LABELS: Record<BabysitMode, string> = {
   ask: "Ask every time",
   auto: "Auto-approved",

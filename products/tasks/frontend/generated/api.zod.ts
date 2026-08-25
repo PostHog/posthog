@@ -1748,7 +1748,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ])
                 .optional()
                 .describe(
-                    "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
+                    "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -1906,7 +1906,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 ])
                 .optional()
                 .describe(
-                    "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
+                    "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2318,7 +2318,7 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
+                "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')
@@ -3101,6 +3101,59 @@ export const TasksRunsStartCreateBody = /* @__PURE__ */ zod.object({
             'Identifiers for run artifacts that should be attached to the next user message delivered to the sandbox.'
         ),
 })
+
+/**
+ * Stop babysitting for this run: drop any staged wake-up and disarm future wake-ups. An in-flight wake-up turn is not interrupted. Approving again re-arms the run.
+ * @summary Stop PR babysitting
+ */
+export const TasksRunsStopBabysitCreateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        task: zod.uuid().describe('Parent task id this run belongs to.'),
+        stage: zod.string().nullable(),
+        branch: zod.string().nullable(),
+        status: zod.string(),
+        environment: zod.string(),
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Configured runtime adapter for this run, such as 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        provider: zod
+            .union([
+                zod.enum(['anthropic', 'openai']).describe('\* `anthropic` - anthropic\n\* `openai` - openai'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Configured LLM provider for this run, such as 'anthropic' or 'openai'.\n\n\* `anthropic` - anthropic\n\* `openai` - openai"
+            ),
+        model: zod.string().nullish().describe('Configured LLM model identifier for this run.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Configured reasoning effort for this run when the selected model supports it.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        log_url: zod.url().nullish().describe('Presigned S3 URL for log access (valid for 1 hour).'),
+        error_message: zod.string().nullable(),
+        output: zod.record(zod.string(), zod.unknown()).nullable(),
+        state: zod.record(zod.string(), zod.unknown()),
+        created_at: zod.iso.datetime({ offset: true }).nullish(),
+        updated_at: zod.iso.datetime({ offset: true }).nullish(),
+        completed_at: zod.iso.datetime({ offset: true }).nullish(),
+    })
+    .describe(
+        'Detail response for a task run.\n\nReads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the\npresigned ``log_url`` and parses ``runtime_adapter`` \/ ``provider`` \/ ``model`` \/\n``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested\n``latest_run`` shape by the task detail response.'
+    )
 
 /**
  * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.

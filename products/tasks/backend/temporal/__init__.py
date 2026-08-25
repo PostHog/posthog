@@ -47,6 +47,7 @@ from .process_task.activities import (
     send_permission_response_to_sandbox,
     start_agent_server,
     track_workflow_event,
+    update_babysit_run_state,
     update_task_run_status,
 )
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
@@ -107,6 +108,7 @@ ACTIVITIES = [
     enforce_self_driving_run_quota,
     track_workflow_event,
     post_slack_update,
+    update_babysit_run_state,
     update_task_run_status,
     get_pr_context,
     get_pr_babysit_snapshot,

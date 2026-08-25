@@ -476,6 +476,7 @@ export interface CloudTaskStatusUpdate extends CloudTaskUpdateBase {
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
+  state?: Record<string, unknown> | null;
   errorMessage?: string | null;
   branch?: string | null;
   sandboxAlive?: boolean | null;

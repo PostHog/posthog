@@ -62,6 +62,11 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
+from products.tasks.backend.constants import (
+    BABYSIT_ARMED_STATE_KEY,
+    BABYSIT_STAGED_STATE_KEY,
+    BABYSIT_STOPPED_STATE_KEY,
+)
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -140,7 +145,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunArtifactsPrepareUploadResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
-    TaskRunBabysitAttentionSerializer,
     TaskRunBootstrapCreateRequestSerializer,
     TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
@@ -2736,31 +2740,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
     @extend_schema(
-        summary="Get pending babysit attention",
-        description=(
-            'When a run is in "ask" PR-babysitting mode and the PR needs attention, '
-            "the workflow stages the attention and waits for consent. This endpoint "
-            "queries the Temporal workflow for that staged attention so the desktop "
-            "can render a consent card. Returns null when nothing is waiting."
-        ),
-        responses={
-            200: OpenApiResponse(response=TaskRunBabysitAttentionSerializer),
-            404: OpenApiResponse(response=TaskRunErrorResponseSerializer),
-        },
-    )
-    @action(
-        detail=True,
-        methods=["get"],
-        url_path="babysit_attention",
-        required_scopes=["task:read"],
-    )
-    def babysit_attention(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        run = self._get_run_or_404(pk)
-        attention = tasks_facade.query_pending_babysit_attention(run.id, task_id, self.team_id)
-        return Response(TaskRunBabysitAttentionSerializer(attention).data)
-
-    @extend_schema(
         summary="Approve PR babysitting",
         description=(
             "Approve a staged babysit wake-up so the agent fixes failing checks and "
@@ -2781,7 +2760,43 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def approve_babysit(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         run = self._get_run_or_404(pk)
+        tasks_facade.update_task_run_state(
+            run.id,
+            updates={BABYSIT_ARMED_STATE_KEY: True, BABYSIT_STOPPED_STATE_KEY: False},
+        )
         tasks_facade.signal_approve_ci_babysit(run.id, task_id, self.team_id)
+        return Response({"ok": True})
+
+    @extend_schema(
+        summary="Stop PR babysitting",
+        description=(
+            "Stop babysitting for this run: drop any staged wake-up and disarm "
+            "future wake-ups. An in-flight wake-up turn is not interrupted. "
+            "Approving again re-arms the run."
+        ),
+        responses={
+            200: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+            404: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="stop_babysit",
+        required_scopes=["task:write"],
+    )
+    def stop_babysit(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        run = self._get_run_or_404(pk)
+        tasks_facade.update_task_run_state(
+            run.id,
+            updates={
+                BABYSIT_STOPPED_STATE_KEY: True,
+                BABYSIT_ARMED_STATE_KEY: False,
+                BABYSIT_STAGED_STATE_KEY: None,
+            },
+        )
+        tasks_facade.signal_stop_ci_babysit(run.id, task_id, self.team_id)
         return Response({"ok": True})
 
     @staticmethod

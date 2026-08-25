@@ -57,12 +57,6 @@ export interface TaskCreationInput {
    * meaningful: it opts the run out of the server-side default (enabled).
    */
   cloudRtkEnabled?: boolean;
-  /**
-   * What the agent does when the PR's CI needs attention: "ask" stages the
-   * wake-up and waits for approval, "auto" fires immediately, "always" fires
-   * with no idle wait or cap, "never" disables the loop. Only honored when the
-   * tasks-pr-babysit-opt-in flag is on.
-   */
   cloudBabysitMode?: string;
   signalReportId?: string;
   /**

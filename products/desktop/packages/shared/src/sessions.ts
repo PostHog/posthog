@@ -117,6 +117,7 @@ export interface AgentSession {
   cloudStatus?: TaskRunStatus;
   cloudStage?: string | null;
   cloudOutput?: Record<string, unknown> | null;
+  cloudState?: Record<string, unknown> | null;
   cloudArtifacts?: TaskRunArtifact[];
   cloudErrorMessage?: string | null;
   initialPrompt?: ContentBlock[];

@@ -99,7 +99,6 @@ import type {
     TaskRunArtifactsPrepareUploadResponseApi,
     TaskRunArtifactsUploadRequestApi,
     TaskRunArtifactsUploadResponseApi,
-    TaskRunBabysitAttentionApi,
     TaskRunBootstrapCreateRequestApi,
     TaskRunCancelRequestApi,
     TaskRunCommandRequestApi,
@@ -1991,26 +1990,6 @@ export const tasksRunsArtifactsReferencesCreate = async (
     )
 }
 
-export const getTasksRunsBabysitAttentionRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/babysit_attention/`
-}
-
-/**
- * When a run is in "ask" PR-babysitting mode and the PR needs attention, the workflow stages the attention and waits for consent. This endpoint queries the Temporal workflow for that staged attention so the desktop can render a consent card. Returns null when nothing is waiting.
- * @summary Get pending babysit attention
- */
-export const tasksRunsBabysitAttentionRetrieve = async (
-    projectId: string,
-    taskId: string,
-    id: string,
-    options?: RequestInit
-): Promise<TaskRunBabysitAttentionApi> => {
-    return apiMutator<TaskRunBabysitAttentionApi>(getTasksRunsBabysitAttentionRetrieveUrl(projectId, taskId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getTasksRunsCancelCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/cancel/`
 }
@@ -2273,6 +2252,29 @@ export const tasksRunsStartCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskRunStartRequestApi),
+    })
+}
+
+export const getTasksRunsStopBabysitCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stop_babysit/`
+}
+
+/**
+ * Stop babysitting for this run: drop any staged wake-up and disarm future wake-ups. An in-flight wake-up turn is not interrupted. Approving again re-arms the run.
+ * @summary Stop PR babysitting
+ */
+export const tasksRunsStopBabysitCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunDetailDTOApi: NonReadonly<TaskRunDetailDTOApi>,
+    options?: RequestInit
+): Promise<TaskRunErrorResponseApi> => {
+    return apiMutator<TaskRunErrorResponseApi>(getTasksRunsStopBabysitCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunDetailDTOApi),
     })
 }
 

@@ -29,13 +29,6 @@ export type SendMessagesWith = "enter" | "cmd+enter";
 export type AutoConvertLongText = "off" | "1000" | "2500" | "5000" | "10000";
 export type DiffOpenMode = "auto" | "split" | "same-pane" | "last-active-pane";
 
-// What the agent does after it opens a PR and the CI starts running. The
-// workflow reads this off the run state and routes the wake-up accordingly:
-//   - ask: stage the wake-up and wait for the user to click "Start babysitting"
-//   - auto: today's behavior — dispatch the wake-up immediately
-//   - always: like auto, but skip the 15-minute idle wait and the 3-rep cap
-//   - never: disable the loop for this user's interactive runs
-// Signals and loops keep their unattended path regardless.
 export type BabysitMode = "ask" | "auto" | "always" | "never";
 
 // When spoken notifications are allowed to talk, relative to what's on screen:
@@ -252,8 +245,6 @@ interface SettingsStore {
   // When on, cloud runs push their work and open a draft PR on completion
   // without waiting for an explicit ask.
   autoPublishCloudRuns: boolean;
-  // What the agent does after it opens a PR and CI starts running. See
-  // BabysitMode above for the four modes.
   babysitMode: BabysitMode;
   // When on, agent runs compress eligible command output through rtk before it
   // reaches the model. Split by modality: local covers local and worktree

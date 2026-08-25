@@ -180,6 +180,7 @@ export const sessionStoreSetters = {
       status?: TaskRunStatus;
       stage?: string | null;
       output?: Record<string, unknown> | null;
+      state?: Record<string, unknown> | null;
       errorMessage?: string | null;
       branch?: string | null;
     },
@@ -199,6 +200,7 @@ export const sessionStoreSetters = {
       }
       if (fields.stage !== undefined) session.cloudStage = fields.stage;
       if (fields.output !== undefined) session.cloudOutput = fields.output;
+      if (fields.state !== undefined) session.cloudState = fields.state;
       if (fields.errorMessage !== undefined)
         session.cloudErrorMessage = fields.errorMessage;
       if (fields.branch !== undefined) session.cloudBranch = fields.branch;
