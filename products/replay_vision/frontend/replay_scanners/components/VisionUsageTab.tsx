@@ -211,7 +211,7 @@ export function VisionUsageTab(): JSX.Element {
             },
         },
         {
-            title: 'Spend this billing period',
+            title: 'Spend this period',
             key: 'credits_this_month',
             width: '30%',
             className: 'pl-6',
