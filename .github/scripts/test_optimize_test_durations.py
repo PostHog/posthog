@@ -19,6 +19,8 @@ from optimize_test_durations import (
     outlier_merge_durations,
     run_average_files,
     run_merge_files,
+    scale_products_to_junit,
+    scope_products_to_junit,
     shard_sets_match,
 )
 
@@ -317,3 +319,57 @@ def test_shard_sets_match_requires_every_junit_artifact() -> None:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_scope_products_to_junit_keeps_products_the_run_skipped(tmp_path: Path) -> None:
+    (tmp_path / "ran").mkdir()
+    (tmp_path / "skipped").mkdir()
+    durations = {
+        "products/ran/test_a.py::test_kept": 1.0,
+        "products/ran/test_a.py::test_stale": 2.0,
+        "products/skipped/test_b.py::test_one": 3.0,
+        "products/deleted/test_c.py::test_one": 4.0,
+        "posthog/test_d.py::test_one": 5.0,
+    }
+
+    scoped = scope_products_to_junit(durations, {"products/ran/test_a.py::test_kept"}, products_dir=tmp_path)
+
+    assert scoped == {
+        "products/ran/test_a.py::test_kept": 1.0,
+        "products/skipped/test_b.py::test_one": 3.0,
+    }
+
+
+def test_scale_products_to_junit_matches_sums_to_measured_work(tmp_path: Path) -> None:
+    # Recorded call-only durations under-count the fixture-heavy product; junit
+    # carries the real total. Scaling keeps relative weights, fixes the sum.
+    shard = tmp_path / "product-junit-results-0"
+    shard.mkdir()
+    (shard / "junit-product-big_one.xml").write_bytes(
+        b'<?xml version="1.0"?><testsuite name="pytest" time="310.0">'
+        b'<testcase classname="products.big_one.backend.test_a.TestA" name="test_a" time="100.0"/>'
+        b'<testcase classname="products.big_one.backend.test_a.TestA" name="test_b" time="200.0"/></testsuite>'
+    )
+    durations = {
+        "products/big_one/backend/test_a.py::TestA::test_a": 10.0,
+        "products/big_one/backend/test_a.py::TestA::test_b": 20.0,
+        "posthog/test/test_x.py::test_x": 5.0,
+    }
+
+    scaled = scale_products_to_junit(durations, tmp_path)
+
+    assert scaled["products/big_one/backend/test_a.py::TestA::test_a"] == pytest.approx(100.0)
+    assert scaled["products/big_one/backend/test_a.py::TestA::test_b"] == pytest.approx(200.0)
+    assert scaled["posthog/test/test_x.py::test_x"] == 5.0
+    assert scaled["products/.junit-scaled"] == 1.0
+
+
+def test_scale_products_to_junit_leaves_products_without_junit_alone(tmp_path: Path) -> None:
+    durations = {"products/other_one/backend/test_b.py::test_b": 7.0}
+
+    scaled = scale_products_to_junit(durations, tmp_path)
+
+    assert scaled["products/other_one/backend/test_b.py::test_b"] == 7.0
+    # The marker still lands: an empty junit dir means no product ran, and the
+    # sums for products that did not run are unchanged either way.
+    assert scaled["products/.junit-scaled"] == 1.0

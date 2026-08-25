@@ -600,12 +600,7 @@ def estimate_duration(test_files: list[str], durations: dict[str, float]) -> flo
     return total
 
 
-_TEMPORAL_PREFIXES = (
-    "posthog/temporal/",
-    "products/batch_exports/backend/tests/temporal/",
-    "products/tasks/backend/temporal/",
-    "products/signals/backend/emission/",
-)
+_TEMPORAL_PREFIXES = ("posthog/temporal/", "products/signals/backend/emission/")
 _POE_PREFIXES = (
     "posthog/clickhouse/",
     "posthog/queries/",

@@ -31,7 +31,7 @@ import logging
 import argparse
 import statistics
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -513,6 +513,92 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
+PRODUCTS_SCALED_MARKER = "products/.junit-scaled"
+
+
+def product_junit_work(junit_dir: Path) -> dict[str, float]:
+    """Sum raw testcase seconds per product module from junit-product-*.xml files.
+
+    Product jobs run without junit_duration_report=call, so testcase times include
+    fixture setup and teardown and track real runner work. Raw sum on purpose:
+    JUnitShard._parse_call_times collapses repeated pytest ids (parametrize) to
+    their max, which under-counts a total. Keys are product module dir names.
+    """
+    work: dict[str, float] = defaultdict(float)
+    for xml_path in sorted(junit_dir.rglob("junit-product-*.xml")):
+        module = xml_path.stem[len("junit-product-") :]
+        try:
+            tree = ET.parse(xml_path)
+        except ParseError as e:
+            logger.warning("  Could not parse product JUnit %s: %s", xml_path, e)
+            continue
+        for tc in tree.getroot().iter("testcase"):
+            try:
+                work[module] += float(tc.get("time") or 0.0)
+            except ValueError:
+                continue
+    return dict(work)
+
+
+def product_module(test_id: str) -> str | None:
+    """The products/<module>/ directory a nodeid lives in, or None outside products/."""
+    parts = test_id.split("/", 2)
+    if parts[0] != "products" or len(parts) < 3:
+        return None
+    return parts[1]
+
+
+def scope_products_to_junit(durations: dict[str, float], ran: set[str], products_dir: Path) -> dict[str, float]:
+    """Keep the nodeids the product jobs ran, plus every product no job ran at all.
+
+    A product a run skips (SKIP_PRODUCT_TESTS, the quarantine file) still has a
+    complete shard set, so it reaches here with no entries in ran. Dropping it
+    would make the products/ replace-merge forget its timings, and once the skip
+    lifts it sizes from the per-file fallback until the next run. A product whose
+    directory is gone is stale, not skipped, so it is dropped.
+    """
+    ran_modules = {module for module in map(product_module, ran) if module}
+    absent_modules = {module for module in map(product_module, durations) if module} - ran_modules
+    skipped_modules = {module for module in absent_modules if (products_dir / module).is_dir()}
+    return {
+        test_id: duration
+        for test_id, duration in durations.items()
+        if test_id in ran or product_module(test_id) in skipped_modules
+    }
+
+
+def scale_products_to_junit(durations: dict[str, float], junit_dir: Path) -> dict[str, float]:
+    """Scale each product's entries so their sum equals the JUnit-measured work.
+
+    The recorded durations are call-only, which under-reports fixture-heavy
+    suites several-fold, and shard sizing reads these sums as magnitudes. Scaling
+    per product keeps the relative weights pytest-split needs while making the
+    sums track real runner work.
+    Call this on a junit-scoped durations dict (the Products branch scopes first),
+    so every prefixed entry is one the product job really ran — suites another job
+    records under the same prefix (a product's temporal tests running in the
+    Django Temporal segment) are already scoped away and keep their own values in
+    the union merge. Writes PRODUCTS_SCALED_MARKER so turbo-discover.js knows the
+    sums are trustworthy; the marker key is not a real file and is ignored by
+    pytest-split.
+    """
+    junit_work = product_junit_work(junit_dir)
+    scaled = dict(durations)
+    for module, target in sorted(junit_work.items()):
+        prefix = f"products/{module}/"
+        keys = [k for k in scaled if k.startswith(prefix)]
+        current = sum(scaled[k] for k in keys)
+        if current <= 0 or target <= 0:
+            continue
+        factor = target / current
+        for k in keys:
+            scaled[k] *= factor
+        if abs(factor - 1) > 0.05:
+            logger.info("  Scaled %s by %.2fx to junit work %.1f min", module, factor, target / 60)
+    scaled[PRODUCTS_SCALED_MARKER] = 1.0
+    return scaled
+
+
 def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
@@ -735,14 +821,19 @@ def main():
         if shard_sets_match(shards, junit_shards):
             ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
             before_count = len(durations)
-            durations = {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+            durations = scope_products_to_junit(durations, ran, Path("products"))
             logger.info(
                 "  Scoped Products to complete JUnit coverage (%d shards, dropped %d stale nodeids)",
                 len(junit_shards),
                 before_count - len(durations),
             )
+            # Scaling needs the scoped dict: prefix-wide scaling is then exactly
+            # "entries this product's job ran".
+            durations = scale_products_to_junit(durations, args.junit_dir)
         else:
-            logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
+            logger.warning(
+                "Product JUnit coverage incomplete; retaining unscoped timings — sums stay call-only undercounts"
+            )
 
     # Filter to only existing tests if requested
     if args.filter_existing:
