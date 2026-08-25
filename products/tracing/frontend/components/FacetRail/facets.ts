@@ -6,6 +6,8 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
+import { TracingViewMode } from 'products/tracing/frontend/tracingFiltersLogic'
+
 /** One selectable row in a facet: a value with its span count. */
 export interface FacetOption {
     value: string
@@ -219,6 +221,8 @@ export interface FacetScope {
     serviceNames: string[] | undefined
     /** filterGroup with any pinned scope folded in — what the breakdown request actually carries. */
     queryFilterGroup: UniversalFiltersGroup | undefined
+    /** Picks the counted population — root spans in Traces view, every span in Spans view. */
+    viewMode: TracingViewMode
 }
 
 /**
@@ -230,8 +234,9 @@ export interface FacetScope {
  * itself; selecting in any other facet changes it.
  *
  * A string, not an object: `queryFilterGroup` gets a fresh identity on every edit, so an object
- * couldn't tell "nothing I care about changed". Presentation state (view mode, sort, compare) is
- * deliberately absent — the breakdown request doesn't read it.
+ * couldn't tell "nothing I care about changed". Of the presentation state only the view mode is
+ * here, because it picks the population the request counts (see `rootSpans` in facetValuesLogic);
+ * sort and compare are deliberately absent, since the breakdown request doesn't read them.
  */
 export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): string {
     const { source } = facet
@@ -252,6 +257,7 @@ export function facetScopeSignature(facet: FacetConfig, scope: FacetScope): stri
         // The service facet breaks down the same column the dedicated field filters.
         source.type === 'column' && source.column === 'service_name' ? null : (scope.serviceNames ?? []),
         groupSignature,
+        scope.viewMode,
     ])
 }
 

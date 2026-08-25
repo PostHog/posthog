@@ -512,6 +512,15 @@ class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
         default=[],
         help_text="Property filters scoping the spans the breakdown runs over (e.g. only error spans).",
     )
+    rootSpans = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Count only root spans, so the breakdown covers the same population the traces list selects "
+            "(one row per trace, matched on its root span). Defaults to false, which counts every matching "
+            "span, root and child, matching the spans list."
+        ),
+    )
 
 
 class _TracingAttributeBreakdownRequestSerializer(serializers.Serializer):
@@ -1326,6 +1335,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             service_names=query_data.get("serviceNames", None),
             exclude_breakdown_filter=bool(query_data.get("excludeBreakdownFilter")),
             facet_search=query_data.get("facetSearch") or None,
+            root_spans=bool(query_data.get("rootSpans")),
         )
 
         return Response(

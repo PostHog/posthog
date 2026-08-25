@@ -214,6 +214,8 @@ export interface _TracingAttributeBreakdownQueryBodyApi {
     serviceNames?: string[]
     /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** Count only root spans, so the breakdown covers the same population the traces list selects (one row per trace, matched on its root span). Defaults to false, which counts every matching span, root and child, matching the spans list. */
+    rootSpans?: boolean
 }
 
 export interface _TracingAttributeBreakdownRequestApi {

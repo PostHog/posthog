@@ -100,7 +100,8 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             ("true_prefetches_children_excludes_nonroot_traces", True, False),
             # rootSpans=False matches a trace on ANY span, so trace B comes through via its "web" child.
             ("false_includes_child_matched_traces", False, True),
-            # The frontend sends None; it behaves like False (relies on prefetch for the waterfall).
+            # None behaves like False (relies on prefetch for the waterfall). The API layer defaults
+            # the flag to True, so this is the runner's own default, not what the traces list sends.
             ("none_includes_child_matched_traces", None, True),
         ]
     )

@@ -42771,6 +42771,8 @@ export namespace Schemas {
       /** Order rows by span count or error count, descending. Defaults to count. */
       orderBy?: TraceSpanBreakdownOrderBy | null;
       response?: TraceSpansAttributeBreakdownQueryResponse | null;
+      /** Count only root spans, so the breakdown covers the same population the trace list selects (one row per trace, matched on its root span). Omitted or false counts every matching span, root and child, which is the unit the span list shows. */
+      rootSpans?: boolean | null;
       serviceNames?: string[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -85674,6 +85676,8 @@ export namespace Schemas {
       serviceNames?: string[];
       /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
       filterGroup?: _SpanPropertyFilter[];
+      /** Count only root spans, so the breakdown covers the same population the traces list selects (one row per trace, matched on its root span). Defaults to false, which counts every matching span, root and child, matching the spans list. */
+      rootSpans?: boolean;
     }
 
     export interface _TracingAttributeBreakdownRequest {

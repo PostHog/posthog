@@ -27451,6 +27451,15 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
         description=("Order rows by span count or error count, descending. Defaults to count."),
     )
     response: TraceSpansAttributeBreakdownQueryResponse | None = None
+    rootSpans: bool | None = Field(
+        default=None,
+        description=(
+            "Count only root spans, so the breakdown covers the same population the"
+            " trace list selects (one row per trace, matched on its root span). Omitted"
+            " or false counts every matching span, root and child, which is the unit"
+            " the span list shows."
+        ),
+    )
     serviceNames: list[str] | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

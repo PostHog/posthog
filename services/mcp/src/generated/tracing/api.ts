@@ -139,6 +139,7 @@ export const TracingSpansAttributeBreakdownCreateParams = /* @__PURE__ */ zod.ob
 export const tracingSpansAttributeBreakdownCreateBodyQueryOneExcludeBreakdownFilterDefault = false
 export const tracingSpansAttributeBreakdownCreateBodyQueryOneCompareFilterOneCompareDefault = false
 export const tracingSpansAttributeBreakdownCreateBodyQueryOneFilterGroupDefault = []
+export const tracingSpansAttributeBreakdownCreateBodyQueryOneRootSpansDefault = false
 
 export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -259,6 +260,12 @@ export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.obje
                 )
                 .default(tracingSpansAttributeBreakdownCreateBodyQueryOneFilterGroupDefault)
                 .describe('Property filters scoping the spans the breakdown runs over (e.g. only error spans).'),
+            rootSpans: zod
+                .boolean()
+                .default(tracingSpansAttributeBreakdownCreateBodyQueryOneRootSpansDefault)
+                .describe(
+                    'Count only root spans, so the breakdown covers the same population the traces list selects (one row per trace, matched on its root span). Defaults to false, which counts every matching span, root and child, matching the spans list.'
+                ),
         })
         .describe('The attribute breakdown query to execute.'),
 })
