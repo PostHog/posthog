@@ -190,17 +190,14 @@ describe('AiIngestionPipeline', () => {
         }
     })
 
-    it('reports one ai_events usage record per event, keyed on the event deduplication identity', async () => {
-        const messages = [createMessage('$ai_generation'), createMessage('$ai_span')]
-        const recordIds = messages.map((message) => {
-            const event = parseJSON(message.value!.toString())
-            return `${event.timestamp.slice(0, 10)}:${event.event}:${event.distinct_id}:${event.uuid}`
-        })
-
-        await runPipeline(messages)
+    it('reports one ai_events usage record per event', async () => {
+        await runPipeline([createMessage('$ai_generation'), createMessage('$ai_span')])
 
         expect(ingestedUsage).toHaveLength(2)
-        expect(ingestedUsage.map((r) => r.recordId).sort()).toEqual(recordIds.sort())
+        // What the identity is made of belongs to usage-records-steps.test.ts. Here it only has to
+        // be one record per event, on the event's own day.
+        expect(new Set(ingestedUsage.map((r) => r.recordId)).size).toBe(2)
+        expect(ingestedUsage.every((r) => /^2024-01-01:[0-9a-f]{32}$/.test(r.recordId))).toBe(true)
         expect(ingestedUsage.every((r) => r.usageKey === 'ai_events' && r.quantity === 1)).toBe(true)
         expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
