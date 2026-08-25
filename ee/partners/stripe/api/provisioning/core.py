@@ -611,20 +611,9 @@ def validate_label_prefix(raw: Any) -> str | None:
 def maybe_create_provisioned_pat(user: User, team: Team, label_prefix: str | None = None) -> str | None:
     """Create a Personal API Key for the provisioned user and return the raw value.
 
-    The PAT is a separate credential from the Stripe OAuth token that provisioned
-    it: the OAuth token belongs to Stripe and only calls this namespace's
-    endpoints, while the PAT belongs to the developer and drives their coding
-    agent against the PostHog MCP. Sizing it from what Stripe requested would
-    tie the developer's credential to an unrelated grant, so it is sized
-    directly from the MCP tool surface's resource scopes instead - the full set
-    a client gets when authorizing against the MCP with no explicit scope.
-
-    Deliberately unlike ``ee.api.agentic_provisioning.credentials.maybe_create_provisioned_pat``,
-    which narrows the PAT to the partner's granted scope intersected with its
-    ceiling. That's right where a user consents to a scope list on a screen the
-    PAT then has to honor; this namespace has no such screen; see
-    ``ee.api.agentic_provisioning.accounts.require_user_consent``. Don't fold
-    these two together without deciding what a consenting user should see.
+    The key is the developer's, not Stripe's, so it takes the MCP tool surface's
+    scopes rather than the OAuth token's. The generic namespace narrows to the
+    partner's grant instead, because only that path shows the user a consent screen.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -641,9 +630,7 @@ def maybe_create_provisioned_pat(user: User, team: Team, label_prefix: str | Non
     # target only provisioned keys - scope alone is ambiguous with keys a user
     # created via /api/personal_api_keys/ carrying the same team/org scope.
     try:
-        # Reads the committed tool-definition JSON, so it belongs under the same
-        # guard as the mint: the caller degrades to omitting personal_api_key
-        # rather than failing a resource creation that already succeeded.
+        # Reads JSON off disk, so it stays inside the guard rather than failing the request.
         pat_scopes = mcp_advertised_resource_scopes()
         api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name

@@ -71,13 +71,8 @@ def maybe_create_provisioned_pat(
     unseeded ceiling mints nothing: an empty-scope PAT fails every scope check, and
     widening to a wildcard would bypass the ceiling.
 
-    Deliberately unlike ``ee.partners.stripe.api.provisioning.core.maybe_create_provisioned_pat``,
-    which sizes the PAT from the MCP tool surface instead of the partner's grant.
-    That's right for Stripe, whose namespace has no consent screen for the ceiling
-    to protect (see ``ee.api.agentic_provisioning.accounts.require_user_consent``);
-    a CIMD partner's user does see one, so this function still honors what they
-    consented to. Don't fold these two together without deciding what a consenting
-    user should see.
+    The Stripe namespace sizes its key from the MCP tool surface instead, because
+    only this path shows the user a consent screen to honor.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
