@@ -1609,6 +1609,7 @@ jobs:
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
@@ -1672,7 +1673,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "$IS_PR_RUN" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1773,7 +1774,7 @@ jobs:
                       # mode. The queue's trunk-merge/** run is a pull_request event as well,
                       # so it is exempted by branch. Compat keeps its own legacy-mode rows in
                       # every lane, because it guards old servers, not this.
-                      if [[ "${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}" == "true" ]]; then
+                      if [[ "$IS_PR_RUN" == "true" ]]; then
                           CORE_POE_SHARDS=0
                       fi
 
