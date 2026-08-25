@@ -691,6 +691,91 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertNotEqual(new_id, first_id)
         self.assertIsNotNone(new_id)
 
+    @parameterized.expand(
+        [
+            ("failed_still_retrying", "Failed", True, True, "failed"),
+            ("auto_disabled_after_failures", "Failed", False, True, "disabled"),
+            ("billing_limit_still_retrying", "BillingLimitReached", True, True, "billing_limit"),
+            ("billing_limit_disabled", "BillingLimitReached", False, True, "billing_limit"),
+            ("disabled_while_healthy", "Completed", False, False, None),
+        ]
+    )
+    def test_data_health_issues_sync_visibility(
+        self,
+        _name: str,
+        schema_status: str,
+        should_sync: bool,
+        expect_visible: bool,
+        expected_status: str | None,
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        failed = schema_status in ("Failed", "BillingLimitReached")
+        schema = ExternalDataSchema.objects.create(
+            name="customers",
+            team=self.team,
+            source=source,
+            status=schema_status,
+            should_sync=should_sync,
+            latest_error="connection refused" if failed else None,
+            last_synced_at=timezone.now() if not failed else None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/data_health_issues/")
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertEqual(data["count"], len(data["results"]))
+
+        results_by_id = {result["id"]: result for result in data["results"]}
+        if expect_visible:
+            result = results_by_id[str(schema.id)]
+            self.assertEqual(result["type"], "external_data_sync")
+            self.assertEqual(result["status"], expected_status)
+            self.assertEqual(result["name"], "customers")
+            self.assertEqual(result["error"], "connection refused")
+            self.assertEqual(result["url"], f"/data-warehouse/sources/{source.pk}")
+        else:
+            self.assertNotIn(str(schema.id), results_by_id)
+
+    def test_data_health_issues_excludes_deleted_and_foreign_team_syncs(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(
+            name="deleted_table",
+            team=self.team,
+            source=source,
+            status="Failed",
+            should_sync=False,
+            latest_error="connection refused",
+            deleted=True,
+        )
+        other_team = self.organization.team_set.create(name="other team")
+        other_source = ExternalDataSource.objects.create(
+            source_id="other-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=other_team,
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(
+            name="foreign_table",
+            team=other_team,
+            source=other_source,
+            status="Failed",
+            should_sync=False,
+            latest_error="connection refused",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/data_health_issues/")
+        self.assertEqual(response.status_code, 200)
+
+        names = [result["name"] for result in response.json()["results"]]
+        self.assertNotIn("deleted_table", names)
+        self.assertNotIn("foreign_table", names)
+
 
 class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
     """Verify the data_health_issues action is reachable via personal API keys.
