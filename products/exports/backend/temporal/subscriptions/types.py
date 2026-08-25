@@ -4,19 +4,16 @@ import dataclasses
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.slo.types import SloConfig
 
-# AI report query failures we never name in owner/recipient-facing copy. The recipient didn't
-# write the query, so the OOM advice is unactionable. Type still lands in diagnostics, logs, and
-# error tracking. Held as a name (not the class) so this module stays free of Django/DRF imports
-# for the Temporal sandbox; the test pins it to ClickHouseQueryMemoryLimitExceeded.__name__.
 UNDISCLOSED_QUERY_ERROR_TYPES = frozenset({"ClickHouseQueryMemoryLimitExceeded"})
 
-QUERY_FAILURE_MESSAGES = {
-    "ClickHouseQueryMemoryLimitExceeded": (
-        "The generated query exceeded the available memory. Narrow the analysis window or simplify the requested "
-        "breakdowns, then try again."
-    ),
+QUERY_FAILURE_DETAILS = {
+    ClickHouseQueryMemoryLimitExceeded.__name__: {
+        "code": ClickHouseQueryMemoryLimitExceeded.default_code,
+        "message": ClickHouseQueryMemoryLimitExceeded.default_detail,
+    }
 }
 
 
@@ -289,11 +286,9 @@ class GenerateAIReportResult:
         return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
     def failure_error(self) -> dict[str, str]:
-        # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
-        # error-type names only (query_error_types are exception class names), never raw query content.
         for error_type in self.query_error_types:
-            if message := QUERY_FAILURE_MESSAGES.get(error_type):
-                return {"message": message, "type": "AIReportQueryFailure"}
+            if details := QUERY_FAILURE_DETAILS.get(error_type):
+                return {"type": "AIReportQueryFailure", **details}
 
         disclosed_types = [t for t in self.query_error_types if t not in UNDISCLOSED_QUERY_ERROR_TYPES]
         detail = f" ({', '.join(disclosed_types)})" if disclosed_types else ""

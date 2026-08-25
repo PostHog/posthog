@@ -2,15 +2,7 @@ from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 
-from products.exports.backend.temporal.subscriptions.types import (
-    UNDISCLOSED_QUERY_ERROR_TYPES,
-    DeliveryStatus,
-    GenerateAIReportResult,
-)
-
-
-def test_undisclosed_query_error_types_track_the_exception_class() -> None:
-    assert ClickHouseQueryMemoryLimitExceeded.__name__ in UNDISCLOSED_QUERY_ERROR_TYPES
+from products.exports.backend.temporal.subscriptions.types import DeliveryStatus, GenerateAIReportResult
 
 
 class TestGenerateAIReportResult:
@@ -62,21 +54,22 @@ class TestGenerateAIReportResult:
                 "memory_limit_has_actionable_reason",
                 1,
                 ["ClickHouseQueryMemoryLimitExceeded"],
-                "The generated query exceeded the available memory. Narrow the analysis window or simplify the requested "
-                "breakdowns, then try again.",
+                ClickHouseQueryMemoryLimitExceeded.default_detail,
             ),
             (
                 "memory_limit_takes_priority_over_other_types",
                 2,
                 ["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
-                "The generated query exceeded the available memory. Narrow the analysis window or simplify the requested "
-                "breakdowns, then try again.",
+                ClickHouseQueryMemoryLimitExceeded.default_detail,
             ),
         ]
     )
     def test_failure_error(self, _name, total: int, error_types: list[str], expected_message: str) -> None:
         result = GenerateAIReportResult(failed_step_count=total, total_step_count=total, query_error_types=error_types)
-        assert result.failure_error() == {"message": expected_message, "type": "AIReportQueryFailure"}
+        expected_error = {"message": expected_message, "type": "AIReportQueryFailure"}
+        if ClickHouseQueryMemoryLimitExceeded.__name__ in error_types:
+            expected_error["code"] = ClickHouseQueryMemoryLimitExceeded.default_code
+        assert result.failure_error() == expected_error
 
     # delivered_status maps a shipped report to the status the workflow records: fully degraded (every query
     # failed) → FAILED with the failure detail attached; partial or clean → COMPLETED with no generation
