@@ -54,7 +54,11 @@ It is exercised locally via management commands, and it is also used by the prod
 
 When a report was spawned because a signal would have grouped into an already-**resolved** report (resolved reports are terminal and never reopen), the grouping pipeline links the two with symmetric `related_to` artefacts (one on each, pointing at the other). The caller activity finds the linked report that is resolved and passes `resolved_report_title` / `resolved_report_summary`. The initial research prompt then includes a `## Previously resolved report` block so the agent can judge whether the recurrence is a regression, a new dimension of the same issue, or distinct.
 
-In production, the `update` path is triggered automatically when a `ready` report is re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`) reconstructs the previous `ReportResearchOutput` from stored artefacts and the report's title/summary fields, then passes it to `run_multi_turn_research()`.
+In production, the `update` path is triggered automatically when a `ready` report is re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`) reconstructs the previous `ReportResearchOutput` from stored artefacts and the report's title/summary/presentation fields, then passes it to `run_multi_turn_research()`.
+
+### Structured presentation fields
+
+Beside `title`/`summary`, the presentation step authors three structured one-liners the inbox renders without parsing the prose: `headline` (the summary's tl;dr as its own field), `impact` (one quantified sentence on who is affected and how much), and `recommended_action` (the reader's next step; `None` when the report isn't actionable). They live as nullable columns on `SignalReport`, written and replaced together with `title`/`summary` on every `IN_PROGRESS -> READY`/`PENDING_INPUT` transition — a rewrite that omits them withdraws them, since they describe the current summary. Reports written before the fields existed carry `None` and readers fall back to deriving them from the summary. The scout `emit_report`/`edit_report` channel does not author them yet.
 
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.

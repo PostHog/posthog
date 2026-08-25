@@ -87,6 +87,33 @@ Hard rules:
 - Separate sections and paragraphs with blank lines; you don't need any special line-break syntax.
 """
     )
+    headline: str = Field(
+        description=(
+            "The summary's tl;dr as its own field: one sentence, standing alone, that makes someone "
+            "get the gist without reading anything else. Same content as the summary's first line. "
+            "Ideally lead with who is affected ('Users ...'); no heading, no bold, no trailing period "
+            "rules beyond normal prose."
+        ),
+        max_length=300,
+    )
+    impact: str = Field(
+        description=(
+            "One sentence quantifying who this hurts and how much, grounded in the evidence: user "
+            "counts, error rates, revenue, or, if it's the team rather than users, say that. This is "
+            "the '## Impact' section distilled to its single most important number or fact. Never "
+            "invent a number the research didn't surface."
+        ),
+        max_length=300,
+    )
+    recommended_action: str | None = Field(
+        default=None,
+        description=(
+            "One sentence naming what the reader should do next: the shape of the fix to ship, the "
+            "decision to make, or the input to provide. None when the report isn't actionable — do "
+            "not manufacture an action for an FYI report."
+        ),
+        max_length=300,
+    )
     charts: list[ReportChart] = Field(
         default_factory=list,
         description=(
@@ -100,7 +127,7 @@ Hard rules:
         ),
     )
 
-    @field_validator("title", "summary")
+    @field_validator("title", "summary", "headline", "impact")
     @classmethod
     def fields_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
@@ -115,6 +142,20 @@ ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAsse
 class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
+    headline: str | None = Field(
+        default=None,
+        description="One-sentence verdict, the summary's tl;dr as a field. None on outputs saved "
+        "before the field existed.",
+    )
+    impact: str | None = Field(
+        default=None,
+        description="One-sentence quantified impact (who is affected and how much). None on outputs "
+        "saved before the field existed.",
+    )
+    recommended_action: str | None = Field(
+        default=None,
+        description="One-sentence next step for the reader; None when the report isn't actionable.",
+    )
     charts: list[ReportChart] = Field(
         default_factory=list,
         description="Charts the summary illustrates itself with. The report's whole set — the caller "
@@ -936,6 +977,9 @@ async def run_multi_turn_research(
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
+        headline=presentation_result.headline,
+        impact=presentation_result.impact,
+        recommended_action=presentation_result.recommended_action,
         # Only carry charts for an opted-in team, regardless of what the model returned — a redundant
         # guard alongside the gated schema/guidance, so the capability can't leak even if a future
         # change reintroduces the field into a disabled prompt.

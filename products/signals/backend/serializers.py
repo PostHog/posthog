@@ -477,6 +477,31 @@ class ReportChartSerializer(serializers.Serializer):
 
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    headline = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "One-sentence verdict written by the report agent beside the summary: the takeaway that "
+            "stands alone without the prose. Null on reports generated before this field existed — "
+            "readers fall back to the summary's first line."
+        ),
+    )
+    impact = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "One-sentence quantified impact (who is affected and how much), distilled from the "
+            "summary's Impact section. Null on reports generated before this field existed."
+        ),
+    )
+    recommended_action = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "One-sentence next step for the reader (the fix to ship, the decision to make, or the "
+            "input to provide). Null when the report isn't actionable or predates this field."
+        ),
+    )
     charts = ReportChartSerializer(
         many=True,
         read_only=True,
@@ -545,6 +570,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "summary",
+            "headline",
+            "impact",
+            "recommended_action",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count

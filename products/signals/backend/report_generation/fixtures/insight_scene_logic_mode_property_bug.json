@@ -3,10 +3,15 @@
   "report_id": "test-backups-succesful-typo-001",
   "generated_at": "2026-04-17T10:00:00Z",
   "repository": "PostHog/posthog",
-  "signal_ids": ["7e000000-0000-0000-0000-000000000001"],
+  "signal_ids": [
+    "7e000000-0000-0000-0000-000000000001"
+  ],
   "result": {
     "title": "fix(backups): correct 'succesful' typo in docstring",
     "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring — no code behavior is affected.",
+    "headline": null,
+    "impact": null,
+    "recommended_action": null,
     "charts": [],
     "old_artefacts": [],
     "new_artefacts": [

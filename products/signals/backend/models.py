@@ -245,6 +245,13 @@ class SignalReport(UUIDModel):
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
+    # Structured presentation fields authored alongside `summary` in the same step (and replaced
+    # with it, like `charts`): the one-sentence verdict, the quantified impact, and the one-line
+    # ask. Nullable — reports written before these existed carry only the prose summary, and
+    # readers fall back to deriving them from it.
+    headline = models.TextField(null=True, blank=True)
+    impact = models.TextField(null=True, blank=True)
+    recommended_action = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
     # the report's content rather than its artefact log: a chart illustrates the summary, so it is
@@ -309,6 +316,9 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        headline: str | None = None,
+        impact: str | None = None,
+        recommended_action: str | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -354,6 +364,7 @@ class SignalReport(UUIDModel):
                 self.summary = summary
                 self.error = None
                 updated_fields.update(["title", "summary", "error"])
+                updated_fields.update(self._set_presentation_fields(headline, impact, recommended_action))
 
             case (S.IN_PROGRESS, S.PENDING_INPUT):
                 if title is None or summary is None or error is None:
@@ -362,6 +373,7 @@ class SignalReport(UUIDModel):
                 self.summary = summary
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
+                updated_fields.update(self._set_presentation_fields(headline, impact, recommended_action))
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
             case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
@@ -455,7 +467,32 @@ class SignalReport(UUIDModel):
             return S(prior)
         return S.POTENTIAL
 
-    def update_authored_content(self, *, title: str | None = None, summary: str | None = None) -> list[str]:
+    def _set_presentation_fields(
+        self,
+        headline: str | None,
+        impact: str | None,
+        recommended_action: str | None,
+    ) -> list[str]:
+        """Write the structured presentation fields beside `title`/`summary`.
+
+        Unlike title/summary these stay optional: a pipeline or replayed workflow that predates
+        them must still transition, so a missing value clears the column rather than raising —
+        the fields describe the current summary, and a rewrite that omits one has withdrawn it.
+        """
+        self.headline = headline
+        self.impact = impact
+        self.recommended_action = recommended_action
+        return ["headline", "impact", "recommended_action"]
+
+    def update_authored_content(
+        self,
+        *,
+        title: str | None = None,
+        summary: str | None = None,
+        headline: str | None = None,
+        impact: str | None = None,
+        recommended_action: str | None = None,
+    ) -> list[str]:
         """Rewrite an agent-authored report's `title`/`summary` in place, independent of status.
 
         The pipeline only ever sets title/summary as a side effect of the `IN_PROGRESS -> READY`
@@ -477,6 +514,14 @@ class SignalReport(UUIDModel):
         if summary is not None and summary != self.summary:
             self.summary = summary
             updated_fields.add("summary")
+        for field, value in (
+            ("headline", headline),
+            ("impact", impact),
+            ("recommended_action", recommended_action),
+        ):
+            if value is not None and value != getattr(self, field):
+                setattr(self, field, value)
+                updated_fields.add(field)
         if updated_fields:
             updated_fields.add("updated_at")
         return list(updated_fields)

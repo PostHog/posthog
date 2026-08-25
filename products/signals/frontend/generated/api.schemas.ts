@@ -194,6 +194,21 @@ export interface SignalReportApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /**
+     * One-sentence verdict written by the report agent beside the summary: the takeaway that stands alone without the prose. Null on reports generated before this field existed — readers fall back to the summary's first line.
+     * @nullable
+     */
+    readonly headline: string | null
+    /**
+     * One-sentence quantified impact (who is affected and how much), distilled from the summary's Impact section. Null on reports generated before this field existed.
+     * @nullable
+     */
+    readonly impact: string | null
+    /**
+     * One-sentence next step for the reader (the fix to ship, the decision to make, or the input to provide). Null when the report isn't actionable or predates this field.
+     * @nullable
+     */
+    readonly recommended_action: string | null
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number

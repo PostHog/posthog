@@ -75,6 +75,11 @@ class RunAgenticReportOutput:
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
     # (the safe skip value) so an older workflow history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    # Structured presentation fields written beside title/summary; None-defaulted so older
+    # workflow histories replay cleanly.
+    headline: str | None = None
+    impact: str | None = None
+    recommended_action: str | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -97,7 +102,11 @@ def _parse_artefact_content(
 
 async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
-    report = await SignalReport.objects.filter(id=report_id).only("title", "summary", "charts").afirst()
+    report = (
+        await SignalReport.objects.filter(id=report_id)
+        .only("title", "summary", "charts", "headline", "impact", "recommended_action")
+        .afirst()
+    )
     if report is None or not report.title or not report.summary:
         logger.info(
             "load previous research: no report or missing title/summary, treating as first run",
@@ -147,6 +156,9 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
     return ReportResearchOutput(
         title=report.title,
         summary=report.summary,
+        headline=report.headline,
+        impact=report.impact,
+        recommended_action=report.recommended_action,
         # Shown to the re-research as the charts it may keep/refresh/drop. Parsed tolerantly: a stored
         # chart that no longer validates (a tightened schema, a legacy shape) is dropped from the
         # context rather than failing the run — the agent just won't be offered that one to re-send.
@@ -583,6 +595,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         return RunAgenticReportOutput(
             title=result.title,
             summary=result.summary,
+            headline=result.headline,
+            impact=result.impact,
+            recommended_action=result.recommended_action,
             choice=actionability.actionability,
             priority=priority.priority if priority else None,
             explanation=actionability.explanation,
