@@ -432,6 +432,10 @@ class TestPostgresSourceNonRetryableErrors:
             # hit a plan limit. Account-level state only the customer can lift, so retrying re-hits
             # the same refusal — must not keep retrying. Host/port are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: Your account has restrictions: planLimitReached. Please contact your provider to resolve account restrictions.',
+            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials. The block
+            # stays until the failing attempts stop, so it's permanent until the customer fixes the
+            # credentials — distinct from the transient credential-fetch variant of the same code.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -1873,6 +1877,14 @@ class TestIsConnectionDroppedError:
             # permanent rejection — only the "no error details available" variant (a purely local,
             # pre-handshake failure) is transient, so the match must not broaden to the bare prefix.
             psycopg.OperationalError("connection is bad: FATAL: password authentication failed"),
+            # The auth-failures variant of Supavisor's circuit breaker shares the "(ECIRCUITBREAKER)"
+            # code with the transient credential-fetch variant, but stays blocked until the failing
+            # sign-in attempts stop, so it must NOT be treated as a transient drop and retried.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
+                "temporarily blocked"
+            ),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
@@ -3697,6 +3709,18 @@ class TestValidateCredentialsErrorMapping:
                 "blocking PostHog's IP addresses. Use a host that's reachable over IPv4 (for example a "
                 "connection pooler), enable your provider's IPv4 add-on, or add PostHog's IP addresses to your "
                 "firewall allowlist, then try again.",
+            ),
+            # Supabase/Supavisor's circuit breaker tripped by repeated bad credentials. Without a key
+            # this fell through to the generic "check all connection details" message and captured
+            # error noise, so confirm it now returns actionable guidance.
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are "
+                "temporarily blocked",
+                "Your database connection pooler is temporarily blocking new connections after too "
+                'many failed sign-in attempts ("too many authentication failures"). This usually '
+                "means the username or password is wrong. Check your credentials, wait for the block "
+                "to clear, then try again.",
             ),
             # Unmapped errors fall back to the generic message.
             (
