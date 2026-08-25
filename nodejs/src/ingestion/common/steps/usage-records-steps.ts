@@ -112,8 +112,9 @@ export function createRecordEventUsageAfterIngestStep<T extends RecordEventUsage
     }
 }
 
+/** Ends the batch's usage reporting: the batch object goes away after this, so it drains. */
 export function createFlushEventUsageStep<T extends { batchContext: EventUsageBatchContext }>(): ProcessingStep<T, T> {
     return function flushEventUsageStep(input: T): Promise<PipelineResult<T>> {
-        return Promise.resolve(ok(input, [input.batchContext.eventUsageBatch.flush()]))
+        return Promise.resolve(ok(input, [input.batchContext.eventUsageBatch.drain()]))
     }
 }

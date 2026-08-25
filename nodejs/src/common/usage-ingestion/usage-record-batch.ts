@@ -79,16 +79,16 @@ export class UsageRecordBatch {
         )
     }
 
+    /**
+     * Sends what is queued when the call starts. An acknowledgement that lands while this
+     * awaits belongs to the next flush, so a caller that keeps adding stays bounded: one
+     * pass, one send. A caller that is finished adding wants {@link drain} instead, because
+     * nothing would flush that record afterwards.
+     */
     async flush(): Promise<void> {
-        // Drain until nothing new arrives: an acknowledgement that lands while this awaits
-        // queues its record here, and no later flush would pick it up, because the batch is
-        // discarded once this returns. Callers stop adding before the flush that ends a
-        // batch, so this settles rather than spinning.
-        while (this.pendingAcknowledgements.length > 0) {
-            const pending = this.pendingAcknowledgements
-            this.pendingAcknowledgements = []
-            await Promise.all(pending)
-        }
+        const pending = this.pendingAcknowledgements
+        this.pendingAcknowledgements = []
+        await Promise.all(pending)
         if (!this.client || this.records.size === 0) {
             return
         }
@@ -106,5 +106,17 @@ export class UsageRecordBatch {
         }))
         this.records.clear()
         await this.client.ingest(records)
+    }
+
+    /**
+     * Flushes until nothing is left queued. Only for a caller that has stopped adding: the
+     * end of a batch, or a consumer shutting down. Records live in memory until they are
+     * sent, so a batch that ends without draining bills nothing for the writes it was still
+     * waiting on.
+     */
+    async drain(): Promise<void> {
+        do {
+            await this.flush()
+        } while (this.pendingAcknowledgements.length > 0 || this.records.size > 0)
     }
 }
