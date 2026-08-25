@@ -45,12 +45,11 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Only Spaces and Activity own the column beside the rail; the rest are
   whole-screen, so no route under them may draw a second nav.
 - **A rail pick returns you to where that destination was**, not to its index.
-  `RailHistorySync` records the settled route per destination in
-  `railHistoryStore` (session-scoped; `startupLocation` already owns relaunch),
-  and `pickRailDestination` replays it. Only Spaces carries sidebar state on top
-  of its href, so `RailVisit.spaces` is the one pane-shaped field. Clicking the
-  destination you are already on never restores — it runs `onReclick`, which for
-  Spaces means the list.
+  `BrowserTabStrip` records the settled route per destination in the active
+  tab's `viewState.lastByPane`, and `pickRailDestination` replays it. Only Spaces
+  carries sidebar state on top of its href. Clicking the destination you are
+  already on never restores — it runs `onReclick`, which for Spaces means the
+  list.
   Anything a destination does besides navigating must live in its route
   component, not its `onPick`: the restore path navigates by href and never
   reaches the navigation bridge.
@@ -75,7 +74,10 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   stay mounted — the offscreen one is `inert` — so the slide has something to
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
-  accumulated per gesture and locked until the wheel goes quiet).
+  accumulated per gesture and locked until the wheel goes quiet). The track
+  animates only for a space-row click or the back row; tab restoration, route
+  sync, hotkeys, rail restoration, and swipes snap directly to their pane so
+  unrelated navigation never moves the sidebar across the reader.
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
   private "personal" row leads the Starred section and takes the same inset as the
   spaces beside it. It is the one row that carries a glyph: the lock is the only

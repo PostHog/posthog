@@ -6,6 +6,7 @@ from django.core.management import call_command
 
 from posthog.models import Organization
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.scim_request_log import SCIMRequestLog
@@ -19,7 +20,9 @@ class TestBackfillSCIMRequestLogConfig(BaseTest):
             organization=self.organization,
             domain="example.com",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
         )
         self.unlinked_domain = OrganizationDomain.objects.create(
             organization=self.organization,
@@ -89,7 +92,9 @@ class TestBackfillSCIMRequestLogConfig(BaseTest):
             organization=other_organization,
             domain="other.example.com",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=other_config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=other_domain, identity_provider_config=other_config
         )
         mine = self._create_log(self.domain)
         theirs = self._create_log(other_domain)

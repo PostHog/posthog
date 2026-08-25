@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -32,6 +33,10 @@ import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
+import {
+    createEventUsageBeforeBatchStep,
+    createFlushEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 
@@ -69,6 +74,7 @@ export interface JoinedIngestionPipelineConfig {
      * (`ingestion_api_batch_capacity_rejections_total`).
      */
     concurrentBatches: number
+    createEventUsageBatch?: () => UsageRecordBatch
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -105,6 +111,7 @@ function getTokenAndDistinctId(input: EventSubpipelineInput): string {
 export function createJoinedIngestionPipeline<
     TInput extends JoinedIngestionPipelineInput,
     TContext extends JoinedIngestionPipelineContext,
+    CFeed extends object = Record<never, never>,
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
@@ -115,6 +122,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
+        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
     } = config
 
     const {
@@ -179,6 +187,7 @@ export function createJoinedIngestionPipeline<
             .beforeBatch((beforeBatch) =>
                 beforeBatch
                     .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                    .pipe(createEventUsageBeforeBatchStep(createEventUsageBatch))
                     .pipe(createPersonsStoreBeforeBatchStep(personsStore))
                     .pipe(createGroupStoreBeforeBatchStep(groupStore))
             )
@@ -217,8 +226,9 @@ export function createJoinedIngestionPipeline<
                 afterBatch
                     .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
                     .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                    .pipe(createFlushEventUsageStep())
                     .pipe(createFlushHogTransformerStep(hogTransformer))
             )
-            .build()
+            .build<CFeed>()
     )
 }

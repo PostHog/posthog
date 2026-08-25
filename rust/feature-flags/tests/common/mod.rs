@@ -503,21 +503,29 @@ impl Drop for ServerHandle {
     }
 }
 
-/// Poll `HGET key field` for up to ~1s, returning the value as soon as the
-/// key exists. Panics on timeout. Use for the positive ("the write should
-/// land") case in billing aggregator tests — for the negative case, sleep
-/// one flush window and check.
+/// Poll for a billing counter across every bucket field in `first_bucket..=last_bucket`,
+/// returning the first value found. Panics on timeout. Use for the positive ("the write
+/// should land") case in billing aggregator tests — for the negative case, sleep one flush
+/// window and check. The server captures the bucket inside `record()` while it handles the
+/// request, so a request that straddles a 2-minute bucket boundary lands the increment in
+/// either the bucket seen before or after the roundtrip. Pass both ends of the range to poll
+/// for the counter without racing the boundary.
 #[allow(dead_code)]
-pub async fn poll_for_billing_counter(
+pub async fn poll_for_billing_counter_across_buckets(
     client: &Arc<dyn common_redis::Client + Send + Sync>,
     key: &str,
-    field: &str,
+    first_bucket: u64,
+    last_bucket: u64,
 ) -> String {
     for _ in 0..40 {
-        if let Ok(v) = client.hget(key.to_string(), field.to_string()).await {
-            return v;
+        for bucket in first_bucket..=last_bucket {
+            if let Ok(v) = client.hget(key.to_string(), bucket.to_string()).await {
+                return v;
+            }
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("billing counter at {key}:{field} did not appear within 1s");
+    panic!(
+        "billing counter at {key} did not appear within 1s for buckets {first_bucket}..={last_bucket}"
+    );
 }

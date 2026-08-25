@@ -3,7 +3,7 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network).
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network; no time bombs from a frozen clock meeting real-clock retention).
   Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -133,7 +133,7 @@ Escalating to the next rung is the last resort, not the default.
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
 - **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
-  See [`posthog/test/AGENTS.md`](../../posthog/test/AGENTS.md) for the full API reference and rationale.
+  See [`posthog/test/AGENTS.md`](../../../posthog/test/AGENTS.md) for the full API reference and rationale.
 - **Whole-repo guards go in `posthog/test/repo_invariants/`.** If a test's input is the entire repo — it walks `apps.get_models()`, inspects `sys.modules` after a cold `django.setup()`, enumerates every route or signal receiver, or `rglob`s the tree against a baseline — any file anywhere can break it and diff-based test selection can't select it. That directory runs unconditionally in the `repo-checks` CI job on every backend PR (products-only and drafts included) with no Postgres/ClickHouse, and the Core shards skip it. Tests with a bounded input stay next to the code they cover.
 
 ### Frontend (Jest)
@@ -154,6 +154,14 @@ Escalating to the next rung is the last resort, not the default.
 - **No `time.sleep` / arbitrary waits.**
   Use fake timers, `wait_for` / `waitFor` on a real condition, or `freeze_time`.
   A sleep is a flake waiting to happen, and it slows every run.
+- **A frozen clock doesn't freeze the infrastructure.**
+  `freeze_time` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
+  So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
+  It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
+  Ask it of every absolute `freeze_time`: _what happens when today is a year past this date?_ If the answer isn't "the same thing", fix it before you commit.
+  Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
+  A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
+  Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.

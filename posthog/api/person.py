@@ -5,6 +5,8 @@ import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, Union, cast  # noqa: UP035
 
+from django.conf import settings
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -67,6 +69,8 @@ from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.slo.context import JsonValue, SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.split_person import split_person
 from posthog.utils import (
     format_query_params_absolute_url,
@@ -595,38 +599,65 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             limit=filter.limit,
             offset=filter.offset,
         )
-        # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
-        # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
-        # we still hydrate the person objects ourselves via get_serialized_people.
-        actors_runner = ActorsQueryRunner(team=team, query=actors_query)
-        actor_ids = [row[0] for row in actors_runner.calculate().results]
-        with personhog_caller_tag("persons/list"):
-            serialized_actors = get_serialized_people(team, actor_ids)
+        include_total = "include_total" in request.GET
+        # This endpoint bypasses `QueryRunner.run()`, so nothing else measures how long it takes.
+        # The search path is the slow one, so the shape of the request is recorded alongside the
+        # duration. The search term itself is never recorded - it is user data.
+        slo_properties: dict[str, JsonValue] = {
+            "query_type": "ActorsQuery",
+            "has_search": bool(filter.search),
+            "has_properties": bool(person_properties),
+            "has_distinct_id": bool(filter.distinct_id),
+            "include_total": include_total,
+            "is_csv": is_csv_request,
+            "limit": filter.limit,
+            "offset": filter.offset,
+        }
+        with slo_operation(
+            spec=SloSpec(
+                # `User.distinct_id` is nullable, so fall back to the team like the query service does.
+                distinct_id=request.user.distinct_id or str(team.uuid),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.PERSONS_LIST,
+                team_id=team.pk,
+                sample_rate=settings.PERSONS_LIST_SLO_SAMPLE_RATE,
+            ),
+            properties=slo_properties,
+        ) as slo:
+            # Use .calculate() (not .run()) — it applies the limit/offset paginator but skips the
+            # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
+            # we still hydrate the person objects ourselves via get_serialized_people.
+            actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            actor_ids = [row[0] for row in actors_runner.calculate().results]
+            with personhog_caller_tag("persons/list"):
+                serialized_actors = get_serialized_people(team, actor_ids)
 
-        restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
-        if restricted_person_properties:
-            for person_dict in serialized_actors:
-                properties = person_dict.get("properties")
-                if isinstance(properties, dict):
-                    person_dict["properties"] = {
-                        k: v for k, v in properties.items() if k not in restricted_person_properties
-                    }
+            restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+            if restricted_person_properties:
+                for person_dict in serialized_actors:
+                    properties = person_dict.get("properties")
+                    if isinstance(properties, dict):
+                        person_dict["properties"] = {
+                            k: v for k, v in properties.items() if k not in restricted_person_properties
+                        }
 
-        _should_paginate = len(actor_ids) >= filter.limit
+            _should_paginate = len(actor_ids) >= filter.limit
 
-        # If the undocumented include_total param is set to true, we'll return the total count of people
-        # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
-        # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-        total_count: Optional[int] = None
-        if "include_total" in request.GET:
-            count_inner = actors_runner.to_query()
-            count_inner.limit = None
-            count_inner.offset = None
-            count_query = ast.SelectQuery(
-                select=[ast.Call(name="count", args=[])],
-                select_from=ast.JoinExpr(table=count_inner),
-            )
-            total_count = execute_hogql_query(count_query, team=team).results[0][0]
+            # If the undocumented include_total param is set to true, we'll return the total count of people
+            # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+            # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+            total_count: Optional[int] = None
+            if include_total:
+                count_inner = actors_runner.to_query()
+                count_inner.limit = None
+                count_inner.offset = None
+                count_query = ast.SelectQuery(
+                    select=[ast.Call(name="count", args=[])],
+                    select_from=ast.JoinExpr(table=count_inner),
+                )
+                total_count = execute_hogql_query(count_query, team=team).results[0][0]
+
+            slo.tag(result_count=len(actor_ids))
 
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
         previous_url = (

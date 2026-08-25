@@ -31,6 +31,8 @@ class TestClerkSource:
             "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/users?limit=100",
             # `saml_connections` endpoint, SAML/Enterprise SSO not available on the account's plan.
             "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/saml_connections?limit=100",
+            # `enterprise_connections` endpoint, Enterprise SSO not available on the account's instance.
+            "422 Client Error: Unprocessable Entity for url: https://api.clerk.com/v1/enterprise_connections?limit=100 | api error: code=feature_requires_email_address_enabled",
             # `api_keys` endpoint, which Clerk rejects without a subject param on the list request.
             "400 Client Error: Bad Request for url: https://api.clerk.com/v1/api_keys?limit=100",
             # `redirect_urls` endpoint, not available on the account's Clerk plan or instance.

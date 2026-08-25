@@ -99,6 +99,21 @@ tools:
     account-relationship-definitions-update:
         operation: account_relationship_definitions_update
         enabled: false
+    account-track-rules-list:
+        operation: account_track_rules_list
+        enabled: false
+    account-track-rules-preview-create:
+        operation: account_track_rules_preview_create
+        enabled: false
+    account-track-rules-run-create:
+        operation: account_track_rules_run_create
+        enabled: false
+    account-track-rules-runs-list:
+        operation: account_track_rules_runs_list
+        enabled: false
+    account-track-rules-update:
+        operation: account_track_rules_update
+        enabled: false
     accounts-create:
         operation: accounts_create
         enabled: true
