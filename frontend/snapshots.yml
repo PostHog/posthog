@@ -5552,6 +5552,10 @@ snapshots:
         hash: v1.k794b7964.976b4bc71204d3fdd7d22bc696a779a418376dfa7d6fc74cf50ebc5023c672b9.gyNSfDI5sGG3Hamw70N9MALDuDtbPb3jeSZzD9-IC5g
     replay-tabs-home-failure--not-found--light:
         hash: v1.k794b7964.68ea14164788313df082ab6a0376077a82369dbdb3365ce8427640ad453aa9d6.laeHUCIfmZ8CHubdHCTK_PaLsSGS3XkBTsQRSma6qoE
+    replay-tabs-home-filters-banner--page-filter-nudge--dark:
+        hash: v1.k794b7964.33db55efe063b4a0e5cf7399851c5e16172fd4b78dda3587881c7e58974e9507.6F1xl1LtKP40SgXwQBJF6ZZ65QMLRIXKXm1c5EzgCCE
+    replay-tabs-home-filters-banner--page-filter-nudge--light:
+        hash: v1.k794b7964.2d3878b61800dbda4d2d7ecc098f04852f113765402d29b4f875912708637d09.jFWOeN5aJ1VPds4xEdPZ5-021GTHUY9Xu3s79dchxs8
     replay-tabs-home-filters-banner--product-analytics-over-limit--dark:
         hash: v1.k794b7964.3382cb9fbf56647bce20e824f37190da01c7e832174672c646a328301637e1fa.ZpMkQP_H9a6yc7qYnEIHtAxfN4jHWRPD4virSf2vGIA
     replay-tabs-home-filters-banner--product-analytics-over-limit--light:
