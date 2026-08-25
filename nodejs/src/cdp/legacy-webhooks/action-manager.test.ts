@@ -1,7 +1,7 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 
-import { commonUserId, insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
+import { commonUserId, createTestTeamFixture, insertRow } from '../../../tests/helpers/sql'
 import { Hub, PropertyOperator, RawAction } from '../../types'
 import { ActionManager } from './action-manager'
 
@@ -9,16 +9,17 @@ describe('ActionManager', () => {
     let hub: Hub
     let actionManager: ActionManager
 
-    const TEAM_ID = 2
-    const ACTION_ID = 69
+    let teamId: number
+    let actionId: number
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
+        teamId = (await createTestTeamFixture(hub.postgres)).team.id
+        actionId = teamId
 
         await insertRow(hub.postgres, 'posthog_action', {
-            id: ACTION_ID,
-            team_id: TEAM_ID,
+            id: actionId,
+            team_id: teamId,
             name: 'Test Action',
             description: '',
             created_at: new Date().toISOString(),
@@ -51,11 +52,11 @@ describe('ActionManager', () => {
     })
 
     it('returns the correct actions generally', async () => {
-        const action = actionManager.getTeamActions(TEAM_ID)
+        const action = actionManager.getTeamActions(teamId)
 
         expect(Object.values(action!).length).toEqual(1)
-        expect(action![ACTION_ID]).toMatchObject({
-            id: ACTION_ID,
+        expect(action![actionId]).toMatchObject({
+            id: actionId,
             name: 'Test Action',
             deleted: false,
             post_to_slack: true,
@@ -78,17 +79,17 @@ describe('ActionManager', () => {
         await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_action SET slack_message_format='test' WHERE id = $1`,
-            [ACTION_ID],
+            [actionId],
             'testKey'
         )
 
-        await actionManager.reloadAction(TEAM_ID, ACTION_ID)
+        await actionManager.reloadAction(teamId, actionId)
 
-        const reloadedAction = actionManager.getTeamActions(TEAM_ID)
+        const reloadedAction = actionManager.getTeamActions(teamId)
 
         expect(Object.values(action!).length).toEqual(1)
-        expect(reloadedAction![ACTION_ID]).toMatchObject({
-            id: ACTION_ID,
+        expect(reloadedAction![actionId]).toMatchObject({
+            id: actionId,
             name: 'Test Action',
             deleted: false,
             post_to_slack: true,
@@ -108,19 +109,19 @@ describe('ActionManager', () => {
             ],
         })
 
-        actionManager.dropAction(TEAM_ID, ACTION_ID)
+        actionManager.dropAction(teamId, actionId)
 
-        const droppedAction = actionManager.getTeamActions(TEAM_ID)
+        const droppedAction = actionManager.getTeamActions(teamId)
 
         expect(Object.values(droppedAction!).length).toEqual(0)
     })
 
     it('returns the correct actions when deleted = TRUE', async () => {
-        const action = actionManager.getTeamActions(TEAM_ID)
+        const action = actionManager.getTeamActions(teamId)
 
         expect(Object.values(action!).length).toEqual(1)
-        expect(action![ACTION_ID]).toMatchObject({
-            id: ACTION_ID,
+        expect(action![actionId]).toMatchObject({
+            id: actionId,
             name: 'Test Action',
             deleted: false,
             post_to_slack: true,
@@ -145,13 +146,13 @@ describe('ActionManager', () => {
             `UPDATE posthog_action
              SET deleted = TRUE
              WHERE id = $1`,
-            [ACTION_ID],
+            [actionId],
             'testKey'
         )
 
-        await actionManager.reloadAction(TEAM_ID, ACTION_ID)
+        await actionManager.reloadAction(teamId, actionId)
 
-        const droppedAction = actionManager.getTeamActions(TEAM_ID)
+        const droppedAction = actionManager.getTeamActions(teamId)
 
         expect(Object.values(droppedAction!).length).toEqual(0)
     })

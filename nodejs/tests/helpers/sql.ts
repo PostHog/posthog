@@ -413,6 +413,18 @@ export const createTeam = async (
     return id
 }
 
+export async function createTestTeamFixture(postgres: PostgresRouter): Promise<{ organizationId: string; team: Team }> {
+    const organizationId = await createOrganization(postgres)
+    const teamId = await createTeam(postgres, organizationId)
+    const team = await getTeam(postgres, teamId)
+
+    if (!team) {
+        throw new Error(`Test team ${teamId} was not created`)
+    }
+
+    return { organizationId, team }
+}
+
 export const createAction = async (
     pg: PostgresRouter,
     teamId: number,

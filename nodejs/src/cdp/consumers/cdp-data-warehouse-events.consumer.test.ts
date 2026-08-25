@@ -6,7 +6,13 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import {
+    createOrganization,
+    createTeam,
+    createTestTeamFixture,
+    getTeam,
+    updateOrganizationAvailableFeatures,
+} from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
@@ -61,9 +67,12 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        team = fixtureTeam
+        await updateOrganizationAvailableFeatures(hub.postgres, organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)

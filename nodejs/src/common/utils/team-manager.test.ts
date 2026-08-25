@@ -1,9 +1,9 @@
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import {
+    createOrganization,
     createTeam,
-    getFirstTeam,
+    getTeam,
     insertRow,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -34,11 +34,17 @@ describe('TeamManager()', () => {
         jest.spyOn(Date, 'now').mockImplementation(() => now)
 
         hub = await createHub()
-        await resetTestDatabase()
 
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres)
-        const team = await getFirstTeam(hub.postgres)
+        const fixtureOrganizationId = await createOrganization(hub.postgres)
+        await updateOrganizationAvailableFeatures(hub.postgres, fixtureOrganizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
+        const fixtureTeamId = await createTeam(hub.postgres, fixtureOrganizationId, undefined, {
+            cookieless_server_hash_mode: 2,
+        })
+        const team = (await getTeam(hub.postgres, fixtureTeamId))!
         teamId = team.id
         teamToken = team.api_token
         organizationId = team.organization_id
@@ -53,10 +59,14 @@ describe('TeamManager()', () => {
         it('returns the team', async () => {
             const result = await teamManager.getTeam(teamId)
             // This one test is a snapshot to ensure the team object is stable
-            expect(forSnapshot(result)).toMatchInlineSnapshot(`
+            expect(
+                forSnapshot(result, {
+                    overrides: { api_token: '<TEAM_API_TOKEN>', id: '<TEAM_ID>', project_id: '<PROJECT_ID>' },
+                })
+            ).toMatchInlineSnapshot(`
                 {
                   "anonymize_ips": false,
-                  "api_token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                  "api_token": "<TEAM_API_TOKEN>",
                   "available_features": [
                     "data_pipelines",
                   ],
@@ -64,7 +74,7 @@ describe('TeamManager()', () => {
                   "drop_events_older_than_seconds": null,
                   "extra_settings": null,
                   "heatmaps_opt_in": null,
-                  "id": 2,
+                  "id": "<TEAM_ID>",
                   "ingested_event": true,
                   "logs_settings": null,
                   "minimal_flag_called_events": false,
@@ -72,13 +82,13 @@ describe('TeamManager()', () => {
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
-                  "project_id": 2,
+                  "project_id": "<PROJECT_ID>",
                   "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",
                 }
-            `)
+                `)
         })
 
         it('returns null if the team does not exist', async () => {
