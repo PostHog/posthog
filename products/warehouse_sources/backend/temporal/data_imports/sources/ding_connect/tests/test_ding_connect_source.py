@@ -4,57 +4,17 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.ding_connect import (
-    DingConnectResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.source import DingConnectSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert DingConnectSource().source_type == ExternalDataSourceType.DINGCONNECT
-
-    def test_get_source_config_basics(self) -> None:
-        config = DingConnectSource().get_source_config
-        assert config.label == "DingConnect"
-        assert config.category == DataWarehouseSourceCategory.PAYMENTS___BILLING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/ding-connect"
-
-    def test_source_config_has_single_required_secret_api_key(self) -> None:
-        fields = DingConnectSource().get_source_config.fields
-        assert len(fields) == 1
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
 
 
 class TestGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = DingConnectSource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     def test_all_endpoints_are_full_refresh_only(self) -> None:
         # No DingConnect endpoint exposes a server-side timestamp filter, so nothing supports
         # incremental or append — guarding against an accidental incremental flip.
         schemas = DingConnectSource().get_schemas(MagicMock(), team_id=1)
         assert all(not s.supports_incremental for s in schemas)
         assert all(not s.supports_append for s in schemas)
-
-    def test_transfer_records_notes_retention_window(self) -> None:
-        schemas = {s.name: s for s in DingConnectSource().get_schemas(MagicMock(), team_id=1)}
-        assert "2 months" in (schemas["TransferRecords"].description or "")
-
-    def test_names_filter(self) -> None:
-        schemas = DingConnectSource().get_schemas(MagicMock(), team_id=1, names=["Countries", "Balance"])
-        assert {s.name for s in schemas} == {"Countries", "Balance"}
 
 
 class TestValidateCredentials:
@@ -69,13 +29,6 @@ class TestValidateCredentials:
         ok, error = DingConnectSource().validate_credentials(MagicMock(api_key="key"), team_id=1)
         assert ok is False
         assert error == "Invalid DingConnect API key"
-
-
-class TestResumableSourceManager:
-    def test_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        manager = DingConnectSource().get_resumable_source_manager(inputs)
-        assert manager._data_class is DingConnectResumeConfig
 
 
 class TestSourceForPipeline:

@@ -77,8 +77,15 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         _create_person(team=self.team, distinct_ids=["user-1"], is_identified=True)
         flush_persons_and_events()
 
-    def create_issue(self, issue_id: str | None = None, fingerprint: str | None = None) -> ErrorTrackingIssue:
-        issue = ErrorTrackingIssue.objects.create(id=issue_id or self.issue_id, team=self.team, name="TypeError")
+    def create_issue(
+        self,
+        issue_id: str | None = None,
+        fingerprint: str | None = None,
+        severity: str | None = None,
+    ) -> ErrorTrackingIssue:
+        issue = ErrorTrackingIssue.objects.create(
+            id=issue_id or self.issue_id, team=self.team, name="TypeError", severity=severity
+        )
         ErrorTrackingIssueFingerprintV2.objects.create(
             team=self.team, issue=issue, fingerprint=fingerprint or self.fingerprint
         )
@@ -161,6 +168,28 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_queries_return_severity(self) -> None:
+        self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        list_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"status": "all", "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+        detail_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert list_response.status_code == 200
+        assert list_response.json()["results"][0]["severity"] == "high"
+        assert detail_response.status_code == 200
+        assert detail_response.json()["severity"] == "high"
 
     def test_rejects_hogql_property_filters(self) -> None:
         response = self.client.post(
@@ -450,7 +479,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
-        self.create_issue()
+        self.create_issue(severity=ErrorTrackingIssue.Severity.HIGH)
 
         empty_range_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issue",
@@ -468,6 +497,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert empty_range_response.status_code == 200
         assert empty_range_response.json()["impact"] == {}
+        assert empty_range_response.json()["severity"] == "high"
         assert missing_response.status_code == 404
 
     def test_issue_events_returns_404_for_foreign_issue(self) -> None:

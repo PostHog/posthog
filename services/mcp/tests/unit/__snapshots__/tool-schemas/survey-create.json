@@ -181,7 +181,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms."
+            "description": "Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. To target people, groups, or cohorts by properties, use targeting_flag_filters instead. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms."
         },
         "description": {
             "description": "Survey description. Internal only: unlike the name and questions, it is never delivered to visitors.",
@@ -1178,7 +1178,7 @@
                     "type": "null"
                 }
             ],
-            "description": "User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset of users. Do not use this for external_survey forms."
+            "description": "Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this instead of conditions for property targeting. Do not use this for external_survey forms."
         },
         "translations": {
             "description": "Optional survey-level translations keyed by language code. Use for translated survey name, description, and thank-you message fields. Question text translations belong inside each question's translations object."

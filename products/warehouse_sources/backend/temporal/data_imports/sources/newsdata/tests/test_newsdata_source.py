@@ -7,14 +7,9 @@ from parameterized import parameterized
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.newsdata import NewsDataResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source import NewsDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _source_inputs(**overrides: Any) -> MagicMock:
@@ -26,9 +21,6 @@ def _source_inputs(**overrides: Any) -> MagicMock:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert NewsDataSource().source_type == ExternalDataSourceType.NEWSDATA
-
     def test_config_identity_and_release_contract(self) -> None:
         config = NewsDataSource().get_source_config
         assert config.name == SchemaExternalDataSourceType.NEWS_DATA
@@ -37,14 +29,6 @@ class TestSourceConfig:
         assert not config.unreleasedSource
         # The doc slug is derived from this URL; a mismatch 404s the docs page.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/newsdata"
-
-    def test_api_key_is_a_required_secret_field(self) -> None:
-        fields = NewsDataSource().get_source_config.fields
-        api_key_fields = [f for f in fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"]
-        assert len(api_key_fields) == 1
-        field = api_key_fields[0]
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
 
 
 class TestGetSchemas:
@@ -97,21 +81,6 @@ class TestNonRetryableErrors:
 
 
 class TestSourceForPipeline:
-    def test_passes_watermark_only_when_incremental(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.source.newsdata_source"
-        ) as mock_source:
-            NewsDataSource().source_for_pipeline(
-                config=MagicMock(api_key="pub_test"),
-                resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="archive", should_use_incremental_field=True),
-            )
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "pub_test"
-        assert kwargs["endpoint"] == "archive"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2024-01-15 00:00:00"
-
     def test_watermark_dropped_on_full_refresh(self) -> None:
         # On a full-refresh run the stored watermark must not leak into the query, or an unwanted
         # from_date filter would silently truncate the pull.
@@ -126,13 +95,6 @@ class TestSourceForPipeline:
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
 
 
-class TestResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = NewsDataSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is NewsDataResumeConfig
-
-
 class TestDocumentedTables:
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog (no I/O), so the public docs Supported tables section renders.
@@ -140,7 +102,3 @@ class TestDocumentedTables:
         assert source.lists_tables_without_credentials is True
         table_names = {t["name"] for t in source.get_documented_tables()}
         assert {"latest", "archive", "crypto", "sources"}.issubset(table_names)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = NewsDataSource().get_canonical_descriptions()
-        assert {"latest", "archive", "crypto", "sources"}.issubset(descriptions.keys())

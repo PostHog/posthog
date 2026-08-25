@@ -31,6 +31,7 @@ import {
     consumerBatchUtilization,
     consumerDrainDuration,
     consumerDrainTimeouts,
+    consumerPolls,
     consumerStaleStoreOffsetsSkipped,
     kafkaConsumerAssignment,
 } from './metrics'
@@ -51,6 +52,7 @@ export type KafkaConsumerV2Config = {
     autoOffsetStore?: boolean
     autoCommit?: boolean
     enablePartitionEof?: boolean
+    fetchBatchSize?: number
 }
 
 export type RdKafkaConsumerOverrides = Omit<
@@ -133,7 +135,7 @@ export class KafkaConsumerV2 {
             .toString(36)
             .substring(2, 8)}`
 
-        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE
+        this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.batchTimeoutMs = this.config.batchTimeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS
         this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.backgroundTaskTimeoutMs = defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS
@@ -307,6 +309,7 @@ export class KafkaConsumerV2 {
             promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
         )
 
+        consumerPolls.labels(this.config.topic, this.config.groupId).inc()
         consumerBatchSize.observe(messages.length)
         consumerBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
         consumerBatchUtilization.labels({ groupId: this.config.groupId }).set(messages.length / this.fetchBatchSize)

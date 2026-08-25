@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loop_retur
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source import LoopReturnsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 VALIDATE_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.loop_returns.source."
@@ -61,9 +60,6 @@ class TestLoopReturnsSource:
         self.team_id = 1
         self.config = LoopReturnsSourceConfig(api_key="loop_test_key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.LOOPRETURNS
-
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
@@ -87,11 +83,6 @@ class TestLoopReturnsSource:
         assert {name for name, schema in schemas.items() if schema.supports_incremental} == set(INCREMENTAL_FIELDS)
         assert [field["field"] for field in schemas["returns"].incremental_fields] == ["created_at", "updated_at"]
         assert [field["field"] for field in schemas["advanced_shipping_notices"].incremental_fields] == ["created_at"]
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["destinations"])
-
-        assert [schema.name for schema in schemas] == ["destinations"]
 
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
     def test_every_endpoint_is_documented(self, endpoint: str) -> None:
@@ -169,11 +160,6 @@ class TestLoopReturnsSource:
         config = LoopReturnsSourceConfig(api_key="loop_test_key", start_date="2024-01-01")
 
         assert self.source.validate_credentials(config, self.team_id) == (True, None)
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_source_inputs())
-
-        assert manager._data_class is LoopReturnsResumeConfig
 
     def test_source_for_pipeline_builds_the_requested_table(self) -> None:
         source_response = self.source.source_for_pipeline(

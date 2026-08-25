@@ -327,6 +327,17 @@ export interface BrainrotActivatedProperties {
   filled_cells: number;
 }
 
+export interface BrainrotPlayerErrorProperties {
+  /** YouTube player error code (e.g. 153), or null when the widget went silent. */
+  error_code: number | null;
+  /**
+   * "player_error" when the embed reported an onError message;
+   * "no_widget_messages" when the widget sent nothing after loading, which
+   * usually means the player failed before the postMessage API came up.
+   */
+  reason: "player_error" | "no_widget_messages";
+}
+
 // Settings events
 export interface SettingChangedProperties {
   setting_name: string;
@@ -479,13 +490,11 @@ export interface TaskFeedbackProperties {
 
 // Onboarding events
 export type OnboardingStepId =
-  | "welcome"
   | "project-select"
   | "invite-code"
   | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
@@ -666,7 +675,8 @@ export type InboxReportActionType =
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
   | "expand_task_section"
-  | "play_session_recording";
+  | "play_session_recording"
+  | "create_canvas";
 
 export type InboxReportActionSurface =
   | "detail_pane"
@@ -1108,6 +1118,13 @@ export interface CanvasRenderedProperties {
   build_id?: string;
 }
 
+export interface CanvasViewedProperties {
+  channel_id: string;
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+  template_id: string;
+}
+
 export interface CanvasRuntimeErrorProperties {
   channel_id?: string;
   dashboard_id?: string;
@@ -1418,6 +1435,7 @@ export const ANALYTICS_EVENTS = {
   COMMAND_CENTER_VIEWED: "Command center viewed",
   COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
+  BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
@@ -1533,6 +1551,7 @@ export const ANALYTICS_EVENTS = {
   TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
@@ -1610,6 +1629,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
   [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
+  [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
@@ -1724,6 +1744,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;

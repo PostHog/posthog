@@ -1,7 +1,9 @@
 import pytest
 from freezegun import freeze_time
 
-from products.tasks.backend.exceptions import SandboxExecutionError, SandboxMissingRepositoryError
+from django.db import OperationalError
+
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -11,6 +13,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _include_personal_mcp_for_task,
     _LaunchParams,
     _network_enforcement_observation,
+    _prepare_launch,
     _record_boot_total,
     _resolve_protected_base_branch,
     await_agent_server_ready,
@@ -306,6 +309,46 @@ def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
     assert _include_personal_mcp_for_task(task) is expected
 
 
+def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> None:
+    task_get = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get
+    task_get.side_effect = [
+        OperationalError("server conn crashed?"),
+        OperationalError("server conn crashed?"),
+    ]
+
+    with pytest.raises(OperationalError):
+        _prepare_launch(_context(), mocker.Mock(), "sandbox-id")
+
+    assert task_get.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "raised,expected",
+    [
+        (OperationalError("server conn crashed?"), OperationalError),
+        (RuntimeError("token mint failed"), OAuthTokenError),
+    ],
+)
+def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised, expected) -> None:
+    task = mocker.Mock(internal=True, created_by_id=None, team_id=1)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
+    ).return_value.get.return_value = task
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_task_run_credential_user",
+        return_value=None,
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
+        side_effect=raised,
+    )
+
+    with pytest.raises(expected):
+        _prepare_launch(_context(), mocker.Mock(), "sandbox-id")
+
+
 @pytest.mark.parametrize(
     "pr_base,branch,expected",
     [
@@ -324,12 +367,11 @@ def test_resolve_protected_base_branch(mocker, pr_base, branch, expected) -> Non
 
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
-    # Repo-less runs (e.g. Slack) must pass the branch through untouched, with no GitHub lookup.
     get = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
-    assert _resolve_protected_base_branch(context) == "some-branch"
+    assert _resolve_protected_base_branch(context) is None
     get.assert_not_called()
 
 
