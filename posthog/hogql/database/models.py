@@ -299,20 +299,19 @@ class TableNode(BaseModel):
         return self.table
 
     def _case_insensitive_index(self) -> dict[str, "TableNode"]:
-        # Stored as a plain __dict__ entry, not a pydantic PrivateAttr: any private state would
-        # knock every node off the _slim_pickle_getstate fast path. The entry survives that pickle
-        # path (getstate returns the live __dict__, setstate restores it verbatim) and comes back
-        # valid, because the pickle memo preserves `children`'s identity for the check below.
-        # Validity is self-checking — reassigning `children` changes its identity and del/pop/adds
-        # change its length; a same-key replacement goes through add_child, which pops the cache.
-        # Concurrent readers may race to build the index; the build is idempotent and the
-        # last write wins, which is safe under the GIL.
+        # Cached in the instance __dict__ rather than a pydantic PrivateAttr, because private
+        # state would take every node off the _slim_pickle_getstate fast path. The cache is
+        # pickled with the node and stays valid on load, since the pickle memo restores the
+        # same `children` object that the identity check below compares against.
+        # Staleness is caught by the identity and length checks; the one mutation they cannot
+        # see, a same-key override, goes through add_child, which drops the cache itself.
+        # Racing builders are fine: the build is idempotent and last-write-wins under the GIL.
         cache: Optional[tuple[dict[str, TableNode], int, dict[str, TableNode]]] = self.__dict__.get(_CI_INDEX_CACHE_KEY)
         if cache is None or cache[0] is not self.children or cache[1] != len(self.children):
             index: dict[str, TableNode] = {}
             for key, node in self.children.items():
                 if node.case_insensitive:
-                    # setdefault keeps the first child in iteration order, matching the scan this replaces
+                    # On duplicate lowercased names the first child in iteration order wins.
                     index.setdefault(key.lower(), node)
             cache = (self.children, len(self.children), index)
             object.__setattr__(self, _CI_INDEX_CACHE_KEY, cache)
@@ -358,8 +357,8 @@ class TableNode(BaseModel):
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
-        # A same-name override keeps `children`'s identity and length, which the lookup index's
-        # validity check can't see — drop the cache explicitly.
+        # A same-name override keeps `children`'s identity and length, so the lookup index's
+        # validity check cannot see it. Drop the cache explicitly.
         self.__dict__.pop(_CI_INDEX_CACHE_KEY, None)
         # If there's a conflict, we act according to the conflict modes
         if child.name in self.children:
