@@ -37,7 +37,10 @@ import {
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
-import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  surfaceRendersObjectTags,
+} from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -171,6 +174,7 @@ const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
+  interactionOrigin?: string | null,
 ): string | { append: string } {
   const prompt = [
     typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
@@ -178,9 +182,12 @@ export function buildCloudSessionSystemPrompt(
   ]
     .filter(Boolean)
     .join("\n\n");
-  const combinedPrompt = appendRichOutputPrompt(
-    prependProductEngineerPrompt(prompt),
-  );
+  const basePrompt = prependProductEngineerPrompt(prompt);
+  // Only the desktop resolves object tags into chips and charts. Teaching the
+  // vocabulary to a run that answers elsewhere leaks raw `<hogql>` into the reply.
+  const combinedPrompt = surfaceRendersObjectTags(interactionOrigin)
+    ? appendRichOutputPrompt(basePrompt)
+    : basePrompt;
 
   return typeof userPrompt === "string"
     ? combinedPrompt
@@ -3708,7 +3715,11 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
+    return buildCloudSessionSystemPrompt(
+      cloudAppend,
+      userPrompt,
+      this.getCloudInteractionOrigin(),
+    );
   }
 
   private buildCodexInstructions(
