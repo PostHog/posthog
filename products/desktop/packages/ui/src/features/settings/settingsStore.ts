@@ -1,4 +1,12 @@
+import type { CostChecklistItemKind } from "@posthog/core/billing/costChecklist";
+import {
+  EMPTY_SPEND_LIMITS,
+  pruneSpendNoticesSeen,
+  type SpendLimits,
+  type SpendLimitsPatch,
+} from "@posthog/core/billing/spendLimits";
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
+import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
@@ -236,6 +244,29 @@ interface SettingsStore {
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
 
+  // Spend limits. A warn line only notifies; a stop line pauses new agent
+  // messages in this app, and the monthly stop also syncs to the gateway
+  // where deployments enforce it.
+  spendLimits: SpendLimits;
+  // Crossing notices already shown, keyed by period/level/anchor/amount so
+  // each line notifies once per day or month at a given amount.
+  spendNoticesSeen: Record<string, string>;
+  warnOnMidSessionModelSwitch: boolean;
+  // Cost management checklist items the user has acted on. Nothing here is a
+  // dismissal: an item lands here only once its change was made, and then
+  // stays as the checked record of it.
+  costChecklistDone: CostChecklistItemKind[];
+  /**
+   * Compact a session once the context window passes this percent, or null to
+   * leave compaction to the model. Off by default.
+   */
+  autoCompactPercent: number | null;
+  setSpendLimits: (limits: SpendLimitsPatch) => void;
+  markSpendNoticeSeen: (key: string, anchor: string, todayIso: string) => void;
+  setWarnOnMidSessionModelSwitch: (enabled: boolean) => void;
+  markCostChecklistDone: (kind: CostChecklistItemKind) => void;
+  setAutoCompactPercent: (percent: number | null) => void;
+
   // System / power / permissions
   allowBypassPermissions: boolean;
   preventSleepWhileRunning: boolean;
@@ -469,6 +500,40 @@ export const useSettingsStore = create<SettingsStore>()(
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
 
+      // Spend limits
+      spendLimits: EMPTY_SPEND_LIMITS,
+      spendNoticesSeen: {},
+      warnOnMidSessionModelSwitch: true,
+      setSpendLimits: (limits) =>
+        set((state) => ({
+          spendLimits: {
+            day: { ...state.spendLimits.day, ...limits.day },
+            month: { ...state.spendLimits.month, ...limits.month },
+          },
+        })),
+      markSpendNoticeSeen: (key, anchor, todayIso) =>
+        set((state) => ({
+          spendNoticesSeen: {
+            ...pruneSpendNoticesSeen(state.spendNoticesSeen, todayIso),
+            [key]: anchor,
+          },
+        })),
+      setWarnOnMidSessionModelSwitch: (enabled) =>
+        set({ warnOnMidSessionModelSwitch: enabled }),
+      costChecklistDone: [],
+      autoCompactPercent: null,
+      setAutoCompactPercent: (percent) =>
+        set({
+          autoCompactPercent:
+            percent === null ? null : clampAutoCompactPercent(percent),
+        }),
+      markCostChecklistDone: (kind) =>
+        set((state) =>
+          state.costChecklistDone.includes(kind)
+            ? state
+            : { costChecklistDone: [...state.costChecklistDone, kind] },
+        ),
+
       // System / power / permissions
       allowBypassPermissions: false,
       preventSleepWhileRunning: false,
@@ -620,6 +685,13 @@ export const useSettingsStore = create<SettingsStore>()(
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
 
+        // Spend limits
+        spendLimits: state.spendLimits,
+        spendNoticesSeen: state.spendNoticesSeen,
+        warnOnMidSessionModelSwitch: state.warnOnMidSessionModelSwitch,
+        costChecklistDone: state.costChecklistDone,
+        autoCompactPercent: state.autoCompactPercent,
+
         // System / power / permissions
         allowBypassPermissions: state.allowBypassPermissions,
         preventSleepWhileRunning: state.preventSleepWhileRunning,
@@ -674,6 +746,54 @@ export const useSettingsStore = create<SettingsStore>()(
           (!merged.customSounds || merged.customSounds.length === 0)
         ) {
           (merged as Record<string, unknown>).completionSound = "none";
+        }
+        // Persisted blobs from before the per-period shape carry flat keys
+        // (and older ones alert keys); every line must come back as a
+        // positive number or null, never undefined.
+        {
+          const raw = (merged.spendLimits ?? {}) as unknown as Record<
+            string,
+            unknown
+          >;
+          const line = (...values: unknown[]): number | null => {
+            for (const value of values) {
+              if (
+                typeof value === "number" &&
+                Number.isFinite(value) &&
+                value > 0
+              ) {
+                return value;
+              }
+            }
+            return null;
+          };
+          const migratedLines = (
+            period: "day" | "month",
+            flatPrefix: "daily" | "monthly",
+          ): SpendLimits["day"] => {
+            const nested = raw[period];
+            const lines =
+              typeof nested === "object" && nested !== null
+                ? (nested as Record<string, unknown>)
+                : {};
+            const stopUsd = line(
+              lines.stopUsd,
+              raw[`${flatPrefix}StopUsd`],
+              raw[`${flatPrefix}AlertUsd`],
+            );
+            const warnUsd = line(lines.warnUsd, raw[`${flatPrefix}WarnUsd`]);
+            return {
+              warnUsd:
+                warnUsd !== null && stopUsd !== null
+                  ? Math.min(warnUsd, stopUsd)
+                  : warnUsd,
+              stopUsd,
+            };
+          };
+          merged.spendLimits = {
+            day: migratedLines("day", "daily"),
+            month: migratedLines("month", "monthly"),
+          };
         }
         return merged;
       },
