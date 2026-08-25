@@ -14,6 +14,7 @@ import {
   DialogTitle,
   Text,
 } from "@posthog/quill";
+import type React from "react";
 
 interface LeanSkillDialogProps {
   skill: LeanSkill;
@@ -126,7 +127,13 @@ function TrialQuote({ trial }: { trial: NonNullable<LeanSkill["trial"]> }) {
 }
 
 /** A small dark label heading a block of quieter content. */
-function Block({ label, children }: { label: string; children: JSX.Element }) {
+function Block({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-2">
       <Text size="xxs" weight="medium">
