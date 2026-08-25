@@ -1246,28 +1246,50 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"inputs": {"repository": "Repository must be an organization/repo name like your-org/your-repo."}}
             )
 
-        model = ((inputs.get("model") or {}).get("value") or {}).get("model")
+        model_value = (inputs.get("model") or {}).get("value") or {}
+        model = model_value.get("model")
+        reasoning_effort = model_value.get("reasoning_effort")
         if model:
             # An empty catalogue means the gateway is unreachable, not that no model is valid -
             # skip rather than block every save during an outage (see available_model_choices).
             available = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-            if available and model not in {choice.model for choice in available}:
-                raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+            if available:
+                choice = next((c for c in available if c.model == model), None)
+                if choice is None:
+                    raise serializers.ValidationError({"inputs": {"model": f"'{model}' is not an available model."}})
+                if reasoning_effort and reasoning_effort not in choice.supported_efforts:
+                    raise serializers.ValidationError(
+                        {
+                            "inputs": {
+                                "model": (
+                                    f"Reasoning effort '{reasoning_effort}' is not supported for model "
+                                    f"'{model}'. Supported values: {', '.join(choice.supported_efforts) or 'none'}."
+                                )
+                            }
+                        }
+                    )
 
         max_parallel_tasks = (inputs.get("max_parallel_tasks") or {}).get("value")
-        if max_parallel_tasks is not None and not (
-            MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS <= max_parallel_tasks <= MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS
-        ):
-            raise serializers.ValidationError(
-                {
-                    "inputs": {
-                        "max_parallel_tasks": (
-                            f"Must be between {MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS} and "
-                            f"{MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS}."
-                        )
-                    }
-                }
+        if max_parallel_tasks is not None:
+            # Matches the runtime IntegerField's own leniency (a "5.0" from an API client
+            # coerces to 5 there) while still catching a fractional value or a bool, neither
+            # of which the runtime field accepts.
+            is_whole_number = (isinstance(max_parallel_tasks, int) and not isinstance(max_parallel_tasks, bool)) or (
+                isinstance(max_parallel_tasks, float) and max_parallel_tasks.is_integer()
             )
+            if not is_whole_number or not (
+                MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS <= max_parallel_tasks <= MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "inputs": {
+                            "max_parallel_tasks": (
+                                f"Must be a whole number between {MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS} and "
+                                f"{MAX_WORKFLOW_TASK_MAX_PARALLEL_TASKS}."
+                            )
+                        }
+                    }
+                )
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")

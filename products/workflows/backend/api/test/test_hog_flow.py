@@ -30,6 +30,7 @@ from posthog.test.fixtures import create_app_metric2
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
+from products.mcp_store.backend.models import MCPServerInstallation
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -5176,8 +5177,6 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert not HogFlow.objects.filter(team=self.team).exists()
 
     def test_accepts_a_connector_the_workflow_owner_can_mount(self):
-        from products.mcp_store.backend.models import MCPServerInstallation
-
         installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
@@ -5237,14 +5236,53 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @parameterized.expand([("zero", 0), ("negative", -1), ("too_high", 101)])
-    def test_rejects_max_parallel_tasks_outside_bounds(self, _name, value):
+    def test_rejects_a_reasoning_effort_the_selected_model_does_not_support(self):
+        # The runtime accepts model/effort pairs uncritically (WorkflowTaskCreateSerializer's
+        # reasoning_effort is a plain CharField with no cross-check), so a mismatch saved here
+        # would otherwise reach the agent sandbox unvalidated instead of failing anywhere.
+        with patch(
+            "products.workflows.backend.api.hog_flow.available_model_choices",
+            return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
+        ):
+            response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "ultracode"}}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__model"
+
+    def test_accepts_a_reasoning_effort_the_selected_model_supports(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.available_model_choices",
+            return_value=(SimpleNamespace(model="claude-opus", supported_efforts=("low", "high")),),
+        ):
+            response = self._post_flow({"model": {"value": {"model": "claude-opus", "reasoning_effort": "high"}}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("negative", -1),
+            ("too_high", 101),
+            ("fractional_float", 2.5),
+            # bool is an int subclass, so the range check alone would let it through.
+            ("boolean", True),
+        ]
+    )
+    def test_rejects_max_parallel_tasks_outside_bounds_or_not_a_whole_number(self, _name, value):
         response = self._post_flow({"max_parallel_tasks": {"value": value}})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__max_parallel_tasks"
 
-    @parameterized.expand([("min", 1), ("max", 100)])
+    @parameterized.expand(
+        [
+            ("min", 1),
+            ("max", 100),
+            # DRF's runtime IntegerField coerces a whole-number float like this to 5, so the
+            # save-time check must not be stricter than what the field will actually accept.
+            ("whole_number_float", 5.0),
+        ]
+    )
     def test_accepts_max_parallel_tasks_within_bounds(self, _name, value):
         response = self._post_flow({"max_parallel_tasks": {"value": value}})
 
