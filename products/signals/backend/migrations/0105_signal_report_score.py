@@ -11,7 +11,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1309_integration_kind_ext_idx"),
-        ("signals", "0096_signal_report_canvas_generation"),
+        ("signals", "0104_signalreport_suggested_prompts"),
     ]
 
     operations = [
