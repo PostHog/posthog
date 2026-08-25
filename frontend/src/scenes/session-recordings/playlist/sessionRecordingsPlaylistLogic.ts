@@ -663,9 +663,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         errorObject?: any
     }
     loadSessionRecordingsSuccess: (
-        sessionRecordingsResponse: {
-            has_next: boolean
-            next_cursor: string | undefined
+        sessionRecordingsResponse: RecordingsQueryResponse & {
             order:
                 | 'active_seconds'
                 | 'activity_score'
@@ -681,16 +679,13 @@ export interface sessionRecordingsPlaylistLogicActions {
                 | 'surfacing_score'
                 | undefined
             order_direction: RecordingOrderDirection | undefined
-            results: SessionRecordingType[]
         },
         payload?: {
             direction: 'newer' | 'older' | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     ) => {
-        sessionRecordingsResponse: {
-            has_next: boolean
-            next_cursor: string | undefined
+        sessionRecordingsResponse: RecordingsQueryResponse & {
             order:
                 | 'active_seconds'
                 | 'activity_score'
@@ -706,7 +701,6 @@ export interface sessionRecordingsPlaylistLogicActions {
                 | 'surfacing_score'
                 | undefined
             order_direction: RecordingOrderDirection | undefined
-            results: SessionRecordingType[]
         }
         payload?: {
             direction: 'newer' | 'older' | undefined
