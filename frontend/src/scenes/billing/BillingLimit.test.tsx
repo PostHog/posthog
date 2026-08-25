@@ -90,6 +90,20 @@ describe('BillingLimit', () => {
         }
     )
 
+    // Guards the always-visible scope statement, so a per-product limit never reads as project-wide.
+    it('states that the limit applies per product across every project in the organization', async () => {
+        await seedBilling({})
+        render(
+            <Provider>
+                <BillingLimit product={makeProduct()} />
+            </Provider>
+        )
+
+        expect(await screen.findByTestId('billing-limit-scope-product_analytics')).toHaveTextContent(
+            'Billing limits are set per product and apply across every project in your organization.'
+        )
+    })
+
     it('removing an existing limit PATCHes a null limit and re-renders as unset', async () => {
         await seedBilling({ product_analytics: 500 })
         render(

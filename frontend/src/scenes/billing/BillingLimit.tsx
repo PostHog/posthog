@@ -49,7 +49,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                 {hasCustomLimitSet ? (
                                     <>
                                         {usingInitialBillingLimit ? (
-                                            <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit.">
+                                            <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. This limit applies across every project in your organization. Some features may stop working and data may be dropped if your usage exceeds your limit.">
                                                 <span
                                                     className="text-sm"
                                                     data-attr={`default-billing-limit-${product.type}`}
@@ -59,7 +59,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                                 </span>
                                             </Tooltip>
                                         ) : (
-                                            <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working and data may be dropped if your usage exceeds your limit.">
+                                            <Tooltip title="Set a billing limit to control your recurring costs. This limit applies across every project in your organization. Some features may stop working and data may be dropped if your usage exceeds your limit.">
                                                 <span
                                                     className="text-sm"
                                                     data-attr={`billing-limit-set-${product.type}`}
@@ -171,6 +171,9 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                             </LemonButton>
                         </div>
                     ) : null}
+                </div>
+                <div className="text-xs text-secondary mt-2" data-attr={`billing-limit-scope-${product.type}`}>
+                    Billing limits are set per product and apply across every project in your organization.
                 </div>
                 {billingLimitConfig.help && !isEditingBillingLimit ? (
                     <div className="text-xs text-secondary mt-2">{billingLimitConfig.help}</div>
