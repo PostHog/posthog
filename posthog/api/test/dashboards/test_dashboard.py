@@ -963,6 +963,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
+    def test_impersonated_view_does_not_bump_last_accessed_at(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+
+        with patch("products.dashboards.backend.api.dashboard.is_impersonated", return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        self.assertIsNone(dashboard.last_accessed_at)
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries

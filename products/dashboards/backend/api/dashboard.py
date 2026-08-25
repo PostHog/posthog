@@ -64,6 +64,7 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
     MAX_SEARCH_LENGTH,
@@ -2632,7 +2633,10 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Views during staff impersonation aren't the team's own activity - skip the write
+        # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
         serializer = DashboardSerializer(dashboard, context=serializer_context)
@@ -2678,7 +2682,9 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         access_method = dashboard_access_method(request)
-        record_dashboard_view(dashboard, access_method)
+        # Skip the "Last accessed" bump during staff impersonation (see retrieve)
+        if not is_impersonated(request):
+            record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
 
