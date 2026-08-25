@@ -25,7 +25,8 @@ from products.autoresearch.backend.inference.sandbox import (
     materialize_training_data,
     score_via_sandbox,
 )
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 from products.autoresearch.backend.query import HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle
@@ -384,3 +385,58 @@ class TestScoreViaSandbox(TeamScopedTestMixin, BaseTest):
         assert stored["model"] == b"FITTED"  # the fitted model.pkl read back + persisted
         assert any(p.endswith("data/train_features.parquet") for p in fake.written)  # train run materializes training
         assert not any(p.endswith("data/score_features.parquet") for p in fake.written)
+
+
+class TestInferenceRouting(TeamScopedTestMixin, BaseTest):
+    def _pipeline_and_bundle_model(self):
+        pipeline = AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="routing",
+            target_event="downloaded_file",
+            horizon_days=7,
+            output_person_property="predicted_p_download",
+        )
+        model = AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            recipe_hash="fixture",
+            model_recipe={},
+            artifact_prefix="tasks/autoresearch/team_1/pipeline_x/run_y",
+        )
+        return pipeline, model
+
+    def test_bundle_model_routes_to_sandbox_and_records_metrics(self):
+        pipeline, model = self._pipeline_and_bundle_model()
+        sandbox_result = SandboxScoreResult(
+            scored_rows=[{"distinct_id": "s1", "p_y": 0.8}, {"distinct_id": "s2", "p_y": 0.2}],
+            holdout_auc=0.71,
+            n_train=2,
+            n_features=2,
+        )
+        emit = MagicMock()
+        emit.return_value.raise_for_status = MagicMock()
+        with (
+            patch("products.autoresearch.backend.inference.scoring.score_via_sandbox", return_value=sandbox_result),
+            patch("products.autoresearch.backend.inference.scoring.capture_internal", emit),
+        ):
+            run = run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        assert run.status == AutoresearchRun.Status.COMPLETED
+        assert run.rows_scored == 2
+        assert run.metrics["sandbox"] is True
+        assert run.metrics["holdout_auc"] == 0.71
+        assert emit.call_count == 2
+
+    def test_sandbox_failure_marks_run_failed_with_error(self):
+        pipeline, model = self._pipeline_and_bundle_model()
+        with patch(
+            "products.autoresearch.backend.inference.scoring.score_via_sandbox",
+            side_effect=SandboxInferenceError("train.py failed"),
+        ):
+            with self.assertRaises(SandboxInferenceError):
+                run_inference_for_pipeline(pipeline=pipeline, model=model)
+
+        run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
+        assert run.status == AutoresearchRun.Status.FAILED
+        assert "train.py failed" in run.error
