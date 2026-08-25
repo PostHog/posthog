@@ -1,6 +1,7 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -11,7 +12,9 @@ from posthog.schema import (
 )
 
 from products.error_tracking.backend.hogql_queries.error_tracking_releases_query_runner import (
+    MAX_RESOLUTION,
     ErrorTrackingReleasesQueryRunner,
+    version_tuple,
 )
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -31,11 +34,17 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
-    def create_exception(self, fingerprint: str, timestamp: str, release: tuple[str, str, str] | None) -> None:
+    def create_exception(
+        self, fingerprint: str, timestamp: str, release: tuple[str, str | None, str | None] | None
+    ) -> None:
         properties: dict = {"$exception_fingerprint": fingerprint}
         if release:
             namespace, version, build = release
-            properties.update({"$app_namespace": namespace, "$app_version": version, "$app_build": build})
+            properties["$app_namespace"] = namespace
+            if version is not None:
+                properties["$app_version"] = version
+            if build is not None:
+                properties["$app_build"] = build
         _create_event(
             distinct_id="user", event="$exception", team=self.team, timestamp=timestamp, properties=properties
         )
@@ -112,9 +121,42 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.namespaces == ["com.example.android", "com.example.ios"]
         assert response.total == 4
 
+    @freeze_time("2024-01-10T12:00:00Z")
+    def test_unversioned_release_sorts_last_in_latest_order(self) -> None:
+        self.create_issue(ISSUE_ID, ["fp-a"])
+        for day, release in [
+            (1, ("com.example.ios", "3.0.0", "1600")),
+            (2, ("com.example.ios", None, None)),
+            (4, ("com.example.ios", "2.8.0", "1460")),
+        ]:
+            self.create_exception("fp-a", f"2024-01-0{day}T10:00:00Z", release)
+        flush_persons_and_events()
+
+        response = self.run_query()
+
+        assert [r.version for r in response.results] == ["3.0.0", "2.8.0", None]
+
+    @parameterized.expand([(10**9, MAX_RESOLUTION + 1), (-1, 2)])
+    def test_clamps_resolution(self, resolution: int, max_bucket_count: int) -> None:
+        runner = ErrorTrackingReleasesQueryRunner(
+            team=self.team,
+            query=ErrorTrackingReleasesQuery(
+                kind="ErrorTrackingReleasesQuery",
+                issueId=ISSUE_ID,
+                dateRange=DateRange(date_from="2024-01-01T00:00:00Z", date_to="2024-01-08T00:00:00Z"),
+                resolution=resolution,
+            ),
+        )
+
+        assert 1 <= len(runner.bucket_starts) <= max_bucket_count
+
     def test_rejects_malformed_issue_id(self) -> None:
         with self.assertRaises(ValidationError):
             ErrorTrackingReleasesQueryRunner(
                 team=self.team,
                 query=ErrorTrackingReleasesQuery(kind="ErrorTrackingReleasesQuery", issueId="not-a-uuid"),
             )
+
+
+def test_version_tuple_bounds_digit_runs() -> None:
+    assert version_tuple("1" * 5000 + ".2") == (int("1" * 18),)

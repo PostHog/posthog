@@ -5,6 +5,7 @@ import {
     ErrorTrackingReleaseSeries,
     ErrorTrackingReleasesQueryResponse,
 } from '~/queries/schema/schema-general'
+import { PropertyOperator } from '~/types'
 
 /** Bars per release strip. The strips share the panel width with the label and count columns. */
 export const RELEASE_TIMELINE_RESOLUTION = 40
@@ -78,6 +79,23 @@ export function listReleaseStrips(
         })
     }
     return strips
+}
+
+export interface ReleaseVersionFilter {
+    value: string | null
+    operator: PropertyOperator
+}
+
+/** The `$app_version` filter a click on the strip applies, or null when the strip cannot be filtered. */
+export function releaseVersionFilter(strip: IssueReleaseStrip): ReleaseVersionFilter | null {
+    if (strip.kind === 'other') {
+        return null
+    }
+    // A release can carry a namespace without a version; an exact match on null would filter nothing.
+    const version = strip.release?.version ?? null
+    return version
+        ? { value: version, operator: PropertyOperator.Exact }
+        : { value: null, operator: PropertyOperator.IsNotSet }
 }
 
 export function maxBucketValue(strips: IssueReleaseStrip[]): number {

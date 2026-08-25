@@ -7,10 +7,8 @@ import { Button, Text } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { PropertyOperator } from '~/types'
-
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip as IssueReleaseStripData } from './issueReleases'
+import { IssueReleaseStrip as IssueReleaseStripData, releaseVersionFilter } from './issueReleases'
 import { IssueReleaseStrip } from './IssueReleaseStrip'
 
 interface IssueReleaseRowProps {
@@ -30,10 +28,9 @@ export function IssueReleaseRow({ strip, buckets, maxValue, total }: IssueReleas
     const formatDate = (iso: string): string => dayjs(iso).tz(timezone).format('D MMM YYYY HH:mm')
 
     const onSelect = (): void => {
-        if (kind === 'unattributed') {
-            applyPropertyFilter('$app_version', null, PropertyOperator.IsNotSet, true)
-        } else if (strip.release) {
-            applyPropertyFilter('$app_version', strip.release.version, PropertyOperator.Exact, true)
+        const filter = releaseVersionFilter(strip)
+        if (filter) {
+            applyPropertyFilter('$app_version', filter.value, filter.operator, true)
         }
     }
 

@@ -9,10 +9,9 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-general'
-import { PropertyOperator } from '~/types'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, listReleaseStrips } from './issueReleases'
+import { IssueReleaseStrip, listReleaseStrips, releaseVersionFilter } from './issueReleases'
 
 export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
     const theme = useChartTheme()
@@ -50,14 +49,9 @@ export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackin
     )
 
     const onPointClick = ({ series: clicked }: PointClickData<IssueReleaseStrip>): void => {
-        const strip = clicked.meta
-        if (!strip || strip.kind === 'other') {
-            return
-        }
-        if (strip.kind === 'unattributed') {
-            applyPropertyFilter('$app_version', null, PropertyOperator.IsNotSet, true)
-        } else if (strip.release) {
-            applyPropertyFilter('$app_version', strip.release.version, PropertyOperator.Exact, true)
+        const filter = clicked.meta ? releaseVersionFilter(clicked.meta) : null
+        if (filter) {
+            applyPropertyFilter('$app_version', filter.value, filter.operator, true)
         }
     }
 

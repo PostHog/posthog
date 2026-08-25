@@ -32,7 +32,7 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
     const { loadReleases, selectNamespace } = useActions(issueReleasesLogic({ issueId }))
     const { releasesViewMode } = useValues(issueFilterPreviewLogic)
     const { setReleasesViewMode } = useActions(issueFilterPreviewLogic)
-    const hasReleases = releases !== null && releases.total > 0
+    const hasReleases = releases !== null && (releases.results.length > 0 || releases.other !== null)
 
     return (
         <div className="flex flex-col">
@@ -80,7 +80,8 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                     <div className="flex min-h-40 flex-1 flex-col items-center justify-center gap-1 text-center">
                         <Text variant="muted">No release information for these exceptions.</Text>
                         <Text size="xs" variant="muted">
-                            Exceptions show up here once they carry the $app_namespace and $app_version properties.
+                            Exceptions show up here once they carry the $app_version property. Add $app_namespace to
+                            tell apps apart.
                         </Text>
                     </div>
                 ) : releasesViewMode === 'stacked' ? (

@@ -23,13 +23,16 @@ from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQu
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 DEFAULT_RESOLUTION = 40
+# Caps the per-release `counts` lists the fold allocates, whatever date range the request spans.
+MAX_RESOLUTION = 1000
 DEFAULT_MAX_RELEASES = 5
 MIN_BUCKET_SECONDS = 60
 # Rows the query hands back for folding. Past this, the lowest-volume releases are dropped, so the
 # fold undercounts `other` but every returned series stays exact.
 MAX_QUERY_RELEASES = 5000
 
-NUMERIC_VERSION = re.compile(r"^\d+(\.\d+)*")
+# Bounded digit runs keep `int()` from raising on absurdly long client-set version strings.
+NUMERIC_VERSION = re.compile(r"^\d{1,18}(\.\d{1,18})*")
 
 ReleaseKey = tuple[str | None, str | None, str | None]
 
@@ -64,7 +67,7 @@ class ErrorTrackingReleasesQueryRunner(
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from if self.query.dateRange else None)
         self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to if self.query.dateRange else None)
-        resolution = self.query.resolution or DEFAULT_RESOLUTION
+        resolution = min(MAX_RESOLUTION, max(1, self.query.resolution or DEFAULT_RESOLUTION))
         total_seconds = max(1, int((self.date_to - self.date_from).total_seconds()))
         self.bucket_seconds = max(MIN_BUCKET_SECONDS, -(-total_seconds // resolution))
         aligned_from = int(self.date_from.timestamp()) // self.bucket_seconds * self.bucket_seconds
@@ -217,7 +220,7 @@ class ErrorTrackingReleasesQueryRunner(
                 target.add(index, count)
 
         ordered = sorted(releases.values(), key=self.sort_key(list(releases.values())), reverse=True)
-        max_releases = self.query.maxReleases if self.query.maxReleases is not None else DEFAULT_MAX_RELEASES
+        max_releases = max(0, self.query.maxReleases if self.query.maxReleases is not None else DEFAULT_MAX_RELEASES)
         visible, hidden = ordered[:max_releases], ordered[max_releases:]
 
         other: _Accumulator | None = None
@@ -255,10 +258,17 @@ class ErrorTrackingReleasesQueryRunner(
         order_by = self.query.orderBy or ErrorTrackingReleasesOrderBy.LATEST
         if order_by == ErrorTrackingReleasesOrderBy.OCCURRENCES:
             return lambda release: (release.total, release.first_index)
-        # Version numbers order releases only when every release has one; a mix (commit hashes,
-        # dates) falls back to when each release first appeared, since bucket ties are common.
-        if releases and all(NUMERIC_VERSION.match(release.key[1] or "") for release in releases):
-            return lambda release: (version_tuple(release.key[1]), version_tuple(release.key[2]), release.first_index)
+        # Version numbers order releases only when every versioned release has a numeric one; a mix
+        # (commit hashes, dates) falls back to when each release first appeared, since bucket ties are
+        # common. Releases without a version sort last either way.
+        versions = [release.key[1] for release in releases if release.key[1]]
+        if versions and all(NUMERIC_VERSION.match(version) for version in versions):
+            return lambda release: (
+                release.key[1] is not None,
+                version_tuple(release.key[1]),
+                version_tuple(release.key[2]),
+                release.first_index,
+            )
         return lambda release: (release.first_index, version_tuple(release.key[1]), release.total)
 
     def bucket_iso(self, index: int) -> str:
