@@ -3271,7 +3271,7 @@ describe('Workflows E2E (email queue)', () => {
     it('keeps logging real pauses (delay before email) while still suppressing the routing reschedule', async () => {
         // Counter-example test: the suppression must NOT silence real pauses. A workflow
         // with `trigger → delay → email → exit` produces two reschedules:
-        //   1. The delay action returns an explicit `queueScheduledAt` 1s in the future
+        //   1. The delay action returns an explicit `queueScheduledAt` 0.5s in the future
         //      (real pause — must keep logging "Workflow will pause until X" and the
         //      corresponding "Resuming workflow execution at [Action:delay_1]" on wake).
         //   2. The email action returns no `queueScheduledAt` (routing-only — must be
@@ -3287,7 +3287,7 @@ describe('Workflows E2E (email queue)', () => {
                         type: 'trigger',
                         config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                     },
-                    delay_1: { type: 'delay', config: { delay_duration: '1s' } },
+                    delay_1: { type: 'delay', config: { delay_duration: '0.5s' } },
                     email_1: {
                         type: 'function_email',
                         config: {
