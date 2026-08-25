@@ -10,13 +10,13 @@ export function ExperimentHeader(): JSX.Element {
     return (
         <>
             {!isExperimentLaunched && (
-                <>
+                <div className="border rounded bg-surface-primary p-4">
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
                     ) : (
                         <ExperimentImplementationDetails experiment={experiment} />
                     )}
-                </>
+                </div>
             )}
         </>
     )
