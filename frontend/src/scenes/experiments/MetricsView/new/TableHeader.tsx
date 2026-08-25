@@ -68,18 +68,18 @@ export function TableHeader({
                     {statsMethod === ExperimentStatsMethod.Frequentist ? (
                         sequentialTestingEnabled ? (
                             <span className="inline-flex items-center gap-1">
-                                P-value
+                                p-value
                                 <Tooltip title="Sequential testing is enabled. These are always-valid p-values, robust to peeking. They have a slightly different interpretation than ordinary p-values and can often be exactly 1.000 early in the experiment. The result is still statistically significant if the p-value drops below your threshold.">
                                     <IconInfo className="text-secondary text-base" />
                                 </Tooltip>
                             </span>
                         ) : (
-                            'P-value'
+                            'p-value'
                         )
                     ) : (
                         <span className="inline-flex items-center gap-1">
-                            Win %
-                            <Tooltip title="Probability of outperforming control, not a percentage lift.">
+                            Chance to win
+                            <Tooltip title="The probability that this variant outperforms the baseline.">
                                 <IconInfo className="text-secondary text-base" />
                             </Tooltip>
                         </span>
