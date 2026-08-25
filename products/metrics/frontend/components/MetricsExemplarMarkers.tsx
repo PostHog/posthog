@@ -52,11 +52,10 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
                                 e.stopPropagation()
                                 exemplar.onClick()
                             }}
-                            // The chart's own hover/tooltip tracking listens for mousemove on the
-                            // chart's outer wrapper, which every bubbled event reaches regardless of
-                            // z-index — stopping propagation here is the only way to let this dot's
-                            // own tooltip win instead of the chart's nearest-point tooltip.
-                            onMouseMove={(e) => e.stopPropagation()}
+                            // Opts this marker out of the chart's own hover/tooltip tracking (see
+                            // `useChartInteraction`'s `originatesInInteractiveOverlay`), so hovering
+                            // the dot shows its own tooltip instead of the chart's nearest-point one.
+                            data-hog-charts-interactive-overlay
                             className="absolute pointer-events-auto rounded-full border cursor-pointer transition-transform hover:scale-150"
                             style={{
                                 left: x - RADIUS,

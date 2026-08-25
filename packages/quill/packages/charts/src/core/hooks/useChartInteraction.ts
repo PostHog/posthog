@@ -31,6 +31,15 @@ function originatesInTooltip(e: React.SyntheticEvent): boolean {
     return e.target instanceof Element && !!e.target.closest('[data-hog-charts-tooltip]')
 }
 
+/** An interactive overlay child (e.g. a clickable exemplar marker) renders inside the same
+ *  wrapper this hook's mousemove handler is bound to, so every hover over it still bubbles here.
+ *  Without this guard the chart's own nearest-point tooltip fights the overlay child's tooltip
+ *  for the cursor. An overlay opts out of chart hover tracking by marking its interactive root
+ *  with this attribute. */
+function originatesInInteractiveOverlay(e: React.SyntheticEvent): boolean {
+    return e.target instanceof Element && !!e.target.closest('[data-hog-charts-interactive-overlay]')
+}
+
 interface UseChartInteractionOptions<Meta> {
     scales: ChartScales | null
     dimensions: ChartDimensions | null
@@ -282,6 +291,10 @@ export function useChartInteraction<Meta = unknown>({
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (!scales || !dimensions) {
+                return
+            }
+
+            if (originatesInInteractiveOverlay(e)) {
                 return
             }
 

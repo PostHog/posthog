@@ -198,6 +198,12 @@ class MetricErrorSpike:
     PoC for the metrics chart's error-spike overlay: team-wide, not yet
     scoped to a specific metric's service (Error Tracking issues carry no
     service attribution today — see METRICS_ERROR_OVERLAY_PLAN.md).
+
+    Deliberately narrower than error_tracking's own ErrorTrackingSpikeEvent
+    contract (fewer fields, string timestamps instead of datetime) since the
+    chart overlay only needs enough to render and link a marker. Keep it
+    narrow rather than reusing that contract directly, so metrics isn't
+    coupled to error_tracking's internal shape.
     """
 
     detected_at: str  # ISO 8601

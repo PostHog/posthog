@@ -104,17 +104,6 @@ const DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
-// Shared shape behind every chart-marker overlay (trace exemplars, error spikes, ...):
-// map a source list to markers, or skip it entirely when disabled (missing access,
-// or a toggle that's off) so a marker never appears without something to click into.
-function overlayMarkers<T>(
-    items: T[],
-    disabled: string | null | boolean,
-    toMarker: (item: T) => MetricsExemplar
-): MetricsExemplar[] {
-    return disabled ? [] : items.map(toMarker)
-}
-
 export const MetricsViewer = (): JSX.Element => {
     const logic = metricsViewerLogic()
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
@@ -180,24 +169,26 @@ export const MetricsViewer = (): JSX.Element => {
     // the user can't view traces, so a dot never leads to a dead end.
     const exemplarMarkers: MetricsExemplar[] = useMemo(
         () =>
-            overlayMarkers(traceExemplars, tracingDisabledReason, (exemplar) => ({
-                timeMs: dayjs(exemplar.timestamp).valueOf(),
-                // Explicit, not the component's 'link' default: 'link' resolves to PostHog's
-                // brand orange (#f54e00), which reads as the same color as 'danger' (#db3707)
-                // at marker size — indistinguishable from the error-spike dots below.
-                color: 'brand-blue',
-                tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
-                onClick: () => {
-                    exemplarDotClicked(!!exemplar.spanId)
-                    router.actions.push(
-                        traceUrl({
-                            traceId: exemplar.traceId,
-                            spanId: exemplar.spanId || null,
-                            ts: exemplar.timestamp,
-                        })
-                    )
-                },
-            })),
+            tracingDisabledReason
+                ? []
+                : traceExemplars.map((exemplar) => ({
+                      timeMs: dayjs(exemplar.timestamp).valueOf(),
+                      // Explicit, not the component's 'link' default: 'link' resolves to PostHog's
+                      // brand orange (#f54e00), which reads as the same color as 'danger' (#db3707)
+                      // at marker size — indistinguishable from the error-spike dots below.
+                      color: 'brand-blue',
+                      tooltipLabel: `Traced emission at ${dayjs(exemplar.timestamp).format('D MMM HH:mm:ss')}. Click to view the trace.`,
+                      onClick: () => {
+                          exemplarDotClicked(!!exemplar.spanId)
+                          router.actions.push(
+                              traceUrl({
+                                  traceId: exemplar.traceId,
+                                  spanId: exemplar.spanId || null,
+                                  ts: exemplar.timestamp,
+                              })
+                          )
+                      },
+                  })),
         [traceExemplars, tracingDisabledReason, exemplarDotClicked]
     )
 
@@ -206,20 +197,17 @@ export const MetricsViewer = (): JSX.Element => {
     // trace exemplars, and skipped entirely without Error Tracking view access.
     const errorSpikeMarkers: MetricsExemplar[] = useMemo(
         () =>
-            overlayMarkers(errorSpikeExemplars, !showErrorSpikes || errorTrackingDisabledReason, (spike) => ({
-                timeMs: dayjs(spike.timestamp).valueOf(),
-                color: 'danger',
-                tooltipLabel: `Error spike: ${spike.issueName ?? 'Untitled issue'}. Click to view the issue.`,
-                onClick: () => {
-                    router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
-                },
-            })),
+            !showErrorSpikes || errorTrackingDisabledReason
+                ? []
+                : errorSpikeExemplars.map((spike) => ({
+                      timeMs: dayjs(spike.timestamp).valueOf(),
+                      color: 'danger',
+                      tooltipLabel: `Error spike: ${spike.issueName ?? 'Untitled issue'}. Click to view the issue.`,
+                      onClick: () => {
+                          router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
+                      },
+                  })),
         [showErrorSpikes, errorSpikeExemplars, errorTrackingDisabledReason]
-    )
-
-    const allExemplarMarkers: MetricsExemplar[] = useMemo(
-        () => [...exemplarMarkers, ...errorSpikeMarkers],
-        [exemplarMarkers, errorSpikeMarkers]
     )
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
@@ -395,7 +383,7 @@ export const MetricsViewer = (): JSX.Element => {
                             <MetricsSeriesChart
                                 series={chartSeries}
                                 fallbackName={metricName}
-                                exemplars={allExemplarMarkers}
+                                exemplars={[...exemplarMarkers, ...errorSpikeMarkers]}
                             />
                         ) : !queryResultsLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
