@@ -18,6 +18,54 @@ import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
+// Transport-level failure codes that mean the client machine cannot reach
+// PostHog: DNS resolution and TCP connect/reset. undici (`UND_ERR_*`) and TLS
+// certificate errors are matched by family — see `isTransportErrorCode`.
+const TRANSPORT_ERROR_CODES = new Set([
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ECONNABORTED',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'EPIPE',
+    'ETIMEDOUT',
+    'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+])
+
+function isTransportErrorCode(code: string): boolean {
+    if (TRANSPORT_ERROR_CODES.has(code)) {
+        return true
+    }
+    // undici socket/timeout failures and TLS certificate validation failures
+    // (self-signed chain, expired cert) each span many distinct codes; match the families.
+    return code.startsWith('UND_ERR_') || code.startsWith('ERR_TLS_') || code.includes('CERT')
+}
+
+/**
+ * True when the error is a transport-level fetch failure — the client cannot
+ * reach the host at all. Node's fetch (undici) throws `TypeError: fetch failed`
+ * for every such case with the specific reason nested in `cause`, so walk the
+ * chain and match either that marker or a known network/TLS error code.
+ */
+function isTransportFailure(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current instanceof Error && !seen.has(current)) {
+        if (current instanceof TypeError && current.message === 'fetch failed') {
+            return true
+        }
+        const code = (current as { code?: unknown }).code
+        if (typeof code === 'string' && isTransportErrorCode(code)) {
+            return true
+        }
+        seen.add(current)
+        current = (current as { cause?: unknown }).cause
+    }
+    return false
+}
+
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
 type OrgEntitlementFields = {
@@ -215,6 +263,15 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
+    /** Host the client failed to reach, for the connectivity hint. */
+    private _apiHost(): string {
+        try {
+            return new URL(this._api.baseUrl).host
+        } catch {
+            return this._api.baseUrl
+        }
+    }
+
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
@@ -326,7 +383,17 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            // A transport-level failure means the client machine cannot reach
+            // PostHog (bad DNS, refused connection, untrusted cert). The caller
+            // recovers from the cached value, so warn with a clear hint instead
+            // of minting an error tracking issue for a client-environment problem.
+            if (isTransportFailure(error)) {
+                console.warn(
+                    `[StateManager] Cannot reach PostHog at ${this._apiHost()} while resolving ${opts.name}; using cached value. Check your network connection and the PostHog host URL.`
+                )
+            } else {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }

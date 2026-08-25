@@ -866,6 +866,54 @@ describe('StateManager', () => {
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
         })
+
+        // A transport-level failure means the client machine cannot reach PostHog
+        // (bad DNS, refused connection, untrusted cert). The CLI recovers from the
+        // cache, so these must stay out of error tracking — capturing them mints a
+        // fresh issue per user for a client-environment problem.
+        const dnsFailure = Object.assign(new TypeError('fetch failed'), {
+            cause: Object.assign(new Error('getaddrinfo ENOTFOUND eu.posthog.com'), { code: 'ENOTFOUND' }),
+        })
+        it.each([
+            ['undici fetch-failed marker', dnsFailure],
+            [
+                'a direct connection-refused code',
+                Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+            ],
+            [
+                'a TLS certificate error',
+                Object.assign(new Error('unable to verify the first certificate'), {
+                    code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+                }),
+            ],
+            ['a wrapped cause chain', Object.assign(new Error('Failed to fetch'), { cause: dnsFailure })],
+        ])('does not capture %s — returns the cached value', async (_label, error) => {
+            const cachedGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            await cache.set(`groupTypes:${projectId}` as any, cachedGroupTypes as any)
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+            ;(stateManager as any)._api = {
+                baseUrl: 'https://eu.posthog.com',
+                getGroupTypes: vi.fn().mockRejectedValue(error),
+            }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(cachedGroupTypes)
+            expect(reportSpy).not.toHaveBeenCalled()
+        })
+
+        it('still captures a non-transport fetcher error', async () => {
+            ;(stateManager as any)._api = {
+                baseUrl: 'https://eu.posthog.com',
+                getGroupTypes: vi.fn().mockRejectedValue(new Error('Internal server error')),
+            }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(reportSpy).toHaveBeenCalledOnce()
+        })
     })
 
     describe('getOrFetchIntegrationKinds', () => {
