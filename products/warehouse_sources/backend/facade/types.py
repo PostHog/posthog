@@ -238,6 +238,7 @@ class ExternalDataSourceType(models.TextChoices):
     EBAY = "Ebay", "Ebay"
     COMMERCETOOLS = "Commercetools", "Commercetools"
     LIGHTSPEEDRETAIL = "LightspeedRetail", "LightspeedRetail"
+    SHIPMAIL = "Shipmail", "Shipmail"
     SHIPSTATION = "ShipStation", "ShipStation"
     CONSTANTCONTACT = "ConstantContact", "ConstantContact"
     MAILGUN = "Mailgun", "Mailgun"
