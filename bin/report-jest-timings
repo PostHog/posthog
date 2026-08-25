@@ -16,7 +16,7 @@
 #
 # Options: --runner jest|pytest (default jest), --top N (default all), --suite NAME
 # (filter to one suite), --markdown (GitHub-friendly output, no ANSI),
-# --markdown-overview, --markdown-page N, --uv PATH.
+# --markdown-overview, --html PATH, --uv PATH.
 
 set -euo pipefail
 
@@ -31,7 +31,7 @@ TOP=1000000
 SUITE=""
 MARKDOWN=0
 MARKDOWN_OVERVIEW=0
-MARKDOWN_PAGE=0
+HTML_OUTPUT=""
 UV="${UV:-uv}"
 
 while [[ $# -gt 0 ]]; do
@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
         --suite) SUITE="$2"; shift 2 ;;
         --markdown) MARKDOWN=1; shift ;;
         --markdown-overview) MARKDOWN=1; MARKDOWN_OVERVIEW=1; shift ;;
-        --markdown-page) MARKDOWN=1; MARKDOWN_PAGE="$2"; shift 2 ;;
+        --html) HTML_OUTPUT="$2"; shift 2 ;;
         --uv) UV="$2"; shift 2 ;;
         -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -77,7 +77,12 @@ else
     JSON_FILE="$TMP_JSON"
 fi
 
-export RT_JSON="$JSON_FILE" RT_TOP="$TOP" RT_SUITE="$SUITE" RT_MARKDOWN="$MARKDOWN" RT_MARKDOWN_OVERVIEW="$MARKDOWN_OVERVIEW" RT_MARKDOWN_PAGE="$MARKDOWN_PAGE"
+if [[ -n "$HTML_OUTPUT" && "$MARKDOWN" == "1" ]]; then
+    echo "--html cannot be combined with --markdown" >&2
+    exit 2
+fi
+
+export RT_JSON="$JSON_FILE" RT_TOP="$TOP" RT_SUITE="$SUITE" RT_MARKDOWN="$MARKDOWN" RT_MARKDOWN_OVERVIEW="$MARKDOWN_OVERVIEW" RT_HTML_OUTPUT="$HTML_OUTPUT"
 
 python3 - <<'PY'
 import json
@@ -88,8 +93,6 @@ TOP = int(os.environ["RT_TOP"])
 SUITE = os.environ["RT_SUITE"]
 MARKDOWN = os.environ["RT_MARKDOWN"] == "1"
 MARKDOWN_OVERVIEW = os.environ["RT_MARKDOWN_OVERVIEW"] == "1"
-MARKDOWN_PAGE = int(os.environ["RT_MARKDOWN_PAGE"])
-MARKDOWN_PAGE_SIZE = 1000
 BOLD = "" if MARKDOWN else "\033[1m"
 DIM = "" if MARKDOWN else "\033[2m"
 RST = "" if MARKDOWN else "\033[0m"
@@ -150,31 +153,82 @@ def markdown_table(headers: list[str], values: list[list[str]]) -> None:
         print("| " + " | ".join(value) + " |")
 
 
-if MARKDOWN:
-    if MARKDOWN_PAGE:
-        start = (MARKDOWN_PAGE - 1) * MARKDOWN_PAGE_SIZE
-        page_rows = rows[start : start + MARKDOWN_PAGE_SIZE]
-        if not page_rows:
-            sys.exit(0)
-        end = start + len(page_rows)
-        print(f"# Jest test-speed report — individual tests {start + 1:,}–{end:,}")
-        print("Ordered by duration across the complete run.")
-        print()
-        markdown_table(
-            ["Duration", "Test", "File", "Shard", "Started"],
-            [
-                [
-                    fmt(row["d"]),
-                    markdown_cell(row["name"]),
-                    f"`{markdown_cell(row['file'])}`",
-                    f"`{markdown_cell(row['shard'])}`",
-                    f"+{fmt(row['offset'])}" if row["offset"] is not None else "—",
-                ]
-                for row in page_rows
-            ],
-        )
-        sys.exit(0)
+def render_html() -> None:
+    tests = [
+        [row["d"], row["name"], row["file"], row["shard"], row["offset"]]
+        for row in rows
+    ]
+    tests_json = json.dumps(tests, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    longest_shard = max(shards, key=lambda shard: shard["wall_seconds"])
+    summary = json.dumps(
+        {
+            "tests": all_counts,
+            "shards": len(shards),
+            "testSeconds": total_test,
+            "runnerSeconds": total_wall,
+            "longestShard": longest_shard["junit_filename"],
+            "longestShardSeconds": longest_shard["wall_seconds"],
+        },
+        separators=(",", ":"),
+    )
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jest test-speed report</title>
+<style>
+body{{background:#0d1117;color:#e6edf3;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0}}
+main{{max-width:1440px;margin:auto;padding:32px}}
+h1{{margin:0 0 6px;font-size:28px}} p{{color:#8b949e;margin:0 0 24px}}
+.metrics{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:24px 0}}
+.metric,.controls,table{{background:#161b22;border:1px solid #30363d;border-radius:6px}}
+.metric{{padding:14px}} .metric span{{display:block;color:#8b949e;font-size:12px;margin-bottom:5px}} .metric strong{{font-size:18px}}
+.controls{{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:12px;margin-bottom:12px}}
+input,button{{font:inherit;color:inherit;background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:8px 10px}}
+input{{width:min(440px,55vw)}} button{{cursor:pointer}} button:disabled{{cursor:default;opacity:.5}}
+table{{border-collapse:separate;border-spacing:0;width:100%;overflow:hidden}} th,td{{border-bottom:1px solid #21262d;padding:9px 12px;text-align:left;vertical-align:top}}
+th{{background:#1f2937;cursor:pointer;white-space:nowrap}} tr:last-child td{{border-bottom:0}} td:first-child{{font-variant-numeric:tabular-nums;white-space:nowrap}}
+code{{color:#a5d6ff;font-size:12px;word-break:break-word}} .pager{{display:flex;align-items:center;gap:10px;margin-top:12px;color:#8b949e}}
+@media(max-width:700px){{main{{padding:16px}}th:nth-child(4),td:nth-child(4),th:nth-child(5),td:nth-child(5){{display:none}}}}
+</style>
+</head>
+<body><main>
+<h1>Jest test-speed report</h1>
+<p>Every test from this run, sortable and filterable. Durations come directly from JUnit.</p>
+<section class="metrics" id="metrics"></section>
+<section class="controls"><input id="search" type="search" placeholder="Filter by test name, file, or shard" autofocus><span id="count"></span></section>
+<table><thead><tr><th data-key="0">Duration</th><th data-key="1">Test</th><th data-key="2">File</th><th data-key="3">Shard</th><th data-key="4">Started</th></tr></thead><tbody id="tests"></tbody></table>
+<nav class="pager"><button id="previous">Previous</button><span id="page"></span><button id="next">Next</button></nav>
+</main><script>
+const tests={tests_json}, summary={summary}, pageSize=100;
+let filtered=tests, page=0, key=0, direction=-1;
+const duration=(seconds)=>seconds<60?`${{seconds.toFixed(2).replace(/\\.00$/,'')}}s`:`${{Math.floor(seconds/60)}}m${{String(Math.round(seconds%60)).padStart(2,'0')}}s`;
+const offset=(seconds)=>seconds==null?'—':`+${{duration(seconds)}}`;
+const text=(tag,value)=>{{const node=document.createElement(tag);node.textContent=value;return node}};
+function sort(){{filtered.sort((a,b)=>{{const left=a[key]??'',right=b[key]??'';return (typeof left==='number'?left-right:String(left).localeCompare(String(right)))*direction}})}}
+function render(){{
+  const start=page*pageSize, visible=filtered.slice(start,start+pageSize), body=document.querySelector('#tests'); body.replaceChildren();
+  for(const row of visible){{const tr=document.createElement('tr');tr.append(text('td',duration(row[0])),text('td',row[1]),text('td',row[2]),text('td',row[3]),text('td',offset(row[4])));body.append(tr)}}
+  document.querySelector('#count').textContent=`${{filtered.length.toLocaleString()}} of ${{tests.length.toLocaleString()}} tests`;
+  document.querySelector('#page').textContent=`Page ${{page+1}} of ${{Math.max(1,Math.ceil(filtered.length/pageSize))}}`;
+  document.querySelector('#previous').disabled=page===0; document.querySelector('#next').disabled=start+pageSize>=filtered.length;
+}}
+for(const [label,value] of [['Tests',summary.tests.toLocaleString()],['Shards',summary.shards],['Test-body time',duration(summary.testSeconds)],['Jest runner time',duration(summary.runnerSeconds)],['Longest shard',`${{summary.longestShard}} (${{duration(summary.longestShardSeconds)}})`]]){{const card=document.createElement('div');card.className='metric';card.append(text('span',label),text('strong',value));document.querySelector('#metrics').append(card)}}
+document.querySelector('#search').addEventListener('input',(event)=>{{const query=event.target.value.toLowerCase();filtered=tests.filter(row=>row.slice(1,4).some(value=>value.toLowerCase().includes(query)));sort();page=0;render()}});
+for(const header of document.querySelectorAll('th')){{header.addEventListener('click',()=>{{const next=Number(header.dataset.key);direction=key===next?-direction:1;key=next;sort();page=0;render()}})}}
+document.querySelector('#previous').addEventListener('click',()=>{{page--;render()}}); document.querySelector('#next').addEventListener('click',()=>{{page++;render()}}); render();
+</script></body></html>"""
+    with open(os.environ["RT_HTML_OUTPUT"], "w", encoding="utf-8") as output:
+        output.write(html)
 
+
+if os.environ["RT_HTML_OUTPUT"]:
+    render_html()
+    sys.exit(0)
+
+
+if MARKDOWN:
     slowest_shard = max(shards, key=lambda shard: shard["wall_seconds"])
     print("# Jest test-speed report")
     print(f"`{report.get('runner')}` · {len(shards)} shards · {all_counts} tests · suites: {', '.join(report.get('suites', []))}")

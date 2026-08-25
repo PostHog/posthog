@@ -1,5 +1,5 @@
-name: Render Jest timing summary
-description: Render a GitHub Actions-compatible overview and paginated Jest timing tables
+name: Render Jest timing report
+description: Publish a browser report from downloaded Jest JUnit artifacts
 
 inputs:
     artifacts:
@@ -9,91 +9,25 @@ inputs:
 runs:
     using: composite
     steps:
-        - name: Render test-speed overview
+        - name: Render browser report
           shell: bash
           env:
               JEST_ARTIFACTS: ${{ inputs.artifacts }}
+              REPORT: ${{ runner.temp }}/jest-test-speed-report.html
+          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --html "$REPORT"
+        - name: Upload browser report
+          id: report
+          uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+          with:
+              path: ${{ runner.temp }}/jest-test-speed-report.html
+              archive: false
+              retention-days: 14
+              if-no-files-found: error
+        - name: Write timing summary
+          shell: bash
+          env:
+              JEST_ARTIFACTS: ${{ inputs.artifacts }}
+              REPORT_URL: ${{ steps.report.outputs.artifact-url }}
           run: |
-              set -o pipefail
-              bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-overview | tee -a "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 1
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 1
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 2
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 2
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 3
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 3
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 4
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 4
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 5
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 5
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 6
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 6
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 7
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 7
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 8
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 8
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 9
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 9
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 10
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 10
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 11
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 11
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Render individual test timings 12
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-              PAGE: 12
-          run: bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page "$PAGE" >> "$GITHUB_STEP_SUMMARY"
-        - name: Check summary pagination capacity
-          shell: bash
-          env:
-              JEST_ARTIFACTS: ${{ inputs.artifacts }}
-          run: |
-              if [[ -n "$(bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-page 13)" ]]; then
-                  echo "Jest report needs more than 12 summary pages; increase the page capacity." >&2
-                  exit 1
-              fi
+              bin/report-jest-timings --artifacts "$JEST_ARTIFACTS" --markdown-overview >> "$GITHUB_STEP_SUMMARY"
+              printf '\n[Open the full interactive Jest timing report](%s)\n' "$REPORT_URL" >> "$GITHUB_STEP_SUMMARY"

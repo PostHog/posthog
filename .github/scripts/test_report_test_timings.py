@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sys
 import json
 import textwrap
@@ -39,36 +40,26 @@ def test_jest_timing_markdown_matches_checked_in_example() -> None:
     assert result.stdout == expected
 
 
-def test_full_jest_fixture_summary_pages_fit_github_limit() -> None:
+def test_full_jest_fixture_renders_single_browser_report(tmp_path: Path) -> None:
     fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-real-run"
-    github_step_summary_limit = 1024 * 1024
-    testcase_count = 0
+    output = tmp_path / "jest-test-speed-report.html"
 
-    overview = subprocess.run(
-        [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--markdown-overview"],
+    subprocess.run(
+        [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--html", output],
         check=True,
         capture_output=True,
         text=True,
     )
-    assert len(overview.stdout.encode()) <= github_step_summary_limit
 
-    for page in range(1, 100):
-        result = subprocess.run(
-            [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--markdown-page", str(page)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        if not result.stdout:
-            break
+    html = output.read_text()
+    match = re.search(r"const tests=(.*), summary=", html)
+    assert match is not None
+    tests = json.loads(match.group(1))
 
-        assert len(result.stdout.encode()) <= github_step_summary_limit
-        assert f"individual tests {(page - 1) * 1_000 + 1:,}" in result.stdout
-        testcase_count += sum(line.startswith("| ") for line in result.stdout.splitlines()) - 2
-    else:
-        pytest.fail("Jest timing report produced more than 99 summary pages")
-
-    assert testcase_count == 11_446
+    assert "<title>Jest test-speed report</title>" in html
+    assert len(tests) == 11_446
+    assert tests == sorted(tests, key=lambda test: test[0], reverse=True)
+    assert output.stat().st_size < 3 * 1024 * 1024
 
 
 def _testcase(
