@@ -11,11 +11,11 @@ from posthog.schema import RecordingsQuery
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import EventDefinition, Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.playlist_filters import convert_playlist_to_recordings_query
 from posthog.settings import EE_AVAILABLE
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,

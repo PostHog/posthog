@@ -3568,7 +3568,7 @@ class TestScannerResolveAPI(_VisionAPITestCase):
         # The response carries page paths, playlist names and a session count, so without this gate
         # the endpoint answers questions about recordings the caller can't read.
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
             side_effect=lambda resource, **_: resource != "session_recording",
         ):
             response = self.client.post(self.resolve_url, data={"scope": "billing"}, format="json")
