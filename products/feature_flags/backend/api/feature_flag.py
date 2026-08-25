@@ -73,12 +73,14 @@ from posthog.rate_limit import (
     PersonalOrProjectSecretApiKeyRateThrottle,
     ProjectSecretApiKeyTeamRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -1271,7 +1273,10 @@ class FeatureFlagSerializer(
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         from typing import cast
 
-        from posthog.rbac.user_access_control import AccessControlLevel, access_level_satisfied_for_resource
+        from products.access_control.backend.facade.user_access_control import (
+            AccessControlLevel,
+            access_level_satisfied_for_resource,
+        )
 
         user_access_level = self.get_user_access_level(feature_flag)
         return bool(
@@ -3628,7 +3633,7 @@ class FeatureFlagViewSet(
         Uses the same filtering logic as the list endpoint.
         Returns only IDs that the user has permission to edit.
         """
-        from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
         # Build queryset with same filtering as list endpoint
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
@@ -3698,9 +3703,9 @@ class FeatureFlagViewSet(
         from django.utils import timezone
 
         from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
-        from posthog.rbac.user_access_control import access_level_satisfied_for_resource
         from posthog.tasks.remote_config import update_team_remote_config
 
+        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
         from products.feature_flags.backend.flags_cache import enqueue_evaluation_cache_invalidation
         from products.feature_flags.backend.tasks import update_team_flags_cache
 
@@ -4716,7 +4721,7 @@ class CanEditFeatureFlag(BasePermission):
     """
 
     def has_object_permission(self, request, view, obj):
-        from posthog.rbac.user_access_control import UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         # Get the team from the object (feature flag)
         team = obj.team if hasattr(obj, "team") else obj

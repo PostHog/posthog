@@ -284,10 +284,6 @@ describe("AgentService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // The Codex MCP reachability probe hits the network; default it to "reachable"
-    // so unrelated session tests stay deterministic and offline-safe.
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ body: null }));
-
     deps = createMockDependencies();
     service = new AgentService(
       deps.processTracking as never,
@@ -321,6 +317,12 @@ describe("AgentService", () => {
       path: "/mock/appData/context-wiki/org-1/head1",
       commitsPath: "/api/organizations/org-1/context_layer/commits/",
     };
+    const mountContextWiki = () =>
+      (
+        service as unknown as {
+          mountContextWiki: (value: unknown) => Promise<unknown>;
+        }
+      ).mountContextWiki(credentials);
 
     const ENV_KEYS = [
       "POSTHOG_API_KEY",
@@ -355,7 +357,7 @@ describe("AgentService", () => {
         }
         mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-        const wiki = await service["mountContextWiki"](credentials);
+        const wiki = await mountContextWiki();
 
         expect(wiki).toEqual({
           path: mount.path,
@@ -372,7 +374,7 @@ describe("AgentService", () => {
       process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-      await service["mountContextWiki"](credentials);
+      await mountContextWiki();
 
       expect(process.env.POSTHOG_CONTEXT_LAYER_PATH).toBeUndefined();
       expect(process.env.POSTHOG_CONTEXT_LAYER_COMMITS_PATH).toBeUndefined();
@@ -686,25 +688,7 @@ describe("AgentService", () => {
       );
     });
 
-    it("passes identical MCP servers to both adapters when all servers are reachable", async () => {
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-claude",
-        adapter: "claude",
-      });
-
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-codex",
-        adapter: "codex",
-      });
-
-      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
-      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
-      expect(codexMcp).toEqual(claudeMcp);
-    });
-
-    it("drops unreachable MCP servers for codex but keeps them for claude", async () => {
+    it("passes the same MCP servers to codex as to claude without probing them first", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
@@ -721,10 +705,10 @@ describe("AgentService", () => {
         adapter: "codex",
       });
 
-      // Claude connects to MCP lazily, so an unreachable server is harmless.
-      expect(mockNewSession.mock.calls[0][0].mcpServers).toHaveLength(1);
-      // codex-acp dies on an unreachable server, so it must be pruned.
-      expect(mockNewSession.mock.calls[1][0].mcpServers).toHaveLength(0);
+      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
+      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
+      expect(claudeMcp).toHaveLength(1);
+      expect(codexMcp).toEqual(claudeMcp);
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {

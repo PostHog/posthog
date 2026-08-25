@@ -74,7 +74,10 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   stay mounted — the offscreen one is `inert` — so the slide has something to
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
-  accumulated per gesture and locked until the wheel goes quiet).
+  accumulated per gesture and locked until the wheel goes quiet). The track
+  animates only for a space-row click or the back row; tab restoration, route
+  sync, hotkeys, rail restoration, and swipes snap directly to their pane so
+  unrelated navigation never moves the sidebar across the reader.
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
   private "personal" row leads the Starred section and takes the same inset as the
   spaces beside it. It is the one row that carries a glyph: the lock is the only
