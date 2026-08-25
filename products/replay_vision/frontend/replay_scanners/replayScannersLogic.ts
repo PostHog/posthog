@@ -621,9 +621,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         ],
     }),
 
-    trackedActionToUrl(({ values }) => {
-        const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
-            const { filters } = values
+    trackedActionToUrl(() => {
+        const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] | undefined => {
+            // A route change mid-mount or mid-unmount fires this after the store path is gone. Skip when unmounted.
+            const filters = replayScannersLogic.findMounted()?.values.filters
+            if (!filters) {
+                return undefined
+            }
             const sortParam = serializeSortParam(filters.sort, DEFAULT_SORT)
             return [
                 urls.replayVision(),
@@ -647,8 +651,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values, cache }) => ({
+    urlToAction(({ actions, cache }) => ({
         [urls.replayVision()]: (_, searchParams) => {
+            // urlToAction can fire during a mid-mount or mid-unmount route change. Skip when the store path is gone.
+            const logic = replayScannersLogic.findMounted()
+            if (!logic) {
+                return
+            }
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
                 search: typeof searchParams.search === 'string' ? searchParams.search : '',
@@ -659,7 +668,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 page: Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1,
                 sort: parseSortParam(searchParams.sort, resolveScannerOrderByKey) ?? DEFAULT_SORT,
             }
-            const changed = !objectsEqual(parsed, values.filters)
+            const changed = !objectsEqual(parsed, logic.values.filters)
             if (changed) {
                 actions.setScannersFilters(parsed, true)
             } else if (!cache.initialLoad) {

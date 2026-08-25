@@ -52,7 +52,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading } = useValues(scannerLogic)
+    const { scanner, scannerLoading, observationStats, observationStatsApi, togglingEnabled } = useValues(scannerLogic)
+    const { toggleEnabled } = useActions(scannerLogic)
+    const { showUsd } = useValues(visionQuotaLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -147,7 +149,16 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     {
                         key: ReplayScannerTab.Configuration,
                         label: 'Configuration',
-                        content: <ScannerConfigReadonly scanner={scanner} />,
+                        content: (
+                            <ScannerConfigReadonly
+                                scanner={scanner}
+                                observationStats={observationStats}
+                                observationStatsApi={observationStatsApi}
+                                togglingEnabled={togglingEnabled}
+                                showUsd={showUsd}
+                                onToggleEnabled={toggleEnabled}
+                            />
+                        ),
                     },
                     {
                         key: ReplayScannerTab.Calibration,
