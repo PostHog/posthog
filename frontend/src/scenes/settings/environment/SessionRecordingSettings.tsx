@@ -161,13 +161,10 @@ export function ReplayNetworkCapture(): JSX.Element {
                         parameter in a URL is then visible in the recording.
                     </p>
                     <p className="mb-0">
-                        We do not redact URLs. To mask them, set <code>maskCapturedNetworkRequestFn</code> when you
-                        initialize PostHog.{' '}
-                        <Link
-                            to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
-                            target="blank"
-                        >
-                            Learn how to mask network requests in our docs
+                        We do not redact URLs. In the web SDK, set <code>maskCapturedNetworkRequestFn</code> when you
+                        initialize PostHog to mask them.{' '}
+                        <Link to="https://posthog.com/docs/session-replay/network-recording" target="blank">
+                            See how to mask network requests for your SDK in our docs
                         </Link>
                     </p>
                 </LemonBanner>
