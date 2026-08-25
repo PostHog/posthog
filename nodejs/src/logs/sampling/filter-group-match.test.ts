@@ -184,6 +184,62 @@ describe('matchFilterGroup', () => {
         })
     })
 
+    describe('wire-encoded attribute values', () => {
+        // Capture JSON-encodes attribute values onto the Avro wire, so a string
+        // attribute reaches this matcher as `"production"` — quotes included. The
+        // ClickHouse sink and the transformation path both decode before they
+        // compare. The matcher must see the same decoded values: without decoding,
+        // an enabled rule silently never fires, and a negated operator fires on
+        // exactly the lines it was meant to keep.
+        const wireRecord = () =>
+            baseRecord({
+                resource_attributes: { 'deployment.environment': '"production"' },
+                attributes: { 'http.status_code': '500', ratio: '"12.5"' },
+            })
+
+        it.each<[string, string | string[], boolean]>([
+            ['exact', ['production'], true],
+            ['in', ['staging', 'production'], true],
+            // Negation must not fire on the value it names — that would drop
+            // the lines the rule was written to keep.
+            ['is_not', ['production'], false],
+            ['starts_with', 'prod', true],
+            ['ends_with', 'tion', true],
+            ['regex', '^production$', true],
+            ['icontains', 'production', true],
+        ])('%s %j sees the decoded resource attribute → %s', (operator, value, expected) => {
+            const g = group({
+                values: [{ key: 'deployment.environment', type: 'log_resource_attribute', operator, value }],
+            })
+            expect(matchFilterGroup(g, wireRecord())).toBe(expected)
+        })
+
+        it('numeric comparison parses a JSON-encoded numeric string', () => {
+            const g = group({ values: [{ key: 'ratio', type: 'log_attribute', operator: 'gt', value: 10 }] })
+            expect(matchFilterGroup(g, wireRecord())).toBe(true)
+        })
+        it('unquoted JSON numbers pass through unchanged', () => {
+            const g = group({
+                values: [{ key: 'http.status_code', type: 'log_attribute', operator: 'exact', value: '500' }],
+            })
+            expect(matchFilterGroup(g, wireRecord())).toBe(true)
+        })
+        it('severity fallback through the attribute map is decoded', () => {
+            const g = group({ values: [{ key: 'severity_text', operator: 'exact', value: ['error'] }] })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { level: '"error"' } }))).toBe(true)
+        })
+        it('service.name fallback through the resource map is decoded', () => {
+            const g = group({ values: [{ key: 'service.name', operator: 'exact', value: 'api' }] })
+            expect(matchFilterGroup(g, baseRecord({ resource_attributes: { 'service.name': '"api"' } }))).toBe(true)
+        })
+        it('a quoted-but-invalid-JSON value is compared as-is', () => {
+            const g = group({
+                values: [{ key: 'raw', type: 'log_attribute', operator: 'exact', value: '"a"b"' }],
+            })
+            expect(matchFilterGroup(g, baseRecord({ attributes: { raw: '"a"b"' } }))).toBe(true)
+        })
+    })
+
     describe('recursion depth cap', () => {
         // Build a degenerate AND-chain N levels deep wrapping a single matching leaf.
         function deepGroup(depth: number, leaf: { key: string; value: string; operator: string }): FilterGroupNode {

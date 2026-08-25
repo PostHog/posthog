@@ -3205,6 +3205,10 @@ class AccountsTableRow(BaseModel):
     )
     externalId: str | None = None
     id: str
+    logoDomain: str | None = Field(
+        default=None,
+        description=("Bare hostname the row's logo is rendered from. Null when no source resolved one."),
+    )
     name: str
     noteCount: int | None = Field(
         default=None,
