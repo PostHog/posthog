@@ -207,9 +207,10 @@ tools:
             exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a
             hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the
             team does not have it enabled, in which case tell the user they can contact PostHog support to request
-            access. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed,
-            then follow the downloading-batch-export-files skill to download the files through the existing REST
-            download endpoint.
+            access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user
+            queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve
+            with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill
+            to download the files through the existing REST download endpoint.
     file-download-batch-exports-download-retrieve:
         operation: file_download_batch_exports_download_retrieve
         enabled: false

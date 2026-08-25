@@ -40,6 +40,8 @@ Use them only when the user asks for specific events or wants to omit specific e
 
 For `hogql`, pass the query as `hogql_query` and leave out `data_interval_start`, `data_interval_end`, `include`, and `exclude`.
 The query runs as of the time the export starts, so there is no interval to choose.
+You may prompt the user to export a slice of data by including a WHERE clause in the HogQL query, for example limiting results from the `events` table by bounding `timestamp`.
+Always prefer limiting the data exported to the minimum necessary to solve the user's request.
 Every column in the SELECT clause must be a field or have an alias, and placeholders are not supported.
 This model is in closed beta and is enabled per team.
 
@@ -139,6 +141,7 @@ posthog-persons-<run_id>-<part>.parquet
 
 - The maximum export interval is one week. Split longer user requests into separate export runs or ask which week to export.
 - The `hogql` model is in closed beta and is enabled per team. A permission error that says HogQL batch exports are not enabled means the team does not have the beta. Report that instead of retrying with a different query, and tell the user they can contact PostHog support to request access.
+- The `hogql` model runs under stricter resource limits than the other models, because user queries are less predictable. If an export fails on memory, execution time, or bytes read, suggest narrowing the query with a WHERE clause instead of retrying it unchanged.
 - A run can briefly report `Running` after completion while file records are being created. Poll again instead of failing immediately.
 - Download URLs are temporary. If a URL expires, call the REST download endpoint again for a fresh redirect.
 - Do not send the signed URL to unrelated services unless the user explicitly asks; it grants temporary access to the exported file.
