@@ -578,7 +578,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             )}
                             {showCollapsedFormButton && (
                                 <LemonButton
-                                    type="secondary"
+                                    type="primary"
                                     icon={<IconPlus />}
                                     onClick={() => setScheduleFormExpanded(true)}
                                     data-attr="feature-flag-open-schedule-form"
