@@ -15,12 +15,14 @@ const ALERT_AGENT_NOTE =
     "This response carries the insight's current value, so it is a good moment to offer an alert. Offer one only for " +
     'Trends, SQL (HogQL) and Funnels insights, and only when the metric is one someone would act on if it moved ' +
     'sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Anchor the offer on ' +
-    "the number you just read, such as 'alert me if this drops below 400 a day', then ask only for the cadence and " +
-    'use alert-create. A count that sits at zero across the window, such as errors or failures, is one of the ' +
-    'strongest cases rather than a reason to stay quiet, so propose an upper bound just above it. Offer nothing when ' +
-    'the insight returned no rows at all. When the series is too noisy for a fixed bound, preview an anomaly detector ' +
-    'with alert-simulate and say how often it would have fired. Skip exploratory or one-off queries and vanity ' +
-    'metrics. If the user already declined an alert earlier in this conversation, do not offer again.'
+    'the number you just read and state that number, such as "alert me if this drops below 400 a day". Never write a ' +
+    'placeholder such as X in place of the number. Then ask only for the cadence and use alert-create. A count that ' +
+    'sits at zero across the window, such as errors or failures, is one of the strongest cases rather than a reason ' +
+    'to stay quiet, so propose an upper bound just above it. Offer nothing when the insight returned no rows at all. ' +
+    'When the series is too noisy for a fixed bound, preview an anomaly detector with alert-simulate and say how ' +
+    'often it would have fired. Judge the metric, not the request: someone asking to see an insight is not a reason ' +
+    'to treat it as throwaway. Skip vanity metrics and metrics nobody would act on. If the user already declined an ' +
+    'alert earlier in this conversation, do not offer again.'
 
 type Params = z.infer<typeof schema>
 
