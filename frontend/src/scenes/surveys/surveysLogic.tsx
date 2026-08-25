@@ -670,8 +670,6 @@ export const surveysLogic = kea<surveysLogicType>([
             actions.loadSurveys()
         },
         loadSurveysSuccess: () => {
-            actions.loadCurrentTeam()
-
             if (values.data.surveys.length > 0) {
                 const surveyIds = values.data.surveys.map((s) => s.id).join(',')
                 actions.loadResponsesCount(surveyIds)

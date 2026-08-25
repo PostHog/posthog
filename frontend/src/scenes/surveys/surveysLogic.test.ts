@@ -1,5 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -336,6 +340,42 @@ describe('surveysLogic', () => {
                     survey_id: surveyId,
                 },
             })
+        })
+    })
+
+    describe('disabled banner', () => {
+        let logic: ReturnType<typeof surveysLogic.build>
+
+        beforeEach(async () => {
+            initKeaTests()
+
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                    // A stale team read that still reports surveys as disabled.
+                    '/api/environments/@current': () => [200, { ...MOCK_DEFAULT_TEAM, surveys_opt_in: false }],
+                },
+            })
+
+            logic = surveysLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('keeps the banner hidden after the survey list reloads when surveys are enabled', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, surveys_opt_in: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveysSuccess({
+                    surveys: [createTestSurvey('1', 'Test Survey')],
+                    surveysCount: 1,
+                    searchSurveys: [],
+                    searchSurveysCount: 0,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.showSurveysDisabledBanner).toBe(false)
         })
     })
 })
