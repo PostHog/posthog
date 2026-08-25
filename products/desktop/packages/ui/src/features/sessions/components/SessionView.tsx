@@ -1,5 +1,6 @@
 import { Pause, Spinner, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
+import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
   createLatestPlanTracker,
   SESSION_SERVICE,
@@ -263,7 +264,7 @@ export function SessionView({
   } = usePendingModelSwitch({
     taskId,
     sessionModelOption,
-    hasSessionEvents: events.length > 0,
+    hasConversationStarted: hasSessionPromptEvent(events),
     onApply: applyConfigOption,
   });
 

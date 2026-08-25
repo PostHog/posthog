@@ -21,18 +21,23 @@ function modelOption(): SessionConfigOption {
 interface Props {
   taskId: string | undefined;
   onApply: (configId: string, value: string) => void;
+  hasConversationStarted: boolean;
 }
 
-function setup(taskId: string | undefined, onApply: Props["onApply"]) {
+function setup(
+  taskId: string | undefined,
+  onApply: Props["onApply"],
+  hasConversationStarted = true,
+) {
   return renderHook(
     (props: Props) =>
       usePendingModelSwitch({
         taskId: props.taskId,
         sessionModelOption: modelOption(),
-        hasSessionEvents: true,
+        hasConversationStarted: props.hasConversationStarted,
         onApply: props.onApply,
       }),
-    { initialProps: { taskId, onApply } },
+    { initialProps: { taskId, onApply, hasConversationStarted } },
   );
 }
 
@@ -60,6 +65,22 @@ describe("usePendingModelSwitch", () => {
     expect(result.current.pendingModelSwitch).toBeNull();
   });
 
+  it("does not queue a switch before the conversation has started", () => {
+    const onApply = vi.fn();
+    const { result } = setup("task-a", onApply, false);
+
+    let intercepted = true;
+    act(() => {
+      intercepted = result.current.interceptModelSwitch(
+        "model",
+        "claude-sonnet-5",
+      );
+    });
+    expect(intercepted).toBe(false);
+    expect(result.current.pendingModelSwitch).toBeNull();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
   it("drops the queued switch when the task changes so confirm cannot apply it to another session", () => {
     const onApply = vi.fn();
     const { result, rerender } = setup("task-a", onApply);
@@ -70,7 +91,7 @@ describe("usePendingModelSwitch", () => {
     expect(result.current.pendingModelSwitch).not.toBeNull();
 
     // The view swaps to another task without remounting.
-    rerender({ taskId: "task-b", onApply });
+    rerender({ taskId: "task-b", onApply, hasConversationStarted: true });
     expect(result.current.pendingModelSwitch).toBeNull();
 
     act(() => result.current.confirmModelSwitch());

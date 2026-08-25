@@ -16,8 +16,12 @@ interface UsePendingModelSwitchInput {
    *  without remounting, so a queued switch clears when this changes. */
   taskId: string | undefined;
   sessionModelOption: SessionConfigOption | undefined;
-  /** The dialog only guards mid-session, once the transcript has content. */
-  hasSessionEvents: boolean;
+  /**
+   * The dialog only guards mid-session, once a prompt has been sent. Protocol
+   * updates (available commands, config options) land in the event stream
+   * before any prompt, so this must track conversation content, not raw events.
+   */
+  hasConversationStarted: boolean;
   /** Applies the queued switch unchanged once the dialog is confirmed. */
   onApply: (configId: string, value: string) => void;
 }
@@ -41,7 +45,7 @@ interface UsePendingModelSwitchResult {
 export function usePendingModelSwitch({
   taskId,
   sessionModelOption,
-  hasSessionEvents,
+  hasConversationStarted,
   onApply,
 }: UsePendingModelSwitchInput): UsePendingModelSwitchResult {
   const warnOnMidSessionModelSwitch = useSettingsStore(
@@ -64,7 +68,7 @@ export function usePendingModelSwitch({
     (configId: string, value: string) => {
       const isMidSessionModelSwitch =
         warnOnMidSessionModelSwitch &&
-        hasSessionEvents &&
+        hasConversationStarted &&
         sessionModelOption?.type === "select" &&
         sessionModelOption.id === configId &&
         sessionModelOption.currentValue !== value;
@@ -82,7 +86,7 @@ export function usePendingModelSwitch({
       });
       return true;
     },
-    [warnOnMidSessionModelSwitch, hasSessionEvents, sessionModelOption],
+    [warnOnMidSessionModelSwitch, hasConversationStarted, sessionModelOption],
   );
 
   const confirmModelSwitch = useCallback(() => {
