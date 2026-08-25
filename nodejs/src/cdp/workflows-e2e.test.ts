@@ -3493,10 +3493,7 @@ describe('Workflows E2E (email queue)', () => {
             }
             const data = await metric.get()
             return data.values
-                .filter(
-                    (v: any) =>
-                        v.labels.result === 'denied' && v.labels.limiter === limiterName && v.labels.key === bucketKey
-                )
+                .filter((v: any) => v.labels.result === 'denied' && v.labels.limiter === limiterName)
                 .reduce((sum: number, v: any) => sum + v.value, 0)
         }
         const deniedBefore = await readDeniedCount()
