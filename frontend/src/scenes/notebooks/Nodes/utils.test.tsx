@@ -1,4 +1,5 @@
-import { buildNotebookNodeClipboardHTML, sortProperties } from './utils'
+import { NotebookNodeType } from '../types'
+import { buildNotebookNodeClipboardHTML, getNodeChildren, sortProperties } from './utils'
 
 // Mock dependencies for Group revenue utilities
 jest.mock('lib/utils/numbers', () => ({
@@ -524,6 +525,32 @@ describe('notebook node utils', () => {
                 const { getLifetimeValue } = require('./utils')
                 expect(getLifetimeValue(group)).toBe(expected)
             })
+        })
+    })
+
+    describe('getNodeChildren', () => {
+        // The right column called `children.forEach` straight off the parsed attributes, so a
+        // notebook that stored anything else here threw on render and took the notebook with it.
+        it.each([
+            { name: 'a string', children: 'a child' },
+            { name: 'a number', children: 3 },
+            { name: 'a plain object', children: { nodeId: 'child-1' } },
+            { name: 'a boolean', children: true },
+            { name: 'null', children: null },
+            { name: 'undefined', children: undefined },
+        ])('reports no children when the attribute is $name', ({ children }) => {
+            expect(getNodeChildren({ children })).toEqual([])
+        })
+
+        it('reports no children when the node has no attributes', () => {
+            expect(getNodeChildren(undefined)).toEqual([])
+        })
+
+        // Returned by reference because the kea selector memoizes on it. A fresh copy each call
+        // re-renders every child node on every notebook update.
+        it('passes a children array through by reference', () => {
+            const children = [{ type: NotebookNodeType.Recording, attrs: { nodeId: 'child-1' } }]
+            expect(getNodeChildren({ children })).toBe(children)
         })
     })
 })

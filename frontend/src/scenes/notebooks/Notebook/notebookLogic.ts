@@ -87,6 +87,7 @@ import type {
     SqlV2NodeSummary,
 } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
+import { getNodeChildren } from '../Nodes/utils'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
 import type { NotebookListItemType } from '../types'
 import { updateContentHeading } from '../utils'
@@ -1340,7 +1341,9 @@ export const notebookLogic = kea<notebookLogicType>([
             // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>, _content: JSONContent) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
-                return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
+                return Object.values(nodeLogics).filter(
+                    (nodeLogic) => getNodeChildren(nodeLogic.props.attributes).length > 0
+                )
             },
         ],
 

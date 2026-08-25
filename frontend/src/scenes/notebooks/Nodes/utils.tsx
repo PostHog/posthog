@@ -8,6 +8,8 @@ import { percentage } from 'lib/utils/numbers'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { Group } from '~/types'
 
+import { NotebookNodeResource } from '../types'
+
 type AnsiState = {
     fgClassName?: string
     isBold?: boolean
@@ -150,6 +152,14 @@ export function buildNotebookNodeClipboardHTML(nodeType: string, attrs: Record<s
     }
 
     return element.outerHTML
+}
+
+// Node attributes are parsed from persisted notebook JSON, so `children` can hold any JSON value
+// even though its type says otherwise. Callers render it as a list, so any other value must read
+// as no children. Returns the original array so kea selectors stay memoized and do not re-render.
+export function getNodeChildren(attributes?: { children?: unknown }): NotebookNodeResource[] {
+    const children = attributes?.children
+    return Array.isArray(children) ? children : []
 }
 
 export const getLogicKey = ({
