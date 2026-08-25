@@ -4200,7 +4200,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.create(
             query={
                 "kind": "InsightVizNode",
-                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-2y"},
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
             },
             team=self.team,
             created_by=self.user,

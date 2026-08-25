@@ -14,6 +14,7 @@ from django.db import OperationalError
 import orjson
 import structlog
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
@@ -2248,6 +2249,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             )
                     raise
 
+    def _resolved_range_reaches_past_retention(self, resolved_date_range: Any) -> bool:
+        """The floor only narrows results when the query asked for data older than the window.
+
+        A response with no resolved range (raw HogQL) scans unbounded history, so the floor did narrow it.
+        Calendar-month arithmetic mirrors the printer's toIntervalMonth boundary.
+        """
+        date_from = resolved_date_range.get("date_from") if isinstance(resolved_date_range, dict) else None
+        if date_from is None:
+            return True
+        retention_months = events_retention_months_for_team(self.team, self.team.pk)
+        if retention_months is None:
+            return False
+        if isinstance(date_from, str):
+            date_from = datetime.fromisoformat(date_from)
+        return date_from < datetime.now(UTC) - relativedelta(months=retention_months)
+
     def _execute_and_cache_blocking(
         self,
         *,
@@ -2348,7 +2365,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             # Attached before caching so cache hits replay it; the cache key already varies by the
             # retention window, so a cached flag always matches the regime it was computed under.
-            if events_retention_applied_in_scope() and "events_retention_applied" in CachedResponse.model_fields:
+            if (
+                events_retention_applied_in_scope()
+                and "events_retention_applied" in CachedResponse.model_fields
+                and self._resolved_range_reaches_past_retention(fresh_response_dict.get("resolved_date_range"))
+            ):
                 fresh_response_dict["events_retention_applied"] = True
 
             # Attach accumulated warehouse sync warnings before caching, so cache hits replay them.

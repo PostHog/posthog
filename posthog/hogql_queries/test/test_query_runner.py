@@ -10,6 +10,7 @@ from unittest import mock
 from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError, connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -33,6 +34,7 @@ from posthog.schema import (
     PersonsArgMaxVersion,
     PersonsOnEventsMode,
     QueryLogTags,
+    ResolvedDateRangeResponse,
     SessionsV2JoinMode,
     SessionTableVersion,
     TestBasicQueryResponse as TheTestBasicQueryResponse,
@@ -197,6 +199,36 @@ class TestQueryRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert response.events_retention_applied is True
+
+    @parameterized.expand(
+        [
+            # Range reaches past a 12-month window: results were narrowed, so warn.
+            (datetime(2020, 1, 1, tzinfo=UTC), True),
+            # Range inside the window: the floor was injected but changed nothing, so stay quiet.
+            (datetime.now(UTC) - timedelta(days=30), None),
+        ]
+    )
+    def test_events_retention_applied_requires_range_past_the_floor(self, date_from, expected):
+        from posthog.hogql.warehouse_warnings import record_events_retention_applied
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+        self.team.event_retention_months = 12
+        self.team.save()
+
+        def calculate_with_range(_self):
+            record_events_retention_applied()
+            response = TheTestBasicQueryResponse(results=[])
+            response.resolved_date_range = ResolvedDateRangeResponse(date_from=date_from, date_to=datetime.now(UTC))
+            return response
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            override_settings(EVENTS_DATA_RETENTION_ENFORCED=True),
+            mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_range),
+        ):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert response.events_retention_applied is expected
 
     def test_events_retention_applied_absent_when_no_execution_floored(self):
         TestQueryRunner = self.setup_test_query_runner_class()
