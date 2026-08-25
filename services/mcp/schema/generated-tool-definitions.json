@@ -3034,7 +3034,7 @@
         }
     },
     "endpoint-create": {
-        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
+        "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an eligible query.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Create endpoint",
@@ -10168,7 +10168,7 @@
         }
     },
     "subscriptions-deliveries-list": {
-        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown) and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report.",
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown), ai_report_prompt (the prompt it was generated from), and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report and its prompt.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscription deliveries",
