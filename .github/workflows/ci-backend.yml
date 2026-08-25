@@ -593,9 +593,14 @@ jobs:
             # it follows the import graph into products/. Both matrices read one verdict, so
             # they can never disagree about whether the selection is trustworthy.
             # Only on a legacy diff: turbo-discover.js trusts the selection only when the paths
-            # filter saw a legacy edit, and falls back without a selector run otherwise.
+            # filter saw a legacy edit, and falls back without a selector run otherwise. The
+            # DISABLE_BACKEND_TEST_SELECTION kill switch skips the run too; the script still
+            # reports the `disabled` reason from its own env.
             - name: Install uv
-              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true'
+              # Optional setup: a failure here must fall back to the full matrices like a
+              # selector failure does, not fail the job that gates every test job.
+              continue-on-error: true
+              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
                   version: '0.11.28'
@@ -608,7 +613,7 @@ jobs:
               # reaches the matrices rather than taking the whole job down with it.
               continue-on-error: true
               timeout-minutes: 8
-              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true'
+              if: env.SELECTION_APPLIES == 'true' && needs.changes.outputs.legacy == 'true' && vars.DISABLE_BACKEND_TEST_SELECTION != 'true'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               shell: bash
@@ -651,7 +656,9 @@ jobs:
                   echo "$RESULT" | jq -r '"mode=\(.selection.mode)", "selection=\(.selection | tojson)", "telemetry=\(.telemetry | tojson)"' >> "$GITHUB_OUTPUT"
 
             - name: Upload selection artifact
-              # test-selection-verdict reads it instead of running the selector again.
+              # test-selection-verdict reads it instead of running the selector again. An
+              # upload failure must not fail this job; the verdict regenerates the selection.
+              continue-on-error: true
               if: always() && steps.select.outcome == 'success'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
