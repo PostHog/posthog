@@ -29,10 +29,10 @@ class SpendLimitSerializer(serializers.Serializer):
         allow_null=True,
         help_text=f"{_WINDOW_HELP_TEXT} Null when no limit is set.",
     )
-    enforceable = serializers.BooleanField(
+    available = serializers.BooleanField(
         help_text=(
-            "Whether this deployment's gateway can hold and enforce a spend limit for this person. False means no "
-            "limit can be set here, so any limit shown in the app informs only."
+            "Whether spend limits are available on this PostHog deployment. False means no limit can be set here, "
+            "so any limit shown in the app informs only."
         ),
     )
 
@@ -43,7 +43,10 @@ class SpendLimitWriteSerializer(serializers.Serializer):
         decimal_places=_LIMIT_DECIMAL_PLACES,
         min_value=MIN_LIMIT_USD,
         max_value=MAX_LIMIT_USD,
-        help_text="The limit in USD. Spend past it is refused for this person until the window resets.",
+        help_text=(
+            "The limit in USD. The gateway stores the limit and, once enforcement is live for this traffic, "
+            "refuses spend past it until the window resets."
+        ),
     )
     window_seconds = serializers.IntegerField(
         min_value=MIN_WINDOW_SECONDS,

@@ -36,28 +36,28 @@ class TestUserSpendLimit(APIBaseTest):
         return self.user.distinct_id or f"user_{self.user.id}"
 
     @patch(f"{LOGIC}.get_user_budget", return_value=None)
-    def test_reports_no_limit_but_enforceable(self, get_user_budget):
+    def test_reports_no_limit_where_limits_are_available(self, get_user_budget):
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforceable": True})
+        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "available": True})
         get_user_budget.assert_called_once_with(self.team.id, self._node)
 
     @patch(f"{LOGIC}.get_user_budget", return_value=BUDGET)
     def test_reads_the_limit(self, _get_user_budget):
         response = self.client.get(self._url())
-        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforceable": True})
+        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "available": True})
 
     @parameterized.expand(NO_BUDGET_SUPPORT)
-    def test_reads_as_unenforced_where_the_gateway_holds_no_limits(self, _name, error):
+    def test_reads_as_unavailable_where_the_gateway_holds_no_limits(self, _name, error):
         with patch(f"{LOGIC}.get_user_budget", side_effect=error):
             response = self.client.get(self._url())
-        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforceable": False})
+        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "available": False})
 
     @patch(f"{LOGIC}.set_user_budget", return_value=BUDGET)
     def test_sets_the_limit_against_the_asserted_user_node(self, set_user_budget):
         response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforceable": True})
+        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "available": True})
         # The scope value has to be the node a run's token pins and the desktop
         # asserts, or the gateway counts spend against a node this never
         # configured and the limit silently does nothing.
@@ -66,7 +66,7 @@ class TestUserSpendLimit(APIBaseTest):
     @patch(f"{LOGIC}.clear_user_budget", return_value=None)
     def test_clears_the_limit(self, clear_user_budget):
         response = self.client.delete(self._url("clear/"))
-        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforceable": True})
+        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "available": True})
         clear_user_budget.assert_called_once_with(self.team.id, self._node)
 
     @parameterized.expand(

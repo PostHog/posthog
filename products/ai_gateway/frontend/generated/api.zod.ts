@@ -16,7 +16,9 @@ export const aiGatewayUserSpendLimitCreateBodyWindowSecondsMax = 31622400
 export const AiGatewayUserSpendLimitCreateBody = /* @__PURE__ */ zod.object({
     limit_usd: zod
         .stringFormat('decimal', aiGatewayUserSpendLimitCreateBodyLimitUsdRegExp)
-        .describe('The limit in USD. Spend past it is refused for this person until the window resets.'),
+        .describe(
+            'The limit in USD. The gateway stores the limit and, once enforcement is live for this traffic, refuses spend past it until the window resets.'
+        ),
     window_seconds: zod
         .number()
         .min(aiGatewayUserSpendLimitCreateBodyWindowSecondsMin)

@@ -901,13 +901,15 @@ class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
 class AIGatewaySpendLimitBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Each call holds a web worker for a synchronous gateway round trip, and the
     # desktop app calls with session auth, so the throttle covers every auth kind.
+    # A settings surface someone touches a few times a day; rates match the
+    # personal spend endpoint, the same personal session-auth shape.
     scope = "ai_gateway_spend_limit_burst"
-    rate = "30/minute"
+    rate = "10/minute"
 
 
 class AIGatewaySpendLimitSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "ai_gateway_spend_limit_sustained"
-    rate = "300/hour"
+    rate = "60/hour"
 
 
 class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):

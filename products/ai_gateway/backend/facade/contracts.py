@@ -13,11 +13,11 @@ class SpendLimit:
     """
     One person's cap on gateway spend.
 
-    `limit_usd` and `window_seconds` are None when no cap is set. `enforceable` is
+    `limit_usd` and `window_seconds` are None when no cap is set. `available` is
     False where the gateway cannot hold a cap at all, so a cap a client shows
     there informs only.
     """
 
     limit_usd: str | None
     window_seconds: int | None
-    enforceable: bool
+    available: bool

@@ -78673,8 +78673,8 @@ export namespace Schemas {
          * @nullable
          */
       window_seconds: number | null;
-      /** Whether this deployment's gateway can hold and enforce a spend limit for this person. False means no limit can be set here, so any limit shown in the app informs only. */
-      enforceable: boolean;
+      /** Whether spend limits are available on this PostHog deployment. False means no limit can be set here, so any limit shown in the app informs only. */
+      available: boolean;
     }
 
     export interface SpendLimitError {
@@ -78684,7 +78684,7 @@ export namespace Schemas {
 
     export interface SpendLimitWrite {
       /**
-         * The limit in USD. Spend past it is refused for this person until the window resets.
+         * The limit in USD. The gateway stores the limit and, once enforcement is live for this traffic, refuses spend past it until the window resets.
          * @pattern ^-?\d{0,13}(?:\.\d{0,6})?$
          */
       limit_usd: string;

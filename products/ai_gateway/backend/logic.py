@@ -43,17 +43,17 @@ def read_spend_limit(team_id: int, user: User) -> SpendLimit:
         with _gateway_call("read", team_id):
             budget = get_user_budget(team_id, _spend_node(user))
     except SpendLimitsUnsupported:
-        # A read can report that no limit is holdable here, where a write has to fail.
-        return _unenforceable()
+        # A read can report that limits are unavailable here, where a write has to fail.
+        return _unavailable()
     if budget is None:
         return _no_limit()
-    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, enforceable=True)
+    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, available=True)
 
 
 def write_spend_limit(team_id: int, user: User, *, limit_usd: str, window_seconds: int) -> SpendLimit:
     with _gateway_call("write", team_id):
         budget = set_user_budget(team_id, _spend_node(user), limit_usd, window_seconds)
-    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, enforceable=True)
+    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, available=True)
 
 
 def remove_spend_limit(team_id: int, user: User) -> SpendLimit:
@@ -63,11 +63,11 @@ def remove_spend_limit(team_id: int, user: User) -> SpendLimit:
 
 
 def _no_limit() -> SpendLimit:
-    return SpendLimit(limit_usd=None, window_seconds=None, enforceable=True)
+    return SpendLimit(limit_usd=None, window_seconds=None, available=True)
 
 
-def _unenforceable() -> SpendLimit:
-    return SpendLimit(limit_usd=None, window_seconds=None, enforceable=False)
+def _unavailable() -> SpendLimit:
+    return SpendLimit(limit_usd=None, window_seconds=None, available=False)
 
 
 def _spend_node(user: User) -> str:
