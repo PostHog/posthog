@@ -62,6 +62,7 @@ __all__ = [
     "has_provisioned_warehouse",
     "is_dev_mode",
     "is_publishable_table",
+    "table_publish_block_reason",
     "organization_is_pending_deletion",
     "persist_duckgres_server_for_org",
     "create_managed_warehouse_published_table",
@@ -193,6 +194,14 @@ def is_publishable_table(schema_name: str, table_name: str, *, reserved_table_na
     from products.managed_warehouse.backend.publish import is_publishable_table as is_publishable  # noqa: PLC0415
 
     return is_publishable(schema_name, table_name, reserved_table_names=reserved_table_names)
+
+
+def table_publish_block_reason(
+    schema_name: str, table_name: str, *, reserved_table_names: frozenset[str]
+) -> str | None:
+    from products.managed_warehouse.backend.publish import table_publish_block_reason as block_reason  # noqa: PLC0415
+
+    return block_reason(schema_name, table_name, reserved_table_names=reserved_table_names)
 
 
 def default_bucket_region() -> str:

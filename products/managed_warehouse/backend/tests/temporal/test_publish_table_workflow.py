@@ -84,7 +84,7 @@ class TestPublishTableActivities(BaseTest):
         assert table.row_count == 5
         assert table.size_in_s3_mib == 5.0
 
-    def test_copy_rejects_empty_modeled_table(self) -> None:
+    def test_copy_rejects_empty_warehouse_table(self) -> None:
         publication = self._publication()
         connection = MagicMock()
         connection.__enter__.return_value = connection
@@ -112,7 +112,7 @@ class TestPublishTableActivities(BaseTest):
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect", return_value=connection),
             patch(f"{_WORKFLOW_MODULE}.setup_duckgres_session"),
             patch(f"{_WORKFLOW_MODULE}.HeartbeaterSync"),
-            self.assertRaisesRegex(ValueError, "Empty modeled tables cannot be published yet"),
+            self.assertRaisesRegex(ValueError, "Empty warehouse tables cannot be published yet"),
         ):
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 
@@ -120,15 +120,15 @@ class TestPublishTableActivities(BaseTest):
         # separate count(*) scan on a different snapshot.
         assert connection.execute.call_count == 1
 
-    def test_copy_rejects_sibling_project_schema_before_connect(self) -> None:
+    def test_copy_rejects_posthog_schema_before_connect(self) -> None:
         publication = self._publication()
-        publication.source_schema_name = f"posthog_data_modeling_team_{self.team.pk + 1}"
+        publication.source_schema_name = "posthog"
         publication.save(update_fields=["source_schema_name", "updated_at"])
 
         with (
             patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect") as connect,
-            self.assertRaisesRegex(ValueError, "Choose a modeled table from this project"),
+            self.assertRaisesRegex(ValueError, "PostHog-managed tables cannot be published"),
         ):
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 
@@ -175,7 +175,7 @@ class TestPublishTableActivities(BaseTest):
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect", return_value=connection) as connect,
             patch(f"{_WORKFLOW_MODULE}.setup_duckgres_session"),
             patch(f"{_WORKFLOW_MODULE}.HeartbeaterSync"),
-            self.assertRaisesRegex(ValueError, "Empty modeled tables cannot be published yet"),
+            self.assertRaisesRegex(ValueError, "Empty warehouse tables cannot be published yet"),
         ):
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 

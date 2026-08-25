@@ -24,7 +24,6 @@ from posthog.temporal.common.logger import get_logger
 from products.data_modeling.backend.facade import api as data_modeling
 from products.managed_warehouse.backend.common import (
     default_bucket_region,
-    ducklake_data_modeling_schema_team_id,
     get_duckgres_config_for_org,
     get_org_config,
     validate_duckgres_identifier,
@@ -33,6 +32,7 @@ from products.managed_warehouse.backend.models import ManagedWarehousePublishedT
 from products.managed_warehouse.backend.publish import (
     build_publish_copy_sql,
     delete_stale_publish_versions,
+    is_publishable_table,
     publish_folder,
     publish_s3_uri,
     publish_url_pattern,
@@ -103,13 +103,12 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
     logger = LOGGER.bind(publication_id=inputs.publication_id)
     close_old_connections()
     publication = _publication_queryset(inputs.team_id, inputs.publication_id).get(deleted=False)
-    source_team_id = ducklake_data_modeling_schema_team_id(publication.source_schema_name)
-    source_team = Team.objects.only("id", "parent_team_id").filter(id=source_team_id).first()
-    source_project_id = source_team.parent_team_id or source_team.id if source_team is not None else None
-    if source_project_id != publication.team_id:
-        raise ValueError("Choose a modeled table from this project.")
     validate_duckgres_identifier(publication.source_schema_name)
     validate_duckgres_identifier(publication.source_table_name)
+    if not is_publishable_table(
+        publication.source_schema_name, publication.source_table_name, reserved_table_names=frozenset()
+    ):
+        raise ValueError("PostHog-managed tables cannot be published.")
 
     if publication.saved_query_id is not None:
         publication.active_job_id = data_modeling.start_managed_warehouse_saved_query_publish(
@@ -158,7 +157,7 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
             row = cursor.fetchone()
             row_count = int(row[0]) if row else 0
             if row_count == 0:
-                raise ValueError("Empty modeled tables cannot be published yet.")
+                raise ValueError("Empty warehouse tables cannot be published yet.")
 
     return PublishCopyResult(folder_version=version, row_count=row_count, bucket=bucket, bucket_region=bucket_region)
 

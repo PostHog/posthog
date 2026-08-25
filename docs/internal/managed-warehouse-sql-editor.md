@@ -28,6 +28,12 @@ The sidecar's older name, status, table, and error columns remain populated duri
 
 Deprovision captures the active generation before the control-plane request and deactivates only that generation. A direct 404 is authoritative absence. If the request times out or returns 409, PostHog reads warehouse status. It converges local cleanup only when the warehouse is `deleting`, `deleted`, or absent. A ready warehouse remains active.
 
+## Published warehouse tables
+
+The `data-ops-published-tables` feature flag adds a **Published tables** tab to Data Ops for projects with a ready managed warehouse. Editors can explore every warehouse schema and table, then publish an eligible table as a snapshot in PostHog. PostHog-managed schemas remain visible and are marked as managed, but their tables cannot be published. Editors can monitor publication status, publish again, or unpublish. Viewers can inspect publication status and open completed tables in the SQL editor.
+
+Published tables do not refresh automatically. Use **Publish again** after the source table changes. Unpublishing removes the table and its published snapshot from PostHog without changing the source table.
+
 ## Deployment and rollback
 
 1. Keep `MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=true` in the current web, admin, and Celery deployments throughout the rolling code deployment. Old workers use that setting, while new workers create dynamic sources unconditionally, so both versions agree.

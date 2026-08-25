@@ -16,6 +16,7 @@ export enum DataWarehouseTab {
     MONITORING = 'monitoring',
     SETTINGS = 'settings',
     MODELING = 'modeling',
+    PUBLISHED_TABLES = 'published-tables',
 }
 
 function isDataWarehouseTab(tab: unknown): tab is DataWarehouseTab {
@@ -121,6 +122,9 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] && warehouseReady) {
                     tabs.push(DataWarehouseTab.OVERVIEW)
                     tabs.push(DataWarehouseTab.MONITORING)
+                    if (featureFlags[FEATURE_FLAGS.DATA_OPS_PUBLISHED_TABLES]) {
+                        tabs.push(DataWarehouseTab.PUBLISHED_TABLES)
+                    }
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
                     tabs.push(DataWarehouseTab.MODELING)

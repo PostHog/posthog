@@ -215,6 +215,8 @@ class ManagedWarehouseBackfillState:
 class ManagedWarehouseModeledTable:
     schema_name: str
     table_name: str
+    publishable: bool
+    disabled_reason: str | None
 
 
 class ManagedWarehousePublishedTableStatus(StrEnum):

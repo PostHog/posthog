@@ -198,6 +198,12 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                                                     managed viewset
                                                 </span>
                                             </>
+                                        ) : view.origin === DataWarehouseSavedQueryOrigin.MANAGED_WAREHOUSE ? (
+                                            <LemonTableLink
+                                                to={urls.dataOps('published-tables')}
+                                                title={view.name}
+                                                description="Published from the managed warehouse"
+                                            />
                                         ) : view.origin === DataWarehouseSavedQueryOrigin.ENDPOINT ? (
                                             <LemonTableLink
                                                 to={urls.endpoint(view.name)}

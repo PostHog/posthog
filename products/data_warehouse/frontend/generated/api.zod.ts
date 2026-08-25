@@ -24,7 +24,7 @@ export const DataWarehouseDataQualityGatePartialUpdateBody = /* @__PURE__ */ zod
     .describe('The team-level materialization gate. Checks always run and warn; this only toggles blocking.')
 
 /**
- * Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.
+ * Copy a Duckgres table into the ClickHouse-queryable PostHog data warehouse.
  * @summary Publish a managed warehouse table
  */
 export const dataWarehouseManagedWarehousePublishTableCreateBodySourceSchemaNameMax = 63
@@ -37,11 +37,11 @@ export const DataWarehouseManagedWarehousePublishTableCreateBody = /* @__PURE__ 
     source_schema_name: zod
         .string()
         .max(dataWarehouseManagedWarehousePublishTableCreateBodySourceSchemaNameMax)
-        .describe('Duckgres schema containing the modeled table.'),
+        .describe('Duckgres schema containing the source table.'),
     source_table_name: zod
         .string()
         .max(dataWarehouseManagedWarehousePublishTableCreateBodySourceTableNameMax)
-        .describe('Modeled Duckgres table to publish.'),
+        .describe('Duckgres table to publish.'),
     name: zod
         .string()
         .max(dataWarehouseManagedWarehousePublishTableCreateBodyNameMax)
