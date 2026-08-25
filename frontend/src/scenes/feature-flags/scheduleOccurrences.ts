@@ -86,7 +86,10 @@ export function expandScheduleOccurrences(
         if (denied && !schedule.is_recurring) {
             continue
         }
-        const first = dayjs(schedule.scheduled_at)
+        // Parse in UTC so recurrence arithmetic below adds fixed 24h days/weeks, matching the
+        // backend's relativedelta on the stored UTC instant. Browser-local .add() would preserve
+        // wall-clock across a DST transition and drift the projected fire time by an hour.
+        const first = dayjs.utc(schedule.scheduled_at)
         if (!first.isValid()) {
             continue
         }
