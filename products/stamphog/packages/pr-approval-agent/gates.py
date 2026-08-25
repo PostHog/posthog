@@ -247,17 +247,22 @@ def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> li
 # touch was incidental; the full count travels in team_file_counts.
 TEAM_FILE_SAMPLE = 10
 
-# A file a build step writes. Owning one says nothing about whether a team was touched by a change:
-# `hogli build:openapi` rewrites a product's generated API types whenever any shared serializer
-# changes anywhere in the repo. Counted per team below so a consumer gets an exact answer rather
-# than inferring one from the capped sample.
+# A product's generated API types, which `hogli build:openapi` rewrites whenever any shared
+# serializer changes anywhere in the repo. Owning one says nothing about whether that team was
+# touched by the change. Counted per team below so a consumer gets an exact answer rather than
+# inferring one from the capped sample.
 #
-# Matched on the directory, because a directory is what confers product ownership. The repo marks
-# generated files in two other places and neither serves here: `.gitattributes` also names
-# individual files, but those sit outside any product and are unowned, and the ownership registry
-# has a `status: generated` value (posthog_owners.schema) that no owners.yaml or product.yaml
-# declares today, so reading it would exclude nothing.
-_GENERATED_PATH_RE = re.compile(r"(^|/)generated/")
+# Deliberately narrow. This is a "these files carry no news" rule, which AGENTS.md says needs an
+# argument, and the argument only holds for this one directory shape: the repo forbids hand-editing
+# it (root CLAUDE.md, "don't edit them manually, change serializers and rerun"), every product's
+# generated directory has this exact path, and its only consumer decides who hears about a merge
+# rather than whether code is safe to approve. A bare `generated/` match would also catch
+# hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.
+#
+# The ownership registry has a `status: generated` value (posthog_owners.schema) that would be the
+# right home for this, but no owners.yaml or product.yaml declares it today, so reading it would
+# exclude nothing.
+_GENERATED_PATH_RE = re.compile(r"^products/[^/]+/frontend/generated/")
 
 
 def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> dict:

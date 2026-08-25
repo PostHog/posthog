@@ -652,6 +652,30 @@ def _fake_llm_client(content: str) -> Any:
     return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
 
 
+def test_a_filtered_entry_takes_the_headline_with_it() -> None:
+    # The headline is written over the whole answer, so an entry dropped for citing no valid rule
+    # can leave it naming a change the thread does not carry. The renderer falls back to the scope
+    # line, which the counts already agree with.
+    prs_by_index = {
+        0: _pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1"),
+        1: _pr_stub("o/r", 2, "Dropped", "https://github.com/o/r/pull/2"),
+    }
+    content = json.dumps(
+        {
+            "headline": "Two things changed today.",
+            "prs": [
+                {"index": 0, "rule": "contract", "summary": "The kept one."},
+                {"index": 1, "rule": "vibes", "summary": "The dropped one."},
+            ],
+        }
+    )
+
+    summary = _parse_llm_response(content, prs_by_index)
+
+    assert [p.pr_number for p in summary.prs] == [1]
+    assert summary.headline == ""
+
+
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
     # The fallback keeps merge order and judges nothing, so it needs its own low rail: the bar that
     # normally keeps a digest short never runs on this path. It also has to mark itself, because a
