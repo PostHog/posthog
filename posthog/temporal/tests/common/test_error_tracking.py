@@ -215,6 +215,15 @@ class DirectlyFailingWorkflow:
             raise ApplicationError("Workflow failed!")
 
 
+@workflow.defn
+class ExpectedControlFlowWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        # A control-flow type raised in workflow code, not in an activity — e.g. Replay Vision
+        # marking a deliberately skipped session ineligible and re-raising to end the run.
+        raise ApplicationError("session ineligible for analysis", type="IneligibleSession")
+
+
 @pytest.mark.parametrize("fail", [True, False])
 @pytest.mark.parametrize("capture_additional_properties", [True, False])
 @pytest.mark.asyncio
@@ -494,3 +503,32 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+@pytest.mark.asyncio
+async def test_expected_control_flow_workflow_error_is_not_captured(temporal_client: Client):
+    """An ApplicationError whose type is in EXPECTED_CONTROL_FLOW_ERROR_TYPES, raised in workflow
+    code rather than an activity (e.g. Replay Vision skipping an ineligible session), is expected
+    control flow, not a defect, so the workflow interceptor must re-raise it without reporting it."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[ExpectedControlFlowWorkflow],
+            activities=[],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "ExpectedControlFlowWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()

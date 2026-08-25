@@ -17,7 +17,7 @@ from temporalio.worker import (
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableError, resolve_exception_class
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
@@ -31,8 +31,11 @@ logger = get_write_only_logger()
 # constant EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE — this shared Temporal module must not
 # depend on a product. The error-tracking issue-created workflow fails open on it, so it is
 # expected control flow, not a defect.
+# "IneligibleSession" (Replay Vision's INELIGIBLE_SESSION_ERROR_TYPE, kept as a literal for the
+# same reason) marks a session the scanner gate deliberately skips. The workflow records it as
+# INELIGIBLE and stores the reason, so a capture here would only be triage noise.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
-    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable"}
+    {"trace_not_settled", "TransientRepartitionError", "EmbeddingServiceUnavailable", "IneligibleSession"}
 )
 
 
@@ -87,15 +90,13 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
             # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
-            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
-            # error tracking.
+            # (activity-retry-as-poll probes, deliberately skipped sessions) are not defects —
+            # re-raise without reporting them to error tracking. Match on the root cause so a wrapped
+            # ActivityError / ChildWorkflowError still counts.
             if (
                 temporalio.exceptions.is_cancelled_exception(e)
                 or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
-                or (
-                    isinstance(e, temporalio.exceptions.ApplicationError)
-                    and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES
-                )
+                or resolve_exception_class(e) in EXPECTED_CONTROL_FLOW_ERROR_TYPES
             ):
                 raise
             activity_info = activity.info()
@@ -148,6 +149,11 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if resolve_exception_class(e) in EXPECTED_CONTROL_FLOW_ERROR_TYPES:
+                # Expected control flow raised in workflow code (e.g. a deliberately skipped
+                # ineligible session), not a defect. Match on the root cause so a wrapped
+                # ChildWorkflowError still counts.
+                raise
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
