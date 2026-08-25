@@ -396,6 +396,7 @@ export const productRedirects: Record<
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
     '/data-warehouse': () => urls.sources(),
+    '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),

@@ -27,6 +27,7 @@ from products.tasks.backend.temporal.babysit_pr.prompts import (
 )
 from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, PRSnapshot
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
+from products.tasks.backend.temporal.metrics import increment_pr_babysit_decision
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
@@ -890,7 +891,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         won't appear later.
         """
         if self.context.pr_babysit_enabled:
-            return await self._should_run_babysit_follow_up()
+            decision = await self._should_run_babysit_follow_up()
+            increment_pr_babysit_decision(decision.value)
+            return decision
         pr_context = await workflow.execute_activity(
             get_pr_context,
             GetPrContextInput(context=self.context),

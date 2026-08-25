@@ -34,6 +34,7 @@ from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
+    FLAGS_HYPERCACHE_MANAGEMENT_CONFIG,
     _blank_inactive_filters,
     _compare_flag_fields,
     _compute_flag_dependencies,
@@ -49,6 +50,7 @@ from products.feature_flags.backend.flags_cache import (
     flags_hypercache,
     get_flags_from_cache,
     get_team_ids_with_recently_updated_flags,
+    get_team_primary_flags_writer,
     get_teams_with_flags_queryset,
     update_flags_cache,
     verify_team_flags,
@@ -910,6 +912,50 @@ class TestServiceFlagsKafkaRouting(BaseTest):
         mock_task.delay.assert_called_with(self.team.id)
         mock_gate.assert_not_called()
         mock_produce.assert_not_called()
+
+
+class TestGetTeamPrimaryFlagsWriter(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("routed_to_kafka", True, "rust"),
+            ("routed_to_celery", False, "python"),
+            ("flag_cache_cold", None, "unknown"),
+        ]
+    )
+    def test_maps_routing_flag_result_to_writer(self, _name, flag_result, expected_writer):
+        with (
+            patch(
+                "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+                return_value=flag_result,
+            ),
+            patch("products.feature_flags.backend.flags_cache.logger") as mock_logger,
+        ):
+            assert get_team_primary_flags_writer(42) == expected_writer
+        # A cold flag cache is expected at boot and must stay silent; only a raising
+        # client warrants the evaluation-failed warning.
+        mock_logger.warning.assert_not_called()
+
+    def test_flag_evaluation_error_is_unknown_and_warns(self):
+        with (
+            patch(
+                "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+                side_effect=RuntimeError("posthoganalytics borked"),
+            ),
+            patch("products.feature_flags.backend.flags_cache.logger") as mock_logger,
+        ):
+            assert get_team_primary_flags_writer(42) == "unknown"
+        mock_logger.warning.assert_called_once()
+        assert mock_logger.warning.call_args.args[0] == "flags_cache_writer_attribution_flag_evaluation_failed"
+        assert mock_logger.warning.call_args.kwargs["team_id"] == 42
+
+    def test_flags_config_attributes_fixes_via_the_routing_gate(self):
+        with patch(
+            "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as mock_feature_enabled:
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn is not None
+            assert FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.get_primary_writer_fn(42) == "rust"
+        assert mock_feature_enabled.call_args.args[1] == "team-42"
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
