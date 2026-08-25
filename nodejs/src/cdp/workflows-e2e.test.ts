@@ -3540,7 +3540,7 @@ describe('Workflows E2E (email queue)', () => {
     })
 
     it('rate-limits dequeue when the bucket drains, then drains the queue as it refills', async () => {
-        // Tiny bucket (capacity 1, refill 2/sec = 1 token every 500ms) so the
+        // Tiny bucket (capacity 1, refill 5/sec = 1 token every 200ms) so the
         // worker has to wait for refills between sends. With 3 emails enqueued
         // we should see the bucket get denied at least once while the worker
         // is waiting — and all 3 should still eventually go through.
@@ -3564,7 +3564,7 @@ describe('Workflows E2E (email queue)', () => {
             limiter: new RateLimiterService(limiterValkey, { name: limiterName }),
             key: bucketKey,
             capacity: 1,
-            refillPerSecond: 2,
+            refillPerSecond: 5,
             throttledPollDelayMs: 50,
         })
         emailWorker = new CdpCyclotronWorkerEmail(hub, deps, rateLimitedQueue)
@@ -3626,7 +3626,7 @@ describe('Workflows E2E (email queue)', () => {
         await backgroundTask
 
         // All three eventually send — generous timeout because the bucket only
-        // refills 2 tokens/sec.
+        // refills 5 tokens/sec.
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
