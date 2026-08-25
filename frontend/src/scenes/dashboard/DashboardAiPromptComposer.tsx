@@ -111,7 +111,7 @@ export function DashboardAiPromptComposer({
     disabledReason,
     onOpenAiWithPrompt,
 }: DashboardAiPromptComposerProps): JSX.Element {
-    const { prompt } = useValues(dashboardAiPromptComposerLogic)
+    const { prompt, promptSource } = useValues(dashboardAiPromptComposerLogic)
     const { setPrompt } = useActions(dashboardAiPromptComposerLogic)
     const { reportDashboardEmptyAiPromptClicked, reportDashboardEmptyAiPromptSubmitted } = useActions(eventUsageLogic)
 
@@ -123,8 +123,12 @@ export function DashboardAiPromptComposer({
             return
         }
 
-        reportDashboardEmptyAiPromptClicked('Custom question', dashboardId, 'custom_prompt')
-        reportDashboardEmptyAiPromptSubmitted(dashboardId)
+        reportDashboardEmptyAiPromptClicked(
+            promptSource === 'starter_question' ? 'Starter question' : 'Custom question',
+            dashboardId,
+            promptSource
+        )
+        reportDashboardEmptyAiPromptSubmitted(dashboardId, promptSource)
         onOpenAiWithPrompt(question)
         setPrompt('')
     }
@@ -174,7 +178,7 @@ export function DashboardAiPromptComposer({
                             className="!h-14 !rounded-lg !border-border !bg-bg-surface-primary !px-0 !py-0 !text-left !text-base !font-normal shadow-none hover:!bg-fill-secondary"
                             onClick={() => {
                                 reportDashboardEmptyAiPromptClicked(question, dashboardId, 'starter_question')
-                                setPrompt(prompt)
+                                setPrompt(prompt, 'starter_question')
                             }}
                             disabledReason={disabledReason || undefined}
                         >

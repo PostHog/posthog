@@ -713,8 +713,12 @@ export interface eventUsageLogicActions {
         promptLabel: string
         promptType: 'custom_prompt' | 'starter_question'
     }
-    reportDashboardEmptyAiPromptSubmitted: (dashboardId: number | undefined) => {
+    reportDashboardEmptyAiPromptSubmitted: (
+        dashboardId: number | undefined,
+        promptType: 'custom_prompt' | 'starter_question'
+    ) => {
         dashboardId: number | undefined
+        promptType: 'custom_prompt' | 'starter_question'
     }
     reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
         dashboardId: number | undefined
@@ -2463,7 +2467,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboardId,
             promptType,
         }),
-        reportDashboardEmptyAiPromptSubmitted: (dashboardId: number | undefined) => ({ dashboardId }),
+        reportDashboardEmptyAiPromptSubmitted: (
+            dashboardId: number | undefined,
+            promptType: 'custom_prompt' | 'starter_question'
+        ) => ({ dashboardId, promptType }),
         reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
@@ -3546,9 +3553,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source: 'web',
             })
         },
-        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId }) => {
+        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId, promptType }) => {
             posthog.capture('dashboard empty ai prompt submitted', {
                 dashboard_id: dashboardId,
+                prompt_type: promptType,
                 source: 'web',
             })
         },

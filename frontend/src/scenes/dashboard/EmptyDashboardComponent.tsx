@@ -59,6 +59,10 @@ function DashboardEmptyActions({
 }): JSX.Element {
     const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } = useActions(eventUsageLogic)
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
+    const handleAddInsight = (): void => {
+        reportDashboardEmptyAddChartClicked(dashboard?.id)
+        onAddInsight()
+    }
 
     return (
         <div className="flex flex-col gap-4 w-full max-w-full">
@@ -87,10 +91,7 @@ function DashboardEmptyActions({
                             data-attr="dashboard-add-graph-header"
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={() => {
-                                reportDashboardEmptyAddChartClicked(dashboard.id)
-                                onAddInsight()
-                            }}
+                            onClick={handleAddInsight}
                             disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                             sideAction={{
                                 dropdown: {
@@ -100,7 +101,7 @@ function DashboardEmptyActions({
                                             items={getAddTileMenuItems({
                                                 dashboardId: dashboard.id,
                                                 dashboardWidgetsEnabled,
-                                                onAddInsight,
+                                                onAddInsight: handleAddInsight,
                                                 push,
                                                 setAddWidgetModalOpen: onAddWidget,
                                             })}
