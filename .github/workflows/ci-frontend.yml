@@ -1021,9 +1021,9 @@ jobs:
                   pattern: junit-results-{frontend,replay-shared}-*
             - name: Render test-speed report
               if: steps.test-reporter.outputs.available == 'true'
-              run: |
-                  bin/report-jest-timings --artifacts ./junit-artifacts --markdown | tee frontend-test-speed.md
-                  cat frontend-test-speed.md >> "$GITHUB_STEP_SUMMARY"
+              uses: ./.github/actions/report-jest-timings
+              with:
+                  artifacts: ./junit-artifacts
 
     calculate-running-time:
         name: Calculate running time

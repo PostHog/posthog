@@ -39,6 +39,38 @@ def test_jest_timing_markdown_matches_checked_in_example() -> None:
     assert result.stdout == expected
 
 
+def test_full_jest_fixture_summary_pages_fit_github_limit() -> None:
+    fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-real-run"
+    github_step_summary_limit = 1024 * 1024
+    testcase_count = 0
+
+    overview = subprocess.run(
+        [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--markdown-overview"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert len(overview.stdout.encode()) <= github_step_summary_limit
+
+    for page in range(1, 100):
+        result = subprocess.run(
+            [REPO_ROOT / "bin/report-jest-timings", "--artifacts", fixture, "--markdown-page", str(page)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        if not result.stdout:
+            break
+
+        assert len(result.stdout.encode()) <= github_step_summary_limit
+        assert f"individual tests {(page - 1) * 1_000 + 1:,}" in result.stdout
+        testcase_count += sum(line.startswith("| ") for line in result.stdout.splitlines()) - 2
+    else:
+        pytest.fail("Jest timing report produced more than 99 summary pages")
+
+    assert testcase_count == 11_446
+
+
 def _testcase(
     *,
     outcome: str = "passed",

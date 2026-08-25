@@ -839,10 +839,9 @@ jobs:
                   pattern: junit-results-nodejs-*
             - name: Render test-speed report
               if: steps.test-reporter.outputs.available == 'true'
-              run: |
-                  set -o pipefail
-                  bin/report-jest-timings --artifacts ./junit-artifacts --markdown | tee nodejs-test-speed.md
-                  cat nodejs-test-speed.md >> "$GITHUB_STEP_SUMMARY"
+              uses: ./.github/actions/report-jest-timings
+              with:
+                  artifacts: ./junit-artifacts
 
     node_tests:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.

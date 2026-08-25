@@ -15,7 +15,8 @@
 #   --stdin          read timings JSON from stdin
 #
 # Options: --runner jest|pytest (default jest), --top N (default all), --suite NAME
-# (filter to one suite), --markdown (GitHub-friendly output, no ANSI), --uv PATH.
+# (filter to one suite), --markdown (GitHub-friendly output, no ANSI),
+# --markdown-overview, --markdown-page N, --uv PATH.
 
 set -euo pipefail
 
@@ -29,6 +30,8 @@ RUNNER="jest"
 TOP=1000000
 SUITE=""
 MARKDOWN=0
+MARKDOWN_OVERVIEW=0
+MARKDOWN_PAGE=0
 UV="${UV:-uv}"
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +43,8 @@ while [[ $# -gt 0 ]]; do
         --top) TOP="$2"; shift 2 ;;
         --suite) SUITE="$2"; shift 2 ;;
         --markdown) MARKDOWN=1; shift ;;
+        --markdown-overview) MARKDOWN=1; MARKDOWN_OVERVIEW=1; shift ;;
+        --markdown-page) MARKDOWN=1; MARKDOWN_PAGE="$2"; shift 2 ;;
         --uv) UV="$2"; shift 2 ;;
         -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -72,7 +77,7 @@ else
     JSON_FILE="$TMP_JSON"
 fi
 
-export RT_JSON="$JSON_FILE" RT_TOP="$TOP" RT_SUITE="$SUITE" RT_MARKDOWN="$MARKDOWN"
+export RT_JSON="$JSON_FILE" RT_TOP="$TOP" RT_SUITE="$SUITE" RT_MARKDOWN="$MARKDOWN" RT_MARKDOWN_OVERVIEW="$MARKDOWN_OVERVIEW" RT_MARKDOWN_PAGE="$MARKDOWN_PAGE"
 
 python3 - <<'PY'
 import json
@@ -82,6 +87,9 @@ import sys
 TOP = int(os.environ["RT_TOP"])
 SUITE = os.environ["RT_SUITE"]
 MARKDOWN = os.environ["RT_MARKDOWN"] == "1"
+MARKDOWN_OVERVIEW = os.environ["RT_MARKDOWN_OVERVIEW"] == "1"
+MARKDOWN_PAGE = int(os.environ["RT_MARKDOWN_PAGE"])
+MARKDOWN_PAGE_SIZE = 1000
 BOLD = "" if MARKDOWN else "\033[1m"
 DIM = "" if MARKDOWN else "\033[2m"
 RST = "" if MARKDOWN else "\033[0m"
@@ -143,6 +151,30 @@ def markdown_table(headers: list[str], values: list[list[str]]) -> None:
 
 
 if MARKDOWN:
+    if MARKDOWN_PAGE:
+        start = (MARKDOWN_PAGE - 1) * MARKDOWN_PAGE_SIZE
+        page_rows = rows[start : start + MARKDOWN_PAGE_SIZE]
+        if not page_rows:
+            sys.exit(0)
+        end = start + len(page_rows)
+        print(f"# Jest test-speed report — individual tests {start + 1:,}–{end:,}")
+        print("Ordered by duration across the complete run.")
+        print()
+        markdown_table(
+            ["Duration", "Test", "File", "Shard", "Started"],
+            [
+                [
+                    fmt(row["d"]),
+                    markdown_cell(row["name"]),
+                    f"`{markdown_cell(row['file'])}`",
+                    f"`{markdown_cell(row['shard'])}`",
+                    f"+{fmt(row['offset'])}" if row["offset"] is not None else "—",
+                ]
+                for row in page_rows
+            ],
+        )
+        sys.exit(0)
+
     slowest_shard = max(shards, key=lambda shard: shard["wall_seconds"])
     print("# Jest test-speed report")
     print(f"`{report.get('runner')}` · {len(shards)} shards · {all_counts} tests · suites: {', '.join(report.get('suites', []))}")
@@ -159,22 +191,23 @@ if MARKDOWN:
         ],
     )
     print()
-    print("## All individual tests — slowest first")
-    print("Every Jest testcase from this run, ordered by duration.")
-    markdown_table(
-        ["Duration", "Test", "File", "Shard", "Started"],
-        [
+    if not MARKDOWN_OVERVIEW:
+        print("## All individual tests — slowest first")
+        print("Every Jest testcase from this run, ordered by duration.")
+        markdown_table(
+            ["Duration", "Test", "File", "Shard", "Started"],
             [
-                fmt(row["d"]),
-                markdown_cell(row["name"]),
-                f"`{markdown_cell(row['file'])}`",
-                f"`{markdown_cell(row['shard'])}`",
-                f"+{fmt(row['offset'])}" if row["offset"] is not None else "—",
-            ]
-            for row in rows[:TOP]
-        ],
-    )
-    print()
+                [
+                    fmt(row["d"]),
+                    markdown_cell(row["name"]),
+                    f"`{markdown_cell(row['file'])}`",
+                    f"`{markdown_cell(row['shard'])}`",
+                    f"+{fmt(row['offset'])}" if row["offset"] is not None else "—",
+                ]
+                for row in rows[:TOP]
+            ],
+        )
+        print()
     print("## Shard balance")
     markdown_table(
         ["Shard", "Tests", "Jest runner", "Test bodies", "Startup + teardown"],
@@ -226,7 +259,10 @@ if MARKDOWN:
     print()
     print("</details>")
     print()
-    print("> Full per-test history is also emitted to OTLP traces (`ci-nodejs` / `ci-frontend`) and the weekly slow-tests report.")
+    if MARKDOWN_OVERVIEW:
+        print("> Every individual test appears in the following summary pages, ordered slowest first.")
+    else:
+        print("> Full per-test history is also emitted to OTLP traces (`ci-nodejs` / `ci-frontend`) and the weekly slow-tests report.")
 else:
     print(f"{BOLD}Jest test-speed report{RST}  runner={report.get('runner')}  suites={','.join(report.get('suites', []))}")
     print()
