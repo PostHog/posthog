@@ -85,6 +85,32 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    @parameterized.expand([("?search=another@gm", True), ("", False)])
+    def test_person_list_emits_slo_event(self, query: str, expected_has_search: bool) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id"],
+            properties={"email": "another@gmail.com"},
+        )
+        flush_persons_and_events()
+
+        with mock.patch("posthog.slo.events.posthoganalytics.capture") as capture:
+            response = self.client.get(f"/api/person/{query}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        completed = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+            and call.kwargs["properties"]["operation"] == "persons_list"
+        ]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["has_search"], expected_has_search)
+        self.assertEqual(completed[0]["actor_type"], "person")
+        self.assertEqual(completed[0]["outcome"], "success")
+        self.assertEqual(completed[0]["result_count"], 1)
+        self.assertGreater(completed[0]["duration_ms"], 0)
+
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_search_person_id(self) -> None:

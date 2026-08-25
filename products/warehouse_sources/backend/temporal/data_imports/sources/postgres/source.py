@@ -145,6 +145,14 @@ PostgresErrors = {
         "(for example Supabase's transaction pooler) also require a pooler-specific username such "
         "as postgres.<project-ref>. Check your credentials and try again."
     ),
+    # Supavisor's own circuit breaker for repeated authentication failures against a tenant.
+    # `get_non_retryable_errors` already handles this on the streaming path; map it here too so
+    # validation returns an actionable message instead of the generic fallback.
+    "too many authentication failures": (
+        "Your database's connection pooler has temporarily blocked new connections after repeated "
+        'authentication failures ("too many authentication failures"). This usually means the '
+        "username or password is wrong. Check your credentials and try again."
+    ),
     "could not translate host name": "Could not connect to the host",
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
@@ -361,6 +369,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("nxdomain"). This usually means the database project is paused or deleted. Check '
                 "that your database is active, then re-enable the sync."
             ),
+            # Supabase's Supavisor pooler reports a routing failure to its upstream backend as
+            # "FATAL: Failed to connect to database: {:error, :enetunreach}" — Erlang's wording for
+            # ENETUNREACH, the same OS condition libpq surfaces as "Network is unreachable" (handled
+            # below). Unlike the sibling ":etimedout"/":econnrefused" tuples in
+            # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — a transient blip reaching a backend that's up —
+            # there's no route to the backend's network at all, which is deterministic for the
+            # configured host (an IPv6-only backend PostHog can't route to, or a firewall dropping our
+            # IPs), so retrying re-hits the same wall. Match the stable erlang-tuple fragment.
+            "{:error, :enetunreach}": _HOST_UNREACHABLE_ERROR,
             # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
             # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
             # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
@@ -403,6 +420,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("PAM authentication failed"). Your PostgreSQL server authenticates this user '
                 "through PAM (for example against the system password database or LDAP), and it "
                 "rejected the username or password. Check your credentials, then re-enable the sync."
+            ),
+            # Supavisor trips its own circuit breaker after repeated authentication failures against
+            # a tenant and temporarily refuses new connects, reporting "FATAL:  (ECIRCUITBREAKER) too
+            # many authentication failures, new connections are temporarily blocked". Distinct from
+            # the pooler-bookkeeping "(ECIRCUITBREAKER) failed to retrieve database credentials"
+            # variant kept retryable in postgres.py's `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — this one
+            # is tripped by the credentials themselves being rejected repeatedly, so it's the same
+            # deterministic class as "password authentication failed" and retrying with the same
+            # credentials just re-trips the breaker. Match the stable message, excluding the volatile
+            # host/port the raw driver text prefixes it with.
+            "too many authentication failures": (
+                "Your database's connection pooler has temporarily blocked new connections after "
+                'repeated authentication failures ("too many authentication failures"). This usually '
+                "means the configured username or password is wrong. Check your credentials, then "
+                "re-enable the sync."
             ),
             "could not translate host name": _DNS_RESOLUTION_ERROR,
             "timeout expired connection to server at": None,
