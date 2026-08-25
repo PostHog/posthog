@@ -172,6 +172,20 @@ describe('expandScheduleOccurrences', () => {
         ])
     })
 
+    it('gives a denied recurring cron schedule no occurrences', () => {
+        // The next cron run after the denied one is not computed client-side.
+        const schedules = [
+            change({
+                payload: STATUS_ON,
+                is_recurring: true,
+                cron_expression: '0 9 * * 1-5',
+                change_request: { id: 'cr-5', state: ScheduledChangeRequestState.Expired },
+            }),
+        ]
+
+        expect(expandScheduleOccurrences(schedules, flag(), NOW)).toEqual([])
+    })
+
     it('caps the total number of occurrences', () => {
         const schedules = [
             change({

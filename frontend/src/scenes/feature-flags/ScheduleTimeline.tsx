@@ -121,12 +121,16 @@ export function ScheduleTimeline({
     }
 
     let lastTimeLabelX = -Infinity
+    let lastTopLabelX = -Infinity
+    let topLabelLane = 0
 
     return (
-        <div className="flex flex-col gap-1" data-attr="feature-flag-schedule-timeline">
+        // The chart keeps a minimum width and scrolls horizontally instead of scaling its
+        // 9-unit labels below legibility on narrow viewports.
+        <div className="flex flex-col gap-1 overflow-x-auto" data-attr="feature-flag-schedule-timeline">
             <svg
                 viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                className="w-full max-w-3xl"
+                className="w-full max-w-3xl min-w-120"
                 role="img"
                 aria-label="Timeline of upcoming scheduled changes"
             >
@@ -173,6 +177,15 @@ export function ScheduleTimeline({
                     if (timeLabel) {
                         lastTimeLabelX = x
                     }
+                    // Status and variant labels share the top lane; alternate between two
+                    // heights when markers land at (or near) the same x so neither label
+                    // renders on top of the other.
+                    let topLabelY = MARGIN.top - 8
+                    if (!(isRolloutStep && rollout !== null)) {
+                        topLabelLane = x - lastTopLabelX < TIME_LABEL_MIN_GAP ? 1 - topLabelLane : 0
+                        lastTopLabelX = x
+                        topLabelY -= topLabelLane * 10
+                    }
                     return (
                         <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
                             {blocked && <title>Needs approval</title>}
@@ -216,7 +229,7 @@ export function ScheduleTimeline({
                                     />
                                     <text
                                         x={x}
-                                        y={MARGIN.top - 8}
+                                        y={topLabelY}
                                         textAnchor="middle"
                                         fontSize={9}
                                         fill="var(--color-text-secondary)"
