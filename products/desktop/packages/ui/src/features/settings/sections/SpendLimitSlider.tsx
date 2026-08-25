@@ -95,6 +95,14 @@ export function SpendLimitSlider({
     value: number;
   } | null>(null);
 
+  // A preempted pointer (trackpad or touch gesture the browser cancels
+  // mid-drag, or lost capture) must drop the live drag without committing, so
+  // the handle stops tracking the cursor and the callout falls back to the
+  // saved line. Mirrors the grid-drag cleanup.
+  const cancelDrag = (level: SpendLimitLevel) => {
+    setDrag((current) => (current?.level === level ? null : current));
+  };
+
   const liveWarn = drag?.level === "warn" ? drag.value : warnUsd;
   const liveStop = drag?.level === "stop" ? drag.value : stopUsd;
 
@@ -260,6 +268,8 @@ export function SpendLimitSlider({
                 onCommit(handle.level, drag.value);
                 setDrag(null);
               }}
+              onPointerCancel={() => cancelDrag(handle.level)}
+              onLostPointerCapture={() => cancelDrag(handle.level)}
               onKeyDown={(event) => {
                 const direction =
                   event.key === "ArrowRight" || event.key === "ArrowUp"
