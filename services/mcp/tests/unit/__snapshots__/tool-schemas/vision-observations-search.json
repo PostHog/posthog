@@ -27,7 +27,7 @@
             "type": "string"
         },
         "tags": {
-            "description": "Comma-separated classifier tags to keep. Matching is case- and format-insensitive.",
+            "description": "Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.",
             "minLength": 1,
             "type": "string"
         },
