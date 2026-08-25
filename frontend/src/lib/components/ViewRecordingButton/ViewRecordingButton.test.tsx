@@ -32,6 +32,14 @@ describe('recordingDisabledReason', () => {
         expect(recordingDisabledReason('0190-good-session', status, undefined)).not.toBeNull()
     })
 
+    it.each([['disabled'], ['missing_config']])(
+        'does not block the %s status once a recording is known to exist',
+        (status) => {
+            // $recording_status is per page load; a confirmed session recording must still be viewable.
+            expect(recordingDisabledReason('0190-good-session', status, true)).toBeNull()
+        }
+    )
+
     it.each([['lazy_loading'], ['awaiting_config'], ['paused'], ['some_future_status']])(
         'does not claim replay was off for the transient %s status',
         (status) => {

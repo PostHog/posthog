@@ -221,7 +221,10 @@ export const recordingDisabledReason = (
                 set it on all events.
             </>
         )
-    } else if (recordingStatus && REPLAY_INACTIVE_STATUSES.includes(recordingStatus)) {
+    } else if (recordingStatus && REPLAY_INACTIVE_STATUSES.includes(recordingStatus) && hasRecording !== true) {
+        // hasRecording !== true guards this branch: $recording_status describes one page load, but the
+        // button opens the whole session, so a confirmed recording must not be blocked. Mirrors the
+        // same guard in recordingWarningReason.
         return (
             <>
                 Replay was not active when capturing this event.{' '}
