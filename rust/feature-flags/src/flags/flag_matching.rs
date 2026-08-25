@@ -1592,9 +1592,8 @@ impl FeatureFlagMatcher {
         // the reason to carry a richer description. The API code still serializes as
         // "no_condition_match" for backward compatibility, but the description tells the
         // caller about the skipped group conditions.
-        // A cohort that can't be fully evaluated is the more actionable signal (it reaches
-        // real flag traffic), so it takes precedence over a skipped group condition when both
-        // downgraded the result to a plain no-match.
+        // A cohort that can't be fully evaluated takes precedence over a skipped group
+        // condition, because it reaches real flag traffic.
         if highest_match == FeatureFlagMatchReason::NoConditionMatch {
             if had_unevaluable_cohort_conditions {
                 highest_match = FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated;
@@ -1736,12 +1735,8 @@ impl FeatureFlagMatcher {
                     .person_properties
                     .unwrap_or(&*EMPTY_PROPERTY_MAP);
                 if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts.clone())? {
-                    // A non-match is not trustworthy when a targeted cohort carries a
-                    // behavioral or lifecycle leaf: the dynamic path can't resolve those, and
-                    // a realtime-routed cohort is treated as a non-member when realtime
-                    // evaluation is off. Surface a distinct reason so the person profile and
-                    // flag tester explain the non-match instead of showing a bare negative
-                    // that disagrees with the cohort's precomputed member list.
+                    // A non-match isn't trustworthy when a targeted cohort has a behavioral or
+                    // lifecycle leaf the dynamic path can't resolve, so flag it with a distinct reason.
                     let cohort_membership_unresolved = cohort_filters.iter().any(|filter| {
                         filter.get_cohort_id().is_some_and(|cohort_id| {
                             cohorts

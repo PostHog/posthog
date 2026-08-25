@@ -19,13 +19,8 @@ pub enum FeatureFlagMatchReason {
     /// enriched description carries the extra signal about skipped groups.
     #[strum(serialize = "no_condition_match_groups_not_evaluated")]
     NoConditionMatchGroupsNotEvaluated,
-    /// Person conditions were evaluated and didn't match, AND the non-match was decided by
-    /// a cohort whose membership this evaluator cannot fully resolve: a behavioral or
-    /// lifecycle cohort (the dynamic path skips those leaves), or a realtime-routed cohort
-    /// treated as a non-member when realtime evaluation is off. Such a non-match can
-    /// disagree with the cohort's precomputed member list, so this carries an enriched
-    /// description while still serializing as `no_condition_match` for backward
-    /// compatibility.
+    /// Person conditions didn't match, but the deciding cohort has a behavioral or lifecycle
+    /// leaf this evaluator can't fully resolve, so the non-match can disagree with the cohort.
     #[strum(serialize = "no_condition_match_cohort_not_evaluated")]
     NoConditionMatchCohortNotEvaluated,
     #[strum(serialize = "holdout_condition_value")]

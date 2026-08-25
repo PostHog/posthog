@@ -3972,11 +3972,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_behavioral_cohort_non_match_surfaces_cohort_not_evaluated_reason() {
-        // A flag targeting a cohort with a behavioral condition_type that resolves to a
-        // non-match must report NoConditionMatchCohortNotEvaluated, not a bare
-        // NoConditionMatch: the evaluator can't fully resolve behavioral membership, so the
-        // negative may disagree with the cohort's precomputed member list. This is the
-        // silent-wrong-answer the reason exists to explain.
+        // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
+        // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -4039,8 +4036,7 @@ mod tests {
     #[tokio::test]
     async fn test_person_property_cohort_non_match_keeps_plain_no_condition_match_reason() {
         // A cohort without a behavioral condition is fully evaluable from person properties,
-        // so a genuine non-match must stay NoConditionMatch — the cohort-not-evaluated reason
-        // must not over-label a trustworthy negative.
+        // so a genuine non-match must stay NoConditionMatch and not be over-labeled.
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),

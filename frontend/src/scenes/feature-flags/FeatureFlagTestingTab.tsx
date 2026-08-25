@@ -378,9 +378,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                             </div>
                                         </div>
 
-                                        {/* Enriched explanation for a non-match the coarse reason code can't convey,
-                                            such as a behavioral or realtime cohort whose membership isn't fully
-                                            evaluated here, so this result can disagree with the cohort's member list. */}
+                                        {/* Explains a non-match the coarse reason code can't convey, such as a
+                                            behavioral or realtime cohort whose membership isn't fully resolved here. */}
                                         {result.reason_description && (
                                             <LemonBanner type="info">{result.reason_description}</LemonBanner>
                                         )}
