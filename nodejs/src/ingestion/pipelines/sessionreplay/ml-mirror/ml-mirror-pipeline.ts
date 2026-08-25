@@ -192,6 +192,7 @@ export function createMlMirrorReplayPipeline(
                                                         ? withImagesProduced.pipe(
                                                               createProduceCollectedUrlsStep(
                                                                   urlFetch.outputs,
+                                                                  topHog,
                                                                   urlFetch.producedRefCacheMax,
                                                                   urlFetch.producedRefCacheWindowMs
                                                               )
