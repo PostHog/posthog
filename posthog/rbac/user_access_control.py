@@ -403,7 +403,7 @@ class UserAccessControl:
         # request resolves the same rules many times: project access several times, and each
         # object in a list response. The events carry no object id, so these repeats are
         # identical events. Report each distinct divergence once per request.
-        self._shadow_divergences_reported: set[tuple] = set()
+        self._reported_resolved_access_divergences: set[tuple] = set()
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
@@ -1778,9 +1778,9 @@ class UserAccessControl:
             return
 
         key = (kind, resource, current.access_level, proposed.access_level, current.source, proposed.source)
-        if key in self._shadow_divergences_reported:
+        if key in self._reported_resolved_access_divergences:
             return
-        self._shadow_divergences_reported.add(key)
+        self._reported_resolved_access_divergences.add(key)
 
         order = ordered_access_levels(resource)
         direction = "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
