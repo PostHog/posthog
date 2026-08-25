@@ -60,13 +60,13 @@ describe('featureFlagRequestUsageLogic', () => {
             ],
             series: [
                 {
-                    id: 0,
+                    id: expect.any(Number),
                     label: 'posthog-ruby (remote)',
                     dates: ['2026-08-20T00:00:00.000Z'],
                     data: [20],
                 },
                 {
-                    id: 1,
+                    id: expect.any(Number),
                     label: 'posthog-ruby (local)',
                     dates: ['2026-08-20T00:00:00.000Z'],
                     data: [3],
@@ -105,7 +105,7 @@ describe('featureFlagRequestUsageLogic', () => {
             largestSdk: expect.objectContaining({ sdk: 'posthog-node', billingUnitsShare: 100 }),
             series: [
                 {
-                    id: 0,
+                    id: expect.any(Number),
                     label: 'posthog-node (local)',
                     dates: ['2026-08-20T00:00:00.000Z'],
                     data: [100],
@@ -150,7 +150,7 @@ describe('featureFlagRequestUsageLogic', () => {
             dates: ['2026-08-20T00:00:00.000Z', '2026-08-20T01:00:00.000Z', '2026-08-20T02:00:00.000Z'],
             series: [
                 {
-                    id: 0,
+                    id: expect.any(Number),
                     label: 'posthog-node (remote)',
                     dates: ['2026-08-20T00:00:00.000Z', '2026-08-20T01:00:00.000Z', '2026-08-20T02:00:00.000Z'],
                     data: [0, 20, 0],
@@ -199,5 +199,34 @@ describe('featureFlagRequestUsageLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.usageResponse?.results[0].sdk).toBe('fresh-sdk')
+    })
+
+    it('keeps series IDs stable when filtering changes the visible series', async () => {
+        logic.actions.setDates('2026-08-20', '2026-08-20')
+        logic.actions.loadUsageResponseSuccess({
+            generated_at: '2026-08-21T00:00:00Z',
+            results: [
+                {
+                    bucket: '2026-08-20T00:00:00Z',
+                    request_type: 'remote_evaluation',
+                    sdk: 'posthog-node',
+                    request_count: 20,
+                    billing_units: 20,
+                },
+                {
+                    bucket: '2026-08-20T00:00:00Z',
+                    request_type: 'remote_evaluation',
+                    sdk: 'posthog-python',
+                    request_count: 10,
+                    billing_units: 10,
+                },
+            ],
+        })
+        const pythonSeriesId = logic.values.series.find(({ label }) => label.startsWith('posthog-python'))?.id
+
+        logic.actions.setSelectedSDKs(['posthog-python'])
+
+        expect(logic.values.series).toHaveLength(1)
+        expect(logic.values.series[0].id).toBe(pythonSeriesId)
     })
 })

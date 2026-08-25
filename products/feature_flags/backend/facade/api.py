@@ -23,7 +23,8 @@ signal the gate skips on (its policies target human-driven changes, and a reques
 caller cannot surface a 409/change request), so ``ApprovalRequired`` is never raised.
 """
 
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 
 from rest_framework.exceptions import ValidationError
 
@@ -36,6 +37,19 @@ from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.request_usage import (
+    FeatureFlagRequestType as FeatureFlagRequestType,
+    FeatureFlagRequestUsage,
+    query_feature_flag_request_usage,
+)
+
+
+def get_feature_flag_request_usage(
+    *, team_id: int, date_from: datetime, date_to: datetime, time_interval: Literal["hour", "day"]
+) -> list[FeatureFlagRequestUsage]:
+    return query_feature_flag_request_usage(
+        team_id=team_id, date_from=date_from, date_to=date_to, time_interval=time_interval
+    )
 
 
 def _serializer_context(team: Team, user: Any, request: Any | None, *, method: str = "POST") -> dict:

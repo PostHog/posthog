@@ -28,9 +28,8 @@ import {
 } from './featureFlagRequestUsageLogic'
 import { RequestUsageSummaryCard } from './RequestUsageSummaryCard'
 
-const DATE_OPTIONS = dateMapping.filter(({ values }) =>
-    values.some((value) => ['dStart', '-1dStart', '-1dEnd', '-24h', '-7d', '-14d', '-30d'].includes(value))
-)
+const DATE_OPTION_KEYS = new Set(['Today', 'Yesterday', 'Last 24 hours', 'Last 7 days', 'Last 14 days', 'Last 30 days'])
+const DATE_OPTIONS = dateMapping.filter(({ key }) => DATE_OPTION_KEYS.has(key))
 
 export function FeatureFlagRequestUsage(): JSX.Element {
     const {
@@ -114,14 +113,6 @@ export function FeatureFlagRequestUsage(): JSX.Element {
         return <Spinner className="m-8" />
     }
 
-    if (loadError) {
-        return (
-            <LemonBanner type="error">
-                Couldn't load feature flag request usage. Refresh the page, and contact support if it keeps failing.
-            </LemonBanner>
-        )
-    }
-
     return (
         <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -136,6 +127,7 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                         onChange={setDates}
                         dateOptions={DATE_OPTIONS}
                         max={30}
+                        allowedRollingDateOptions={['days']}
                         allowFixedRangeWithTime
                         allowTimePrecision
                     />
@@ -166,6 +158,13 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+
+            {loadError && (
+                <LemonBanner type="error">
+                    Couldn't load feature flag request usage. Adjust the date range or grouping and try again. Contact
+                    support if it keeps failing.
+                </LemonBanner>
+            )}
 
             <LemonBanner type="info">
                 This view shows billable requests, not every HTTP request. Remote requests include <code>/flags</code>{' '}
@@ -208,56 +207,62 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <RequestUsageSummaryCard label="Remote requests" value={totalRemoteRequests} />
-                <RequestUsageSummaryCard label="Local requests" value={totalLocalRequests} />
-                <RequestUsageSummaryCard label="Billing units" value={totalBillingUnits} />
-                <LemonCard className="p-4">
-                    <div className="text-secondary">Largest SDK contributor</div>
-                    <div className="text-2xl font-semibold truncate">{largestSdk?.sdk ?? '—'}</div>
-                    {largestSdk && (
-                        <div className="text-secondary tabular-nums">
-                            {largestSdk.billingUnitsShare.toFixed(1)}% of billing units
-                        </div>
-                    )}
-                </LemonCard>
-            </div>
-
-            {sdkTotals.length === 0 ? (
-                <LemonBanner type="info">
-                    No SDK-level request usage matches these filters. Try a wider date range or clear a filter.
-                </LemonBanner>
-            ) : (
+            {!loadError && (
                 <>
-                    <LemonCard className="p-4">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <h3 className="m-0">{metric === 'requests' ? 'Requests' : 'Billing units'} over time</h3>
-                            <LemonSegmentedButton<FeatureFlagRequestUsageMetric>
-                                size="small"
-                                value={metric}
-                                onChange={setMetric}
-                                options={[
-                                    { value: 'requests', label: 'Requests' },
-                                    { value: 'billing_units', label: 'Billing units' },
-                                ]}
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <RequestUsageSummaryCard label="Remote requests" value={totalRemoteRequests} />
+                        <RequestUsageSummaryCard label="Local requests" value={totalLocalRequests} />
+                        <RequestUsageSummaryCard label="Billing units" value={totalBillingUnits} />
+                        <LemonCard className="p-4">
+                            <div className="text-secondary">Largest SDK contributor</div>
+                            <div className="text-2xl font-semibold truncate">{largestSdk?.sdk ?? '—'}</div>
+                            {largestSdk && (
+                                <div className="text-secondary tabular-nums">
+                                    {largestSdk.billingUnitsShare.toFixed(1)}% of billing units
+                                </div>
+                            )}
+                        </LemonCard>
+                    </div>
+
+                    {sdkTotals.length === 0 ? (
+                        <LemonBanner type="info">
+                            No SDK-level request usage matches these filters. Try a wider date range or clear a filter.
+                        </LemonBanner>
+                    ) : (
+                        <>
+                            <LemonCard className="p-4">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <h3 className="m-0">
+                                        {metric === 'requests' ? 'Requests' : 'Billing units'} over time
+                                    </h3>
+                                    <LemonSegmentedButton<FeatureFlagRequestUsageMetric>
+                                        size="small"
+                                        value={metric}
+                                        onChange={setMetric}
+                                        options={[
+                                            { value: 'requests', label: 'Requests' },
+                                            { value: 'billing_units', label: 'Billing units' },
+                                        ]}
+                                    />
+                                </div>
+                                <BillingLineGraph
+                                    series={series}
+                                    dates={dates}
+                                    isLoading={usageResponseLoading}
+                                    hiddenSeries={[]}
+                                    interval={interval}
+                                    legendInteractive
+                                />
+                            </LemonCard>
+                            <LemonTable
+                                columns={columns}
+                                dataSource={sdkTotals}
+                                rowKey="sdk"
+                                loading={usageResponseLoading}
+                                defaultSorting={{ columnKey: 'billingUnits', order: -1 }}
                             />
-                        </div>
-                        <BillingLineGraph
-                            series={series}
-                            dates={dates}
-                            isLoading={usageResponseLoading}
-                            hiddenSeries={[]}
-                            interval={interval}
-                            legendInteractive
-                        />
-                    </LemonCard>
-                    <LemonTable
-                        columns={columns}
-                        dataSource={sdkTotals}
-                        rowKey="sdk"
-                        loading={usageResponseLoading}
-                        defaultSorting={{ columnKey: 'billingUnits', order: -1 }}
-                    />
+                        </>
+                    )}
                 </>
             )}
         </div>

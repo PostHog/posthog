@@ -654,8 +654,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        setFeatureFlags: ({ variants }) => {
-            if (!variants[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE] && values.activeTab === FeatureFlagsTab.USAGE) {
+        setFeatureFlags: () => {
+            if (
+                !values.enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE] &&
+                values.activeTab === FeatureFlagsTab.USAGE
+            ) {
                 actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
             }
         },

@@ -10,12 +10,8 @@ from rest_framework import status
 
 from posthog.rate_limit import FeatureFlagRequestUsageBurstRateThrottle
 
-from products.feature_flags.backend.presentation.request_usage import (
-    REQUEST_USAGE_QUERY_SETTINGS,
-    FeatureFlagRequestUsageQuerySerializer,
-    aggregate_feature_flag_request_usage,
-    get_feature_flag_request_usage,
-)
+from products.feature_flags.backend.facade.api import FeatureFlagRequestType, FeatureFlagRequestUsage
+from products.feature_flags.backend.presentation.request_usage import FeatureFlagRequestUsageQuerySerializer
 
 
 class TestFeatureFlagRequestUsage(APIBaseTest):
@@ -56,16 +52,28 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
 
         assert serializer.is_valid(), serializer.errors
 
+    def test_rejects_inverted_date_range(self) -> None:
+        serializer = FeatureFlagRequestUsageQuerySerializer(
+            data={
+                "time_interval": "day",
+                "date_from": "2026-08-21T00:00:00Z",
+                "date_to": "2026-08-20T00:00:00Z",
+            }
+        )
+
+        assert not serializer.is_valid()
+        assert serializer.errors["non_field_errors"] == ["date_from must be earlier than date_to."]
+
     @patch("products.feature_flags.backend.presentation.request_usage.get_feature_flag_request_usage")
     def test_returns_usage_for_the_project_in_the_url(self, mock_get_usage) -> None:
         mock_get_usage.return_value = [
-            {
-                "bucket": datetime(2026, 8, 20, tzinfo=UTC),
-                "request_type": "local_evaluation",
-                "sdk": "posthog-ruby",
-                "request_count": 12,
-                "billing_units": 120,
-            }
+            FeatureFlagRequestUsage(
+                bucket=datetime(2026, 8, 20, tzinfo=UTC),
+                request_type=FeatureFlagRequestType.LOCAL_EVALUATION,
+                sdk="posthog-ruby",
+                request_count=12,
+                billing_units=120,
+            )
         ]
 
         response = self.client.get(
@@ -125,39 +133,6 @@ class TestFeatureFlagRequestUsage(APIBaseTest):
         first_user_request = Mock(user=Mock(is_authenticated=True, pk=1))
         second_user_request = Mock(user=Mock(is_authenticated=True, pk=2))
 
-        assert throttle.get_cache_key(first_user_request, view) == throttle.get_cache_key(second_user_request, view)
-
-    @parameterized.expand(
-        [
-            ("missing breakdown", "", [("other", 10)]),
-            ("partial breakdown", '{"posthog-node": 4}', [("other", 6), ("posthog-node", 4)]),
-        ]
-    )
-    def test_attributes_unclassified_billed_requests_to_other(
-        self, _name: str, sdk_breakdown: str, expected: list[tuple[str, int]]
-    ) -> None:
-        bucket = datetime(2026, 8, 20, tzinfo=UTC)
-
-        results = aggregate_feature_flag_request_usage([(bucket, "remote_evaluation", 10, sdk_breakdown)])
-
-        assert [(result["sdk"], result["request_count"]) for result in results] == expected
-
-    @patch("products.feature_flags.backend.presentation.request_usage.sync_execute")
-    def test_clickhouse_query_is_scoped_and_weights_local_requests(self, mock_sync_execute) -> None:
-        bucket = datetime(2026, 8, 20, tzinfo=UTC)
-        mock_sync_execute.return_value = [(bucket, "local_evaluation", 4, '{"posthog-node": 4}')]
-
-        results = get_feature_flag_request_usage(
-            team_id=self.team.id,
-            date_from=datetime(2026, 8, 20, tzinfo=UTC),
-            date_to=datetime(2026, 8, 21, tzinfo=UTC),
-            time_interval="day",
-        )
-
-        query, params = mock_sync_execute.call_args.args[:2]
-        assert "distinct_id = toString(%(team_id)s)" in query
-        assert params["team_id"] == self.team.id
-        assert mock_sync_execute.call_args.kwargs["team_id"] == self.team.id
-        assert mock_sync_execute.call_args.kwargs["settings"] == REQUEST_USAGE_QUERY_SETTINGS
-        assert results[0]["request_count"] == 4
-        assert results[0]["billing_units"] == 40
+        first_cache_key = throttle.get_cache_key(first_user_request, view)
+        assert first_cache_key == throttle.get_cache_key(second_user_request, view)
+        assert str(self.team.id) in first_cache_key

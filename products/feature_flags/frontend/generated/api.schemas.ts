@@ -378,9 +378,10 @@ export interface EvaluationContextSuggestionResponseApi {
  * * `remote_evaluation` - remote_evaluation
  * * `local_evaluation` - local_evaluation
  */
-export type RequestTypeEnumApi = (typeof RequestTypeEnumApi)[keyof typeof RequestTypeEnumApi]
+export type FeatureFlagRequestTypeEnumApi =
+    (typeof FeatureFlagRequestTypeEnumApi)[keyof typeof FeatureFlagRequestTypeEnumApi]
 
-export const RequestTypeEnumApi = {
+export const FeatureFlagRequestTypeEnumApi = {
     RemoteEvaluation: 'remote_evaluation',
     LocalEvaluation: 'local_evaluation',
 } as const
@@ -392,7 +393,7 @@ export interface FeatureFlagRequestUsageItemApi {
      *
      * * `remote_evaluation` - remote_evaluation
      * * `local_evaluation` - local_evaluation */
-    request_type: RequestTypeEnumApi
+    request_type: FeatureFlagRequestTypeEnumApi
     /** SDK family parsed from the request user agent. */
     sdk: string
     /** Number of billable requests in this bucket. */

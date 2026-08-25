@@ -13,6 +13,8 @@ export type FeatureFlagRequestUsageInterval = 'hour' | 'day'
 export type FeatureFlagRequestUsageMetric = 'requests' | 'billing_units'
 export type FeatureFlagRequestTypeFilter = 'all' | 'remote_evaluation' | 'local_evaluation'
 
+// DateFilter's "Last 7 days" starts at midnight seven days ago and can therefore
+// span almost eight elapsed days. Keep this aligned with the backend validator.
 export const MAX_HOURLY_RANGE_DAYS = 8
 
 export interface FeatureFlagRequestUsageSeries {
@@ -36,13 +38,22 @@ interface ResolvedDateRange {
 }
 
 function resolveDateRange(dateFrom: string, dateTo: string | null): ResolvedDateRange {
-    const resolvedDateTo = dateTo ? (dateStringToDayJs(dateTo) ?? dayjs(dateTo)) : null
+    const parsedDateTo = dateTo ? (dateStringToDayJs(dateTo) ?? dayjs(dateTo)) : null
+    // A date-only value such as "2026-08-20" represents that entire calendar day.
+    const inclusiveDateTo = parsedDateTo && !dateTo?.includes('T') ? parsedDateTo.endOf('day') : parsedDateTo
     return {
         dateFrom: dateStringToDayJs(dateFrom) ?? dayjs().subtract(30, 'day'),
-        dateTo: resolvedDateTo
-            ? (dateTo?.includes('T') ? resolvedDateTo : resolvedDateTo.endOf('day')).add(1, 'millisecond')
-            : dayjs(),
+        // The API treats date_to as exclusive, so step past the inclusive picker value.
+        dateTo: inclusiveDateTo ? inclusiveDateTo.add(1, 'millisecond') : dayjs(),
     }
+}
+
+function stableSeriesId(label: string): number {
+    let hash = 0
+    for (let index = 0; index < label.length; index++) {
+        hash = (Math.imul(31, hash) + label.charCodeAt(index)) | 0
+    }
+    return hash >>> 0
 }
 
 function buildDates(dateFrom: string, dateTo: string | null, interval: FeatureFlagRequestUsageInterval): string[] {
@@ -272,8 +283,8 @@ export const featureFlagRequestUsageLogic = kea<featureFlagRequestUsageLogicType
                     values.set(bucket, (values.get(bucket) ?? 0) + value)
                     seriesByLabel.set(label, values)
                 }
-                return Array.from(seriesByLabel.entries()).map(([label, values], id) => ({
-                    id,
+                return Array.from(seriesByLabel.entries()).map(([label, values]) => ({
+                    id: stableSeriesId(label),
                     label,
                     dates,
                     data: dates.map((date) => values.get(date) ?? 0),

@@ -37954,10 +37954,10 @@ export namespace Schemas {
      * * `remote_evaluation` - remote_evaluation
      * * `local_evaluation` - local_evaluation
      */
-    export type RequestTypeEnum = typeof RequestTypeEnum[keyof typeof RequestTypeEnum];
+    export type FeatureFlagRequestTypeEnum = typeof FeatureFlagRequestTypeEnum[keyof typeof FeatureFlagRequestTypeEnum];
 
 
-    export const RequestTypeEnum = {
+    export const FeatureFlagRequestTypeEnum = {
       RemoteEvaluation: 'remote_evaluation',
       LocalEvaluation: 'local_evaluation',
     } as const;
@@ -37969,7 +37969,7 @@ export namespace Schemas {
        *
        * * `remote_evaluation` - remote_evaluation
        * * `local_evaluation` - local_evaluation */
-      request_type: RequestTypeEnum;
+      request_type: FeatureFlagRequestTypeEnum;
       /** SDK family parsed from the request user agent. */
       sdk: string;
       /** Number of billable requests in this bucket. */

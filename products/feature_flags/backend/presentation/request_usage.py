@@ -1,10 +1,5 @@
-import json
-from collections import defaultdict
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Literal, TypedDict, cast
-
-from django.conf import settings
+from typing import Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, viewsets
@@ -16,26 +11,17 @@ from posthog.schema import ProductKey
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
-from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import FeatureFlagRequestUsageBurstRateThrottle, FeatureFlagRequestUsageSustainedRateThrottle
-from posthog.utils import get_instance_region
 
-LOCAL_BILLING_ANALYTICS_TOKEN = "local-development"
+from products.feature_flags.backend.facade.api import FeatureFlagRequestType, get_feature_flag_request_usage
+
 FEATURE_FLAG_REQUEST_USAGE_FLAG = "feature-flag-request-usage"
+# The shared "Last 7 days" preset starts at midnight seven days ago and ends now,
+# so it can span almost eight elapsed days. Keep this aligned with the frontend limit.
 MAX_HOURLY_RANGE_DAYS = 8
 MAX_DAILY_RANGE_DAYS = 31
-REQUEST_USAGE_QUERY_SETTINGS = {
-    "max_execution_time": 30,
-    "max_bytes_to_read": 100 * 1024 * 1024 * 1024,
-    "max_memory_usage": 2 * 1024 * 1024 * 1024,
-    "max_threads": 4,
-}
 
 
 class FeatureFlagRequestUsageQuerySerializer(serializers.Serializer):
@@ -68,7 +54,7 @@ class FeatureFlagRequestUsageItemSerializer(serializers.Serializer):
         help_text="Start of the UTC billing-aggregation bucket. Hourly buckets approximate request time."
     )
     request_type = serializers.ChoiceField(
-        choices=["remote_evaluation", "local_evaluation"],
+        choices=list(FeatureFlagRequestType),
         help_text="Remote flag evaluation or local flag-definition request.",
     )
     sdk = serializers.CharField(help_text="SDK family parsed from the request user agent.")
@@ -82,96 +68,6 @@ class FeatureFlagRequestUsageItemSerializer(serializers.Serializer):
 class FeatureFlagRequestUsageResponseSerializer(serializers.Serializer):
     results = FeatureFlagRequestUsageItemSerializer(many=True, help_text="Feature flag request usage by SDK.")
     generated_at = serializers.DateTimeField(help_text="Time when this response was generated.")
-
-
-class FeatureFlagRequestUsageItem(TypedDict):
-    bucket: datetime
-    request_type: Literal["remote_evaluation", "local_evaluation"]
-    sdk: str
-    request_count: int
-    billing_units: int
-
-
-FeatureFlagRequestUsageRow = tuple[datetime, Literal["remote_evaluation", "local_evaluation"], int, str]
-
-
-def aggregate_feature_flag_request_usage(
-    rows: Iterable[FeatureFlagRequestUsageRow],
-) -> list[FeatureFlagRequestUsageItem]:
-    counts: defaultdict[tuple[datetime, str, str], int] = defaultdict(int)
-    for bucket, request_type, total_count, raw_sdk_breakdown in rows:
-        try:
-            parsed_breakdown = json.loads(raw_sdk_breakdown) if raw_sdk_breakdown else {}
-        except json.JSONDecodeError:
-            parsed_breakdown = {}
-        sdk_breakdown = (
-            {sdk: count for sdk, count in parsed_breakdown.items() if isinstance(sdk, str) and isinstance(count, int)}
-            if isinstance(parsed_breakdown, dict)
-            else {}
-        )
-        for sdk, count in sdk_breakdown.items():
-            counts[(bucket, request_type, sdk)] += count
-        counts[(bucket, request_type, "other")] += max(total_count - sum(sdk_breakdown.values()), 0)
-
-    return [
-        {
-            "bucket": bucket,
-            "request_type": cast(Literal["remote_evaluation", "local_evaluation"], request_type),
-            "sdk": sdk,
-            "request_count": request_count,
-            "billing_units": request_count * (10 if request_type == "local_evaluation" else 1),
-        }
-        for (bucket, request_type, sdk), request_count in sorted(counts.items())
-        if request_count > 0
-    ]
-
-
-def get_feature_flag_request_usage(
-    *, team_id: int, date_from: datetime, date_to: datetime, time_interval: Literal["hour", "day"]
-) -> list[FeatureFlagRequestUsageItem]:
-    internal_team_id = 1 if get_instance_region() == "EU" else 2
-    validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-    if settings.DEBUG and not validity_token:
-        validity_token = LOCAL_BILLING_ANALYTICS_TOKEN
-    use_new = use_new_events_schema(None)
-    sdk_breakdown_expr, _ = get_property_string_expr(
-        "events", "sdk_breakdown", "'sdk_breakdown'", "properties", use_new_events_schema=use_new
-    )
-    count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
-    token_expr, _ = get_property_string_expr("events", "token", "'token'", "properties", use_new_events_schema=use_new)
-    bucket_function = "toStartOfHour" if time_interval == "hour" else "toStartOfDay"
-
-    with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, team_id=team_id):
-        # nosemgrep: clickhouse-fstring-param-audit - bucket function and table expressions are internal allowlisted fragments
-        rows = sync_execute(
-            f"""
-            SELECT
-                {bucket_function}(timestamp) AS bucket,
-                if(event = 'decide usage', 'remote_evaluation', 'local_evaluation') AS request_type,
-                toInt64OrZero({count_expr}) AS total_count,
-                {sdk_breakdown_expr} AS sdk_breakdown
-            FROM {events_read_table(use_new)}
-            WHERE team_id = %(internal_team_id)s
-              AND distinct_id = toString(%(team_id)s)
-              AND event IN ('decide usage', 'local evaluation usage')
-              AND timestamp >= %(date_from)s AND timestamp < %(date_to)s
-              AND has([%(validity_token)s], {token_expr})
-            ORDER BY bucket, request_type
-            """,
-            {
-                "internal_team_id": internal_team_id,
-                "team_id": team_id,
-                "date_from": date_from,
-                "date_to": date_to,
-                "validity_token": validity_token,
-            },
-            workload=Workload.ONLINE,
-            team_id=team_id,
-            settings=REQUEST_USAGE_QUERY_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
-        )
-
-    return aggregate_feature_flag_request_usage(rows)
 
 
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
@@ -205,4 +101,18 @@ class FeatureFlagRequestUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             date_to=cast(datetime, query["date_to"]),
             time_interval=cast(Literal["hour", "day"], query["time_interval"]),
         )
-        return Response({"results": results, "generated_at": datetime.now(UTC)})
+        return Response(
+            {
+                "results": [
+                    {
+                        "bucket": item.bucket,
+                        "request_type": item.request_type.value,
+                        "sdk": item.sdk,
+                        "request_count": item.request_count,
+                        "billing_units": item.billing_units,
+                    }
+                    for item in results
+                ],
+                "generated_at": datetime.now(UTC),
+            }
+        )

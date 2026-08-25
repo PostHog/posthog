@@ -306,6 +306,17 @@ describe('the feature flags logic', () => {
         expect(router.values.searchParams['tab']).toEqual('overview')
     })
 
+    it('stays on usage when the rollout flag is enabled', async () => {
+        enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE], {
+            [FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]: true,
+        })
+
+        await expectLogic(logic, () => {
+            router.actions.push(urls.featureFlags(), { tab: FeatureFlagsTab.USAGE })
+        }).toMatchValues({ activeTab: FeatureFlagsTab.USAGE })
+        expect(router.values.searchParams['tab']).toEqual('usage')
+    })
+
     describe('activity deep-link', () => {
         it('preserves the activity deep-link param when staying on the history tab', async () => {
             router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })
