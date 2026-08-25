@@ -701,7 +701,7 @@ export class PersonMergeService {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
-            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+            const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                 type: 'cannot_merge_already_identified',
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
@@ -712,12 +712,12 @@ export class PersonMergeService {
                     otherPersonId: otherPerson.uuid,
                 },
                 pipelineStep: 'person-merge',
-                alwaysSend: true,
-            })
+                key: mergeIntoDistinctId,
+            }).then(() => undefined)
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
-            return mergeSuccess(mergeInto, Promise.resolve(), true)
+            return mergeSuccess(mergeInto, warningAck, true)
         }
 
         // How the merge works:
