@@ -16,7 +16,7 @@ from posthog.models.user import User
 from products.signals.backend.facade.api import (
     enable_onboarding_signal_sources,
     recent_inbox_reports,
-    visible_report_count,
+    waiting_report_count,
 )
 from products.tasks.backend.facade.api import (
     create_and_run_task,
@@ -94,7 +94,7 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
             OnboardingFacts(
                 org_has_context=True,
                 has_events=bool(team.ingested_event),
-                signal_reports_waiting=visible_report_count(team.id),
+                signal_reports_waiting=waiting_report_count(team.id),
                 reports_to_offer=reports_to_offer,
                 other_members=prose_list(desktop_users_in_team(team, user.id)),
                 sources_enabled=sources.labels,
@@ -110,7 +110,7 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         org_has_context=False,
         research=research,
         has_events=bool(team.ingested_event),
-        signal_reports_waiting=visible_report_count(team.id),
+        signal_reports_waiting=waiting_report_count(team.id),
         reports_to_offer=reports_to_offer,
         sources_enabled=sources.labels,
         sources_watching=sources.watches,

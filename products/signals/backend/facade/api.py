@@ -257,9 +257,21 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
-def visible_report_count(team_id: int) -> int:
-    """How many reports have surfaced to this team's inbox."""
-    return SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False).count()
+# The two statuses a reader still has something to do about, and the only two that stamp
+# `first_visible_at`. An allowlist rather than a denylist, so a status added later is not silently
+# offered to a first-time user.
+_OFFERABLE_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+
+
+def waiting_report_count(team_id: int) -> int:
+    """How many reports are still waiting in this team's inbox.
+
+    Counts what `recent_inbox_reports` can offer, so a caller cannot claim more findings are
+    waiting than it can then name.
+    """
+    return SignalReport.objects.filter(
+        team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES
+    ).count()
 
 
 @frozen
@@ -274,14 +286,15 @@ _REPORT_TITLE_LIMIT = 120
 
 
 def recent_inbox_reports(team_id: int, limit: int = 3) -> list[InboxReportSummary]:
-    """The newest reports still sitting in the team's inbox, newest first.
+    """The newest reports still waiting in the team's inbox, newest first.
 
-    Archived and deleted reports are left out: they are the ones a reader can no longer act on.
+    `first_visible_at` is stamped once and never cleared, so a report that surfaced and has since
+    been resolved, archived or re-run still carries it. The status filter is what keeps a finished
+    finding from being offered as one that is waiting.
     A report with no title yet is skipped rather than offered as a blank row.
     """
     rows = (
-        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False)
-        .exclude(status__in=(SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED))
+        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES)
         .exclude(title__isnull=True)
         .exclude(title="")
         .order_by("-first_visible_at")
