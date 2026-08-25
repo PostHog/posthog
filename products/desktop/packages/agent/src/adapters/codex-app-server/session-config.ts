@@ -232,6 +232,15 @@ export interface RawModel {
   supportedReasoningEfforts?: Array<{ reasoningEffort?: string } | string>;
 }
 
+/** The per-turn `collaborationMode` payload sent on `turn/start`. */
+export interface CodexTurnCollaborationMode {
+  mode: "plan" | "default";
+  settings: {
+    model: string;
+    reasoning_effort?: string;
+  };
+}
+
 /**
  * Stateful holder for a codex session's model / effort / mode selectors and the
  * ACP `configOptions` derived from them — synthesizing the Claude-style picker
@@ -383,7 +392,7 @@ export class SessionConfigState {
    * is and reads the turn's `effort` param only when no collaboration mode is sent, so the
    * pinned effort has to ride along here or every turn runs at the model's default effort.
    */
-  collaborationModeForTurn(): unknown {
+  collaborationModeForTurn(): CodexTurnCollaborationMode {
     return {
       mode: collaborationModeFor(this._mode),
       settings: {
