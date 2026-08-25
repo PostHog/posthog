@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -53,6 +54,21 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
     const isAiPrompt = searchParams.resource_type === SubscriptionResourceTypes.AiPrompt
     const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
     const isWizard = isCreating && (insightShortId || dashboard || isAiPrompt) && subscriptionWizardExperimentEnabled
+    const modalWasOpen = useRef(false)
+    useEffect(() => {
+        if (!isOpen) {
+            modalWasOpen.current = false
+            return
+        }
+        if (!isCreating || modalWasOpen.current) {
+            return
+        }
+        modalWasOpen.current = true
+        posthog.capture('subscription creation modal opened', {
+            creation_source: isWizard ? 'wizard' : 'editor',
+            resource_type: isAiPrompt ? 'ai' : dashboard ? 'dashboard' : 'insight',
+        })
+    }, [dashboard, isAiPrompt, isCreating, isOpen, isWizard])
     const cancelWizard = (): void => push(urlForSubscriptions(baseProps))
     const requestWizardCancel = (): void => {
         const wizardForm = subscriptionLogic.findMounted({
