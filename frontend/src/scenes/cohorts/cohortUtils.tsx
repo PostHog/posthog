@@ -142,6 +142,7 @@ export function createCohortFormData(
                   }
                 : /* Overwrite value with value_property for cases where value is not a behavior enum (i.e., cohort and person filters) */
                   {
+                      filterTestAccounts: !!cohort.filters.filterTestAccounts,
                       properties: {
                           ...applyAllCriteriaGroup(
                               applyAllNestedCriteria(cohort, (criteriaList) =>
@@ -564,6 +565,7 @@ export function applyAllCriteriaGroup(
     return {
         ...oldCohort,
         filters: {
+            ...oldCohort.filters,
             properties: {
                 ...oldCohort.filters.properties,
                 values: fn(oldCohort.filters.properties.values) as AnyCohortCriteriaType[],
@@ -580,6 +582,7 @@ export function applyAllNestedCriteria(
     return {
         ...oldCohort,
         filters: {
+            ...oldCohort.filters,
             properties: {
                 ...oldCohort.filters.properties,
                 values: (oldCohort.filters.properties.values?.map((group, groupI) =>

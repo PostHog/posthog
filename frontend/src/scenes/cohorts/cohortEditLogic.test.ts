@@ -1351,5 +1351,33 @@ describe('cohortEditLogic', () => {
                 }),
             })
         })
+
+        // Every criteria edit rebuilds `filters` through applyAllCriteriaGroup or
+        // applyAllNestedCriteria, so the flag has to survive the rebuild. Otherwise turning the
+        // switch on and then touching any criterion silently turns it back off before saving.
+        it.each([
+            ['setInnerGroupType', (l: typeof logic) => l.actions.setInnerGroupType(FilterLogicalOperator.Or, 0)],
+            ['addFilter (group)', (l: typeof logic) => l.actions.addFilter()],
+            ['addFilter (criterion)', (l: typeof logic) => l.actions.addFilter(0)],
+            ['duplicateFilter', (l: typeof logic) => l.actions.duplicateFilter(0)],
+            ['removeFilter', (l: typeof logic) => l.actions.removeFilter(0, 0)],
+            [
+                'setCriteria',
+                (l: typeof logic) =>
+                    l.actions.setCriteria(
+                        { type: BehavioralFilterKey.Behavioral, value: BehavioralEventType.PerformEvent },
+                        0,
+                        0
+                    ),
+            ],
+        ])('%s preserves the filterTestAccounts flag', async (_name, editCriteria) => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+                editCriteria(logic)
+            }).toMatchValues({
+                cohort: partial({ filters: partial({ filterTestAccounts: true }) }),
+            })
+        })
     })
 })
