@@ -211,7 +211,6 @@ function ReportChatConversation({
           <Button
             type="button"
             variant="primary"
-            size="lg"
             className="flex-1 rounded-lg"
             loading={sendingPrompt === workPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
@@ -223,7 +222,6 @@ function ReportChatConversation({
           <Button
             type="button"
             variant="outline"
-            size="lg"
             className="flex-1 rounded-lg"
             loading={sendingPrompt === canvasPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
@@ -354,9 +352,8 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
               key={label}
               type="button"
               variant={variant}
-              size="lg"
               left
-              className="rounded-lg px-3"
+              className="rounded-lg"
               // Once the composer holds a typed draft or a quoted passage, the
               // one-click chips step aside — firing a chip must not silently
               // discard what the user wrote or highlighted.
