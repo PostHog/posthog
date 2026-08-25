@@ -8,7 +8,6 @@ import {
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
 } from '~/scenes/experiments/constants'
-import { isLaunched } from '~/scenes/experiments/experimentsLogic'
 import { Experiment, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import {
@@ -30,6 +29,7 @@ import {
     LegacyVariantTooltip,
     legacyGenerateViolinPath,
 } from 'products/experiments/frontend/legacy'
+import { isLaunched } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 // Chart configuration types
 type ChartDimensions = {
