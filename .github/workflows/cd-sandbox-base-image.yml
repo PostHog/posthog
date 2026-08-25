@@ -29,8 +29,11 @@ jobs:
         # but its read-only GITHUB_TOKEN cannot push to ghcr.io. Skipping here leaves
         # `sandbox_image` unset so both build jobs skip too, which keeps a fork off
         # the skills build it would only pay for to fail at the push.
+        # trunk-merge/** heads are skipped the same way: merge-queue PRs are ephemeral,
+        # nothing pulls images pushed for them, and each constituent PR already built its own.
         if: |
             github.repository_owner == 'PostHog' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         name: Determine if sandbox image needs to be built
         permissions:
