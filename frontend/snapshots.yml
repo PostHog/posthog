@@ -6765,13 +6765,13 @@ snapshots:
     scenes-app-inbox-scene--installing-self-driving--light:
         hash: v1.k794b7964.44a79a0117f5a912252a4c7c7685fca78693fc92c9b5d06bba7e928913235663.DfHZQMzgqHbKBJAEZ3XBRpom-q0KbSRt_QYmOnJOCAQ
     scenes-app-inbox-scene--self-driving-onboarding--dark:
-        hash: v1.k794b7964.7602d02fad26586f0a4773abe0fbe76ad39c625403c7648ec58ff711aa38d3a0.9ssGMF2bvYFiK299rvJqLc9mbtZk4SeJHRoWnZP3Ed8
+        hash: v1.k794b7964.e72ae40c380837255da720cddfdd3d15f724ef89afc42c07a97574fe729564b1.g3GQWyt4tXpPNvsJQ6owZhCkszpZEyk_0LzugUf7V50
     scenes-app-inbox-scene--self-driving-onboarding--light:
-        hash: v1.k794b7964.1d33a5483b26e38bf27cd31127bb72823b17f7dbbb8589a0d9799248c3fd8d4e.VPilMfZl7QjFLuR1IpcAFSnkmf9gzb6qh5p0-rBoCpk
+        hash: v1.k794b7964.e0339822d528a7dc7fa8d13f3d7f1938fc1512011fbdf44579eb8a1269d31d5d.7My7XZH6KRDGhuhHvLRyNAmGHONzRdE25B1pt0d_9v4
     scenes-app-inbox-scene--self-driving-onboarding-redesign--dark:
-        hash: v1.k794b7964.a9b064dbf70e2dff0e3147c17ed0d6b924faa2e2a1d3b7b3723e5683b9af10d0.TJpI5NRs856RifBeff4jnkxIvSFACvygFf-UKT9G9Yo
+        hash: v1.k794b7964.6b7b2950c3a0df456074962aada4405283deea5158415e032f0b0f8f25e5dbc2.tm21mB5drTdEcJGDLgLSUiX8Rvel7_-Yt5GbSLLTwsA
     scenes-app-inbox-scene--self-driving-onboarding-redesign--light:
-        hash: v1.k794b7964.c2f7366b673e20e85513c454effae314d643958a3d2424e7902d572909f024fe.edek45zj8tVjVDjsqgddUJUnPKAHanQkzZwR5Ylr93Q
+        hash: v1.k794b7964.5268ad52b39cdc5bb1d699e6a1a839a552ce397134d6773714e1f5a2d95994b6.FhF72MKwXItKEYkZGQPVBzIVP03-mAXJSlwfA5OlL8I
     scenes-app-inbox-scene--self-driving-paused--dark:
         hash: v1.k794b7964.ffc5557c01bbfb5497cbbc60ddec9df93367eef9507d600b9ac37f436eb92985.8pdD_uKVmeemQVwO3E6g526Fq7681IhrC2PA5AKCaiY
     scenes-app-inbox-scene--self-driving-paused--light:
