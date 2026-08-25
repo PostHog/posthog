@@ -3,7 +3,7 @@ import './InboxWelcomeRedesign.scss'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconRewindPlay, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -11,13 +11,15 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
 import { SELF_DRIVING_WIZARD_COMMAND } from './InboxOnboarding'
+import { playMeep } from './meep'
 
 /** How long the copy button reads "Copied" before flipping back. */
 const COPIED_RESET_MS = 1600
 
 /**
- * The hero CTA: the wizard command on a near-black block with a single yellow copy button.
- * The button is its own feedback ("Copy" -> "Copied"), so the clipboard toast is suppressed.
+ * The hero CTA: the wizard command on a near-black block. The whole block is one copy button, so a
+ * click on the command text copies too. The yellow label is its own feedback ("Copy" -> "Copied"),
+ * so the clipboard toast is suppressed.
  */
 function CommandCta(): JSX.Element {
     const [copied, setCopied] = useState(false)
@@ -42,20 +44,20 @@ function CommandCta(): JSX.Element {
     }
 
     return (
-        <div className="InboxWelcomeRedesign__cta flex flex-wrap items-center justify-center gap-x-3 gap-y-2.5 py-2.5 pl-4 pr-2.5">
+        <button
+            type="button"
+            onClick={handleCopy}
+            aria-label={`Copy self-driving setup command: ${SELF_DRIVING_WIZARD_COMMAND}`}
+            className="InboxWelcomeRedesign__cta flex cursor-pointer flex-wrap items-center justify-center gap-x-3 gap-y-2.5 border-none py-2.5 pl-4 pr-2.5 text-left"
+        >
             <span className="whitespace-nowrap font-mono text-sm text-white">
                 <span className="select-none text-[#6f6f76]">$ </span>
                 {SELF_DRIVING_WIZARD_COMMAND}
             </span>
-            <button
-                type="button"
-                className="InboxWelcomeRedesign__copy-button"
-                onClick={handleCopy}
-                aria-label="Copy self-driving setup command"
-            >
+            <span className="InboxWelcomeRedesign__copy-button" aria-hidden="true">
                 {copied ? 'Copied' : 'Copy'}
-            </button>
-        </div>
+            </span>
+        </button>
     )
 }
 
@@ -97,66 +99,86 @@ function Arrow({ second = false }: { second?: boolean }): JSX.Element {
 }
 
 /**
- * The illustrative loop: signal sources -> scouts & pipeline -> a PR in your inbox. Never interactive
- * (pointer-events-none on the whole grid); the cards and the Review button are props, not UI.
+ * The illustrative loop: signal sources -> scouts & pipeline -> a PR in your inbox. The cards and the
+ * Review button are props, not UI, so the grid is inert (pointer-events-none). Because they read as
+ * real, the loop is marked as a sample. An "Example" tag sits on it, and one click surface on top
+ * carries a tooltip that points at the setup command, so a click gets an answer instead of silence.
  */
 function LoopDiagram(): JSX.Element {
     return (
-        <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 md:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
-            <div className="flex flex-col gap-2">
-                <StageLabel>Signal sources</StageLabel>
-                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                        <IconRewindPlay className="text-sm text-[var(--color-product-session-replay-light)] dark:text-[var(--color-product-session-replay-dark)]" />
-                    </span>
-                    <span className="truncate text-xs">Rage clicks in checkout replay</span>
-                </StageCard>
-                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                        <IconWarning className="text-sm text-[var(--color-product-error-tracking-light)] dark:text-[var(--color-product-error-tracking-dark)]" />
-                    </span>
-                    <span className="truncate font-mono text-xs">TypeError in checkout</span>
-                </StageCard>
-                <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                        <IconSlack className="size-4" />
-                    </span>
-                    <span className="truncate text-xs">"checkout hangs on Safari"</span>
-                </StageCard>
-            </div>
-            <Arrow />
-            <div className="flex flex-col gap-2">
-                <StageLabel>Scouts &amp; pipeline</StageLabel>
-                <StageCard stage="pipeline" className="flex flex-col gap-1.5 px-3.5 py-3">
-                    <div className="flex items-center gap-2 text-[13px] font-semibold">
-                        <span className="size-[7px] shrink-0 rounded-full bg-success" />
-                        Reproduced the bug, wrote the fix
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-semibold text-success">+142</span>
-                        <span className="font-mono text-xs font-semibold text-danger">&minus;38</span>
-                        <LemonTag type="success">Tests passing</LemonTag>
-                    </div>
-                </StageCard>
-            </div>
-            <Arrow second />
-            <div className="flex flex-col gap-2">
-                <StageLabel>Your inbox</StageLabel>
-                <StageCard stage="inbox" className="flex items-center gap-2.5 px-3.5 py-3">
-                    <span className="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-fill-warning-highlight font-mono text-[11px] font-bold text-warning">
-                        P1
-                    </span>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <div className="text-[13px] font-semibold">
-                            <code>fix(checkout)</code> restore Safari encode
+        <div role="presentation" className="relative">
+            <div
+                aria-hidden
+                className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 md:grid-cols-[1fr_34px_1fr_34px_1.2fr]"
+            >
+                <div className="flex flex-col gap-2">
+                    <StageLabel>Signal sources</StageLabel>
+                    <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
+                        <span className="flex size-5 shrink-0 items-center justify-center">
+                            <IconRewindPlay className="text-sm text-[var(--color-product-session-replay-light)] dark:text-[var(--color-product-session-replay-dark)]" />
+                        </span>
+                        <span className="truncate text-xs">Rage clicks in checkout replay</span>
+                    </StageCard>
+                    <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
+                        <span className="flex size-5 shrink-0 items-center justify-center">
+                            <IconWarning className="text-sm text-[var(--color-product-error-tracking-light)] dark:text-[var(--color-product-error-tracking-dark)]" />
+                        </span>
+                        <span className="truncate font-mono text-xs">TypeError in checkout</span>
+                    </StageCard>
+                    <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
+                        <span className="flex size-5 shrink-0 items-center justify-center">
+                            <IconSlack className="size-4" />
+                        </span>
+                        <span className="truncate text-xs">"checkout hangs on Safari"</span>
+                    </StageCard>
+                </div>
+                <Arrow />
+                <div className="flex flex-col gap-2">
+                    <StageLabel>Scouts &amp; pipeline</StageLabel>
+                    <StageCard stage="pipeline" className="flex flex-col gap-1.5 px-3.5 py-3">
+                        <div className="flex items-center gap-2 text-[13px] font-semibold">
+                            <span className="size-[7px] shrink-0 rounded-full bg-success" />
+                            Reproduced the bug, wrote the fix
                         </div>
-                        <div className="text-[11.5px] text-tertiary">#486 &middot; ready to merge</div>
-                    </div>
-                    <LemonButton type="primary" size="small" className="shrink-0">
-                        Review
-                    </LemonButton>
-                </StageCard>
+                        <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs font-semibold text-success">+142</span>
+                            <span className="font-mono text-xs font-semibold text-danger">&minus;38</span>
+                            <LemonTag type="success">Tests passing</LemonTag>
+                        </div>
+                    </StageCard>
+                </div>
+                <Arrow second />
+                <div className="flex flex-col gap-2">
+                    <StageLabel>Your inbox</StageLabel>
+                    <StageCard stage="inbox" className="flex items-center gap-2.5 px-3.5 py-3">
+                        <span className="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-fill-warning-highlight font-mono text-[11px] font-bold text-warning">
+                            P1
+                        </span>
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <div className="text-[13px] font-semibold">
+                                <code>fix(checkout)</code> restore Safari encode
+                            </div>
+                            <div className="text-[11.5px] text-tertiary">#486 &middot; ready to merge</div>
+                        </div>
+                        <LemonButton type="primary" size="small" className="shrink-0">
+                            Review
+                        </LemonButton>
+                    </StageCard>
+                </div>
             </div>
+
+            <LemonTag type="highlight" size="small" className="pointer-events-none absolute -top-2 left-2 z-20">
+                Example
+            </LemonTag>
+
+            <Tooltip title="This is an example. Run the command above to get real ones in your inbox." openOnClick>
+                <button
+                    type="button"
+                    aria-label="Example loop – run the setup command to get real ones in your inbox"
+                    className="absolute inset-0 z-10 h-full w-full cursor-pointer"
+                    onClick={() => playMeep()}
+                />
+            </Tooltip>
         </div>
     )
 }
