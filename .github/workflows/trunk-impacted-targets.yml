@@ -24,7 +24,7 @@ name: Trunk impacted targets
 # secrets to code from untrusted forks ("pwn request"). The fork path
 # deliberately needs no secret, so `pull_request` is sufficient and safe.
 #
-# SECURITY: the two jobs below MUST stay separate, and `upload` MUST NOT check
+# SECURITY: `compute` and `upload` MUST stay separate. `upload` MUST NOT check
 # out or run anything from the PR. `compute` executes PR-controlled code (the
 # target script, and whatever the PR did to it), so it is kept free of secrets.
 # Splitting on a step boundary instead of a job boundary would not be enough:
@@ -63,46 +63,100 @@ jobs:
                   fetch-depth: 1000
                   filter: blob:none
 
-            - name: Fetch PR base for the changed-file diff
+            # The default branch, not `base.ref`. A stacked PR's base is the layer
+            # below it, but the queue tests the whole stack merged into master, so
+            # master is the radius Trunk schedules against. Diffing against a stack
+            # parent that has fallen behind master counts every commit the head
+            # picked up in between as this PR's own, and a change set that wide
+            # claims every lane — which serializes the queue behind a PR that
+            # touched none of them.
+            - name: Fetch the merge target for the changed-file diff
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$MERGE_TARGET:refs/remotes/origin/$MERGE_TARGET"
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
 
-            - name: Compute impacted targets
-              id: targets
+            # Split from the computation below so the cargo steps can be skipped
+            # on the PRs that do not need them, which is nearly all of them.
+            - name: Resolve the changed files
+              id: changes
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  MERGE_TARGET: ${{ github.event.repository.default_branch }}
               run: |
                   set -uo pipefail
 
                   # A missing merge base (branch older than the fetched depth) or
                   # any diff failure has to widen to ALL rather than upload a
                   # partial file list, which Trunk cannot distinguish from a
-                  # complete one.
-                  if ! merge_base="$(git merge-base "refs/remotes/origin/$BASE_REF" HEAD 2>/dev/null)"; then
-                      echo "::warning::No merge base against $BASE_REF within the fetched depth; reporting ALL."
-                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                  # complete one. The computation step reads `resolved` and
+                  # reports ALL when it is anything but true.
+                  if ! merge_base="$(git merge-base "refs/remotes/origin/$MERGE_TARGET" HEAD 2>/dev/null)"; then
+                      echo "::warning::No merge base against $MERGE_TARGET within the fetched depth; reporting ALL."
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
                   if ! changed="$(git diff --name-only "$merge_base" HEAD)"; then
                       echo "::warning::Could not diff against the merge base; reporting ALL."
-                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                      echo 'resolved=false' >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
                   echo "$changed" | sed 's/^/  /'
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
+                  echo 'resolved=true' >> "$GITHUB_OUTPUT"
+                  if printf '%s\n' "$changed" | grep -qx 'rust/Cargo.lock'; then
+                      echo 'cargo_lock=true' >> "$GITHUB_OUTPUT"
+                  fi
+
+            # A lockfile touch would otherwise claim all 66 crates, so the two
+            # steps below buy the narrow answer from the determinator that
+            # ci-rust.yml already runs. Measured at ~50s on a cache miss, which a
+            # lockfile change always is, since the binary's cache key holds it.
+            # Skipped entirely on a PR that leaves rust/Cargo.lock alone.
+            - name: Install rust
+              if: steps.changes.outputs.cargo_lock == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Compute affected rust crates
+              id: affected
+              if: steps.changes.outputs.cargo_lock == 'true'
+              # A failure here must not keep the PR out of the queue. The crate
+              # list goes missing, and the script falls back to every crate.
+              continue-on-error: true
+              uses: ./.github/actions/rust-compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
+
+            - name: Compute impacted targets
+              id: targets
+              env:
+                  RESOLVED: ${{ steps.changes.outputs.resolved }}
+                  # Empty when the determinator was skipped or failed, which the
+                  # script reads as every crate. Its own rebuild-all verdict
+                  # needs no special case: it fills `crates` with the whole
+                  # workspace, which lands on the same target set.
+                  CARGO_LOCK_CRATES: ${{ steps.affected.outputs.crates }}
+              run: |
+                  set -uo pipefail
+
+                  if [ "$RESOLVED" != "true" ]; then
+                      echo 'targets={"impactedTargets":"ALL"}' >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
                   # The script prints a JSON array on stdout, or the JSON string "ALL" when it
                   # could not enumerate the targets, and never exits non-zero;
                   # it degrades to "ALL" internally on any error.
-                  computed="$(printf '%s\n' "$changed" | node .github/scripts/trunk-impacted-targets.js)"
+                  computed="$(node .github/scripts/trunk-impacted-targets.js < "$RUNNER_TEMP/changed-files.txt")"
                   printf 'targets=%s\n' "$(jq -cn --argjson t "$computed" '{impactedTargets: $t}')" >> "$GITHUB_OUTPUT"
 
             # Summarizes the change set and the targets for the lane-cost
@@ -133,6 +187,8 @@ jobs:
         # Talks only to Trunk. It never checks out the repo, so it needs no
         # GitHub permissions whatsoever.
         permissions: {}
+        outputs:
+            uploaded: ${{ steps.upload.outputs.uploaded }}
         env:
             IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
             RUN_ID: ${{ github.run_id }}
@@ -145,6 +201,7 @@ jobs:
             TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
         steps:
             - name: Upload impacted targets to Trunk
+              id: upload
               # Not continue-on-error: a silent failure here is exactly what keeps
               # fork PRs out of the queue, so surface upload problems loudly.
               # --retry rides out transient Trunk/network blips.
@@ -191,6 +248,7 @@ jobs:
                       -H "$auth_header" \
                       --data "$payload" \
                       --output "$RUNNER_TEMP/trunk-response.json"
+                  echo 'uploaded=true' >> "$GITHUB_OUTPUT"
 
             # Lane-cost telemetry. Runs here rather than in `compute` because
             # `compute` executes PR-controlled code and is deliberately kept free
@@ -248,3 +306,45 @@ jobs:
                       -X POST "$POSTHOG_TELEMETRY_HOST/i/v0/e/" \
                       -H "Content-Type: application/json" \
                       --data "$event" > /dev/null
+
+    comment:
+        name: Update Trunk lane in CI report
+        needs: [compute, upload]
+        if: >-
+            ${{
+                !cancelled() &&
+                needs.upload.outputs.uploaded == 'true' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                !startsWith(github.head_ref, 'trunk-merge/')
+            }}
+        concurrency:
+            group: trunk-lane-report-${{ github.event.pull_request.number }}
+            cancel-in-progress: true
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Run only trusted base-branch code with the token that can edit PR comments.
+                  ref: ${{ github.event.pull_request.base.sha }}
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Post Trunk lane to CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  IMPACTED_TARGETS: ${{ needs.compute.outputs.targets }}
+                  LANE_PROPERTIES: ${{ needs.compute.outputs.telemetry }}
+              run: |
+                  if [ -f .github/scripts/post-trunk-lane-section.mjs ]; then
+                      node .github/scripts/post-trunk-lane-section.mjs
+                  else
+                      echo "::warning::Skipping the Trunk lane section because the trusted base does not contain its poster."
+                  fi

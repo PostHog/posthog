@@ -112,6 +112,41 @@ describe("ResumeSaga", () => {
       expect(result.data.conversation[3].role).toBe("assistant");
     });
 
+    it("drops turns before a conversation_cleared marker (/clear boundary)", async () => {
+      (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
+        createTaskRun(),
+      );
+      (
+        mockApiClient.fetchTaskRunLogs as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([
+        createUserMessage("Old prompt"),
+        createAgentChunk("Old reply"),
+        createNotification(POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED, {
+          sessionId: "session-cleared",
+        }),
+        createUserMessage("New prompt"),
+        createAgentChunk("New reply"),
+      ]);
+
+      const saga = new ResumeSaga(mockLogger);
+      const result = await saga.run({
+        taskId: "task-1",
+        runId: "run-1",
+        repositoryPath: repo.path,
+        apiClient: mockApiClient,
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) return;
+
+      expect(result.data.conversation).toHaveLength(2);
+      expect(result.data.conversation[0]).toMatchObject({
+        role: "user",
+        content: [{ type: "text", text: "New prompt" }],
+      });
+      expect(result.data.conversation[1].role).toBe("assistant");
+    });
+
     it("merges consecutive text chunks", async () => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(
         createTaskRun(),
@@ -594,6 +629,39 @@ describe("ResumeSaga", () => {
         name: "returns null when no run_started notification is present",
         entries: () => [createUserMessage("Hello"), createAgentChunk("Hi")],
         expected: null,
+      },
+      {
+        name: "a conversation_cleared marker supersedes an earlier run_started",
+        entries: () => [
+          runStarted("session-old"),
+          createUserMessage("Hello"),
+          createNotification(POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED, {
+            sessionId: "session-cleared",
+          }),
+        ],
+        expected: "session-cleared",
+      },
+      {
+        // The backend writes this marker for a /clear on a finished run, where there
+        // is no sandbox and so no session to name. Scanning past it would resume the
+        // conversation the marker retired — on a warm sandbox, natively.
+        name: "a conversation_cleared marker naming no session resumes nothing",
+        entries: () => [
+          runStarted("session-old"),
+          createUserMessage("Hello"),
+          createNotification(POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED, {}),
+        ],
+        expected: null,
+      },
+      {
+        name: "a run_started after a clear wins (later run restarted)",
+        entries: () => [
+          createNotification(`_${POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED}`, {
+            sessionId: "session-cleared",
+          }),
+          runStarted("session-restarted"),
+        ],
+        expected: "session-restarted",
       },
     ])("$name", async ({ entries, expected }) => {
       (mockApiClient.getTaskRun as ReturnType<typeof vi.fn>).mockResolvedValue(

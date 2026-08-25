@@ -279,6 +279,25 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('updateExperimentMetrics', () => {
+        it('keeps existing results when saving the metric definitions fails', async () => {
+            const existingResult = experimentMetricResultsSuccessJson.query_status
+                .results as unknown as CachedNewExperimentQueryResponse
+
+            logic.actions.setExperiment(experiment)
+            logic.actions.setPrimaryMetricsResults([existingResult])
+            logic.actions.setPrimaryMetricsResultsErrors([null])
+            jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('network down'))
+
+            await expectLogic(logic, () => logic.actions.updateExperimentMetrics())
+                .toDispatchActions(['updateExperimentFailure'])
+                .toFinishAllListeners()
+
+            expect(logic.values.primaryMetricsResults).toEqual([existingResult])
+            expect(logic.values.primaryMetricsResultsErrors).toEqual([null])
+        })
+    })
+
     describe('currentRefresh tracking', () => {
         it('marks the refresh as in_progress while running and completed when it succeeds', async () => {
             logic.actions.setExperiment(experiment)
@@ -603,6 +622,100 @@ describe('experimentLogic', () => {
             expect(logic.values.experiment.name).toEqual('renamed by someone else')
             // ...but the user's rejected edit stays visible for review and retry.
             expect(logic.values.experiment.description).toEqual('stale write')
+        })
+
+        it('collapses identical concurrent dispatches into a single request', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValue({ ...snapshot, description: 'twice', version: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'twice' })
+                logic.actions.updateExperiment({ description: 'twice' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(4)
+            expect(logic.values.experiment.description).toEqual('twice')
+        })
+
+        it('queues a different concurrent update behind the in-flight one and sends the absorbed version', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValueOnce({ ...snapshot, description: 'first', version: 4 })
+            api.update.mockResolvedValueOnce({ ...snapshot, description: 'first', name: 'renamed', version: 5 })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'first' })
+                logic.actions.updateExperiment({ name: 'renamed' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(2)
+            expect(api.update).toHaveBeenNthCalledWith(
+                1,
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ description: 'first', version: 3 })
+            )
+            // The second request waits for the first response and carries its absorbed
+            // version, so it never enters the stale-write path at all.
+            expect(api.update).toHaveBeenNthCalledWith(
+                2,
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ name: 'renamed', version: 4 })
+            )
+        })
+
+        it('still sends a queued update when the in-flight one fails', async () => {
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockRejectedValueOnce(new Error('network down'))
+            api.update.mockResolvedValueOnce({ ...snapshot, name: 'second', version: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'doomed' })
+                logic.actions.updateExperiment({ name: 'second' })
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledTimes(2)
+            expect(api.update).toHaveBeenLastCalledWith(
+                expect.stringContaining('/experiments/'),
+                expect.objectContaining({ name: 'second' })
+            )
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(4)
+        })
+
+        it('never moves the concurrency snapshot backwards to an older version', async () => {
+            // Concurrent writers (a user save and the running-time auto-save) absorb their
+            // responses independently, and responses can land out of order: a late older
+            // response poisoning the snapshot makes every following save a false conflict.
+            logic.actions.setUnmodifiedExperiment({ ...experiment, version: 5, name: 'newer' } as Experiment)
+            logic.actions.setUnmodifiedExperiment({ ...experiment, version: 4, name: 'late straggler' } as Experiment)
+            expect(logic.values.unmodifiedExperiment?.name).toEqual('newer')
+
+            logic.actions.setUnmodifiedExperiment({ ...experiment, version: 6, name: 'fresher' } as Experiment)
+            expect(logic.values.unmodifiedExperiment?.name).toEqual('fresher')
+            // Versionless snapshots (a draft being created) keep replacing freely.
+            logic.actions.setUnmodifiedExperiment({
+                ...experiment,
+                version: undefined,
+                name: 'no version',
+            } as Experiment)
+            expect(logic.values.unmodifiedExperiment?.name).toEqual('no version')
+
+            const snapshot = { ...experiment, version: 3 } as Experiment
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            logic.actions.setExperiment(snapshot)
+            api.update.mockResolvedValueOnce({ ...snapshot, description: 'saved', version: 8 })
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'saved' })
+            }).toFinishAllListeners()
+            // The absorbed post-save state wins over a stale response landing afterwards, so
+            // the next save carries version 8, not 3.
+            logic.actions.setUnmodifiedExperiment(snapshot)
+            expect(logic.values.unmodifiedExperiment?.version).toEqual(8)
         })
     })
     describe('moveMetricsBetweenSections', () => {
@@ -1229,6 +1342,54 @@ describe('experimentLogic', () => {
                 { property: '$os', type: 'event' },
             ])
         })
+
+        it('should update breakdown limit on inline metric', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                metrics: [
+                    {
+                        uuid: 'test-metric-uuid',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                    },
+                ] as unknown as ExperimentMetric[],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdownLimit('test-metric-uuid', 10)
+
+            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
+            expect(updatedMetric.breakdownFilter?.breakdown_limit).toEqual(10)
+        })
+
+        it('should update breakdown limit on shared metric metadata', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                saved_metrics: [
+                    {
+                        id: 1,
+                        experiment: experiment.id as number,
+                        saved_metric: 123,
+                        name: 'Shared Metric',
+                        query: {
+                            uuid: 'shared-metric-uuid',
+                            kind: NodeKind.ExperimentMetric,
+                            metric_type: ExperimentMetricType.MEAN,
+                            source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        },
+                        metadata: { type: 'primary', breakdowns: [{ property: '$browser', type: 'event' }] },
+                        created_at: '2024-01-01T00:00:00Z',
+                    } satisfies ExperimentSavedMetric,
+                ],
+                metrics: [],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdownLimit('shared-metric-uuid', 10)
+
+            expect(logic.values.experiment.saved_metrics[0].metadata.breakdown_limit).toEqual(10)
+        })
     })
 
     describe('launchExperiment', () => {
@@ -1832,7 +1993,7 @@ describe('experimentLogic', () => {
         it('shows approval toast and suppresses error toast on 409', async () => {
             const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
                 status: 409,
-                data: { change_request_id: 'cr-123' },
+                data: { change_request_id: 'cr-123', code: 'approval_required' },
             })
             const errorMock = lemonToast.error as jest.Mock
             errorMock.mockClear()
@@ -1851,7 +2012,8 @@ describe('experimentLogic', () => {
             // Should show approval required toast with change request ID
             expect(mockShowApprovalRequiredToast).toHaveBeenCalledWith(
                 'cr-123',
-                'end this experiment and roll out the winning variant'
+                'end this experiment and roll out the winning variant',
+                'approval_required'
             )
             // Should NOT show the generic error toast
             expect(errorMock).not.toHaveBeenCalled()

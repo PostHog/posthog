@@ -315,6 +315,7 @@ export const getPrDetailsByUrlOutput = z.object({
   draft: z.boolean(),
   headRefName: z.string().nullable(),
   title: z.string().nullable(),
+  author: z.string().nullable(),
 });
 
 export type PrDetailsByUrlOutput = z.infer<typeof getPrDetailsByUrlOutput>;
@@ -347,6 +348,11 @@ export const getPrDiffStatsBatchOutput = z.record(
 export const getBranchChangedFilesInput = z.object({
   repo: z.string(),
   branch: z.string(),
+});
+
+export const getCommitChangedFilesInput = z.object({
+  repo: z.string(),
+  sha: z.string(),
 });
 
 export const getLocalBranchChangedFilesInput = z.object({

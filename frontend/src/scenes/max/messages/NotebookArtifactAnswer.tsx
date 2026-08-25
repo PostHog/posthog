@@ -11,9 +11,8 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
+import { NotebookTarget } from 'scenes/notebooks/types'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
@@ -32,14 +31,14 @@ import {
     VisualizationBlock,
 } from '~/queries/schema/schema-assistant-artifacts'
 import { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 
 import { MarkdownMessage, MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { MessageStatus } from '../maxLogic'
-import { castAssistantQuery, visualizationTypeToQuery } from '../utils'
-import { markdownToTiptap } from '../utils/markdownToTiptap'
+import { visualizationTypeToQuery } from '../utils'
+import { blocksToTiptapContent } from '../utils/blocksToTiptapContent'
 
 interface NotebookArtifactAnswerProps {
     content: NotebookArtifactContent
@@ -316,49 +315,4 @@ function getBlockKey(block: DocumentBlock, index: number): string {
         default:
             return `block-${index}`
     }
-}
-
-/**
- * Convert DocumentBlock[] to tiptap JSONContent[] for notebook creation.
- */
-function blocksToTiptapContent(blocks: DocumentBlock[]): JSONContent[] {
-    const result: JSONContent[] = []
-
-    for (const block of blocks) {
-        switch (block.type) {
-            case 'markdown':
-                // Convert markdown to proper tiptap JSON structure
-                result.push(...markdownToTiptap(block.content))
-                break
-            case 'visualization': {
-                // Create a ph-query node that the notebook can render
-                const source = castAssistantQuery(block.query)
-                const query = isHogQLQuery(source)
-                    ? { kind: NodeKind.DataVisualizationNode, source }
-                    : { kind: NodeKind.InsightVizNode, source }
-
-                result.push({
-                    type: NotebookNodeType.Query,
-                    attrs: {
-                        query,
-                        title: block.title,
-                    },
-                })
-                break
-            }
-            case 'session_replay':
-                result.push({
-                    type: NotebookNodeType.Recording,
-                    attrs: {
-                        id: block.session_id,
-                        __init: {
-                            expanded: true,
-                        },
-                    },
-                })
-                break
-        }
-    }
-
-    return result
 }

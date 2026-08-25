@@ -67,7 +67,6 @@ class MockStripeAPI:
 
         if "starting_after" in query:
             starting_after = query["starting_after"][0]
-            # find index of starting_after in filtered_data
             starting_after_index = next((i for i, tx in enumerate(filtered_data) if tx["id"] == starting_after), None)
             if starting_after_index is not None:
                 filtered_data = filtered_data[starting_after_index + 1 :]

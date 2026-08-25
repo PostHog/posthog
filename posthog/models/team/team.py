@@ -601,6 +601,8 @@ class Team(UUIDTClassicModel):
     human_friendly_comparison_periods = field_access_control(
         models.BooleanField(default=False, null=True, blank=True), "project", "admin"
     )
+    # Enable/disable toggle for cookieless ingestion. STATELESS (1) is sunset: any non-disabled
+    # value is processed as stateful.
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
@@ -1120,8 +1122,8 @@ class Team(UUIDTClassicModel):
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.access_control import AccessControl
+        from products.access_control.backend.models.role import RoleMembership
 
         # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
         # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.

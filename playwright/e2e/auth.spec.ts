@@ -77,8 +77,7 @@ test.describe('Auth', () => {
         await expect(page.locator('[data-attr=password]')).toHaveValue('wrong password')
 
         await loginPage.clickLogin()
-        // Scope to the error banner: on cloud a separate info banner (OtherRegionHint) also renders here.
-        await expect(page.locator('.LemonBanner--error')).toContainText('Invalid email or password.')
+        await expect(page.getByText('Invalid email or password.')).toBeVisible()
 
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()

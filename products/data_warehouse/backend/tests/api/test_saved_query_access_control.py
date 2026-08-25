@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -7,15 +9,18 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 @pytest.mark.ee
@@ -374,3 +379,317 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         response = self.client.post(f"{self._base()}/materialize/")
 
         self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@pytest.mark.ee
+class TestSyncFrequencyBoundsAccessControl(WarehouseAccessControlTestMixin):
+    """The cadence bounds name what blocks a cadence, so they answer to the same grants the rest does."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.upstream = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="upstream_view",
+            query={"kind": "HogQLQuery", "query": "select 1 as event"},
+            created_by=self.user,
+        )
+        self.consumer = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="consumer_view",
+            query={"kind": "HogQLQuery", "query": "select event from upstream_view"},
+            created_by=self.user,
+        )
+        dag = DAG.objects.create(team=self.team, name="dag")
+        self.upstream_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.upstream.name, saved_query=self.upstream, type=NodeType.VIEW
+        )
+        self.consumer_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.consumer.name, saved_query=self.consumer, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=self.upstream_node, target=self.consumer_node)
+        set_declared_target(self.consumer_node, timedelta(hours=6))
+
+    def _tiered(self):
+        return (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+        )
+
+    def _read_upstream(self) -> tuple[dict, str]:
+        v2, tiered = self._tiered()
+        with v2, tiered:
+            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["sync_frequency_bounds"], response.content.decode()
+
+    def _deny_the_consumer(self, user):
+        self._create_access_control(
+            user, resource="warehouse_view", resource_id=str(self.consumer.id), access_level="none"
+        )
+
+    def test_a_denied_consumer_sets_the_bound_without_being_named(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._deny_the_consumer(self.viewer_user)
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_upstream()
+
+        # The bound itself survives: the caller still learns 24hour is out, and that a consumer did it.
+        self.assertEqual(bounds["ceiling"]["label"], "6 hours")
+        self.assertIsNone(bounds["ceiling"]["blocker"])
+        blocked = {option["cadence"]: option for option in bounds["options"] if not option["allowed"]}
+        self.assertEqual(blocked["24hour"]["blocked_by"], "consumer")
+        self.assertIsNone(blocked["24hour"]["blocker"])
+        # Neither the name nor the node id reaches the wire.
+        self.assertNotIn("consumer_view", body)
+        self.assertNotIn(str(self.consumer_node.id), body)
+
+    def test_the_same_consumer_is_named_for_a_caller_who_may_read_it(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_upstream()
+
+        self.assertEqual(bounds["ceiling"]["blocker"]["name"], "consumer_view")
+        self.assertEqual(bounds["ceiling"]["blocker"]["id"], str(self.consumer_node.id))
+        self.assertIn("consumer_view", body)
+
+    def test_a_refused_cadence_withholds_the_name_the_read_withheld(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._deny_the_consumer(self.editor_user)
+        self.client.force_login(self.editor_user)
+
+        v2, tiered = self._tiered()
+        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        detail = response.content.decode()
+        self.assertNotIn("consumer_view", detail)
+        self.assertIn("6 hours", detail)
+
+    def test_a_refused_cadence_names_the_consumer_for_a_caller_who_may_read_it(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+
+        v2, tiered = self._tiered()
+        with v2, tiered, patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.upstream.id}/",
+                {"sync_frequency": "24hour"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("consumer_view", response.content.decode())
+
+    def test_a_refusal_names_nothing_when_the_caller_passes_no_visible_names(self):
+        """The default the endpoints API depends on: `schedule_materialization` re-raises this
+        refusal and the endpoints materialization view returns its text verbatim, with no per-user
+        name map to hand down. Naming by default there would leak past every grant."""
+        from products.data_modeling.backend.facade.api import (
+            UnsatisfiableFrequencyError,
+            apply_saved_query_frequency_target,
+        )
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            with self.assertRaises(UnsatisfiableFrequencyError) as caught:
+                apply_saved_query_frequency_target(self.upstream, timedelta(days=1))
+
+        message = str(caught.exception)
+        self.assertNotIn("consumer_view", message)
+        self.assertNotIn(str(self.consumer_node.id), message)
+        # Still actionable: it names the cadence to pick instead, just not who withheld the other.
+        self.assertIn("6 hours", message)
+
+
+@pytest.mark.ee
+class TestSyncFrequencyTableBlockerAccessControl(WarehouseAccessControlTestMixin):
+    """A source table sets the floor, and is named only for a caller who may read the table itself."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_view",
+            query={"kind": "HogQLQuery", "query": "select 1 as event"},
+            created_by=self.user,
+        )
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="posthog_test_",
+        )
+        # The FK, not just the schema link: it is what `warehouse_table` falls back through, and
+        # what the import pipeline sets on a real imported table.
+        self.table = DataWarehouseTable.objects.create(
+            name="stripe_charges", team=self.team, external_data_source=self.source
+        )
+        ExternalDataSchema.objects.create(
+            name="stripe_charges",
+            team=self.team,
+            source=self.source,
+            table=self.table,
+            sync_frequency_interval=timedelta(hours=6),
+        )
+        dag = DAG.objects.create(team=self.team, name="dag")
+        source_node = Node.objects.create(
+            team=self.team,
+            dag=dag,
+            name="stripe_charges",
+            type=NodeType.TABLE,
+            properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+        )
+        Edge.objects.create(team=self.team, dag=dag, source=source_node, target=self.view_node)
+
+    def _read_view(self) -> tuple[dict, str]:
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["sync_frequency_bounds"], response.content.decode()
+
+    def test_the_source_table_is_named_for_a_caller_who_may_read_it(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_view()
+
+        self.assertEqual(bounds["floor"]["label"], "6 hours")
+        self.assertEqual(bounds["floor"]["blocker"]["name"], "stripe_charges")
+        self.assertIn("stripe_charges", body)
+
+    @parameterized.expand(
+        [
+            # Denying the table itself, and denying the source it came from: `warehouse_table` falls
+            # back to `external_data_source`, so a deny on the source has to withhold the name too.
+            ("table_denied", "warehouse_table"),
+            ("source_denied", "external_data_source"),
+        ]
+    )
+    def test_a_denied_source_table_sets_the_floor_without_being_named(self, _name, resource):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(
+            self.viewer_user,
+            resource=resource,
+            resource_id=str(self.table.id if resource == "warehouse_table" else self.source.id),
+            access_level="none",
+        )
+        self.client.force_login(self.viewer_user)
+
+        bounds, body = self._read_view()
+
+        # The floor still applies and still says a source set it. Only the identity is withheld.
+        self.assertEqual(bounds["floor"]["label"], "6 hours")
+        self.assertIsNone(bounds["floor"]["blocker"])
+        blocked = {option["cadence"]: option for option in bounds["options"] if not option["allowed"]}
+        self.assertEqual(blocked["15min"]["blocked_by"], "source")
+        self.assertIsNone(blocked["15min"]["blocker"])
+        self.assertNotIn("stripe_charges", body)
+
+
+@pytest.mark.ee
+class TestSyncFrequencyDuplicateResourceAcrossDags(WarehouseAccessControlTestMixin):
+    """A grant covers a resource, not a node: a table holding a node in two DAGs is named in both."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_view",
+            query={"kind": "HogQLQuery", "query": "select 1 as event"},
+            created_by=self.user,
+        )
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="posthog_test_",
+        )
+        # Deliberately no schema: a source with no sync schedule is what lands in best-effort, and
+        # best-effort ids union across DAGs. That union is the one place a single resource reaches
+        # the payload under two node ids.
+        self.table = DataWarehouseTable.objects.create(
+            name="unscheduled_source", team=self.team, external_data_source=self.source
+        )
+        for dag_name in ("dag_one", "dag_two"):
+            dag = DAG.objects.create(team=self.team, name=dag_name)
+            source_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                name="unscheduled_source",
+                type=NodeType.TABLE,
+                properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+            )
+            view_node = Node.objects.create(
+                team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
+
+    def _read_view(self) -> dict:
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["sync_frequency_bounds"]
+
+    def test_a_readable_table_is_named_through_every_dag_that_holds_a_node_for_it(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        bounds = self._read_view()
+
+        self.assertTrue(bounds["best_effort_sources"], "the unscheduled source should reach the payload")
+        self.assertTrue(all(source["name"] == "unscheduled_source" for source in bounds["best_effort_sources"]))
+        # The caller may read the only table involved, so nothing is cut and the copy says so.
+        self.assertFalse(bounds["best_effort_sources_withheld"])
+
+    def test_a_denied_table_stays_withheld_through_every_dag(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_table", resource_id=str(self.table.id), access_level="none"
+        )
+        self.client.force_login(self.viewer_user)
+
+        bounds = self._read_view()
+
+        self.assertTrue(bounds["best_effort_sources_withheld"])
+        self.assertEqual(bounds["best_effort_sources"], [])

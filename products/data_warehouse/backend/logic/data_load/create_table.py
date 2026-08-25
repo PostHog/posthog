@@ -2,28 +2,23 @@ import uuid
 import dataclasses
 
 from django.conf import settings
+from django.db import transaction
 
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
 from structlog.contextvars import bind_contextvars
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataWarehouseSavedQuery,
     aget_saved_query_by_id,
-    aget_table_by_saved_query_id,
-    asave_saved_query,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
-from products.warehouse_sources.backend.facade.models import (
-    DataWarehouseTable,
-    acreate_datawarehousetable,
-    asave_datawarehousetable,
-)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, asave_datawarehousetable
 
 LOGGER = get_logger(__name__)
 
@@ -33,6 +28,37 @@ class CreateTableResult:
     table: DataWarehouseTable
     storage_delta_mib: float | None
     total_storage_mib: float | None
+
+
+@database_sync_to_async_pool
+def _get_or_create_table_for_saved_query(
+    saved_query_id: str,
+    team_id: int,
+    name: str,
+    table_format: str,
+    url_pattern: str,
+    queryable_folder: str,
+) -> DataWarehouseTable:
+    with transaction.atomic():
+        saved_query = (
+            DataWarehouseSavedQuery.objects.select_for_update()
+            .exclude(deleted=True)
+            .get(id=saved_query_id, team_id=team_id)
+        )
+        if saved_query.table_id is not None:
+            return DataWarehouseTable.objects.get(id=saved_query.table_id, team_id=team_id)
+
+        table = DataWarehouseTable.objects.create(
+            name=name,
+            format=table_format,
+            url_pattern=url_pattern,
+            team_id=team_id,
+            queryable_folder=queryable_folder,
+            created_via=DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW,
+        )
+        saved_query.table = table
+        saved_query.save(update_fields=["table", "updated_at"])
+        return table
 
 
 async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: int, queryable_folder: str) -> float:
@@ -76,60 +102,45 @@ async def create_table_from_saved_query(
         url_pattern = saved_query.url_pattern
         table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 
-        table_params = {
-            "name": table_name,
-            "format": table_format,
-            "url_pattern": url_pattern,
-            "team_id": team_id,
-            "queryable_folder": queryable_folder,
-        }
-
-        # create or update
-        table_created: DataWarehouseTable | None = await aget_table_by_saved_query_id(saved_query_id_converted, team_id)
-        if table_created:
-            table_created.format = table_format
-            table_created.url_pattern = url_pattern
-            table_created.queryable_folder = queryable_folder
-            await asave_datawarehousetable(table_created)
-
-        if not table_created:
-            table_created = await acreate_datawarehousetable(**table_params)
-
-        assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+        table_created = await _get_or_create_table_for_saved_query(
+            saved_query_id=saved_query_id_converted,
+            team_id=team_id,
+            name=table_name,
+            table_format=table_format,
+            url_pattern=url_pattern,
+            queryable_folder=queryable_folder,
+        )
+        table_created.format = table_format
+        table_created.url_pattern = url_pattern
+        table_created.queryable_folder = queryable_folder
 
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
         table_created.set_columns(await sync_to_async(table_created.get_columns)())
         table_created.row_count = await database_sync_to_async(table_created.get_count)()
-        await asave_datawarehousetable(table_created)
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
         storage_delta_mib: float | None = None
         total_storage_mib: float | None = None
+        existing_size: float = table_created.size_in_s3_mib or 0
+        table_created.size_in_s3_mib = None
 
         try:
             if refreshed_saved_query:
-                existing_size: float = table_created.size_in_s3_mib or 0
-
                 logger.debug(f"Existing size in MiB = {existing_size:.2f}")
 
                 table_size = await calculate_table_size(refreshed_saved_query, team_id, queryable_folder)
 
                 await logger.adebug(f"Total size in MiB = {table_size:.2f}")
 
+                table_created.size_in_s3_mib = table_size
                 table_size_delta = table_size - existing_size
                 logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
                 job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
-                await job.asave()
-
-                table_created.size_in_s3_mib = table_size
-                await asave_datawarehousetable(table_created)
-
-                refreshed_saved_query.table = table_created
-                await asave_saved_query(refreshed_saved_query)
+                await job.asave(update_fields=["storage_delta_mib", "updated_at"])
 
                 storage_delta_mib = job.storage_delta_mib
                 total_storage_mib = table_created.size_in_s3_mib
@@ -137,6 +148,8 @@ async def create_table_from_saved_query(
             capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
+
+        await asave_datawarehousetable(table_created)
 
         return CreateTableResult(
             table=table_created,

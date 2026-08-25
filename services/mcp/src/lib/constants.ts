@@ -23,6 +23,11 @@ export const MCP_SERVER_NAME = 'PostHog'
 export const MCP_SERVER_VERSION = '1.0.0'
 export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 
+// Claude Code truncates a server's `instructions` payload at this many characters — silently,
+// mid-token, with nothing the model can act on. The compact single-exec payload is sized to
+// fit, and the tool-domain index absorbs whatever budget the fixed sections leave.
+export const MCP_INSTRUCTIONS_CHAR_BUDGET = 2048
+
 // Gates the semantic layer (governed-metrics catalog) — no tool declares it, so it must be
 // joined into the evaluated flag set explicitly; instructions content branches on it.
 export const PRODUCT_DATA_CATALOG_FLAG = 'product-data-catalog'

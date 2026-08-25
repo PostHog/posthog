@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Any
 
 import pydantic
@@ -9,6 +8,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -49,7 +49,7 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ConversationStateResult:
     state: AssistantMaxGraphState | None
     has_unsupported_content: bool
@@ -235,10 +235,7 @@ class TaskSerializer(DataclassSerializer):
 class ConversationTaskSerializer(TaskSerializer):
     """Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
     run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
-    avoids presigning a log URL per conversation.
-
-    Read access here follows the conversation (the share-by-link unit), not per-creator task
-    visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``."""
+    avoids presigning a log URL per conversation. Task data follows the task's space visibility."""
 
     latest_run = serializers.UUIDField(  # type: ignore[assignment]  # intentional narrowing of the base nested-run field to its id
         source="latest_run_id",
@@ -266,12 +263,12 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
             return None
 
         task_dtos = self.context.get("conversation_task_dtos_by_id")
-        task_dto: TaskDetailDTO | None = (
-            task_dtos.get(str(conversation.task_id)) if isinstance(task_dtos, dict) else None
-        )
-        if task_dto is None:
+        if isinstance(task_dtos, dict):
+            task_dto: TaskDetailDTO | None = task_dtos.get(str(conversation.task_id))
+        else:
             team = self.context["team"]
-            task_dto = tasks_facade.get_conversation_task_dtos([conversation.task_id], team.id).get(
+            user = self.context["user"]
+            task_dto = tasks_facade.get_conversation_task_dtos([conversation.task_id], team.id, user.id).get(
                 conversation.task_id
             )
         if task_dto is None:

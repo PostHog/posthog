@@ -1,9 +1,28 @@
 import { useEffect, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+
 import { HogFlow } from '../types'
 
 type HogFlowEdge = HogFlow['edges'][number]
+
+// The audience endpoint compiles filters against the persons table, so only person-scoped properties
+// resolve. An event or group property comes back as a validation error rather than a count.
+const COUNTABLE_PROPERTY_TYPES: string[] = [PropertyFilterType.Person, PropertyFilterType.Cohort]
+
+/**
+ * Whether a branch condition's filters can be counted as a share of persons. A condition evaluated
+ * against an event rather than a person would produce a misleading percentage, so it gets no estimate.
+ */
+export function isCountableCondition(filters?: { properties?: unknown[] } | null): boolean {
+    const properties = (filters?.properties ?? []) as AnyPropertyFilter[]
+    // An unconfigured condition matches everyone, so an estimate of it carries no information.
+    if (properties.length === 0) {
+        return false
+    }
+    return properties.every((property) => property.type != null && COUNTABLE_PROPERTY_TYPES.includes(property.type))
+}
 
 /**
  * Check whether removing a branch edge at the given condition index would

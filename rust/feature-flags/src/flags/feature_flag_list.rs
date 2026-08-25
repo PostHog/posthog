@@ -110,7 +110,7 @@ impl FeatureFlagList {
                 wrapper.flags.len(),
                 team_id
             );
-            return Err(FlagError::DataParsingErrorWithContext(format!(
+            return Err(FlagError::flag_data_parsing(format!(
                 "evaluation_metadata.dependency_stages is empty but {} flags present for team {team_id}",
                 wrapper.flags.len()
             )));
@@ -181,7 +181,8 @@ impl FeatureFlagList {
                     team_id,
                     e
                 );
-                FlagError::Internal(format!("Database query error: {e}"))
+                let message = format!("Database query error: {e}");
+                FlagError::internal(anyhow::Error::new(e).context(message))
             })?;
 
         let flags: Vec<FeatureFlag> = flags_row
@@ -1112,7 +1113,10 @@ mod tests {
         let result = FeatureFlagList::from_wrapper(Some(wrapper), 1);
         assert!(matches!(
             result,
-            Err(FlagError::DataParsingErrorWithContext(_))
+            Err(FlagError::InternalError {
+                code: "flag_data_parsing_error",
+                ..
+            })
         ));
     }
 
@@ -1181,7 +1185,7 @@ mod tests {
         );
 
         // Verify flags parsed correctly
-        assert_eq!(flags.len(), 5, "Expected 5 flags in contract fixture");
+        assert_eq!(flags.len(), 7, "Expected 7 flags in contract fixture");
 
         // Full flag with all optional fields
         let full_flag = &flags[0];
@@ -1237,14 +1241,27 @@ mod tests {
         assert_eq!(missing_dep_flag.key, "missing-dep-flag");
         assert_eq!(missing_dep_flag.filters.groups.len(), 1);
 
+        // Referenced disabled flag: both writers keep it for the dependency below,
+        // with filters blanked to the empty shape.
+        let referenced_disabled = &flags[5];
+        assert_eq!(referenced_disabled.key, "referenced-disabled-flag");
+        assert!(!referenced_disabled.active);
+        assert!(referenced_disabled.filters.groups.is_empty());
+
+        // Its dependent: an active flag whose condition points at the disabled flag.
+        let disabled_dependent = &flags[6];
+        assert_eq!(disabled_dependent.key, "disabled-dependent-flag");
+        assert_eq!(disabled_dependent.filters.groups.len(), 1);
+
         // Verify evaluation_metadata parsed correctly
         let meta = metadata;
         assert_eq!(meta.dependency_stages.len(), 2);
-        assert_eq!(meta.dependency_stages[0], vec![1, 2, 3, 5]);
-        assert_eq!(meta.dependency_stages[1], vec![4]);
+        assert_eq!(meta.dependency_stages[0], vec![1, 2, 3, 5, 6]);
+        assert_eq!(meta.dependency_stages[1], vec![4, 7]);
         assert_eq!(meta.flags_with_missing_deps, vec![5]);
-        assert_eq!(meta.transitive_deps.len(), 5);
+        assert_eq!(meta.transitive_deps.len(), 7);
         assert!(meta.transitive_deps[&4].contains(&2));
+        assert!(meta.transitive_deps[&7].contains(&6));
 
         // Verify cohorts parsed correctly
         let cohorts = cohorts.expect("cohorts should be present in contract fixture");

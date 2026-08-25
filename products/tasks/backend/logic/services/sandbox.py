@@ -15,8 +15,10 @@ import os
 import re
 import json
 import shlex
+import threading
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
@@ -72,6 +74,43 @@ class SandboxTemplate(str, Enum):
     CANVAS_BUILD = "canvas_build"
 
 
+class SandboxWorkload(str, Enum):
+    """Which provider-side project a sandbox is booked against, independent of its image.
+
+    Modal groups sandboxes and their cost by app. The template already picks an app for the
+    product-specific images; this picks one for workloads that share an image but should be
+    metered apart.
+    """
+
+    DEFAULT = "default"
+    SELF_DRIVING = "self_driving"
+
+
+SELF_DRIVING_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
+    {
+        # Signals report research + repo selection
+        "signal_report",
+        # Headless Signals scouts
+        "signals_scout",
+        # ReviewHog's per-chunk review, blind-spot, and validation sandboxes
+        "review_hog",
+    }
+)
+"""Origin products whose sandboxes are booked against the self-driving provider project.
+
+Wider than the self-driving *quota* gate (`enforce_self_driving_quota.py`), which only covers the
+billable implementation-PR run: this is every sandbox the fleet opens, research and review included.
+Held as strings rather than ``Task.OriginProduct`` members to keep the model layer off this module's
+import path; a test pins them to the enum so a rename can't drop a product off the fleet.
+"""
+
+
+def workload_for_origin_product(origin_product: str | None) -> SandboxWorkload:
+    if origin_product in SELF_DRIVING_ORIGIN_PRODUCTS:
+        return SandboxWorkload.SELF_DRIVING
+    return SandboxWorkload.DEFAULT
+
+
 class ExecutionResult(BaseModel):
     stdout: str
     stderr: str
@@ -97,6 +136,9 @@ class SandboxResources:
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
+    # Decides which Modal app owns the box, and with it how its cost is attributed. Changes
+    # nothing about the box itself — same image, same resources, same isolation.
+    workload: SandboxWorkload = SandboxWorkload.DEFAULT
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
@@ -114,12 +156,13 @@ class SandboxConfig(BaseModel):
     # (the limit); Modal bills max(request, actual). When False, request == limit (fixed size).
     burstable_resources: bool = False
     # Request floor used when `burstable_resources` is True: the box reserves this much and bursts
-    # up to `cpu_cores` / `memory_gb`. Clamped to the limit at create time so it never exceeds it.
+    # up to `cpu_cores` / `memory_gb`. Read through the `effective_*_request` properties, which
+    # apply the limit clamp and the VM memory pin.
     cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
     memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
-    # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
+    network_policy_fingerprint: str | None = None
     # gVisor only. An empty domain allowlist means unrestricted network in
     # Modal, so callers that require no egress must state it explicitly.
     block_network: bool = False
@@ -147,6 +190,21 @@ class SandboxConfig(BaseModel):
     @property
     def is_vm(self) -> bool:
         return self.vm_runtime or self.template == SandboxTemplate.VM_BASE
+
+    @property
+    def effective_cpu_request_cores(self) -> float:
+        """CPU floor the provider actually reserves when burstable: the configured request,
+        clamped to the limit."""
+        return min(float(self.cpu_request_cores), float(self.cpu_cores))
+
+    @property
+    def effective_memory_request_mb(self) -> int:
+        """Memory floor the provider actually reserves when burstable. VM memory can't burst,
+        so a VM's request is pinned to its limit; gVisor requests are clamped to the limit."""
+        memory_limit_mb = int(self.memory_gb * 1024)
+        if self.is_vm:
+            return memory_limit_mb
+        return min(int(self.memory_request_mb), memory_limit_mb)
 
 
 WORKING_DIR = DEFAULT_SANDBOX_WORKING_DIR
@@ -197,6 +255,7 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    peer_messaging: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -217,6 +276,10 @@ def build_agent_runtime_env_prefix(
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
+        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
+        # the peers endpoints re-check authorization server-side regardless.
+        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -227,6 +290,12 @@ def build_agent_runtime_env_prefix(
 class SandboxBase(ABC):
     id: str
     config: SandboxConfig
+    supports_creation_cancellation = False
+    creation_timeout_seconds = 300
+
+    @staticmethod
+    def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
+        return nullcontext()
 
     @property
     @abstractmethod
@@ -369,6 +438,7 @@ class SandboxBase(ABC):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -385,9 +455,9 @@ class SandboxBase(ABC):
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
-        # files get fetched on demand. Shallow clones are already small enough.
-        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        blob_filter = ""
+        if not shallow:
+            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
@@ -451,6 +521,7 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -472,12 +543,33 @@ class SandboxBase(ABC):
     def create_directory_snapshot(self, path: str) -> str: ...
 
     @abstractmethod
+    def prune_snapshot_heavy_dirs(self, path: str) -> None: ...
+
+    @abstractmethod
     def destroy(self) -> None: ...
 
     @abstractmethod
     def is_running(self) -> bool: ...
 
     def read_agent_server_session_init_ms(self) -> int | None:
+        return None
+
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return {}
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return None, {}
+
+    def agent_server_health_url(self) -> str:
+        return "http://127.0.0.1:8080/health"
+
+    def read_cpu_usage_usec(self) -> int | None:
+        return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        return False
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
         return None
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
@@ -488,6 +580,54 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
+
+    def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            phases = (
+                {
+                    phase: max(0, int(duration))
+                    for phase, duration in raw_phases.items()
+                    if phase in allowed_phases and isinstance(duration, int | float)
+                }
+                if isinstance(raw_phases, dict)
+                else {}
+            )
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
+        except Exception:
+            return None, {}
+
+    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            if not isinstance(raw_phases, dict):
+                return {}
+            return {
+                phase: max(0, int(duration))
+                for phase, duration in raw_phases.items()
+                if phase in allowed_phases and isinstance(duration, int | float)
+            }
+        except Exception:
+            return {}
 
     def __enter__(self) -> Self:
         return self
@@ -605,6 +745,8 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     class ModalDockerSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
         NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+        STREAMLIT_APP_NAME = "posthog-sandbox-modal-docker-streamlit"
+        SELF_DRIVING_APP_NAME = "posthog-sandbox-modal-docker-self-driving"
 
     return ModalDockerSandbox
 
@@ -618,6 +760,9 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     class ModalEvalsSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-evals"
         NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+        STREAMLIT_APP_NAME = "posthog-sandbox-evals"
+        # Evals are their own cost centre already — a self-driving eval stays in the evals app.
+        SELF_DRIVING_APP_NAME = "posthog-sandbox-evals"
 
     return ModalEvalsSandbox
 

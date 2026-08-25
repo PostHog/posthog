@@ -35,6 +35,7 @@ class Command(BaseCommand):
                 skill_version=options["skill_version"],
                 repository=options["repository"],
                 verbose=options["verbose"],
+                triggered_by="manual",
             )
         except SkillNotFoundError as exc:
             raise CommandError(str(exc))

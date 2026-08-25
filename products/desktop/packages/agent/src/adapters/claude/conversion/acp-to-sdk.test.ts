@@ -70,13 +70,13 @@ describe("promptToClaude", () => {
     expect(text).toContain("pages");
   });
 
-  it("tags a steer message with priority 'next' for tool-boundary delivery", () => {
+  it("tags a steer message with priority 'now' so it interrupts the turn", () => {
     const result = promptToClaude({
       sessionId: "session-1",
       prompt: [{ type: "text", text: "use a different approach" }],
       _meta: { steer: true },
     });
-    expect(result.priority).toBe("next");
+    expect(result.priority).toBe("now");
   });
 
   it("adds local skill context before the visible slash command", () => {

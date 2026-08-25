@@ -9,7 +9,7 @@ import { formatResponse } from '@/lib/response'
 
 import type { ExecHelpCatalog } from './exec-help'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { GATEWAY_TOOL_SEPARATOR } from '@/lib/gateway-tools'
+import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
@@ -78,6 +78,27 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+/**
+ * What the agent asked `exec` to do, for the `$mcp_tool_call` event.
+ *
+ * `call` is already attributed to the inner tool it dispatched, so the value here is in
+ * the other verbs — above all `search`, whose query is the only record of what an agent
+ * looked for. A search that matches nothing is otherwise invisible, which leaves the
+ * question "which capability do people reach for that we don't have" unanswerable.
+ */
+export interface ExecCommandMeta {
+    /** The verb the agent used: `search`, `info`, `schema`, `tools`, `learn`, `call`. */
+    exec_verb: string
+    /** The raw search query. Already bounded to MAX_SEARCH_PATTERN_LENGTH by the handler. */
+    exec_search_query?: string
+    /** How many tools matched, before the response is truncated — 0 is the interesting case. */
+    exec_search_match_count?: number
+    /** How many of those matches came from a connected third-party server. */
+    exec_search_gateway_match_count?: number
+}
+
+export type ExecCommandTracker = (meta: ExecCommandMeta) => void
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     helpCatalog?: ExecHelpCatalog
@@ -95,6 +116,8 @@ export interface ExecToolOptions {
      * degrades to "no third-party tools", never to a broken `exec`.
      */
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
+    /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
+    trackCommand?: ExecCommandTracker
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -576,6 +599,9 @@ export function createExecTool(
         },
         handler: async (_context: Context, params: z.infer<ExecSchema>) => {
             const { verb, rest } = parseCommand(params.command)
+            // Reported up front so a command that throws (unknown tool, bad regex) still
+            // records what was attempted — those are the failures worth counting.
+            options.trackCommand?.({ exec_verb: verb })
 
             let gatewayTools: Tool<ZodObjectAny>[] | undefined
             /** PostHog's tools plus any third-party tools the caller has connected.
@@ -656,12 +682,17 @@ export function createExecTool(
                     // predicate; plain words — including multi-word, natural-
                     // language queries — use forgiving token ranking.
                     const searchableTools = await resolveTools()
+                    // `matches` is the page the agent sees; `matchedNames` is every match,
+                    // which is what the counts report — a truncated page would make a broad
+                    // query look as narrow as a precise one.
+                    let matchedNames: string[]
                     let matches: string[]
                     let gatedMatches: ScopeGatedTool[]
                     let truncatedFrom = 0
                     if (isRegexPattern(rest)) {
                         try {
-                            matches = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
+                            matches = matchedNames
                             gatedMatches = searchToolsRegex(scopeGatedTools, rest)
                         } catch {
                             throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
@@ -669,7 +700,8 @@ export function createExecTool(
                     } else {
                         const ranked = searchToolsRanked(searchableTools, rest)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
-                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        matchedNames = ranked.map((r) => r.name)
+                        matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
                         // Preserve ranked order for gated matches too, then map
                         // each name back to its ScopeGatedTool (for missingScopes).
                         const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
@@ -677,6 +709,13 @@ export function createExecTool(
                             .map((r) => gatedByName.get(r.name))
                             .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
+
+                    options.trackCommand?.({
+                        exec_verb: verb,
+                        exec_search_query: rest,
+                        exec_search_match_count: matchedNames.length,
+                        exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
+                    })
 
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()

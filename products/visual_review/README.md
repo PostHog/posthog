@@ -113,8 +113,9 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run complete`** — triggers completion (classification, removal detection, diffs).
 Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
-The exit code does not depend on `--purpose`: an `observe` run still exits 1 on unapproved changes, so a caller that wants tracking-only behavior has to tolerate exit 1 itself.
-`ci-storybook.yml` does exactly that on master pushes and merge-queue branches, and treats exit 2 as a failure everywhere.
+Pass the same `--purpose` the run was created with.
+On `--purpose observe` the command names the drifted identifiers, emits a `::warning::` annotation, and exits 0, because a tracking-only run has nothing to approve and must not gate.
+Without the flag it reports nothing on such a run: the backend reports zero unresolved for an observe run whatever drifted, so a clean run and a drifting one look identical.
 
 ### Run purposes
 

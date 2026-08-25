@@ -69,10 +69,28 @@ def run_utm_audit(
     )
 
     mappings = load_team_mappings(team)
-    known_sources = build_known_sources(mappings)
-
     campaigns = get_campaigns_with_spend(team, date_range, user=user)
     utm_events = get_utm_campaign_catalogue(team, date_range, user=user)
+
+    return build_audit(campaigns, utm_events, mappings)
+
+
+# The audit is sync (it reads team config through the ORM and runs HogQL inline), but the
+# async services — `marketing_diagnostic`, `setup_plan` — gather it alongside coroutines.
+run_utm_audit_async = database_sync_to_async(run_utm_audit)
+
+
+def build_audit(
+    campaigns: list[Campaign],
+    utm_events: dict[tuple[str, str], int],
+    mappings: TeamMappings,
+) -> UtmAuditResponse:
+    """Cross-reference already-fetched campaigns and UTM events into an audit.
+
+    Split out of `run_utm_audit` so `setup_plan` can audit the same rows it already
+    pulled for the suggesters instead of paying for both queries a second time.
+    """
+    known_sources = build_known_sources(mappings)
 
     results = _cross_reference(campaigns, utm_events, mappings, known_sources) if campaigns else []
     all_utm = _build_all_utm_events(campaigns, utm_events, mappings)
@@ -87,11 +105,6 @@ def run_utm_audit(
         results=sorted(results, key=lambda r: (-len(r.issues), -r.spend)),
         all_utm_events=all_utm,
     )
-
-
-# The audit is sync (it reads team config through the ORM and runs HogQL inline), but the
-# async services — `marketing_diagnostic`, `setup_plan` — gather it alongside coroutines.
-run_utm_audit_async = database_sync_to_async(run_utm_audit)
 
 
 def get_campaigns_with_spend(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> list[Campaign]:

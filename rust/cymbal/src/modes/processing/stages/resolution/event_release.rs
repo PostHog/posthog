@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
-    frames::releases::{mobile_release_hash_id, ReleaseRecord},
-    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLVER_OPERATOR},
+    frames::releases::{mobile_release_hash_id, unpack_version, ReleaseRecord},
+    metric_consts::{ANCILLARY_CACHE, EVENT_RELEASE_RESOLUTION, EVENT_RELEASE_RESOLVER_OPERATOR},
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         exception_event::{ExceptionEvent, Parsed},
@@ -113,6 +113,9 @@ fn record_cache_outcome(cache_type: &'static str, cache_miss: bool) {
 ///      stack mixes symbol sets from several releases reports the latest.
 ///
 /// When none resolve, the event release stays unset and `$exception_release` is omitted.
+///
+/// Whatever release it lands on also backfills the event's app metadata, so an exception from
+/// any technology reports the app the way a mobile SDK does.
 #[derive(Clone, Default)]
 pub struct EventReleaseResolver;
 
@@ -140,6 +143,9 @@ impl ValueOperator for EventReleaseResolver {
         )
         .await?;
 
+        if let Some(record) = &record {
+            backfill_app_properties(&mut evt, record);
+        }
         evt.set_event_release(record);
 
         Ok(Ok(evt))
@@ -158,15 +164,19 @@ async fn select_release(
         .and_then(Value::as_str)
         .and_then(|id| Uuid::parse_str(id).ok());
 
-    let record = if let Some(release_id) = release_id {
-        cache.for_id(pool, release_id, team_id).await?
+    let (record, source) = if let Some(release_id) = release_id {
+        (cache.for_id(pool, release_id, team_id).await?, "release_id")
     } else if let Some(hash_id) = mobile_release_hash_from_props(props) {
-        cache.for_hash(pool, &hash_id, team_id).await?
+        (
+            cache.for_hash(pool, &hash_id, team_id).await?,
+            "mobile_hash",
+        )
     } else {
-        None
+        (None, "none")
     };
 
     if let Some(record) = record {
+        record_release_source(source);
         return Ok(Some(record));
     }
 
@@ -176,7 +186,17 @@ async fn select_release(
     for id in symbol_set_release_ids {
         candidates.extend(cache.for_id(pool, *id, team_id).await?);
     }
-    Ok(ReleaseRecord::latest(candidates))
+    let record = ReleaseRecord::latest(candidates);
+    record_release_source(if record.is_some() {
+        "symbol_set"
+    } else {
+        "none"
+    });
+    Ok(record)
+}
+
+fn record_release_source(source: &'static str) {
+    metrics::counter!(EVENT_RELEASE_RESOLUTION, "source" => source).increment(1);
 }
 
 /// Rebuild the release `hash_id` from a mobile event's app metadata. Returns `None` for events that
@@ -189,6 +209,22 @@ fn mobile_release_hash_from_props(props: &HashMap<String, Value>) -> Option<Stri
     let version = props.get("$app_version").and_then(Value::as_str);
     let build = props.get("$app_build").and_then(scalar_to_string);
     mobile_release_hash_id(namespace, version, build.as_deref())
+}
+
+/// The app a release describes, in the properties mobile SDKs already report on every event:
+/// the release's project is the app namespace it was created under, and its version is the app
+/// version with the build number packed in.
+///
+/// Mobile SDKs are the only ones that send these, so copying them off the release is what gives an
+/// exception from any other technology the same app metadata, and lets a filter or a grouping rule
+/// on app version mean the same thing whichever SDK sent the event.
+fn backfill_app_properties(evt: &mut ExceptionEvent<Parsed>, release: &ReleaseRecord) {
+    let (version, build) = unpack_version(&release.version);
+    evt.set_property_if_absent("$app_namespace", Value::String(release.project.clone()));
+    evt.set_property_if_absent("$app_version", Value::String(version.to_string()));
+    if let Some(build) = build {
+        evt.set_property_if_absent("$app_build", Value::String(build.to_string()));
+    }
 }
 
 fn scalar_to_string(value: &Value) -> Option<String> {
@@ -234,6 +270,66 @@ mod tests {
             mobile_release_hash_from_props(&props(json!({"$app_version": "1.0"}))),
             None
         );
+    }
+
+    fn release(project: &str, version: &str) -> ReleaseRecord {
+        ReleaseRecord {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            hash_id: "hash".to_string(),
+            created_at: chrono::Utc::now(),
+            version: version.to_string(),
+            project: project.to_string(),
+            metadata: None,
+        }
+    }
+
+    fn parsed_event(properties: Value) -> ExceptionEvent<Parsed> {
+        let mut properties = properties;
+        properties["$exception_list"] = json!([{"type": "Error", "value": "boom"}]);
+        crate::types::event::AnyEvent {
+            uuid: Uuid::now_v7(),
+            event: "$exception".to_string(),
+            team_id: 1,
+            timestamp: String::new(),
+            properties,
+            others: HashMap::new(),
+        }
+        .try_into()
+        .expect("valid exception properties")
+    }
+
+    #[test]
+    fn the_release_fills_app_metadata_the_sdk_did_not_send() {
+        let mut web = parsed_event(json!({}));
+        backfill_app_properties(&mut web, &release("my-app", "1.2.3+42"));
+        assert_eq!(web.properties()["$app_namespace"], json!("my-app"));
+        assert_eq!(web.properties()["$app_version"], json!("1.2.3"));
+        assert_eq!(web.properties()["$app_build"], json!("42"));
+
+        // A mobile SDK read these off the running app, and its release may have been created under
+        // a name that is not the bundle identifier, so nothing it sent is replaced.
+        let mut mobile = parsed_event(json!({
+            "$app_namespace": "com.example.app", "$app_version": "1.0", "$app_build": 7
+        }));
+        backfill_app_properties(&mut mobile, &release("my-app", "1.2.3+42"));
+        assert_eq!(
+            mobile.properties()["$app_namespace"],
+            json!("com.example.app")
+        );
+        assert_eq!(mobile.properties()["$app_version"], json!("1.0"));
+        assert_eq!(mobile.properties()["$app_build"], json!(7));
+
+        // The React Native SDK spreads its app properties into every event whether or not the
+        // platform supplied them, so an Expo app that cannot read its own version sends explicit
+        // nulls. A null is not a value the SDK observed, so it does not block the backfill.
+        let mut expo = parsed_event(json!({
+            "$app_namespace": null, "$app_version": null, "$app_build": null
+        }));
+        backfill_app_properties(&mut expo, &release("my-app", "1.2.3+42"));
+        assert_eq!(expo.properties()["$app_namespace"], json!("my-app"));
+        assert_eq!(expo.properties()["$app_version"], json!("1.2.3"));
+        assert_eq!(expo.properties()["$app_build"], json!("42"));
     }
 
     const TEAM_ID: TeamId = 1;

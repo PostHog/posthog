@@ -1,9 +1,23 @@
 """SQL for the sessions batch export model."""
 
+import datetime as dt
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from products.batch_exports.backend.temporal.sql.common import HogQLQueryBatchExportSettings
+from products.batch_exports.backend.temporal.sql.common import BatchExportQuerySettings
+
+# max_inserted_at is only available since around end of 2025. Before
+# that, it is the zero value (unix epoch). We use greatest to pick
+# $end_timestamp for backfills from before max_inserted_at was available.
+SESSIONS_INSERTED_AT_SQL = "greatest(max_inserted_at, $end_timestamp)"
+
+# Lookback days based on the timestamp field of the events that make up a session.
+# Sessions is an aggregate table which is not sorted by inserted_at. So, we need
+# a filter on $end_timestamp to avoid a full scan of the table. Backfills use
+# $end_timestamp rather than max_inserted_at, so this lookback period only applies
+# to regular runs. While testing, 3 days catched almost all sessions.
+SESSIONS_LOOKBACK_DAYS = dt.timedelta(days=3)
 
 SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
     select=[
@@ -42,7 +56,8 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$exit_current_url as exit_current_url"),
         parse_expr("$exit_pathname as exit_pathname"),
         parse_expr("$vitals_lcp as vitals_lcp"),
-        parse_expr("$end_timestamp as _inserted_at"),
+        # nosemgrep: semgrep.rules.security.hogql-fstring-audit
+        parse_expr(f"{SESSIONS_INSERTED_AT_SQL} as _inserted_at"),
         parse_expr("$entry_gclsrc as entry_gclsrc"),
         parse_expr("$entry_dclid as entry_dclid"),
         parse_expr("$entry_gbraid as entry_gbraid"),
@@ -57,5 +72,5 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$entry_irclid as entry_irclid"),
     ],
     select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
-    settings=HogQLQueryBatchExportSettings(),
+    settings=BatchExportQuerySettings(),
 )

@@ -2,6 +2,7 @@ import json
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import UTC, timedelta
+from functools import partial
 from typing import Any, cast
 
 from django.conf import settings
@@ -67,6 +68,7 @@ from posthog.user_permissions import UserPermissions
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
+    SIGNALS_PRODUCT,
     ArtefactContentValidationError,
     Dismissal,
     SuggestedReviewers,
@@ -92,12 +94,14 @@ from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
+    pr_bearing_task_run_filter,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
+    SignalReportAction,
     SignalReportArtefact,
     SignalReportRefund,
     SignalSourceConfig,
@@ -112,6 +116,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -306,26 +311,12 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"source_product": "A configuration for this source product and type already exists for this team."}
             )
 
-        if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER and instance.enabled:
-            self._trigger_session_analysis_setup()
-
         if (
             instance.source_product == SignalSourceConfig.SourceProduct.ERROR_TRACKING
             and instance.source_type == SignalSourceConfig.SourceType.ISSUE_CREATED
             and instance.enabled
         ):
             self._trigger_error_tracking_backfill()
-
-    def _trigger_session_analysis_setup(self) -> None:
-        """Upsert the per-team summarization schedule now instead of waiting for the
-        reconciler's next tick. Reconciler remains the safety net."""
-        from posthog.temporal.session_replay.summarization_sweep.schedule import a_upsert_team_schedule
-
-        try:
-            async_to_sync(a_upsert_team_schedule)(self.team_id)
-            logger.info(f"Upserted session analysis schedule for team {self.team_id}")
-        except Exception:
-            logger.exception(f"Failed to upsert session analysis schedule for team {self.team_id}")
 
     def _trigger_error_tracking_backfill(self) -> None:
         """Fire-and-forget backfill of recent error tracking issues as signals."""
@@ -366,10 +357,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            if instance.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-                self._trigger_session_analysis_setup()
-            else:
-                self._trigger_data_import_sync(instance)
+            self._trigger_data_import_sync(instance)
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
@@ -598,11 +586,14 @@ class SignalReportFeedbackRequestSerializer(serializers.Serializer):
     )
     note = serializers.CharField(
         max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
+        required=False,
+        allow_blank=True,
+        default="",
         help_text=(
             "Free-form note explaining the rating. Capped at "
-            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Only submitted alongside a note — a "
-            "bare thumb carries none — and, for a report authored by a scout, forwarded to that scout "
-            "as a steering note."
+            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Optional — a bare thumb carries "
+            "none. When present and the report was authored by a scout, the note is forwarded to that "
+            "scout as a steering note."
         ),
     )
 
@@ -734,6 +725,28 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
         return attrs
 
 
+def _is_person_at_the_ui(request: Request) -> bool:
+    """Whether the caller is a signed-in person in a browser, not an automated credential.
+
+    Consumption evidence (`SignalReportAction`) must prove a person read the report, but every
+    credential this API accepts authenticates *as* a user: through ``request.user`` alone, a
+    personal API key or a sandbox agent's OAuth token is indistinguishable from the person it
+    belongs to. Admitting only a browser session keeps automation — including a scout calling
+    the API on its own reports — from manufacturing the engagement that exempts it from the
+    inactivity sweep.
+
+    Staff impersonation is excluded for the same reason: it is a browser session, but
+    ``request.user`` is the impersonated customer, so a support investigation would otherwise
+    write consumption evidence in that customer's name and rescue a scout nobody on their team
+    read. (Read-only impersonation can't reach these POSTs at all; read-write can.)
+    """
+    return (
+        isinstance(request.successful_authenticator, SessionAuthentication)
+        and isinstance(request.user, User)
+        and not is_impersonated_session(request)
+    )
+
+
 @extend_schema_view(
     destroy=extend_schema(exclude=True),
 )
@@ -765,6 +778,13 @@ class SignalReportViewSet(
     }
 
     def safely_get_queryset(self, queryset):
+        if self.action == "viewed":
+            # Passive telemetry fired right after the detail request that already rendered the
+            # report: only visibility matters here, so skip the rendering annotations and
+            # prefetches every other action's serializer needs.
+            qs = queryset.filter(team=self.team)
+            qs = self._exclude_deleted_signal_reports(qs)
+            return self._apply_signal_report_status_filter(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -827,7 +847,11 @@ class SignalReportViewSet(
     # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund", "feedback"})
+    # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
+    # open like any other.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+    )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -979,7 +1003,9 @@ class SignalReportViewSet(
         # `pr_url` and maps them to reports via the indexed `task_id` columns — instead of a correlated
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
-        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery(self.team.id))
+        return SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+        )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether a shipped
@@ -1221,14 +1247,16 @@ class SignalReportViewSet(
     def _annotate_implementation_pr_url(self, queryset):
         # Latest TaskRun output->pr_url across the tasks associated with each report, unified over
         # the task_run artefact log + legacy SignalReportTask rows (see associated_task_runs_filter).
-        # Only implementation runs carry a pr_url, so the non-empty-pr_url filter inside the facade
-        # subquery makes "any associated task" resolve to the implementation PR.
+        # The non-empty-pr_url filter inside the facade subquery is what narrows "any associated
+        # task" to the one that opened the report's PR.
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+            pr_bearing_task_run_filter(),
         )
         # Resolved over the same run, so the merge flag always describes the PR URL alongside it.
         latest_impl_pr_merged = tasks_facade.latest_task_run_pr_merged_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+            pr_bearing_task_run_filter(),
         )
         return queryset.annotate(
             implementation_pr_url=latest_impl_pr_url,
@@ -1237,6 +1265,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
+        if self.action == "viewed":
+            # The lightweight viewed queryset skips the annotations the default ordering sorts
+            # by, and a by-ID lookup has nothing to order anyway.
+            return queryset
         return self._apply_signal_report_ordering(queryset)
 
     def _parse_ordering_string(self, raw: str) -> list[str]:
@@ -1349,6 +1381,13 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
+            # The suggested questions were written against the prose this edit replaces, so they go
+            # down with it — the same rule the research pipeline applies when it rewrites a summary.
+            # Leaving them would offer questions about a report that no longer says what they ask
+            # about, and this field is read-only here, so nothing could take them back down.
+            if report.suggested_prompts:
+                report.suggested_prompts = []
+                update_fields.append("suggested_prompts")
 
         if update_fields:
             # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
@@ -1746,22 +1785,24 @@ class SignalReportViewSet(
     @extend_schema(
         summary="Leave feedback on a report",
         description=(
-            "Record a note left with the thumbs rating at the end of a report. The rating itself is a "
-            "product-analytics event; this endpoint exists to carry the note into the scout steering "
-            "channel. For a report authored by a scout, the note is forwarded to that scout as a "
-            "steering note it reads on its next run; for any other report there is nothing to steer and "
-            "the call is a no-op success. The report's state is never changed."
+            "Record the thumbs rating at the end of a report, with an optional note. For "
+            "browser-session requests the rating is persisted as a per-person report action, which "
+            "counts as consumption evidence for the scout that authored the report (scouts whose "
+            "output nobody consumes are eventually paused); requests authenticated any other way "
+            "record no action. When a note is present and the report was authored by a scout, the note is also "
+            "forwarded to that scout as a steering note it reads on its next run; for any other report "
+            "there is nothing to steer. The report's state is never changed."
         ),
         request=SignalReportFeedbackRequestSerializer,
         responses={200: SignalReportFeedbackResponseSerializer},
     )
     @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
     def feedback(self, request, pk=None, **kwargs):
-        """Forward a report's feedback note to the scout that authored it.
+        """Persist a report's thumbs rating and forward its note to the authoring scout.
 
-        Feedback-only: unlike `state`, this never transitions the report. The note is a derived
-        convenience — the durable record of the rating is the analytics event the client fires —
-        so forwarding is best-effort and never fails the request.
+        Feedback-only: unlike `state`, this never transitions the report. Note forwarding is
+        best-effort and never fails the request; the action row is what the scout inactivity
+        sweep reads as consumption evidence.
         """
         report = cast(SignalReport, self.get_object())
 
@@ -1769,16 +1810,68 @@ class SignalReportViewSet(
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        note = data["note"].strip()
+
+        if _is_person_at_the_ui(request):
+            # The inbox posts the bare rating on click and the optional note afterwards, so a
+            # note-carrying request amends a rating the row already counted — bumping again
+            # would record one thumb choice as two interactions.
+            SignalReportAction.record(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                user_id=request.user.id,
+                action_type=SignalReportAction.ActionType.FEEDBACK,
+                metadata={"sentiment": data["sentiment"]},
+                bump_count=not note,
+            )
+
+        if not note:
+            return Response(SignalReportFeedbackResponseSerializer({"forwarded": False}).data)
+
         note_id = forward_feedback_note(
             team=self.team,
             report_id=str(report.id),
             sentiment=data["sentiment"],
-            note=data["note"],
+            note=note,
             user_id=request.user.id if isinstance(request.user, User) else None,
             scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
             api_scopes=get_authenticator_scopes(request.successful_authenticator),
         )
         return Response(SignalReportFeedbackResponseSerializer({"forwarded": note_id is not None}).data)
+
+    @extend_schema(
+        summary="Record that a person viewed a report",
+        description=(
+            "Record that the caller opened this report's detail view. One row per person per report is "
+            "kept (repeat views bump a counter), and the record counts as consumption evidence for the "
+            "scout that authored the report — scouts whose reports nobody consumes are eventually "
+            "paused. Intended as fire-and-forget from the inbox UI when a person opens a report. Only "
+            "browser-session requests leave a record; a call with any other credential (personal API "
+            "key, OAuth token) returns 204 but records nothing."
+        ),
+        request=None,
+        responses={204: None},
+    )
+    # task:read, not task:write: recording that someone read a report is part of reading it.
+    # Under resource-level RBAC a `:write` scope demands editor access, which would 403 the
+    # viewer-level members whose reads this endpoint exists to capture. Token automation is
+    # already excluded by the session-authentication gate, not by scope.
+    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["task:read"])
+    def viewed(self, request, pk=None, **kwargs):
+        """Upsert a per-person view record for the report.
+
+        Only session-authenticated callers leave a record; any other credential is a silent
+        no-op (204, nothing written), since the row exists to prove a person looked.
+        """
+        report = cast(SignalReport, self.get_object())
+        if _is_person_at_the_ui(request):
+            SignalReportAction.record(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                user_id=request.user.id,
+                action_type=SignalReportAction.ActionType.VIEW,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _forward_dismissal_note(
         self,
@@ -2191,6 +2284,18 @@ class SignalReportViewSet(
                 refund_id = str(refund.id)
                 transaction.on_commit(lambda: sync_signals_refund_credit.delay(refund_id))
 
+        # A refund suppresses the report, which is a judgement the authoring scout should hear, so it
+        # forwards on the same channel as any other dismissal. `refund.reason` rather than the
+        # `refunded` code the artefact records, because `pr_incorrect` tells a scout the PR missed
+        # what its report promised while `refunded` only says money moved. Outside the atomic block
+        # because forwarding writes rows of its own and must not be able to roll back the refund it
+        # reports; a report left RESOLVED by a merged PR is dropped by the forwarding path itself.
+        self._forward_dismissal_note(
+            reports=[report],
+            dismissal_reason=refund.reason,
+            dismissal_note=note,
+        )
+
         report_user_action(
             user,
             "signals_pr_refund_created",
@@ -2207,6 +2312,7 @@ class SignalReportViewSet(
             },
             team=self.team,
             organization=self.organization,
+            request=request,
         )
 
         return self._refund_response(refund)
@@ -2982,6 +3088,16 @@ def append_suggested_reviewers(
             content=SuggestedReviewers.model_validate(new_content),
             attribution=attribution,
         )
+        # on_commit so a rolled-back edit emits nothing, matching every other reviewer write path.
+        transaction.on_commit(
+            partial(
+                capture_suggested_reviewers_resolved,
+                team_id=team.id,
+                report_id=str(report_id),
+                github_logins=[entry["github_login"] for entry in new_content],
+                source="user_edit",
+            )
+        )
 
         # Human reviewer corrections are a routing signal (scouts query them via the
         # activity log to learn who owns an area), so log them — but only genuine
@@ -3284,6 +3400,24 @@ class SignalReportArtefactViewSet(
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             content = {**content, "task_id": str(task_id)}
+            asserted_product = content.get("product")
+            if isinstance(asserted_product, str) and asserted_product.strip() == SIGNALS_PRODUCT:
+                # `signals` is the built-in pipeline's own namespace, and it is what the
+                # per-report task cap counts. A client that could assert it would be able to fill
+                # another report's discussion allowance with associations to arbitrary tasks of
+                # its own, permanently — the log is append-only. Server-side writers reach
+                # `append_task_run_artefact` in-process and never come through here; custom agents
+                # carry their own identifier pair. Mirrors the tasks write serializer, which
+                # rejects the pipeline's reserved relationship labels for the same reason.
+                #
+                # Compared on the stripped value because `identifier_part_must_be_routing_safe`
+                # strips before storing, so an unstripped comparison would let `" signals "` land
+                # in the reserved namespace. The regex it then applies rejects every other
+                # variation, so whitespace is the only normalization the two sides must agree on.
+                return Response(
+                    {"error": f"content.product '{SIGNALS_PRODUCT}' is reserved for server-created runs."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             content.setdefault("product", "tasks")
             content.setdefault("type", "agent_run")
             existing = (
@@ -3314,7 +3448,59 @@ class SignalReportArtefactViewSet(
             content=parsed_content,
             attribution=attribution,
         )
+        if isinstance(parsed_content, SuggestedReviewers):
+            # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
+            transaction.on_commit(
+                partial(
+                    capture_suggested_reviewers_resolved,
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    github_logins=[entry.github_login for entry in parsed_content.root],
+                    source="api",
+                )
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
+
+    def _capture_canonical_reviewer_state(self, report_id: str) -> None:
+        """Re-emit reviewer telemetry from the latest surviving `suggested_reviewers` row.
+
+        Deleting or editing a reviewers artefact changes the report's canonical reviewer set
+        without going through an append path, so the "latest event per report" read would
+        otherwise keep describing the removed row. An empty login list is a valid state (the
+        deletion removed the only row).
+
+        Fully best-effort: this runs in a non-robust on_commit callback after the mutation
+        committed, so an exception here would turn an already-successful request into a 500."""
+        try:
+            latest = (
+                SignalReportArtefact.objects.filter(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+            logins: list[str] = []
+            if latest is not None:
+                try:
+                    parsed = json.loads(latest.content)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    parsed = []
+                if isinstance(parsed, list):
+                    logins = [
+                        str(entry.get("github_login"))
+                        for entry in parsed
+                        if isinstance(entry, dict) and entry.get("github_login")
+                    ]
+            capture_suggested_reviewers_resolved(
+                team_id=self.team.id,
+                report_id=report_id,
+                github_logins=logins,
+                source="api",
+            )
+        except Exception:
+            logger.exception("failed to re-emit canonical reviewer state", report_id=report_id)
 
     @validated_request(
         request_serializer=SignalReportArtefactLogUpdateSerializer,
@@ -3349,24 +3535,42 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+            # Editing a reviewers row can change the report's canonical reviewer set in place.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, str(artefact.report_id)))
         return Response(self._write_response_data(artefact))
 
     @extend_schema(
         responses={
             204: OpenApiResponse(description="Artefact deleted."),
+            400: OpenApiResponse(description="Artefact type cannot be deleted through the API."),
             404: OpenApiResponse(description="Artefact not found for this report / project."),
         },
         summary="Delete an artefact",
         description=(
             "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts "
-            "the report's canonical status to the previous version (latest-wins over what remains)."
+            "the report's canonical status to the previous version (latest-wins over what remains). "
+            "`task_run` artefacts are an append-only work log and cannot be deleted."
         ),
         parameters=[_REPORT_ID_PARAMETER],
         operation_id="signals_report_artefacts_destroy",
     )
     def destroy(self, request, *args, **kwargs) -> Response:
         artefact = cast(SignalReportArtefact, self.get_object())
+        if artefact.type == SignalReportArtefact.ArtefactType.TASK_RUN:
+            # The work log is also what the per-report task cap counts; a deletable log would let
+            # a client at the cap free its own slots.
+            return Response(
+                {"error": "task_run artefacts are an append-only work log and cannot be deleted."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        report_id = str(artefact.report_id)
         artefact.delete()
+        if was_reviewers:
+            # Deleting the latest reviewers row reverts the canonical set to the previous row (or
+            # none) — re-emit so the latest event per report tracks the surviving state.
+            transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

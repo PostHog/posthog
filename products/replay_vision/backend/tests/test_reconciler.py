@@ -83,7 +83,7 @@ def _make_scanner(team: Team, **overrides: Any) -> ReplayScanner:
         "name": "reconciler-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -675,7 +675,7 @@ def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplaySc
         inline_key=key,
         scanner_type=ScannerType.MONITOR,
         scanner_config={"prompt": f"p-{key}"},
-        model=ScannerModel.GEMINI_3_6_FLASH,
+        model=ScannerModel.GEMINI_3_7_FLASH,
         enabled=False,
         sampling_rate=0.0,
     )

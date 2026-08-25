@@ -10,7 +10,7 @@ use arrow_array::{make_array, new_null_array, Array, RecordBatch};
 use arrow_buffer::Buffer;
 use arrow_cast::{cast_with_options, CastOptions};
 use arrow_data::ArrayData;
-use arrow_schema::{DataType, Field, Schema, SchemaRef};
+use arrow_schema::{DataType, Schema, SchemaRef};
 
 use crate::errors::{Error, Result};
 
@@ -138,30 +138,12 @@ pub fn cast_to_schema(batch: &RecordBatch, target: &SchemaRef) -> Result<RecordB
         }
     }
 
-    // Validate against a nullable-relaxed copy of the schema. A source can legitimately carry
-    // nulls in a column the table's schema still marks non-nullable (and null-padding a
-    // recently-added column always does), and delta-rs's own MERGE accepts such rows -- its
-    // writer emits physical Parquet as nullable regardless of the logical Delta schema. Building
-    // against the strict schema would instead reject them with "Column X is declared as
-    // non-nullable but contains null values", forcing a fallback to the MERGE. Relaxing here
-    // matches delta-rs; the table's logical schema is untouched.
-    Ok(RecordBatch::try_new(relax_nullability(target), cols)?)
-}
-
-/// A copy of `schema` with every field marked nullable, or `schema` itself when all fields
-/// already are. delta-rs writes physical Parquet as nullable irrespective of the logical Delta
-/// schema; matching that lets a source carry nulls in a column the table still declares
-/// non-nullable without a hard rejection.
-fn relax_nullability(schema: &SchemaRef) -> SchemaRef {
-    if schema.fields().iter().all(|f| f.is_nullable()) {
-        return schema.clone();
-    }
-    let fields: Vec<Field> = schema
-        .fields()
-        .iter()
-        .map(|f| f.as_ref().clone().with_nullable(true))
-        .collect();
-    Arc::new(Schema::new_with_metadata(fields, schema.metadata().clone()))
+    // The batch must match the table's arrow schema exactly, including nullability: delta-rs's
+    // RecordBatchWriter rejects any deviation ("RecordBatch schema does not match"). A column that
+    // carries nulls but the table still marks non-nullable must therefore be relaxed to nullable in
+    // the table's metadata BEFORE the upsert (the pipeline's schema-evolution step does this), not
+    // here -- relaxing only the batch produces a schema mismatch the writer refuses.
+    Ok(RecordBatch::try_new(target.clone(), cols)?)
 }
 
 /// Columns present in `source` but absent from the table schema. Schema evolution is
@@ -301,33 +283,6 @@ mod tests {
             n.as_any().downcast_ref::<Int64Array>().unwrap().values(),
             &[1, 2]
         );
-        assert_eq!(out.column_by_name("added_later").unwrap().null_count(), 2);
-    }
-
-    #[test]
-    fn cast_relaxes_non_nullable_columns_receiving_nulls() {
-        // A source may carry nulls in a column the table still declares non-nullable, and a
-        // null-padded added column always does. delta-rs's MERGE accepts such rows; cast_to_schema
-        // must too (relaxing physical nullability) rather than reject them and force a fallback.
-        let target: SchemaRef = Arc::new(Schema::new(vec![
-            Field::new("id", DataType::Utf8, false),
-            Field::new("added_later", DataType::Int64, false),
-        ]));
-        let batch = RecordBatch::try_new(
-            Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, true)])),
-            vec![Arc::new(StringArray::from(vec![Some("a"), None]))],
-        )
-        .unwrap();
-
-        let out = cast_to_schema(&batch, &target).unwrap();
-        assert_eq!(out.num_rows(), 2);
-        assert!(out.schema().field_with_name("id").unwrap().is_nullable());
-        assert!(out
-            .schema()
-            .field_with_name("added_later")
-            .unwrap()
-            .is_nullable());
-        assert_eq!(out.column_by_name("id").unwrap().null_count(), 1);
         assert_eq!(out.column_by_name("added_later").unwrap().null_count(), 2);
     }
 

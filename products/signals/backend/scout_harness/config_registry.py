@@ -15,6 +15,7 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
+    canonical_config_tags_for,
     canonical_skill_names,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
@@ -152,6 +153,9 @@ def register_missing_configs(
     scout isn't silently muted. With no allowlist, every scout enables at the model-default
     schedule. Either way, a scout disabled at seed stays visible and tunable but adds no spend.
 
+    A canonical scout's `scout-tags` frontmatter is stamped on the row it creates, so a scout
+    ships already labelled for the product surface it watches.
+
     Posture only shapes rows at creation (forward-only) — existing configs are never re-stamped,
     so flipping the flag later doesn't disturb teams already seeded, and a user enabling a scout
     won't be reverted on the next tick.
@@ -209,6 +213,12 @@ def register_missing_configs(
         seed_enabled = in_allowlist and not at_cap
 
         defaults: dict = {} if seed_enabled else {"enabled": False}
+        # A canonical scout can claim a product surface's tag in its SKILL.md frontmatter
+        # (`scout-tags`) — that's what lands it in that product's own scout list. Seeded at
+        # creation like the rest of the posture, so a person who later removes the tag keeps it
+        # removed. Only canonical names read from disk: a team's scout sharing the name is its own.
+        if name in canonical_names and (canonical_tags := canonical_config_tags_for(name)):
+            defaults["tags"] = list(canonical_tags)
         # The launch cadence is stamped on every canonical (gated) scout — whether it seeds
         # enabled now or stays disabled for the user to switch on later — so a specialist a user
         # toggles on runs at the flag's launch cadence rather than the model default (daily).

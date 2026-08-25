@@ -192,6 +192,8 @@ class TerminalManagerImpl {
       return existing;
     }
 
+    const shellClient = resolveService<ShellClient>(SHELL_CLIENT);
+
     const term = new XTerm({
       cursorBlink: true,
       fontSize: 12,
@@ -231,18 +233,26 @@ class TerminalManagerImpl {
     }
 
     // Setup user input handler
-    const disposable = term.onData((data: string) => {
-      resolveService<ShellClient>(SHELL_CLIENT)
-        .write({ sessionId, data })
-        .catch((error: Error) => {
-          this.handleMissingSessionError(sessionId, instance, error, {
-            reason: "write",
-            retryData: data,
-          });
+    const inputDisposable = term.onData((data: string) => {
+      shellClient.write({ sessionId, data }).catch((error: Error) => {
+        this.handleMissingSessionError(sessionId, instance, error, {
+          reason: "write",
+          retryData: data,
         });
+      });
       this.scheduleSave(sessionId, instance);
     });
-    instance.cleanups.push(() => disposable.dispose());
+    instance.cleanups.push(() => inputDisposable.dispose());
+
+    // Instance-lifetime, not component-lifetime: pty output while the tab is unmounted would otherwise be dropped
+    const dataSub = shellClient.onData(sessionId, (event) => {
+      this.writeData(event.sessionId, event.data);
+    });
+    const exitSub = shellClient.onExit(sessionId, (event) => {
+      this.handleExit(event.sessionId, event.exitCode ?? undefined);
+    });
+    instance.cleanups.push(() => dataSub.unsubscribe());
+    instance.cleanups.push(() => exitSub.unsubscribe());
 
     // Initialize shell session
     this.initializeSession(sessionId, instance, cwd, taskId, command);
@@ -310,7 +320,7 @@ class TerminalManagerImpl {
     }
   }
 
-  writeData(sessionId: string, data: string): void {
+  private writeData(sessionId: string, data: string): void {
     const instance = this.instances.get(sessionId);
     if (!instance) {
       return;
@@ -343,7 +353,7 @@ class TerminalManagerImpl {
     this.scheduleSave(sessionId, instance);
   }
 
-  handleExit(sessionId: string, exitCode?: number): void {
+  private handleExit(sessionId: string, exitCode?: number): void {
     const instance = this.instances.get(sessionId);
     if (instance) {
       // Without this, ResizeObserver keeps firing shell.resize against the dead

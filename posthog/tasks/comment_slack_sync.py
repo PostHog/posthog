@@ -7,10 +7,11 @@ from celery import Task, shared_task
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.comment.formatting import slack_to_content_and_rich_content
+from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
@@ -120,6 +121,8 @@ def _mark_reply_synced(reply: Comment, ts: object) -> None:
 
 
 def _reply_skip_reason(reply: Comment) -> str | None:
+    if reply.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+        return "protected_scope"
     item_context = reply.item_context if isinstance(reply.item_context, dict) else {}
     if item_context.get("from_slack"):
         return "from_slack"  # came in from Slack — echoing it back would loop
@@ -188,6 +191,8 @@ def ingest_slack_discussion_reply(
     text: str,
     blocks: list | None,
     message_ts: str,
+    # Defaulted so replies enqueued under the previous signature still run during a deploy.
+    files: list | None = None,
 ) -> None:
     """Save a Slack thread reply as a discussion comment (the inbound mirror half).
 
@@ -219,7 +224,8 @@ def ingest_slack_discussion_reply(
         return
 
     content, rich_content = slack_to_content_and_rich_content(text, blocks)
-    if not content and not rich_content:
+    file_placeholders = slack_files_to_placeholder_lines(files)
+    if not content and not rich_content and not file_placeholders:
         return
     # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
     # external participant's reply from making the discussion UI load remote images. The UI
@@ -227,6 +233,22 @@ def ingest_slack_discussion_reply(
     # treatment or the escape would be sidestepped whenever the message carries blocks.
     content = content.replace("![", "!\\[")
     _neutralize_rich_content_images(rich_content)
+
+    if file_placeholders:
+        # Appended after the image neutralization above, which would otherwise escape the very
+        # markdown links being added. Their filenames are escaped at construction instead.
+        placeholder_text = "\n\n".join(file_placeholders)
+        content = f"{content}\n\n{placeholder_text}" if content else placeholder_text
+        # The UI prefers rich_content whenever it's set, so placeholders added only to content
+        # would be invisible for any upload that arrived with a caption (and so with blocks).
+        if isinstance(rich_content, dict):
+            nodes = rich_content.get("content")
+            if not isinstance(nodes, list):
+                nodes = []
+                rich_content["content"] = nodes
+            nodes.extend(
+                {"type": "paragraph", "content": [{"type": "text", "text": line}]} for line in file_placeholders
+            )
 
     try:
         client = SlackIntegration(mirror.integration).client

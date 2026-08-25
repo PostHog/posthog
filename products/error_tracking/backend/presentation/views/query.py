@@ -29,10 +29,10 @@ from products.error_tracking.backend.facade.query_utils import (
     LIST_ISSUE_FIELDS,
     build_date_range,
     build_event_selects,
-    build_fingerprint_event_where,
-    build_fingerprint_where,
     build_impact,
+    build_issue_event_where,
     build_issue_filters,
+    build_issue_where,
     build_property_group,
     build_search_query,
     build_sparkline,
@@ -55,15 +55,6 @@ from products.error_tracking.backend.presentation.views.query_serializers import
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]:
-    filter_group = build_property_group(
-        [{"type": "event", "key": "$exception_fingerprint", "operator": "exact", "value": fingerprints}]
-    )
-    if filter_group is None:
-        raise ValueError("build_property_group unexpectedly returned None for a non-empty filter list")
-    return filter_group
 
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -136,12 +127,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
         if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
             dateRange=DateRange(**date_range),
-            filterGroup=build_fingerprint_filter_group(fingerprints) if fingerprints else None,
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             volumeResolution=normalize_volume_resolution(volume_resolution),
             limit=1,
@@ -162,6 +151,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "name": issue_basics.name,
                     "description": issue_basics.description,
                     "status": issue_basics.status,
+                    "severity": issue_basics.severity,
                 }
             )
             payload["impact"] = {}
@@ -170,45 +160,44 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
         event_properties: dict[str, object] = {}
-        if fingerprints:
-            try:
-                context_event_query = EventsQuery(
-                    kind="EventsQuery",
-                    event="$exception",
-                    select=CONTEXT_EVENT_SELECTS,
-                    where=build_fingerprint_where(fingerprints),
-                    filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-                    after=date_range.get("date_from"),
-                    before=date_range.get("date_to"),
-                    orderBy=["timestamp DESC"],
-                    limit=1,
-                    tags={"productKey": "error_tracking"},
-                )
-                with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-                    try:
-                        event_data = (
-                            EventsQueryRunner(team=self.team, query=context_event_query, user=request.user)
-                            .calculate()
-                            .model_dump(mode="json")
-                        )
-                    except ResolutionError as error:
-                        raise ValidationError(str(error)) from error
-                if event_data.get("error"):
-                    logger.warning(
-                        "error_tracking_issue_context_query_failed",
-                        issue_id=issue_id,
-                        team_id=self.team.pk,
-                        error=event_data.get("error"),
+        try:
+            context_event_query = EventsQuery(
+                kind="EventsQuery",
+                event="$exception",
+                select=CONTEXT_EVENT_SELECTS,
+                where=build_issue_where(issue_id),
+                filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+                after=date_range.get("date_from"),
+                before=date_range.get("date_to"),
+                orderBy=["timestamp DESC"],
+                limit=1,
+                tags={"productKey": "error_tracking"},
+            )
+            with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+                try:
+                    event_data = (
+                        EventsQueryRunner(team=self.team, query=context_event_query, user=request.user)
+                        .calculate()
+                        .model_dump(mode="json")
                     )
-                else:
-                    event_properties = map_context_event_properties(event_data)
-            except Exception:
+                except ResolutionError as error:
+                    raise ValidationError(str(error)) from error
+            if event_data.get("error"):
                 logger.warning(
                     "error_tracking_issue_context_query_failed",
                     issue_id=issue_id,
                     team_id=self.team.pk,
-                    exc_info=True,
+                    error=event_data.get("error"),
                 )
+            else:
+                event_properties = map_context_event_properties(event_data)
+        except Exception:
+            logger.warning(
+                "error_tracking_issue_context_query_failed",
+                issue_id=issue_id,
+                team_id=self.team.pk,
+                exc_info=True,
+            )
         payload = compact_dict(
             {
                 **pick_fields(issue, ISSUE_FIELDS),
@@ -246,14 +235,11 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             else DEFAULT_EVENT_CONTEXT_INCLUDES
         )
         event_selects = build_event_selects(includes)
-        fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
-        if not fingerprints:
-            return Response({"results": [], "hasMore": False, "limit": limit, "offset": offset})
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",
             select=event_selects,
-            where=build_fingerprint_event_where(fingerprints, cast(str | None, params.get("searchQuery"))),
+            where=build_issue_event_where(issue_id, cast(str | None, params.get("searchQuery"))),
             properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             after=date_range.get("date_from"),

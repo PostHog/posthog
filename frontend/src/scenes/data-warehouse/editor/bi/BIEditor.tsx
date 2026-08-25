@@ -32,9 +32,12 @@ import {
     BIAggregation,
     BIDateBucket,
     BI_FIELD_DRAG_MIME_TYPE,
+    BI_QUERY_LIMITS,
     BIFilterOperator,
     BIShelf,
     BIField,
+    BISortDirection,
+    PIVOT_TABLE_QUERY_LIMIT,
     getBIDataSourceKey,
     isDateTimeBIField,
     isNumericBIField,
@@ -49,7 +52,7 @@ const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.El
     { value: ChartDisplayType.ActionsStackedBar, label: 'Stacked bar chart', icon: <IconLifecycle /> },
     { value: ChartDisplayType.ActionsAreaGraph, label: 'Area chart', icon: <IconAreaChart /> },
     { value: ChartDisplayType.ActionsPie, label: 'Pie chart', icon: <IconPieChart /> },
-    { value: ChartDisplayType.TwoDimensionalHeatmap, label: '2D heatmap', icon: <IconHeatmap /> },
+    { value: ChartDisplayType.TwoDimensionalHeatmap, label: 'Pivot table', icon: <IconHeatmap /> },
     { value: ChartDisplayType.BoldNumber, label: 'Big number', icon: <Icon123 /> },
 ]
 
@@ -86,9 +89,19 @@ const DATE_BUCKET_OPTIONS: { value: BIDateBucket | null; label: string }[] = [
     { value: 'year', label: 'Year' },
 ]
 
+const LIMIT_OPTIONS = BI_QUERY_LIMITS.map((limit) => ({
+    value: limit,
+    label: limit === 1000 ? '1k' : limit === 10000 ? '10k' : limit === 50000 ? '50k' : String(limit),
+}))
+
+const SORT_DIRECTION_OPTIONS: { value: BISortDirection; label: string }[] = [
+    { value: 'desc', label: 'Descending' },
+    { value: 'asc', label: 'Ascending' },
+]
+
 export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
     const logic = biEditorLogic({ tabId })
-    const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading } =
+    const { activeDropShelf, activeExpressionEditorId, availableDataSources, config, databaseLoading, sortOptions } =
         useValues(logic)
     const { biEditorHeight, biEditorResizerProps } = useValues(editorSizingLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
@@ -108,9 +121,15 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
         setFilterCustomExpression,
         setFilterOperator,
         setFilterValue,
+        setLimit,
+        setSort,
         setValueAggregation,
         setValueCustomExpression,
     } = useActions(logic)
+    const limitOptions =
+        config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+            ? LIMIT_OPTIONS.filter(({ value }) => value <= PIVOT_TABLE_QUERY_LIMIT)
+            : LIMIT_OPTIONS
 
     return (
         <div
@@ -171,6 +190,50 @@ export function BIEditor({ tabId }: { tabId: string }): JSX.Element {
                             dropdownMaxContentWidth
                             data-attr="bi-editor-data-source"
                         />
+                        <LemonSelect
+                            value={config.limit}
+                            options={limitOptions}
+                            onChange={setLimit}
+                            renderButtonContent={(option) => `Limit: ${option?.label ?? config.limit}`}
+                            aria-label="Query row limit"
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            data-attr="bi-editor-query-limit"
+                        />
+                        <LemonSelect
+                            value={config.sort?.key ?? null}
+                            options={[
+                                {
+                                    value: null,
+                                    label: 'Auto',
+                                    tooltip:
+                                        'Sorts by the newest date or the highest value first, so the top rows stay within the limit.',
+                                },
+                                ...sortOptions.map((option) => ({ value: option.key, label: option.label })),
+                            ]}
+                            onChange={(key) =>
+                                setSort(key === null ? null : { key, direction: config.sort?.direction ?? 'desc' })
+                            }
+                            renderButtonContent={(option) => `Sort: ${option?.label ?? 'Auto'}`}
+                            aria-label="Sort results by"
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            disabledReason={
+                                sortOptions.length === 0 ? 'Add a field to rows or columns first' : undefined
+                            }
+                            data-attr="bi-editor-sort"
+                        />
+                        {config.sort ? (
+                            <LemonSelect
+                                value={config.sort.direction}
+                                options={SORT_DIRECTION_OPTIONS}
+                                onChange={(direction) => config.sort && setSort({ key: config.sort.key, direction })}
+                                aria-label="Sort direction"
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                data-attr="bi-editor-sort-direction"
+                            />
+                        ) : null}
                         <LemonButton
                             type="secondary"
                             size="small"

@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import re2
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -43,7 +44,7 @@ from posthog.schema import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action, validate_authorized_url_wildcards
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
@@ -85,9 +86,9 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     UserCanCreateProjectPermission,
+    get_authenticator_scoped_organization_ids,
+    get_authenticator_scoped_team_ids,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.session_recordings.data_retention import (
     VALID_RETENTION_PERIODS,
@@ -106,10 +107,14 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.logs.backend.models import TeamLogsConfig
-from products.signals.backend.models import SignalSourceConfig
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
@@ -147,10 +152,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text=(
             "Ordered list of log attribute keys whose values hold the PostHog session ID. "
-            "Detection checks keys in order; the first key with a value wins. Defaults to "
-            "['posthogSessionId'] — the key the posthog-js / posthog-react-native SDKs "
-            "auto-attach. Add keys only if your pipeline emits the session ID under "
-            "different attributes."
+            "Detection checks keys in order, then falls back to common session ID attribute "
+            "conventions; the first key with a value wins. Defaults to ['sessionId'] — the "
+            "convention documented at https://posthog.com/docs/logs/link-session-replay and "
+            "the key the posthog-js / posthog-react-native SDKs auto-attach. Add keys only "
+            "if your pipeline emits the session ID under different attributes."
         ),
     )
 
@@ -181,6 +187,65 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         if keys:
             validated_data["logs_distinct_id_attribute_key"] = keys[0]
         return super().update(instance, validated_data)
+
+
+def handle_experiments_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the experiments_config action — exposed under both the
+    team/environment and project routers so both surfaces stay in parity."""
+    # Keeps the products app import off this module's import path.
+    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig  # noqa: PLC0415
+
+    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = TeamExperimentsConfig
+            fields = [
+                "experiment_recalculation_time",
+                "default_experiment_confidence_level",
+                "default_experiment_stats_method",
+                "experiment_precomputation_enabled",
+                "default_only_count_matured_users",
+                "default_cuped_enabled",
+                "default_cuped_lookback_days",
+                "default_minimum_detectable_effect",
+                "default_sequential_testing_enabled",
+                "default_sequential_tuning_parameter",
+                "flag_cleanup_repository",
+            ]
+
+        def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
+            # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
+            # request import path.
+            from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
+
+            if not value:
+                return None
+            parts = value.split("/")
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise serializers.ValidationError("Repository must be in the format organization/repository")
+            value = value.lower()
+            # Reject repos outside the team's GitHub installation now rather than storing a
+            # default the cleanup resolution would silently ignore.
+            github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
+            cached = {
+                full_name.lower()
+                for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
+                if (full_name := repo.get("full_name"))
+            }
+            if value not in cached:
+                raise serializers.ValidationError(
+                    "This repository is not connected to the project's GitHub integration."
+                )
+            return value
+
+    config = get_or_create_team_extension(team, TeamExperimentsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamExperimentsConfigSerializer(config).data)
 
 
 def handle_logs_config(request: request.Request, team: Team) -> response.Response:
@@ -783,6 +848,64 @@ def validate_test_account_filters(value: object) -> list[dict[str, object]]:
     return cast(list[dict[str, object]], value)
 
 
+def _alias_backreferences(alias: str) -> list[int]:
+    """Return the capture-group numbers a re2 replacement alias references (`\\1`..`\\9`, `\\0` for the
+    whole match). A doubled `\\\\` is a literal backslash, not a back-reference, so it's skipped."""
+    refs: list[int] = []
+    i = 0
+    while i < len(alias):
+        if alias[i] == "\\" and i + 1 < len(alias):
+            nxt = alias[i + 1]
+            if nxt == "\\":
+                i += 2
+                continue
+            # ASCII digits only. `str.isdigit()` also accepts characters like `²` and `٣`, which re2
+            # substitutes as literal text, and `int()` rejects `²` outright.
+            if "0" <= nxt <= "9":
+                refs.append(int(nxt))
+                i += 2
+                continue
+        i += 1
+    return refs
+
+
+def validate_path_cleaning_filters(value: object) -> object:
+    """Validate path cleaning rules before they're saved. Each regex must compile under re2 (the
+    engine ClickHouse `replaceRegexpAll` uses), and any `\\1`..`\\9` back-reference in the alias must
+    point at a capture group the regex defines. This surfaces a mistake at save time instead of
+    letting it fail the query later, when path cleaning runs."""
+    if not value:
+        return value
+    if not isinstance(value, list):
+        raise exceptions.ValidationError("Must provide a list of path cleaning rules.")
+
+    for rule in value:
+        if not isinstance(rule, dict):
+            continue
+        regex = rule.get("regex")
+        alias = rule.get("alias")
+        # A missing or empty regex still reaches ClickHouse, where `replaceRegexpAll` returns NULL for
+        # a NULL pattern and an empty pattern matches at every position, interleaving the alias
+        # through the whole path. Neither is recoverable at query time, so refuse the rule.
+        if not isinstance(regex, str) or not regex:
+            raise exceptions.ValidationError("A path cleaning rule needs a regex. Remove the rule or give it one.")
+        try:
+            compiled = re2.compile(regex)
+        except re2.error as error:
+            raise exceptions.ValidationError(f"Invalid path cleaning regex '{regex}': {error}") from error
+
+        if not alias or not isinstance(alias, str):
+            continue
+        group_count = compiled.groups
+        for ref in _alias_backreferences(alias):
+            if ref > group_count:
+                raise exceptions.ValidationError(
+                    f"The alias '{alias}' references capture group \\{ref}, but its regex has "
+                    f"{group_count} capture group(s). Add the group to the regex or fix the reference."
+                )
+    return value
+
+
 _default_theme_id_cache: int | None = None
 
 
@@ -1024,6 +1147,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @staticmethod
     def validate_test_account_filters(value: object) -> list[dict[str, object]]:
         return validate_test_account_filters(value)
+
+    @staticmethod
+    def validate_path_cleaning_filters(value: object) -> object:
+        return validate_path_cleaning_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1790,22 +1917,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             set_team_in_cache(instance.api_token, instance)
         updated_team = instance
 
-        if "proactive_tasks_enabled" in validated_data:
-            # Backward compat for old proactive tasks enabled field, remove after February 2026
-            if validated_data["proactive_tasks_enabled"]:
-                SignalSourceConfig.objects.get_or_create(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                    defaults={"enabled": True, "config": {}, "created_by": self.context["request"].user},
-                )
-            else:
-                SignalSourceConfig.objects.filter(
-                    team=instance,
-                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
-                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-                ).delete()
-
         changes = dict_changes_between("Team", before_update, after_update, use_field_exclusions=True)
 
         log_activity(
@@ -2012,7 +2123,9 @@ class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
     )
 
 
-class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class TeamViewSet(
+    TeamAndOrgViewSetMixin, AccessControlSettingsViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
+):
     """
     Projects for the current organization.
     """
@@ -2031,16 +2144,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(user).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.personal_api_key.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
-        if isinstance(self.request.successful_authenticator, OAuthAccessTokenAuthentication):
-            if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
-                queryset = queryset.filter(project__organization_id__in=scoped_organizations)
-            if scoped_teams := self.request.successful_authenticator.access_token.scoped_teams:
-                queryset = queryset.filter(id__in=scoped_teams)
+        authenticator = self.request.successful_authenticator
+        if scoped_organizations := get_authenticator_scoped_organization_ids(authenticator):
+            queryset = queryset.filter(project__organization_id__in=scoped_organizations)
+        if scoped_teams := get_authenticator_scoped_team_ids(authenticator):
+            queryset = queryset.filter(id__in=scoped_teams)
         return queryset
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
@@ -2116,6 +2224,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if lookup_value == "@current":
             team = getattr(self.request.user, "team", None)
             if team is None:
+                raise exceptions.NotFound()
+            # This branch answers from the user's own state instead of the scoped queryset. A project
+            # that moved between organizations leaves that state naming an environment the token's
+            # organizations no longer cover, so apply the same restriction the queryset would have.
+            scoped_organizations = get_authenticator_scoped_organization_ids(self.request.successful_authenticator)
+            if scoped_organizations and str(team.organization_id) not in scoped_organizations:
                 raise exceptions.NotFound()
             return team
 
@@ -2244,36 +2358,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this environment."""
-        from rest_framework import serializers
-
-        from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-        class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-            class Meta:
-                model = TeamExperimentsConfig
-                fields = [
-                    "experiment_recalculation_time",
-                    "default_experiment_confidence_level",
-                    "default_experiment_stats_method",
-                    "experiment_precomputation_enabled",
-                    "default_only_count_matured_users",
-                    "default_cuped_enabled",
-                    "default_cuped_lookback_days",
-                    "default_minimum_detectable_effect",
-                    "default_sequential_testing_enabled",
-                    "default_sequential_tuning_parameter",
-                ]
-
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-        if request.method == "PATCH":
-            serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response.Response(serializer.data)
-
-        return response.Response(TeamExperimentsConfigSerializer(config).data)
+        return handle_experiments_config(request, self.get_object())
 
     @extend_schema(
         methods=["POST"],

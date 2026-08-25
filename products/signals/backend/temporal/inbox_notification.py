@@ -22,7 +22,6 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport
 from products.signals.backend.support_writeback import post_report_findings_to_tickets
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
@@ -55,7 +54,10 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
     if not impl_task_ids:
         return InboxNotificationState(has_implementation_task=False, pr_available=False, task_terminal=False)
 
-    pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
+    # Resolved from the implementation tasks alone, not the report's surfaced PR: the wait exists to
+    # give the implementation task time to open its PR, so a PR from some other task (a "Discuss"
+    # chat that opened one) must not end it early.
+    pr_available = bool(tasks_facade.get_latest_pr_url_by_task(impl_task_ids))
     # Most recent run across the report's implementation task(s).
     latest_run = max(
         tasks_facade.get_latest_run_by_task(impl_task_ids).values(),

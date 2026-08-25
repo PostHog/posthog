@@ -12,6 +12,7 @@ import {
     TOOLS_MODE_USER_AGENT_FRAGMENTS,
     isClaudeUiHostClient,
     isCliModeEnabledClient,
+    isLegacyDialectOnlyClient,
     isPostHogCodeConsumer,
     isToolsModeClient,
     resolveEffectiveClientName,
@@ -180,6 +181,27 @@ describe('isPostHogCodeConsumer', () => {
     it('returns false for undefined', () => {
         expect(isPostHogCodeConsumer(undefined)).toBe(false)
     })
+})
+
+describe('isLegacyDialectOnlyClient', () => {
+    it.each([
+        ['antigravity-client'],
+        ['antigravity'],
+        ['Antigravity'],
+        ['antigravity-client/1.2.3'],
+        // Bridge variants are gated too: their fallback lands on the legacy
+        // handshake, which works, while their stateless support varies by version.
+        ['antigravity-client (via mcp-remote 0.1.37)'],
+    ])('returns true for %s', (clientName) => {
+        expect(isLegacyDialectOnlyClient(clientName)).toBe(true)
+    })
+
+    it.each([['claude-code'], ['cursor'], ['mcp-remote-fallback-test'], [''], [undefined]])(
+        'returns false for %s',
+        (clientName) => {
+            expect(isLegacyDialectOnlyClient(clientName)).toBe(false)
+        }
+    )
 })
 
 describe('isToolsModeClient', () => {

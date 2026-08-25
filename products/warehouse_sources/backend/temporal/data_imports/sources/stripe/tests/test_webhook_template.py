@@ -100,6 +100,42 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
     @parameterized.expand(
         [
+            # Both tables enabled: the event must reach both, or the history table silently stops
+            # recording (its rows only ever arrive via this fan-out).
+            (
+                "both_mapped",
+                {"payment_method": "schema_pm", "payment_method:history": "schema_hist"},
+                ["schema_pm", "schema_hist"],
+            ),
+            # Existing sources without the history table keep the current single delivery.
+            ("primary_only", {"payment_method": "schema_pm"}, ["schema_pm"]),
+            # History enabled while the upsert table is not — the suffixed key must route alone.
+            ("history_only", {"payment_method:history": "schema_hist"}, ["schema_hist"]),
+            # No mapping for the object type at all — the event is skipped, not delivered.
+            ("unmapped", {"charge": "schema_ch"}, []),
+        ]
+    )
+    def test_payment_method_event_fanout(self, _name, schema_mapping, expected_schema_ids):
+        secret = "whsec_test"
+        body = {
+            "id": "evt_1",
+            "type": "payment_method.detached",
+            "created": 1700000200,
+            "data": {
+                "object": {"id": "pm_1", "object": "payment_method", "customer": None},
+                "previous_attributes": {"customer": "cus_1"},
+            },
+        }
+        globals = self._make_signed_request(secret, body=body)
+        self.run_function(
+            {"signing_secret": secret, "bypass_signature_check": False, "schema_mapping": schema_mapping},
+            globals=globals,
+        )
+        delivered = [call.args for call in self.mock_produce_to_warehouse_webhooks.call_args_list]
+        assert delivered == [(globals["request"]["body"], schema_id) for schema_id in expected_schema_ids]
+
+    @parameterized.expand(
+        [
             ("null", None),
             ("empty_string", ""),
         ]

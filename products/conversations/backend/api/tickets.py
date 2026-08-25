@@ -39,9 +39,12 @@ from posthog.models.person.util import get_person_by_distinct_id, get_persons_by
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.access_control.backend.models.role import Role
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
@@ -61,11 +64,11 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
-from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
-from ee.models.rbac.role import Role
+from .. import reply_dedupe
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -1202,7 +1205,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         parameters=[TICKET_ID_PARAM],
         request=TicketReplyRequestSerializer,
         responses={
+            200: OpenApiResponse(
+                response=TicketMessageSerializer,
+                description=(
+                    "An identical message was already posted by a recent request. The original "
+                    "message is returned and nothing new is written."
+                ),
+            ),
             201: OpenApiResponse(response=TicketMessageSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+            409: OpenApiResponse(
+                response=TicketErrorSerializer,
+                description="An identical message is still being created by another request.",
+            ),
         },
     )
     @action(
@@ -1217,6 +1232,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         With is_private=false, the reply is delivered to the customer via the
         ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
         the message is stored as an internal note only visible to team members.
+
+        Retrying an identical message from the same author within a short window returns the
+        original message with a 200 rather than posting it twice, and a 409 while a concurrent
+        request is still creating it.
         """
         ticket = self.get_object()
 
@@ -1230,21 +1249,48 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        is_private = data["is_private"]
+        item_context = {"author_type": "support", "is_private": data["is_private"]}
 
-        comment = Comment.objects.create(
-            team=self.team,
-            created_by=request.user,
+        def create_comment() -> Comment:
+            return Comment.objects.create(
+                team=self.team,
+                created_by=request.user,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                content=data["message"],
+                rich_content=data.get("rich_content"),
+                item_context=item_context,
+            )
+
+        fingerprint = reply_dedupe.ReplyFingerprint.build(
+            team_id=self.team_id,
+            created_by_id=request.user.id,
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=data["message"],
             rich_content=data.get("rich_content"),
-            item_context={"author_type": "support", "is_private": is_private},
+            item_context=item_context,
+        )
+        if fingerprint is None:
+            return self._reply_response(create_comment(), ticket, created=True)
+
+        guarded = reply_dedupe.create_deduplicated(fingerprint, create_comment)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.REPLY_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.REPLY_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=drf_status.HTTP_409_CONFLICT,
+            )
+        return self._reply_response(
+            cast(Comment, guarded.comment), ticket, created=guarded.outcome is reply_dedupe.CreateOutcome.CREATED
         )
 
+    def _reply_response(self, comment: Comment, ticket: Ticket, *, created: bool) -> Response:
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
-            status=drf_status.HTTP_201_CREATED,
+            status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
         )
 
     @extend_schema(
@@ -1429,6 +1475,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         email_config = EmailChannel.objects.filter(
             id=data["email_config_id"],
             team=team,
+            kind=EmailChannelKind.SUPPORT,
             domain_verified=True,
         ).first()
         if not email_config:

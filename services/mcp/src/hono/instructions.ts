@@ -24,6 +24,10 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
+/** Presence of this tool is the runtime signal that the notebook cell surface
+ *  (the `revamped-py-notebooks` flag) is live for this client. */
+const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
+
 export class InstructionsBuilder {
     private readonly formatter: InstructionsFormatter
     private readonly guidelines: string
@@ -65,8 +69,10 @@ export class InstructionsBuilder {
                 }),
             renderUiEnabled: state.renderUiEnabled,
             metadata: state.metadata,
+            metadataCompact: state.metadataCompact,
             groupTypes: state.groupTypes,
             dataCatalogEnabled: state.toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true,
+            notebookCellsEnabled: state.allTools.some((tool) => tool.name === NOTEBOOK_ADD_CELL_TOOL),
         }
     }
 
@@ -108,18 +114,21 @@ export class InstructionsBuilder {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         // Claude web/desktop report `supportsInstructions` but never surface the
         // `instructions` payload to the model, so its env-context (tool domains,
-        // project metadata, group types) would be lost. Keep it on the exec command
-        // description for those chat hosts only — Cowork surfaces instructions
-        // normally and gets env-context through them. (Codex, which reports
-        // `supportsInstructions: false`, already gets the full env-context via the
+        // project metadata, group types) would be lost. Those chat hosts get their
+        // own smaller-budget reference. (Codex, which reports
+        // `supportsInstructions: false`, gets the full env-context via the
         // un-stripped path.)
-        const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
-        if (keepEnvContext) {
+        if (state.clientProfile.isClaudeChatHost()) {
             return this.formatter.buildClaudeExecCommandReference(ctx)
         }
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
+            // Env-context rides here even for clients that honor `instructions`: that
+            // payload is capped at MCP_INSTRUCTIONS_CHAR_BUDGET and is spent entirely
+            // on the tool-domain index, which is the part that can't be recovered by
+            // any later tool call. This description has no such cap.
+            keepEnvContext: true,
         })
     }
 

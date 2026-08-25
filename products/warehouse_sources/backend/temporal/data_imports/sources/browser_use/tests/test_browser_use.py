@@ -14,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browser_us
     browser_use_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import BROWSER_USE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import (
+    BROWSER_USE_API_VERSION_V3,
+    BROWSER_USE_API_VERSION_V4,
+    BROWSER_USE_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
     RESTClientRetryableError,
@@ -60,9 +64,14 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock | None = None):
+def _source(endpoint: str, manager: mock.MagicMock | None = None, api_version: str = BROWSER_USE_API_VERSION_V3):
     return browser_use_source(
-        "bu_test", endpoint, team_id=1, job_id="j", resumable_source_manager=manager or _make_manager()
+        "bu_test",
+        endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager or _make_manager(),
+        api_version=api_version,
     )
 
 
@@ -316,12 +325,12 @@ class TestValidateCredentials:
     @mock.patch(SESSION_PATCH)
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, MockSession) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("bu_test") is expected
+        assert validate_credentials("bu_test", BROWSER_USE_API_VERSION_V3) is expected
 
     @mock.patch(SESSION_PATCH)
     def test_network_error_is_false(self, MockSession) -> None:
         MockSession.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("bu_test") is False
+        assert validate_credentials("bu_test", BROWSER_USE_API_VERSION_V3) is False
 
 
 class TestSessionHardening:
@@ -344,7 +353,7 @@ class TestSessionHardening:
     @mock.patch(SESSION_PATCH)
     def test_validate_credentials_disables_capture_and_redirects(self, MockSession) -> None:
         MockSession.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("bu_test")
+        validate_credentials("bu_test", BROWSER_USE_API_VERSION_V3)
 
         kwargs = MockSession.call_args.kwargs
         assert kwargs["capture"] is False
@@ -373,3 +382,113 @@ class TestSourceResponse:
         assert response.partition_keys == [partition_key]
         assert response.partition_mode == "datetime"
         assert response.sort_mode == "asc"
+
+
+V4_BASE_URL = "https://api.browser-use.com/api/v4"
+
+
+class TestVersionRouting:
+    @parameterized.expand(
+        [
+            (BROWSER_USE_API_VERSION_V3, "sessions", "sessions", {"total": 1}),
+            (BROWSER_USE_API_VERSION_V3, "browser_sessions", "items", {"totalItems": 1}),
+            (BROWSER_USE_API_VERSION_V4, "sessions", "sessions", {"hasMore": False}),
+            (BROWSER_USE_API_VERSION_V4, "runs", "runs", {"hasMore": False}),
+            (BROWSER_USE_API_VERSION_V4, "browser_sessions", "items", {"totalItems": 1}),
+            (BROWSER_USE_API_VERSION_V4, "profiles", "items", {"totalItems": 1}),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_request_hits_versioned_base_url(
+        self, version: str, endpoint: str, data_key: str, extra: dict[str, Any], MockSession
+    ) -> None:
+        # The pinned version is the URL path segment, so each version's request must go to
+        # /api/<version>/... — the whole point of pinning. A v4 endpoint left on the v3 base (or
+        # vice versa) would silently hit the wrong API.
+        session = MockSession.return_value
+        params = _wire(session, [_response({data_key: [{"id": "a"}], **extra})])
+
+        _rows(_source(endpoint, api_version=version))
+
+        assert params[0]["url"].startswith(f"https://api.browser-use.com/api/{version}/")
+
+
+class TestV4KeysetPagination:
+    @parameterized.expand([("sessions", "sessions"), ("runs", "runs")])
+    @mock.patch(SESSION_PATCH)
+    def test_keyset_pages_aggregated_and_terminates(self, endpoint: str, data_key: str, MockSession) -> None:
+        # v4 sessions/runs use keyset paging: `limit` + a `cursor` echoed back as `nextCursor`, with
+        # `hasMore` as the stop signal. Guards that the cursor advances from the body (not the row
+        # id), that `limit` is sent, and that hasMore=false terminates.
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response(
+                    {data_key: [{"id": "a"}], "nextCursor": "c1", "hasMore": True}, url=f"{V4_BASE_URL}/{endpoint}"
+                ),
+                _response(
+                    {data_key: [{"id": "b"}], "nextCursor": "c2", "hasMore": True}, url=f"{V4_BASE_URL}/{endpoint}"
+                ),
+                _response(
+                    {data_key: [{"id": "c"}], "nextCursor": None, "hasMore": False}, url=f"{V4_BASE_URL}/{endpoint}"
+                ),
+            ],
+        )
+
+        rows = _rows(_source(endpoint, api_version=BROWSER_USE_API_VERSION_V4))
+
+        assert [r["id"] for r in rows] == ["a", "b", "c"]
+        assert all(p["params"]["limit"] == 100 for p in params)
+        assert [p["params"].get("cursor") for p in params] == [None, "c1", "c2"]
+
+    @mock.patch(SESSION_PATCH)
+    def test_keyset_saves_next_cursor_only_while_more_remain(self, MockSession) -> None:
+        # The checkpoint advances to the body's nextCursor and saves only when a page follows, so a
+        # crash re-yields the last page (merge dedupes) rather than skipping it.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"sessions": [{"id": "a"}], "nextCursor": "c1", "hasMore": True}),
+                _response({"sessions": [{"id": "b"}], "hasMore": False}),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source("sessions", manager, api_version=BROWSER_USE_API_VERSION_V4))
+
+        manager.save_state.assert_called_once_with(BrowserUseResumeConfig(cursor="c1"))
+
+    @mock.patch(SESSION_PATCH)
+    def test_keyset_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response({"sessions": [{"id": "x"}], "hasMore": False})])
+
+        manager = _make_manager(BrowserUseResumeConfig(cursor="c9"))
+        rows = _rows(_source("sessions", manager, api_version=BROWSER_USE_API_VERSION_V4))
+
+        assert [r["id"] for r in rows] == ["x"]
+        assert params[0]["params"]["cursor"] == "c9"
+
+
+class TestV4SourceResponse:
+    @parameterized.expand(
+        [
+            ("sessions", ["sessionId"], "createdAt"),
+            ("runs", ["id"], "createdAt"),
+            ("browser_sessions", ["id"], "startedAt"),
+            ("profiles", ["id"], "createdAt"),
+        ]
+    )
+    @mock.patch(SESSION_PATCH)
+    def test_primary_keys_and_partition(
+        self, endpoint: str, primary_keys: list[str], partition_key: str, MockSession
+    ) -> None:
+        # v4 sessions key on `sessionId` (not `id`) — merge would collapse rows if this regressed.
+        MockSession.return_value.headers = {}
+        response = _source(endpoint, api_version=BROWSER_USE_API_VERSION_V4)
+
+        assert response.name == endpoint
+        assert response.primary_keys == primary_keys
+        assert response.partition_keys == [partition_key]

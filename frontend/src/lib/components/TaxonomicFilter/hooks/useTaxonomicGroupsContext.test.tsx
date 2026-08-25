@@ -7,6 +7,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType } from '~/types'
 
 import { TaxonomicFilterGroupType } from '../types'
 import { buildTaxonomicGroups } from '../utils/buildTaxonomicGroups'
@@ -132,6 +133,19 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.Cohorts)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.HogQLExpression)).toBe(true)
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
+    })
+
+    it('makes exception properties commit as event property filters', () => {
+        const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
+        const exceptionGroup = buildTaxonomicGroups(result.current).find(
+            (group) => group.type === TaxonomicFilterGroupType.ErrorTrackingProperties
+        )
+        const exceptionValue = exceptionGroup?.options?.find((option) => option.name === '$exception_values') as
+            | { name: string; propertyFilterType: PropertyFilterType }
+            | undefined
+
+        expect(exceptionGroup?.getValue?.(exceptionValue)).toBe('$exception_values')
+        expect(exceptionValue?.propertyFilterType).toBe(PropertyFilterType.Event)
     })
 
     it.each([

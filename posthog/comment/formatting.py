@@ -3,8 +3,9 @@
 import re
 import html as html_mod
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 JSON = dict[str, Any]
@@ -27,12 +28,16 @@ _RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
 _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
+_RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
 _RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 _RE_MRKDWN_BLOCKQUOTE_UNESCAPE = re.compile(r"^&gt;", re.MULTILINE)
+_RE_MD_FENCED_CODE = re.compile(r"(^```[^\n]*\n.*?^```)", re.MULTILINE | re.DOTALL)
+_RE_MD_TRAILING_LINE_SPACES = re.compile(r"[ \t]+\n")
+_RE_BLANK_LINE_RUN = re.compile(r"\n{2,}")
 
 
 def escape_slack_mrkdwn(text: str) -> str:
@@ -174,7 +179,29 @@ def strip_slack_user_mentions(text: str) -> str:
     return _RE_SLACK_USER_MENTION.sub("", text)
 
 
-def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = None) -> str:
+def _markdown_breaks_to_mrkdwn(text: str) -> str:
+    """Translate markdown's vertical whitespace into mrkdwn's.
+
+    Markdown needs a blank line to end a paragraph and two trailing spaces to force a line
+    break, because a lone newline is only a soft wrap. mrkdwn has no soft wrap — every newline
+    already breaks the line — so passing markdown spacing through doubles every gap: a
+    paragraph break renders as a blank line, and a blank line the author typed renders as
+    three. Halving each run of newlines maps one convention onto the other. Fenced code keeps
+    its own spacing, where blank lines are content rather than structure.
+    """
+    parts = _RE_MD_FENCED_CODE.split(text)
+    # split() interleaves the fenced blocks at the odd indices; only the prose needs rewriting.
+    for index in range(0, len(parts), 2):
+        prose = _RE_MD_TRAILING_LINE_SPACES.sub("\n", parts[index])
+        parts[index] = _RE_BLANK_LINE_RUN.sub(lambda match: "\n" * (len(match.group()) // 2), prose)
+    return "".join(parts)
+
+
+def content_to_slack_mrkdwn(
+    content: str,
+    organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
+) -> str:
     """Convert markdown comment content to Slack mrkdwn text.
 
     Backslash-escaped characters are unescaped: mrkdwn has no escape syntax, so a
@@ -186,10 +213,15 @@ def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = N
     the rendered text lands in someone's Slack workspace, so an unscoped lookup would let a comment
     pull a name or email out of another organization. Without an organization every marker falls
     back to the generic "@teammate".
+
+    ``slack_user_id_by_email`` renders ``@[Name](email)`` mentions as native Slack mentions when the
+    caller can map the address to a member of the destination workspace. Callers without a workspace
+    to resolve against get the plain display name.
     """
     if not content:
         return ""
 
+    content = _markdown_breaks_to_mrkdwn(content)
     # Escape mrkdwn control chars up front so user content can't inject links,
     # user mentions, or <!channel>-style broadcasts. The conversions below
     # generate their own <url|label> constructs on top of the escaped text.
@@ -224,6 +256,19 @@ def content_to_slack_mrkdwn(content: str, organization_id: str | UUID | None = N
     text = _RE_MD_BOLD.sub(capture_bold, text)
     text = _RE_MD_ITALIC.sub(r"_\1_", text)
     text = _RE_MD_STRIKE.sub(r"~\1~", text)
+
+    def render_inline_mention(match: re.Match) -> str:
+        name, email = match.group(1), match.group(2)
+        if slack_user_id_by_email:
+            try:
+                slack_user_id = slack_user_id_by_email(email)
+            except Exception:
+                slack_user_id = None
+            if slack_user_id:
+                return f"<@{slack_user_id}>"
+        return f"@{name}"
+
+    text = _RE_INLINE_MENTION.sub(render_inline_mention, text)
     text = _RE_MD_LINK.sub(r"<\2|\1>", text)
 
     for index, value in enumerate(bold_matches):
@@ -706,6 +751,24 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
         return None
 
     rich_text_elements: list[JSON] = []
+    # Empty paragraphs are blank lines the author typed. They carry to the next element that has
+    # content, so leading and trailing ones fall away — matching what rich_content_to_markdown strips.
+    pending_blank_lines = 0
+
+    def open_next_element(starts_its_own_line: bool) -> None:
+        """Emit the line breaks owed before the next element, then clear the debt.
+
+        Sections run together, so one following another needs an explicit line ending on top of any
+        blank lines. A preformatted element is its own code box and already starts a line, so it
+        needs the blank lines alone.
+        """
+        nonlocal pending_blank_lines
+        newlines = pending_blank_lines if starts_its_own_line else pending_blank_lines + 1
+        if rich_text_elements and newlines:
+            rich_text_elements.append(
+                {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n" * newlines}]}
+            )
+        pending_blank_lines = 0
 
     for node in rich_content.get("content", []):
         node_type = node.get("type")
@@ -724,17 +787,19 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                         alt = child.get("attrs", {}).get("alt", "image")
                         section_elements.append({"type": "link", "url": src, "text": alt})
 
-            if section_elements:
+            if not section_elements:
                 if rich_text_elements:
-                    rich_text_elements.append(
-                        {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]}
-                    )
-                rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
+                    pending_blank_lines += 1
+                continue
+
+            open_next_element(starts_its_own_line=False)
+            rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
             continue
 
         if node_type == "codeBlock":
             code_text = "".join(child.get("text", "") for child in node.get("content", []))
             if code_text:
+                open_next_element(starts_its_own_line=True)
                 rich_text_elements.append(
                     {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
                 )
@@ -743,6 +808,7 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
         if node_type == "image" and include_images:
             src = node.get("attrs", {}).get("src")
             if src:
+                open_next_element(starts_its_own_line=False)
                 rich_text_elements.append(
                     {
                         "type": "rich_text_section",
@@ -773,6 +839,79 @@ def slack_to_content_and_rich_content(
 
     markdown_content = slack_mrkdwn_to_content(text, user_names)
     return _normalize_single_newlines_to_markdown(markdown_content), None
+
+
+# Hosts Slack serves file permalinks from. A file object is attacker-controlled (anyone in an
+# externally-shared channel can upload), so its permalink only becomes a link when it points at
+# one of these — otherwise it would be an arbitrary outbound link rendered inside a discussion.
+_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
+
+# One Slack message can carry many files; render a bounded number so an upload burst can't
+# flood the mirrored comment.
+MAX_SLACK_FILE_PLACEHOLDERS = 10
+
+
+def _slack_file_permalink(url: object) -> str | None:
+    """The permalink to hang a placeholder off, or None when it isn't safely linkable."""
+    if not isinstance(url, str) or not url:
+        return None
+    # Whitespace or a closing paren ends the markdown link early, spilling the rest of the URL
+    # out as text and leaving the link pointing somewhere other than it appears to.
+    if ")" in url or any(char.isspace() for char in url):
+        return None
+    # urlparse reads a backslash as an ordinary character, while the WHATWG parser browsers use
+    # reads it as a path separator. That splits the host checked below from the host a reader
+    # lands on, so reject the character instead of depending on who normalizes it first.
+    if "\\" in url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme != "https":
+        return None
+    host = (parsed.hostname or "").lower()
+    if not any(host == suffix or host.endswith(f".{suffix}") for suffix in _SLACK_FILE_HOST_SUFFIXES):
+        return None
+    return url
+
+
+def _escape_slack_file_name(name: object) -> str:
+    """Escape a Slack-supplied filename for use as markdown link text."""
+    # Collapse every run of whitespace, not just the ends. A blank line inside the name would
+    # close the paragraph holding the link, dropping the rest of the name into one of its own
+    # where a bare URL renders as a live autolink.
+    text = " ".join(name.split()) if isinstance(name, str) else ""
+    if not text:
+        # A truncated file object still deserves a visible marker — "something was attached"
+        # is strictly better than the message appearing to be empty.
+        return "Attachment"
+    # Brackets would close the link text early. Escaping "[" also neutralizes a leading "!["
+    # for free, so a crafted filename can't turn the placeholder into an inline image.
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def slack_files_to_placeholder_lines(files: list[Any] | None) -> list[str]:
+    """Render one markdown placeholder line per file attached to an inbound Slack message.
+
+    PostHog never downloads the file: the discussion shows a link back to it in Slack, which
+    needs nothing beyond the metadata Slack already puts in the message event. That keeps this
+    working on installs that never granted ``files:read``, where downloading is impossible.
+
+    ``files`` is the raw array off the Slack event, so every element is checked rather than
+    assumed to be a well-formed file object.
+    """
+    if not files:
+        return []
+
+    lines: list[str] = []
+    for file in files[:MAX_SLACK_FILE_PLACEHOLDERS]:
+        if not isinstance(file, dict):
+            continue
+        name = _escape_slack_file_name(file.get("name") or file.get("title"))
+        permalink = _slack_file_permalink(file.get("permalink"))
+        lines.append(f"📎 [{name}]({permalink})" if permalink else f"📎 {name}")
+    return lines
 
 
 def _escape_html(text: str) -> str:
@@ -928,11 +1067,13 @@ def rich_content_to_slack_payload(
     fallback_content: str,
     include_images: bool = True,
     organization_id: str | UUID | None = None,
+    slack_user_id_by_email: Callable[[str], str | None] | None = None,
 ) -> tuple[str, list[JSON] | None]:
     """
     Convert outbound app message to Slack payload fields.
 
-    ``organization_id`` scopes mention resolution — see content_to_slack_mrkdwn.
+    ``organization_id`` and ``slack_user_id_by_email`` scope mention resolution — see
+    content_to_slack_mrkdwn.
 
     Returns:
     - text (always present, used as fallback for notifications/older clients)
@@ -942,6 +1083,6 @@ def rich_content_to_slack_payload(
         blocks = rich_content_to_slack_blocks(rich_content, include_images=include_images)
         markdown_text = rich_content_to_markdown(rich_content, include_images=include_images)
         source_content = markdown_text or fallback_content
-        return content_to_slack_mrkdwn(source_content, organization_id), blocks
+        return content_to_slack_mrkdwn(source_content, organization_id, slack_user_id_by_email), blocks
 
-    return content_to_slack_mrkdwn(fallback_content, organization_id), None
+    return content_to_slack_mrkdwn(fallback_content, organization_id, slack_user_id_by_email), None

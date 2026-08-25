@@ -64,10 +64,8 @@ function ImageCommentCreationLayer({
             text: "Image region",
             fromLine: 1,
             toLine: 1,
-            anchor: {
-              top: clientY + 4,
-              left: Math.min(clientX + 4, window.innerWidth - 440),
-            },
+            // Point anchor at the click: the composer opens next to it.
+            anchor: { top: clientY, endX: clientX, bottom: clientY },
           });
         }}
       />

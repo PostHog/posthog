@@ -27,7 +27,6 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useInboxBulkActions";
 import { useInboxReportListSelection } from "@posthog/ui/features/inbox/hooks/useInboxReportListSelection";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
-import { Flex } from "@radix-ui/themes";
 import {
   type ComponentType,
   Fragment,
@@ -167,18 +166,23 @@ export function InboxReportListTab({
   const emptyTitle = resolveEmptyTitle(scope, emptyState);
   const EmptyIcon = emptyState.Icon;
 
+  // `@container` makes the card layout respond to the list column's width
+  // (cards stack below their `@lg` breakpoint), not the window's.
+  const listShellClassName =
+    "@container mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-4";
+
   if (isLoading && scopedReports.length === 0) {
     return (
-      <Flex direction="column" gap="4" className="mx-auto max-w-4xl px-6 py-4">
+      <div className={listShellClassName}>
         <InboxSearchFilterBar searchPlaceholder={searchPlaceholder} />
         <CardSkeleton count={4} variant="cards" />
-      </Flex>
+      </div>
     );
   }
 
   return (
     <>
-      <Flex direction="column" gap="4" className="mx-auto max-w-4xl px-6 py-4">
+      <div className={listShellClassName}>
         <InboxSearchFilterBar searchPlaceholder={searchPlaceholder} />
 
         {selectedCount > 0 ? (
@@ -206,7 +210,7 @@ export function InboxReportListTab({
                 reports={matchingReports}
                 Wrapper={CardListWrapper}
               >
-                <Flex direction="column" gap="3">
+                <div className="flex flex-col gap-3">
                   {matchingReports.map((report) => (
                     <Card
                       key={report.id}
@@ -225,7 +229,7 @@ export function InboxReportListTab({
                       }
                     />
                   ))}
-                </Flex>
+                </div>
               </CardListContainer>
             )}
             <InboxLoadMore
@@ -235,7 +239,7 @@ export function InboxReportListTab({
             />
           </>
         )}
-      </Flex>
+      </div>
 
       {dismissReport && (
         <DismissReportDialog

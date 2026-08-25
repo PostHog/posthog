@@ -120,6 +120,44 @@ describe('EmailTrackingService', () => {
             expect(out).toContain('target=')
         })
 
+        describe('ses mode', () => {
+            const sesTrack = (html: string): string => addTrackingToEmail(html, invocation, signer, false, 'ses')
+
+            it('leaves hrefs pointing at the destination and tags each anchor by position', () => {
+                const out = sesTrack(
+                    '<body><a href="https://example.com/a">a</a><a href="https://example.com/b">b</a></body>'
+                )
+                // A wrapper here would bury the destination inside a per-send URL that SES then
+                // reports verbatim as click.link, which is what makes per-link counts impossible.
+                expect(out).not.toContain('/public/m/redirect')
+                expect(out).toContain('<a href="https://example.com/a" ses:tags="phl:0">')
+                expect(out).toContain('<a href="https://example.com/b" ses:tags="phl:1">')
+            })
+
+            it.each([
+                ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
+                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
+            ])('translates the %s opt-out into ses:no-track', (_name, html) => {
+                // SES honors only its own attribute, so without this the anchor is still rewritten
+                // to awstrack.me and app deeplinks stop resolving.
+                const out = sesTrack(html)
+                expect(out).toContain('ses:no-track')
+                expect(out).not.toContain('ses:tags')
+            })
+
+            it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
+                const out = sesTrack('<body><a href="https://example.com" ses:tags="campaign:spring">x</a></body>')
+                expect(out).toContain('ses:tags="campaign:spring;phl:0"')
+            })
+
+            it('keeps anchor positions stable when an earlier link opts out', () => {
+                const out = sesTrack(
+                    '<body><a href="https://example.com/a" data-ph-no-track>a</a><a href="https://example.com/b">b</a></body>'
+                )
+                expect(out).toContain('ses:tags="phl:1"')
+            })
+        })
+
         const invocationWithDistinctId = {
             functionId: 'fn-1',
             id: 'inv-1',

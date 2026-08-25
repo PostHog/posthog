@@ -18,12 +18,12 @@ from pydantic import BaseModel, Field
 from posthog.schema import DateRange
 
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
 from posthog.sync import database_sync_to_async
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
     list_conversion_goals,
@@ -164,8 +164,11 @@ class MarketingDiagnoseSetupTool(MaxTool):
 
 
 class MarketingExplainConversionGoalArgs(BaseModel):
-    goal_id: str = Field(
-        description="The id of the conversion goal to explain. Must match an id from `marketing_list_conversion_goals`.",
+    conversion_goal_id: str = Field(
+        description=(
+            "The conversion_goal_id of the goal to explain, taken from the "
+            "`conversion_goal_id` field of a `marketing_list_conversion_goals` result."
+        ),
     )
     date_from: str | None = Field(
         default=None,
@@ -195,15 +198,18 @@ class MarketingExplainConversionGoalTool(MaxTool):
         return _marketing_resource()
 
     async def _arun_impl(
-        self, goal_id: str, date_from: str | None = None, date_to: str | None = None
+        self, conversion_goal_id: str, date_from: str | None = None, date_to: str | None = None
     ) -> tuple[str, dict[str, Any]]:
         period = None
         if date_from or date_to:
             period = DateRange(date_from=date_from, date_to=date_to)
         try:
-            response = await explain_conversion_goal(self._team, goal_id, period=period)
+            response = await explain_conversion_goal(self._team, conversion_goal_id, period=period)
         except ValueError as exc:
-            return f"Could not explain goal: {exc}", {"error": "goal_not_found", "goal_id": goal_id}
+            return f"Could not explain goal: {exc}", {
+                "error": "goal_not_found",
+                "conversion_goal_id": conversion_goal_id,
+            }
         return _format_explain_goal_for_llm(response), response.to_dict()
 
 
@@ -535,7 +541,7 @@ _NON_INTEGRATED_SPLIT_INSTRUCTIONS = dedent("""
 
 
 def _format_goal_line(goal, *, include_id: bool = False) -> str:
-    head = f"- id=`{goal.id}` " if include_id else "- "
+    head = f"- conversion_goal_id=`{goal.conversion_goal_id}` " if include_id else "- "
     line = f"{head}**{goal.name}** (`{goal.kind}`, target=`{goal.target_label}`) — last_30d={goal.last_30d_count}"
     if goal.integrated_count is not None and goal.non_integrated_count is not None:
         line += (

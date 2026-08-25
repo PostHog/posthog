@@ -135,6 +135,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
+        '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
         '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
         '/ai-observability/reviews': ['AIObservability', 'aiObservabilityReviews'],
         '/ai-observability/traces': ['AIObservability', 'aiObservabilityTraces'],
@@ -288,6 +289,7 @@ export const manifest: ProductManifest = {
     },
     urls: {
         aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
+        aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
         aiObservabilityGenerations: (): string => '/ai-observability/generations',
         aiObservabilityReviews: (): string => '/ai-observability/reviews',
         aiObservabilityTraces: (): string => '/ai-observability/traces',

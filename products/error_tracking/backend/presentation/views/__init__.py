@@ -11,6 +11,7 @@ from products.error_tracking.backend.presentation.views.query import ErrorTracki
 from products.error_tracking.backend.presentation.views.recommendations import ErrorTrackingRecommendationViewSet
 from products.error_tracking.backend.presentation.views.releases import ErrorTrackingReleaseViewSet
 from products.error_tracking.backend.presentation.views.settings import ErrorTrackingSettingsViewSet
+from products.error_tracking.backend.presentation.views.severity_rules import ErrorTrackingSeverityRuleViewSet
 from products.error_tracking.backend.presentation.views.spike_detection_config import (
     ErrorTrackingSpikeDetectionConfigViewSet,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "ErrorTrackingGroupingRuleViewSet",
     "ErrorTrackingReleaseViewSet",
     "ErrorTrackingSettingsViewSet",
+    "ErrorTrackingSeverityRuleViewSet",
     "ErrorTrackingSpikeDetectionConfigViewSet",
     "ErrorTrackingSpikeEventViewSet",
     "ErrorTrackingSuppressionRuleViewSet",

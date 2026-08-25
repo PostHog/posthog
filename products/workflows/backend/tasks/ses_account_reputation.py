@@ -33,11 +33,16 @@ def poll_ses_account_reputation() -> None:
         (finding["scope"], finding["finding_type"], finding["impact"]) for finding in reputation["findings"]
     )
 
+    # multiprocess_mode="mostrecent" everywhere: the celery workers run prometheus_client in
+    # multiprocess mode, which re-exports these gauges on the pod's own /metrics regardless of
+    # the private registry. Without it, every worker process exposes its own copy frozen at the
+    # last value that pid set, and alerts evaluating those fossil series flap.
     with pushed_metrics_registry("ses_account_reputation") as registry:
         Gauge(
             "posthog_ses_account_enforcement_healthy",
             "1 while AWS SES reports the account EnforcementStatus as HEALTHY, 0 otherwise.",
             registry=registry,
+            multiprocess_mode="mostrecent",
         ).set(1 if reputation["enforcement_status"] == "HEALTHY" else 0)
 
         findings_gauge = Gauge(
@@ -45,6 +50,7 @@ def poll_ses_account_reputation() -> None:
             "Open AWS SES reputation findings (ListRecommendations), by referenced resource scope.",
             labelnames=["scope", "finding_type", "impact"],
             registry=registry,
+            multiprocess_mode="mostrecent",
         )
         for (scope, finding_type, impact), count in finding_counts.items():
             findings_gauge.labels(scope=scope, finding_type=finding_type, impact=impact).set(count)
@@ -53,4 +59,5 @@ def poll_ses_account_reputation() -> None:
             "posthog_ses_account_reputation_last_poll_timestamp_seconds",
             "Unix timestamp of the last successful SES account reputation poll.",
             registry=registry,
+            multiprocess_mode="mostrecent",
         ).set(time.time())

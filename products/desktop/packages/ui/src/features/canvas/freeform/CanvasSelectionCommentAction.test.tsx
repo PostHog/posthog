@@ -1,4 +1,5 @@
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasSelectionCommentAction } from "./CanvasSelectionCommentAction";
@@ -41,6 +42,10 @@ describe("CanvasSelectionCommentAction", () => {
   beforeEach(() => {
     mutateAsync.mockReset();
     useCanvasChatPanelStore.setState({ collapsed: true, tab: "chat" });
+    useCommentNavigationStore.setState({
+      focusByTask: {},
+      resolutionsByTarget: {},
+    });
   });
 
   it("creates the text-anchored comment and opens the comments tab", async () => {
@@ -65,6 +70,10 @@ describe("CanvasSelectionCommentAction", () => {
 
     fireEvent.click(screen.getByText("Submit selection comment"));
 
+    expect(useCanvasChatPanelStore.getState()).toMatchObject({
+      collapsed: false,
+      tab: "comments",
+    });
     expect(mutateAsync).toHaveBeenCalledWith({
       content: "Please revise this",
       context: {
@@ -80,11 +89,13 @@ describe("CanvasSelectionCommentAction", () => {
       },
       mentions: [4],
     });
-    await waitFor(() => {
-      expect(useCanvasChatPanelStore.getState()).toMatchObject({
-        collapsed: false,
-        tab: "comments",
-      });
-    });
+    await waitFor(() =>
+      expect(
+        useCommentNavigationStore.getState().focusByTask["task-1"],
+      ).toMatchObject({
+        threadId: "comment-1",
+        intent: "focus-only",
+      }),
+    );
   });
 });

@@ -13,6 +13,7 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    GenerateLinkRequestApi,
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
@@ -29,6 +30,9 @@ import type {
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
+    PreferencesLinkApi,
+    RemoveOptOutRequestApi,
+    WebhookUrlApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -420,14 +424,18 @@ export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) 
 
 /**
  * Generate an unsubscribe link for the current user's email address
+ * @summary Generate a preferences page link for a recipient
  */
 export const messagingPreferencesGenerateLinkCreate = async (
     projectId: string,
+    generateLinkRequestApi?: GenerateLinkRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMessagingPreferencesGenerateLinkCreateUrl(projectId), {
+): Promise<PreferencesLinkApi> => {
+    return apiMutator<PreferencesLinkApi>(getMessagingPreferencesGenerateLinkCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(generateLinkRequestApi),
     })
 }
 
@@ -465,18 +473,40 @@ export const messagingPreferencesOptOutsRetrieve = async (
     })
 }
 
+export const getMessagingPreferencesRemoveOptOutCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_preferences/remove_opt_out/`
+}
+
+/**
+ * Opt a recipient back in to a specific category, or to all marketing messages.
+ * @summary Remove a recipient from the opt-out list
+ */
+export const messagingPreferencesRemoveOptOutCreate = async (
+    projectId: string,
+    removeOptOutRequestApi: RemoveOptOutRequestApi,
+    options?: RequestInit
+): Promise<MessagePreferencesApi> => {
+    return apiMutator<MessagePreferencesApi>(getMessagingPreferencesRemoveOptOutCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(removeOptOutRequestApi),
+    })
+}
+
 export const getMessagingPreferencesWebhookUrlRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_preferences/webhook_url/`
 }
 
 /**
  * Return the webhook URL for Customer.io integration setup.
+ * @summary Get the Customer.io webhook URL for the team
  */
 export const messagingPreferencesWebhookUrlRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getMessagingPreferencesWebhookUrlRetrieveUrl(projectId), {
+): Promise<WebhookUrlApi> => {
+    return apiMutator<WebhookUrlApi>(getMessagingPreferencesWebhookUrlRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

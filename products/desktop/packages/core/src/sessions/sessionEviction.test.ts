@@ -132,6 +132,8 @@ describe("MAX_CONNECTED_SESSIONS", () => {
       "1x2": true,
       "2x2": true,
       "3x2": true,
+      "1x3": true,
+      "2x3": true,
       "3x3": true,
     };
     const largestGrid = Math.max(

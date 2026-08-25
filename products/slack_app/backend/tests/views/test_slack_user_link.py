@@ -174,7 +174,7 @@ class TestCallbackView:
         with (
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
-            patch("posthog.models.integration.WebClient"),
+            patch("posthog.models.integration.slack.WebClient"),
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 

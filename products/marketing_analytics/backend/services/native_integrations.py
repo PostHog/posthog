@@ -67,8 +67,26 @@ DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
 }
 
 
+# What `api/integrations/authorize?kind=` expects. Spelled out because no kebab-case rule gets
+# both Snapchat ("snapchat") and TikTok ("tiktok-ads") right; pinned by a test to `supported_kinds`.
+OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
+    NativeMarketingSource.GOOGLE_ADS: "google-ads",
+    NativeMarketingSource.META_ADS: "meta-ads",
+    NativeMarketingSource.BING_ADS: "bing-ads",
+    NativeMarketingSource.LINKEDIN_ADS: "linkedin-ads",
+    NativeMarketingSource.REDDIT_ADS: "reddit-ads",
+    NativeMarketingSource.PINTEREST_ADS: "pinterest-ads",
+    NativeMarketingSource.SNAPCHAT_ADS: "snapchat",
+    NativeMarketingSource.TIK_TOK_ADS: "tiktok-ads",
+}
+
+
 def display_name_for_key(key: NativeIntegration) -> str:
     return DISPLAY_NAMES[KEY_TO_NATIVE[key]]
+
+
+def oauth_kind_for(native: NativeMarketingSource) -> str | None:
+    return OAUTH_KIND_BY_NATIVE.get(native)
 
 
 def normalize(value: str) -> str:

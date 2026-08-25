@@ -4,7 +4,16 @@ from typing import Literal, get_args
 
 import posthoganalytics
 
+# Canonical PR/CI snapshot vocabulary, as produced by the GitHub integration's
+# pull-request snapshot (`_map_pr_state` / `_map_ci_status`) and persisted on
+# ``TaskRun.output`` (``pr_state`` / ``ci_status``) for the task list filters.
+PR_STATES = ("open", "draft", "merged", "closed")
+CI_STATUSES = ("passing", "failing", "pending", "none")
+
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
+WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
+WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG = "tasks-workflow-dispatch-restart"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
@@ -12,9 +21,41 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+# Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
+# runtime, so the effective audience is teams with both this flag and
+# PI_CLOUD_RUNTIME_FEATURE_FLAG enabled.
+AGENT_PEER_MESSAGING_FEATURE_FLAG = "tasks-agent-peer-messaging"
+TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
+
+ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
+ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"
+ANALYSIS_TARGET_REPOSITORY_STATE_KEY = "analysis_target_repository"
+ANALYSIS_TARGET_IMAGE_ID_STATE_KEY = "analysis_target_custom_image_id"
+ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY = "analysis_target_custom_image_name"
+TASK_ANALYSIS_INSIGHTS_STATE_KEY = "task_analysis_insights"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
+
+# Models a caller may only select while the paired flag is enabled for them. The Desktop
+# pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
+# but a picker is a convenience rather than a gate: a stored per-task model preference, an
+# older client, or a direct API call all reach the write paths without consulting a flag, so
+# entitlement is re-checked server-side. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: dict[str, str] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it's generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
 
 
 def _decode_vm_sandbox_payload(payload: object) -> object:
@@ -126,15 +167,18 @@ MAX_CUSTOM_IMAGES_PER_USER = 10
 TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
-MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
+TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
 RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
+PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
+SANDBOX_ROTATION_FEATURE_FLAG = "tasks-cloud-run-sandbox-rotation"
 
 SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
@@ -182,14 +226,19 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "experiment-ship-variant",
     "external-data-schemas-resync",
     "external-data-sources-repair-cdc-create",
+    "feature-requests-remove-evidence-create",
     "heatmaps-saved-regenerate",
     "inbox-reports-bulk-set-state",
     "inbox-reports-set-state",
     "llma-prompt-label-set",
     "opt-outs-add",
+    "opt-outs-remove",
     "organization-enforce-2fa",
     "organization-enforce-2fa-execute",
-    "posthog-connection-forward-execute",
+    # Relayed on every call, not because every call writes: the client decides from the tool it
+    # runs in the connected project, which only it can read out of the arguments.
+    "posthog-connection-call",
+    "posthog-connection-forward",
     "scout-scratchpad-forget",
     "signals-scout-scratchpad-forget",
     "skill-archive",
@@ -219,6 +268,7 @@ POSTHOG_EXEC_PERSIST_SUB_TOOLS: tuple[str, ...] = (
     "cdp-functions-create",
     "workflows-create",
     "workflows-create-email-template",
+    "llma-parser-recipe-create",
 )
 
 POSTHOG_EXEC_PERMISSION_REGEX = (
@@ -435,6 +485,7 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "LLM_GATEWAY_URL",
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",
+        "AI_GATEWAY_TOKEN",
         "POSTHOG_RESUME_RUN_ID",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
         "POSTHOG_AGENT_OTEL_LOGS_TOKEN",
@@ -442,6 +493,11 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "DISABLE_TELEMETRY",
         "DISABLE_ERROR_REPORTING",
+        # The workflow gates the wiki mount on these being present, so a
+        # user-supplied copy would mount the org wiki for a team whose
+        # context-layer flag is off.
+        "POSTHOG_CONTEXT_LAYER_PATH",
+        "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
     }
 )
 

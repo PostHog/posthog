@@ -15,7 +15,7 @@ import { HogFunctionManagerService } from '../managers/hog-function-manager.serv
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { EmailSuppressionService } from './email-suppression.service'
-import { SesWebhookHandler } from './helpers/ses'
+import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -24,6 +24,41 @@ const LINK_REGEX =
 
 // Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
 const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
+
+// Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
+const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
+const SES_NO_TRACK_ATTR_REGEX = /\bses:no-track\b/i
+
+/**
+ * How anchors in the email body are prepared for click attribution.
+ *
+ * `redirect` rewrites each href to our own `/public/m/redirect` endpoint, which records the click
+ * before forwarding. Used on the maildev path, where no provider webhook exists.
+ *
+ * `ses` leaves hrefs pointing at their real destination and instead annotates each anchor with the
+ * attributes SES reads when it rewrites links for its own click tracking. SES is the sole click
+ * source on this path, so wrapping the href as well would only bury the destination inside a
+ * per-send URL that the Click event then reports verbatim.
+ */
+export type EmailTrackingMode = 'redirect' | 'ses'
+
+const addAttributeToOpeningTag = (openingTag: string, attribute: string): string => {
+    return openingTag.replace(/\s*\/?>$/, ` ${attribute}>`)
+}
+
+const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
+    const tag = `${SES_LINK_INDEX_TAG}:${linkIndex}`
+    const existing = openingTag.match(SES_TAGS_ATTR_REGEX)
+    if (!existing) {
+        return addAttributeToOpeningTag(openingTag, `ses:tags="${tag}"`)
+    }
+    // An HTML parser keeps only the first of two same-named attributes, so emitting a second
+    // `ses:tags` would silently discard whichever set loses. Merge into the author's existing
+    // value instead so both their tags and ours reach SES. SES separates pairs with `;` and
+    // allows only `0-9 A-Z a-z - _` in a value, so any other separator makes one malformed tag.
+    const value = existing[1] ?? existing[2] ?? existing[3] ?? ''
+    return openingTag.replace(SES_TAGS_ATTR_REGEX, () => `ses:tags="${value ? `${value};` : ''}${tag}"`)
+}
 
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
@@ -96,7 +131,8 @@ export const addTrackingToEmail = (
     html: string,
     invocation: CyclotronJobInvocationHogFunction,
     signer: EmailTrackingCodeSigner,
-    isTest = false
+    isTest = false,
+    mode: EmailTrackingMode = 'redirect'
 ): string => {
     // Only carry distinct_id in the in-email pixel/redirect URLs in dev/test, where those handlers
     // record metrics. In production they don't (SES webhooks own open/click attribution via the
@@ -106,7 +142,14 @@ export const addTrackingToEmail = (
     const trackingInvocation = { ...invocation, distinctId }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
+    // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
+    // out or unsafe, so the index stays tied to document position instead of shifting with how
+    // many anchors happened to be trackable. The same template therefore yields the same indices
+    // on every send, which is what makes counts comparable across recipients.
+    let anchorIndex = 0
+
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
+        const linkIndex = anchorIndex++
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
@@ -119,7 +162,22 @@ export const addTrackingToEmail = (
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        if (LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)) {
+        const optedOut = LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+
+        if (mode === 'ses') {
+            // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
+            // own `ses:no-track`. Translating the opt-out into that attribute is what actually
+            // keeps a universal link or app deeplink off awstrack.me; leaving the href alone (the
+            // `redirect` mode's opt-out) does nothing here.
+            if (optedOut) {
+                return SES_NO_TRACK_ATTR_REGEX.test(openingTag)
+                    ? m
+                    : addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
+            }
+            return withSesLinkIndexTag(openingTag, linkIndex) + m.slice(openingTag.length)
+        }
+
+        if (optedOut) {
             return m
         }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)
@@ -159,6 +217,8 @@ export class EmailTrackingService {
         source,
         properties,
         timestamp,
+        instanceIdOverride,
+        deferFlush = false,
         workflowVersion,
     }: {
         functionId?: string
@@ -170,6 +230,10 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
         timestamp?: string
+        instanceIdOverride?: string
+        // Skips the per-call Kafka flush so a caller handling several metrics can queue them all
+        // and pay a single broker round-trip. The caller owns flushing when it sets this.
+        deferFlush?: boolean
         workflowVersion?: number
     }): Promise<void> {
         if (!functionId || !invocationId) {
@@ -207,7 +271,7 @@ export class EmailTrackingService {
                 // Mirror email.service.ts's `parentRunId ?? functionId` so batch-triggered
                 // runs get their webhook metrics attributed to the batch run, not the workflow.
                 app_source_id: parentRunId ?? appSourceId,
-                instance_id: actionId || invocationId,
+                instance_id: instanceIdOverride || actionId || invocationId,
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
@@ -237,7 +301,9 @@ export class EmailTrackingService {
             await this.capturedEventsService.flush()
         }
 
-        await this.hogFunctionMonitoringService.flush()
+        if (!deferFlush) {
+            await this.hogFunctionMonitoringService.flush()
+        }
 
         trackingEventsCounter.inc({ event_type: metricName, source })
         logger.debug('[EmailTrackingService] trackMetric: Email tracking event', {
@@ -331,6 +397,9 @@ export class EmailTrackingService {
                 verifySignature: true,
             })
 
+            // A single SNS notification can yield several metrics (a Click emits its rollup plus a
+            // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
+            // make those serial Kafka round-trips, so defer and flush once for the batch.
             for (const metric of metrics || []) {
                 await this.trackMetric({
                     functionId: metric.functionId,
@@ -342,8 +411,13 @@ export class EmailTrackingService {
                     source: 'ses',
                     properties: metric.properties,
                     timestamp: metric.timestamp,
+                    instanceIdOverride: metric.instanceIdOverride,
+                    deferFlush: true,
                     workflowVersion: metric.workflowVersion,
                 })
+            }
+            if (metrics?.length) {
+                await this.hogFunctionMonitoringService.flush()
             }
 
             // Wrapped so a failure here doesn't skip the suppression writes below.

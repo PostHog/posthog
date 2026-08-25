@@ -46,7 +46,8 @@ Two options, cheapest first:
 1. Most scouts already run daily (default `run_interval_minutes: 1440`) and write only when something clears the bar — so the inbox _is_ the digest.
    Check the user isn't actually asking for a triage habit (`inbox-exploration` each morning).
 2. If they genuinely want a roll-up report every day regardless of anomalies, that's the **daily digest / roll-up pattern** in `authoring-scouts`' `references/scout-patterns.md` — a custom scout that summarizes rather than detects.
-   Set `auto_pause_exempt` thoughtfully: a digest people read but never "act on" in the inbox sense can look ignored to the auto-pause sweep.
+   Reading counts to the auto-pause sweep: opening a report in the inbox (or rating it) is recorded as consumption, so a digest people actually read won't look ignored.
+   Reserve `auto_pause_exempt` for a digest consumed somewhere the inbox can't see (forwarded, read via a client that doesn't record opens).
 
 ## "Watch something outside PostHog" (vendor status page, docs, a competitor)
 

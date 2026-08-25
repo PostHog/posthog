@@ -33,16 +33,16 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
+    DeliveryAbort,
+    DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
-    SubscriptionAbortInfo,
-    SubscriptionInfo,
     UpdateDeliveryRecordInputs,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
@@ -51,6 +51,10 @@ from ee.tasks.subscriptions.auto_disable import (
     get_subscription_disable_reason,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.failure_notifications import (
+    create_subscription_delivery_failure_notification,
+    send_subscription_delivery_failure_email,
+)
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
@@ -180,14 +184,14 @@ async def _persist_content_snapshot(
 
 
 @temporalio.activity.defn
-async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[SubscriptionInfo]:
+async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
     now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
     @database_sync_to_async(thread_sensitive=False)
-    def get_subscriptions() -> list[SubscriptionInfo]:
+    def get_subscriptions() -> list[DueSubscription]:
         return [
-            SubscriptionInfo(
+            DueSubscription(
                 subscription_id=sub["id"],
                 team_id=sub["team_id"],
                 distinct_id=str(sub["created_by__distinct_id"])
@@ -215,7 +219,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 
 
 @temporalio.activity.defn
-async def validate_subscription_for_delivery(subscription_id: int) -> SubscriptionAbortInfo | None:
+async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAbort | None:
     """Returns abort info when delivery should not proceed; None to continue."""
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "integration").get,
@@ -226,7 +230,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
     # prior auto-disable committed must not re-fire side effects.
     if not subscription.enabled:
         await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
-        return SubscriptionAbortInfo()
+        return DeliveryAbort()
 
     reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
     if reason is None:
@@ -240,7 +244,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
     )
     _capture_delivery_failed_event(subscription, Exception(reason.description))
     await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
-    return SubscriptionAbortInfo(
+    return DeliveryAbort(
         failed_recipient=RecipientResult(
             recipient=subscription.target_value,
             status="failed",
@@ -608,6 +612,35 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         delivery_id=inputs.delivery_id,
         status=inputs.status,
     )
+
+
+@temporalio.activity.defn
+async def notify_subscription_delivery_failure(subscription_id: int, failure_id: str) -> None:
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+    errors: list[Exception] = []
+    try:
+        await database_sync_to_async(send_subscription_delivery_failure_email, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception("notify_subscription_delivery_failure.email_failed", subscription_id=subscription_id)
+
+    try:
+        await database_sync_to_async(create_subscription_delivery_failure_notification, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception(
+            "notify_subscription_delivery_failure.in_app_notification_failed", subscription_id=subscription_id
+        )
+
+    if errors:
+        raise errors[0]
 
 
 @temporalio.activity.defn

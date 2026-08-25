@@ -12,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.client import connect
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -81,7 +82,12 @@ _RETRYABLE_RPC_STATUSES = frozenset(
 # single read (ListWorkflowExecutions / GetWorkflowExecutionHistory), not the server rejecting the
 # request. It's the client-side analog of the DEADLINE_EXCEEDED case above, so ride it out too.
 # Match the phrase rather than the whole CANCELLED status so a genuine cancellation still surfaces.
-_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired")
+#
+# tonic also surfaces status CANCELLED with the message "operation was canceled" when the
+# underlying transport connection is closed mid-request (a known upstream pattern, e.g.
+# temporalio/sdk-core#807) — another connection blip, not an intentional cancellation. Match the
+# phrase, not the whole status, for the same reason as above.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired", "operation was canceled")
 
 
 def _is_retryable_rpc_error(error: RPCError) -> bool:
@@ -247,12 +253,12 @@ def _sanitize(obj):
     return {k: safe_convert(v) for k, v in obj.items()}
 
 
-@dataclasses.dataclass
+@frozen
 class FakeSettings:
     """Required to trick temporal.io client to think its reading from django settings"""
 
-    TEMPORAL_SECRET_KEY: str | bytes
-    TEMPORAL_FALLBACK_SECRET_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list)
+    TEMPORAL_SECRET_KEY: str | bytes = dataclasses.field(repr=False)
+    TEMPORAL_FALLBACK_SECRET_KEYS: Iterable[str | bytes] = dataclasses.field(default_factory=list, repr=False)
     TEST: bool = False
     DEBUG: bool = False
 

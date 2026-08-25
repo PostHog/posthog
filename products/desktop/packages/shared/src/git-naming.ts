@@ -1,1 +1,1 @@
-export const BRANCH_PREFIX = "posthog-code/";
+export const BRANCH_PREFIX = "posthog/";

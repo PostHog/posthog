@@ -108,7 +108,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                                       }),
                                       spanProcessors: [
                                         new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
+                                          projectToken: '<ph_project_token>',
                                           host: '<ph_client_api_host>',
                                         }),
                                       ],

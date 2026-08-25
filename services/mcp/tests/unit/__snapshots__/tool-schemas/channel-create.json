@@ -6,6 +6,11 @@
             "description": "Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
             "maxLength": 128,
             "type": "string"
+        },
+        "star": {
+            "default": true,
+            "description": "Star the channel for the requester when this call creates it. Ignored when the channel already exists, which leaves existing stars untouched.",
+            "type": "boolean"
         }
     },
     "required": ["name"],

@@ -46,11 +46,9 @@ export function CanvasSelectionCommentAction({
               fromLine: selection.start + 1,
               toLine: selection.end + 1,
               anchor: {
-                top: selection.rect.bottom,
-                left: Math.max(
-                  8,
-                  Math.min(selection.rect.right, window.innerWidth - 440),
-                ),
+                top: selection.rect.top,
+                endX: selection.rect.right,
+                bottom: selection.rect.bottom,
               },
             }
           : null
@@ -64,6 +62,7 @@ export function CanvasSelectionCommentAction({
       onDismiss={onDismiss}
       onSubmit={async (_start, _end, content, mentions) => {
         if (!anchor || !taskId) return;
+        openComments();
         const comment = await createComment.mutateAsync({
           content,
           context: {
@@ -72,10 +71,11 @@ export function CanvasSelectionCommentAction({
           },
           mentions,
         });
-        openComments();
         useCommentNavigationStore
           .getState()
-          .requestCommentFocus(taskId, target, comment.id);
+          .requestCommentFocus(taskId, target, comment.id, {
+            intent: "focus-only",
+          });
       }}
     />
   );

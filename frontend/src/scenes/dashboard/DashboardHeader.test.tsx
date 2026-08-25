@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -10,14 +11,21 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import { DashboardHeader } from './DashboardHeader'
-import { dashboardLogic } from './dashboardLogic'
+import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
+
+import { DashboardHeader, insightIsAddedToDashboard } from './DashboardHeader'
+import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 jest.mock('lib/components/FullScreen', () => ({
     FullScreen: () => null,
 }))
 jest.mock('scenes/max/MaxTool', () => ({
     MaxTool: ({ children }: any) => <>{children}</>,
+}))
+
+jest.mock('products/posthog_ai/frontend/api/logics', () => ({
+    useMcpToolApplyBack: jest.fn(),
 }))
 
 const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
@@ -66,6 +74,9 @@ describe('DashboardHeader', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION], {
+            [FEATURE_FLAGS.DASHBOARD_CUSTOMIZATION]: true,
+        })
     })
 
     afterEach(() => {
@@ -73,31 +84,76 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<QueryBasedInsightModel>
+        dashboard?: DashboardType<QueryBasedInsightModel> | null
         dashboardMode?: DashboardMode | null
         dashboardModeSource?: DashboardEventSource
-    }): { logic: ReturnType<typeof dashboardLogic.build> } {
+        loading?: boolean
+        spyOnLoadDashboard?: boolean
+    }): { logic: ReturnType<typeof dashboardLogic.build>; loadDashboard?: jest.SpyInstance } {
         const {
             dashboard = MOCK_DASHBOARD,
             dashboardMode = null,
             dashboardModeSource = DashboardEventSource.Browser,
+            loading = false,
         } = opts
 
-        const logic = dashboardLogic({ id: dashboard.id, dashboard })
+        const logic = dashboardLogic({ id: dashboard?.id ?? MOCK_DASHBOARD.id, dashboard: dashboard ?? undefined })
         logic.mount()
+        const loadDashboard = opts.spyOnLoadDashboard
+            ? jest.spyOn(logic.actions, 'loadDashboard').mockImplementation()
+            : undefined
 
         if (dashboardMode) {
             logic.actions.setDashboardMode(dashboardMode, dashboardModeSource)
         }
 
         render(
-            <BindLogic logic={dashboardLogic} props={{ id: dashboard.id, dashboard }}>
-                <DashboardHeader />
+            <BindLogic
+                logic={dashboardLogic}
+                props={{ id: dashboard?.id ?? MOCK_DASHBOARD.id, dashboard: dashboard ?? undefined }}
+            >
+                <DashboardHeader loading={loading} />
             </BindLogic>
         )
 
-        return { logic }
+        return { logic, loadDashboard }
     }
+
+    it('keeps the scene header visible while the dashboard is loading', () => {
+        const { logic } = renderHeader({ dashboard: null, loading: true })
+
+        expect(document.querySelector('.scene-title-section')).toBeInTheDocument()
+
+        logic.unmount()
+    })
+
+    it('recognizes sandbox insight calls that add to the open dashboard', () => {
+        expect(insightIsAddedToDashboard({ dashboards: ['5', 8] }, 5)).toBe(true)
+        expect(insightIsAddedToDashboard({ dashboards: [8] }, 5)).toBe(false)
+        expect(insightIsAddedToDashboard({ dashboards: '5' }, 5)).toBe(false)
+    })
+
+    it('reloads the open dashboard when sandbox AI adds an insight to it', () => {
+        const { logic, loadDashboard } = renderHeader({ dashboard: MOCK_DASHBOARD, spyOnLoadDashboard: true })
+        const applyBackOptions = jest
+            .mocked(useMcpToolApplyBack)
+            .mock.calls.map(([options]) => options)
+            .find((options) => options.targetKey === `dashboard:${MOCK_DASHBOARD.id}`)
+
+        applyBackOptions?.onApply({} as ToolStreamEvent, { innerInput: { dashboards: [MOCK_DASHBOARD.id] } })
+
+        expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
+        logic.unmount()
+    })
+
+    it('keeps the dashboard name and description visible during a background load', () => {
+        const { logic } = renderHeader({ dashboard: MOCK_DASHBOARD, loading: true })
+
+        expect(screen.getByText('Test Dashboard')).toBeInTheDocument()
+        expect(screen.getByText('A test dashboard')).toBeInTheDocument()
+
+        logic.unmount()
+    })
 
     it.each([
         {
@@ -119,7 +175,7 @@ describe('DashboardHeader', () => {
             dashboardMode: DashboardMode.Edit,
             dashboardModeSource: DashboardEventSource.DashboardFilters,
             canEdit: true,
-            visible: ['dashboard-add-tile'],
+            visible: ['dashboard-add-tile', 'dashboard-edit-layout-customize-dropdown'],
             notVisible: [
                 'dashboard-edit-mode-discard',
                 'dashboard-edit-mode-save',
@@ -133,7 +189,12 @@ describe('DashboardHeader', () => {
             dashboardMode: DashboardMode.Edit,
             dashboardModeSource: DashboardEventSource.SceneCommonButtons,
             canEdit: true,
-            visible: ['dashboard-edit-mode-discard', 'dashboard-edit-mode-save', 'dashboard-add-tile'],
+            visible: [
+                'dashboard-edit-mode-discard',
+                'dashboard-edit-mode-save',
+                'dashboard-edit-layout-customize-dropdown',
+                'dashboard-add-tile',
+            ],
             notVisible: ['dashboard-share-button', 'add-text-tile-to-dashboard', 'dashboard-add-graph-header'],
         },
         {

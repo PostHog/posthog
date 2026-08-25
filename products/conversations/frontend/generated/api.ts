@@ -507,6 +507,10 @@ export const getConversationsTicketsReplyCreateUrl = (projectId: string, id: str
  * With is_private=false, the reply is delivered to the customer via the
  * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
  * the message is stored as an internal note only visible to team members.
+ *
+ * Retrying an identical message from the same author within a short window returns the
+ * original message with a 200 rather than posting it twice, and a 409 while a concurrent
+ * request is still creating it.
  */
 export const conversationsTicketsReplyCreate = async (
     projectId: string,

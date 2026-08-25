@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -14,11 +15,14 @@ export const INBOX_CLIENT = 'cloud' as const
 
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
+    WELCOME_VIEWED: 'Inbox welcome viewed',
+    WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
+    REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
@@ -27,6 +31,7 @@ export const INBOX_EVENTS = {
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
+    SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -35,6 +40,7 @@ export const INBOX_EVENTS = {
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
     RUN_OPENED: 'Inbox run opened',
+    ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -45,8 +51,11 @@ export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_r
 /** How a report detail was opened. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 
-/** How a report detail was closed. */
-export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
+/**
+ * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
+ * never unmounts, so it flushes on `pagehide` instead of the `unmount` path.
+ */
+export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount' | 'page_unload'
 
 /** Sentiment captured by the report feedback thumbs. */
 export type InboxReportFeedbackSentiment = 'positive' | 'negative'
@@ -71,11 +80,35 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
 
 /**
+ * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
+ * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ */
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+
+/**
+ * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event
+ * records that a question was asked and nothing about where it came from, so there is no way to tell
+ * whether the suggestions are worth offering. `suggestion_count` is what makes `question_source`
+ * readable: a `typed` question on a report that offered none is not evidence against suggestions.
+ *
+ * The question text itself is deliberately absent, like the list's search term: it is incidental
+ * typing that can name a customer's own entities.
+ */
+// pinned: analytics property names — renaming breaks dashboards
+export function discussQuestionProperties(params: {
+    source: InboxQuestionSource
+    suggestionCount: number
+}): Record<string, unknown> {
+    return { question_source: params.source, suggestion_count: params.suggestionCount }
+}
+
+/**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
  * is already an {@link captureInboxReportAction} event; without the outcome the two are
- * indistinguishable, so an attempted PR counts the same as a created one.
+ * indistinguishable, so an attempted PR counts the same as a created one. `limited` is a server
+ * limit (the per-report task cap or the per-user creation throttle) refusing an issued request.
  */
-export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked'
+export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
 /** Panels that replace the report list and so never fire `Inbox viewed`. */
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
@@ -84,12 +117,12 @@ export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
 
 /**
- * Scout-management actions. The first block matches desktop's enum; the trailing three are
- * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, and the
- * scratchpad callout).
+ * Scout-management actions. The first block matches desktop's enum; the trailing block is
+ * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
+ * scratchpad callout, and the roster's on/off filter and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -97,8 +130,10 @@ export type ScoutActionType =
     | 'open_skill_in_posthog'
     | 'open_helper_skill'
     | 'open_findings'
-    | 'toggle_hide_disabled'
     | 'filter_tags'
+    | 'leave_note'
+    | 'delete_note'
+    | 'run_now'
     | 'expand_run'
     | 'collapse_run'
     | 'filter_runs'
@@ -110,12 +145,14 @@ export type ScoutActionType =
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
+    | 'filter_enabled'
+    | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>): void {
-    posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties })
+function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+    posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
 /** Whole hours since the report was created, rounded to one decimal. Mirrors desktop `report_age_hours`. */
@@ -181,10 +218,52 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
+/** Which welcome takeover a user saw: the original stacked card or the redesigned hero. */
+export type InboxWelcomeVariant = 'control' | 'redesign'
+
+/** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
+export type InboxWelcomeCopySurface = 'takeover' | 'banner'
+
+/**
+ * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
+ * takeover replaces the report list), so this is the top-of-funnel event for setup conversion, and
+ * the exposure marker for welcome-page experiments (`variant` mirrors the experiment arm).
+ */
+export function captureInboxWelcomeViewed(params: { variant: InboxWelcomeVariant }): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {
+        variant: params.variant,
+    })
+}
+
+/**
+ * The wizard setup command was copied. Previously only recoverable from autocapture (and
+ * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
+ * conversion step gets its own event. `variant` is null on the banner, which shows one
+ * fixed layout regardless of the welcome experiment.
+ */
+export function captureInboxWelcomeCommandCopied(params: {
+    variant: InboxWelcomeVariant | null
+    surface: InboxWelcomeCopySurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
+        variant: params.variant,
+        surface: params.surface,
+    })
+}
+
+/**
+ * The report list settled for the first time in a tab mount. `report_count` / `total_count` describe
+ * the active tab's list only (and `report_count` is capped at the loaded page), so the headline
+ * "how many reports does this user have" numbers are `pulls_tab_count` / `reports_tab_count`: the tab badge
+ * counts, sent on every view regardless of which tab is open (same shape as the desktop event).
+ * A badge count is null only if its request failed.
+ */
 export function captureInboxViewed(params: {
     tab: string
     reports: SignalReport[]
     totalCount: number
+    pullsTabCount: number | null
+    reportsTabCount: number | null
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
@@ -194,6 +273,8 @@ export function captureInboxViewed(params: {
         tab: params.tab,
         report_count: params.reports.length,
         total_count: params.totalCount,
+        pulls_tab_count: params.pullsTabCount,
+        reports_tab_count: params.reportsTabCount,
         is_empty: params.totalCount === 0,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
@@ -259,15 +340,43 @@ export function captureInboxReportOpened(params: {
     })
 }
 
-export function captureInboxReportClosed(params: {
+export function captureInboxReportClosed(
+    params: {
+        report: SignalReport
+        timeSpentMs: number
+        closeMethod: InboxReportCloseMethod
+    },
+    /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
+    options?: CaptureOptions
+): void {
+    captureInboxEvent(
+        INBOX_EVENTS.REPORT_CLOSED,
+        {
+            ...baseReportProperties(params.report),
+            time_spent_ms: params.timeSpentMs,
+            close_method: params.closeMethod,
+        },
+        options
+    )
+}
+
+/**
+ * The report detail pane was scrolled, fired once per open on the first scroll. It feeds the dwell
+ * half of the "Inbox engagement" metric, whose second step reads a scroll after at least 5 seconds.
+ * Only the desktop `Inbox report scrolled` event fed that step before, so it was dead for cloud.
+ * `time_since_open_ms` is the dwell before the scroll. Mirrors the desktop event's shape.
+ */
+export function captureInboxReportScrolled(params: {
     report: SignalReport
-    timeSpentMs: number
-    closeMethod: InboxReportCloseMethod
+    rank: number | null
+    listSize: number | null
+    timeSinceOpenMs: number
 }): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_CLOSED, {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SCROLLED, {
         ...baseReportProperties(params.report),
-        time_spent_ms: params.timeSpentMs,
-        close_method: params.closeMethod,
+        rank: params.rank,
+        list_size: params.listSize,
+        time_since_open_ms: params.timeSinceOpenMs,
     })
 }
 
@@ -366,9 +475,30 @@ export function captureSignalSourceInterest(source: string): void {
 }
 
 /**
+ * A source's steering rules were saved. Carries only lengths and flags: the rules text names the
+ * customer's own labels, projects, and workflows, so it never leaves their project. Fired once the
+ * request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceSteeringChanged(params: {
+    sourceProduct: string
+    sourceType: string
+    steeringLength: number
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_STEERING_CHANGED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        steering_length: params.steeringLength,
+        has_steering: params.steeringLength > 0,
+        success: params.success,
+    })
+}
+
+/**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
- * a product problem rather than a failure — hence its own bucket.
+ * a product problem rather than a failure — hence its own bucket. `limited` means the server
+ * refused the request with a limit 429; `limit_code` says which limit.
  */
 export function captureInboxReportActionCompleted(params: {
     report: SignalReport
@@ -376,12 +506,15 @@ export function captureInboxReportActionCompleted(params: {
     outcome: InboxReportActionOutcome
     /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
     blockedReason?: string | null
+    /** Only set for `limited`: the server's error code (`signal_report_task_cap` or `throttled`). */
+    limitCode?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
         action_type: params.actionType,
         outcome: params.outcome,
         ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
+        ...(params.limitCode ? { limit_code: params.limitCode } : {}),
     })
 }
 
@@ -558,6 +691,24 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * What the inbox decided to do about self-driving onboarding, and when it decided nothing, why.
+ *
+ * The takeover and banner are the only prompt to run the wizard, and several inputs can hold them
+ * back — a run already in flight, loaders still settling, a wizard verdict that hasn't landed. None
+ * of that left a trace, so a drop in wizard runs was indistinguishable from a drop in intent: the
+ * inbox pageview fires either way. `reason` separates "we chose not to ask" from "nobody wanted it".
+ */
+export function captureInboxOnboardingDecided(params: {
+    mode: 'takeover' | 'banner' | 'none' | 'pending'
+    reason: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.ONBOARDING_DECIDED, {
+        mode: params.mode,
+        suppression_reason: params.reason,
     })
 }
 

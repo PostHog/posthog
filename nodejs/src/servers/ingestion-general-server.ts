@@ -3,6 +3,7 @@ import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_AI,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
@@ -219,6 +220,8 @@ export class IngestionGeneralServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -374,15 +377,20 @@ export class IngestionGeneralServer implements NodeServer {
                 topic: 'heatmaps_ingestion',
                 groupId: 'heatmaps_ingestion',
             })
+
+            // Capture routes $ai_* events to the dedicated AI topic on every
+            // deployment shape, so combined mode needs the AI consumer too.
+            startAi({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_AI,
+                groupId: 'clickhouse-ingestion-ai',
+            })
         } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
             startClientWarnings()
         } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
             startHeatmaps()
         } else if (this.config.INGESTION_PIPELINE === 'ai') {
-            // Dedicated AI pipeline deployment. Not started in combined mode: the
-            // combined analytics consumers already process AI events on the shared
-            // topic, so running this in parallel there would double-process them.
-            // Switchover to this pipeline is driven by capture-side routing.
+            // Dedicated AI pipeline deployment, consuming the topic capture's
+            // AI routing produces to (config-provided in production).
             startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic

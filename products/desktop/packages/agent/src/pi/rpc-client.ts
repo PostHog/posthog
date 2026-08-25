@@ -4,7 +4,7 @@ import type { Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 import {
-  type AgentSessionEvent,
+  type JsonAgentSessionEvent,
   RpcClient,
   type RpcClientOptions,
   type RpcEventListener,
@@ -16,6 +16,7 @@ import type {
   McpToolPermissionRequest,
   McpToolPolicy,
 } from "@posthog/shared";
+import type { PiEnrichmentConfig } from "./enrichment-extension";
 import { safePiEnvironment } from "./rpc-environment";
 import type {
   PiExtensionEvent,
@@ -23,7 +24,11 @@ import type {
   RpcExtensionUIResponse,
 } from "./types";
 
-export type PiRpcEvent = AgentSessionEvent | PiExtensionEvent;
+export type PiRpcEvent = JsonAgentSessionEvent | PiExtensionEvent;
+export type PiRuntimeExtension =
+  | "repository-tools"
+  | "auto-publish"
+  | "context-wiki";
 
 type PiRpcEventListener = (event: PiRpcEvent) => void;
 
@@ -45,14 +50,18 @@ export interface PiRpcProviderOptions {
   region?: "us" | "eu" | "dev";
   apiKey: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
 }
 
-interface PiRpcBootstrap {
+export interface PiRpcBootstrap {
   providerOptions: PiRpcProviderOptions;
+  enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
-  channelMode?: boolean;
+  extensions?: PiRuntimeExtension[];
+  /** Local checkout of the org's context wiki, when one is mounted. */
+  contextWikiPath?: string;
 }
 
 type RpcClientProcessAccess = {
@@ -80,6 +89,10 @@ export interface PiStdioMcpServer {
   args?: string[];
   env?: Array<{ name: string; value: string }>;
 }
+
+// Signed git may use three 30-second GitHub attempts before reporting task activity.
+// The client deadline must not report failure while the MCP child continues the push.
+const LOCAL_STDIO_MCP_REQUEST_TIMEOUT_MS = 5 * 60_000;
 
 export function createRuntimeMcpServers(
   servers: McpServerConnection[],
@@ -118,6 +131,7 @@ export function createRuntimeMcpStdioServers(
         ),
         transport: "stdio" as const,
         lifecycle: "eager" as const,
+        requestTimeoutMs: LOCAL_STDIO_MCP_REQUEST_TIMEOUT_MS,
         directTools: true,
       },
     ]),
@@ -425,20 +439,24 @@ export type PiRpcClientOptions = Pick<
 > & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
+  enrichment?: PiEnrichmentConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   projectTrusted?: boolean;
-  channelMode?: boolean;
+  extensions?: PiRuntimeExtension[];
+  contextWikiPath?: string;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
   const {
     sessionFile,
     providerOptions,
+    enrichment,
     runtimeMcpServers,
     mcpToolPolicies,
     projectTrusted,
-    channelMode,
+    extensions,
+    contextWikiPath,
     ...rpcOptions
   } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
@@ -454,10 +472,12 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     },
     {
       providerOptions,
+      enrichment,
       runtimeMcpServers,
       mcpToolPolicies,
       projectTrusted: projectTrusted ?? false,
-      channelMode: channelMode === true,
+      extensions,
+      contextWikiPath,
     } satisfies PiRpcBootstrap,
   );
 }

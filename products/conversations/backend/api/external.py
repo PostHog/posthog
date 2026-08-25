@@ -48,12 +48,12 @@ class _ExternalTicketThrottle(SimpleRateThrottle):
 
 class ExternalTicketBurstThrottle(_ExternalTicketThrottle):
     scope = "external_ticket_burst"
-    rate = "60/minute"
+    rate = "120/minute"
 
 
 class ExternalTicketSustainedThrottle(_ExternalTicketThrottle):
     scope = "external_ticket_sustained"
-    rate = "600/hour"
+    rate = "1200/hour"
 
 
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:

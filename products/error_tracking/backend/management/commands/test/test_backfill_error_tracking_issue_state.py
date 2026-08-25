@@ -24,7 +24,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
     def _get_rows(self, team_id: int) -> list[dict]:
         rows = sync_execute(
             """
-            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id, is_deleted, first_seen, version
+            SELECT fingerprint, issue_id, issue_name, issue_status, issue_severity, assigned_user_id, assigned_role_id, is_deleted, first_seen, version
             FROM error_tracking_fingerprint_issue_state
             WHERE team_id = %(team_id)s
             ORDER BY fingerprint
@@ -37,11 +37,12 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
                 "issue_id": str(r[1]),
                 "issue_name": r[2],
                 "issue_status": r[3],
-                "assigned_user_id": r[4],
-                "assigned_role_id": r[5],
-                "is_deleted": r[6],
-                "first_seen": r[7],
-                "version": r[8],
+                "issue_severity": r[4],
+                "assigned_user_id": r[5],
+                "assigned_role_id": r[6],
+                "is_deleted": r[7],
+                "first_seen": r[8],
+                "version": r[9],
             }
             for r in rows
         ]
@@ -57,7 +58,12 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         )
 
     def test_backfill_creates_rows_in_clickhouse(self):
-        issue = ErrorTrackingIssue.objects.create(team=self.team, name="TestError", status="active")
+        issue = ErrorTrackingIssue.objects.create(
+            team=self.team,
+            name="TestError",
+            status="active",
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_one")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_two")
 
@@ -71,6 +77,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["issue_id"], str(issue.id))
         self.assertEqual(rows[0]["issue_name"], "TestError")
         self.assertEqual(rows[0]["issue_status"], "active")
+        self.assertEqual(rows[0]["issue_severity"], "high")
         self.assertEqual(rows[1]["fingerprint"], "fp_two")
 
     def test_backfill_includes_user_assignment(self):
@@ -85,7 +92,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["assigned_user_id"], self.user.pk)
 
     def test_backfill_includes_role_assignment(self):
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="AssignedError", status="active")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_assigned")

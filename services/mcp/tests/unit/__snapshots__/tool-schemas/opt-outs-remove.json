@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "category_key": {
+            "description": "Optional message category key. If omitted, the recipient is opted back in to all marketing messages.",
+            "type": "string"
+        },
+        "identifier": {
+            "description": "The recipient identifier to opt back in (e.g. email address).",
+            "maxLength": 512,
+            "type": "string"
+        }
+    },
+    "required": ["identifier"],
+    "type": "object"
+}

@@ -14,7 +14,6 @@ from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
-from ee.api.session_summaries import SessionGroupSummaryViewSet, SingleSessionSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -475,20 +474,6 @@ legacy_project_session_recordings_router.register(
     sharing.SharingConfigurationViewSet,
     "project_recording_sharing",
     ["team_id", "recording_id"],
-)
-
-projects_router.register(
-    r"session_group_summaries",
-    SessionGroupSummaryViewSet,
-    "project_session_group_summaries",
-    ["project_id"],
-)
-
-projects_router.register(
-    r"single_session_summaries",
-    SingleSessionSummaryViewSet,
-    "project_single_session_summaries",
-    ["project_id"],
 )
 
 projects_router.register(

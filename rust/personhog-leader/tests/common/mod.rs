@@ -100,7 +100,11 @@ pub fn start_coordinator(
             name: "coordinator-0".to_string(),
             leader_lease_ttl: 10,
             keepalive_interval: Duration::from_secs(3),
-            election_retry_interval: Duration::from_secs(1),
+            // Short enough that a failover never waits on the leader-key
+            // watch alone.
+            standby_poll_interval: Duration::from_millis(500),
+            run_retry_backoff: Duration::from_millis(10),
+            backoff_decay_window: Duration::from_secs(300),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
             // Effectively disabled: these tests park handoffs to assert
@@ -113,7 +117,10 @@ pub fn start_coordinator(
         None,
     );
     let token = cancel.child_token();
-    tokio::spawn(async move { coordinator.run(token).await })
+    tokio::spawn(async move {
+        coordinator.run(token).await;
+        Ok(())
+    })
 }
 
 // ── Router (for ack quorum) ─────────────────────────────────
@@ -363,6 +370,9 @@ pub async fn start_leader_pod(
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
         warming,
+        Arc::new(dashmap::DashMap::new()),
+        None,
+        NUM_PARTITIONS,
         pools,
         None,
         None,
@@ -398,6 +408,7 @@ pub async fn start_leader_pod(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(dashmap::DashMap::new()),
         None,
         // A live claim rather than none, so the lease gate on the read
         // and write paths is exercised by every test built on this
@@ -459,6 +470,9 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
         warming,
+        Arc::new(dashmap::DashMap::new()),
+        None,
+        NUM_PARTITIONS,
         pools,
         None,
         None,
@@ -495,6 +509,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(dashmap::DashMap::new()),
         None,
         None,
         std::sync::Arc::clone(&emitted_versions),
@@ -530,6 +545,19 @@ pub async fn create_leader_client(addr: SocketAddr) -> PersonHogLeaderClient<Cha
     PersonHogLeaderClient::connect(url).await.unwrap()
 }
 
+/// A team id no other test shares, however the tests are scheduled.
+/// Random rather than counter- or clock-derived: nextest runs each test
+/// in its own process, so any per-process counter or seconds-based salt
+/// hands the same id to tests launched in the same second. Tests that
+/// write shared Postgres state (lifecycle marks, person rows) key it by
+/// team, so a unique team makes them collision-free and self-contained
+/// with no cleanup ordering to get right. Stays inside the team_id
+/// column's integer range.
+#[allow(dead_code)]
+pub fn unique_team_id() -> i64 {
+    (uuid::Uuid::new_v4().as_u128() % 900_000_000 + 100_000_000) as i64
+}
+
 pub fn seed_person(cache: &PartitionedCache, partition: u32, person: CachedPerson) {
     let key = PersonCacheKey {
         team_id: person.team_id,
@@ -543,10 +571,12 @@ pub fn test_cached_person() -> CachedPerson {
         id: 42,
         uuid: "00000000-0000-0000-0000-000000000042".to_string(),
         team_id: 1,
-        properties: serde_json::json!({"email": "test@example.com"}),
+        properties: serde_json::to_vec(&serde_json::json!({"email": "test@example.com"})).unwrap(),
         created_at: 1700000000,
         version: 1,
         is_identified: false,
+        is_deleted: false,
+        last_seen_at: None,
         approx_bytes: approx_person_bytes(64),
     }
 }
@@ -586,6 +616,7 @@ pub async fn start_leader_with_pg_fallback(
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Arc::new(dashmap::DashMap::new()),
         None,
         None,
         std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
@@ -632,6 +663,7 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
             commit_timeout: Duration::from_secs(10),
             broker_txn_timeout: BROKER_TXN_TIMEOUT,
             window: Duration::from_millis(5),
+            window_max_writes: 32,
             settle_budget: Duration::from_secs(5),
         },
     )
@@ -709,6 +741,9 @@ fn handoff_handler_with(
         inflight,
         Arc::new(DirtyIndex::new(1_000_000)),
         warming,
+        Arc::new(dashmap::DashMap::new()),
+        None,
+        NUM_PARTITIONS,
         Arc::new(personhog_leader::warming::WarmClientPools::new(
             &test_kafka_config(),
             "test",

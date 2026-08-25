@@ -1,3 +1,4 @@
+import { classifyAuthMethod, type McpAuthMethod } from '@/lib/auth-method'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
 
@@ -24,6 +25,7 @@ export interface MCPRequestContext
             | 'region'
         > {
     mode?: McpMode | undefined
+    authMethod: McpAuthMethod
 }
 
 // Identical shape to MCPClientContext but tracked separately to mark values
@@ -49,6 +51,7 @@ export function buildMCPRequestContext(props: RequestProperties): MCPRequestCont
         mode: props.mode,
         region: props.region,
         mcpVendorClient: props.mcpVendorClient,
+        authMethod: classifyAuthMethod(props.apiToken),
     }
 }
 
