@@ -197,6 +197,18 @@ PostgresErrors = {
         "increase pool_size, or switch it to transaction mode) or reduce the number of concurrent "
         "connections to your database, then try again."
     ),
+    # Supabase/Supavisor trips its circuit breaker after repeated bad credentials and refuses new
+    # connections with "FATAL: (ECIRCUITBREAKER) too many authentication failures, new connections
+    # are temporarily blocked". The block stays until the failing attempts stop, so map it to an
+    # actionable message instead of the generic connect fallback (and its captured error noise).
+    # `get_non_retryable_errors` handles it on the streaming path too. Match the auth-failures
+    # wording, distinct from the transient credential-fetch variant postgres.py keeps retrying.
+    "too many authentication failures": (
+        "Your database connection pooler is temporarily blocking new connections after too many "
+        'failed sign-in attempts ("too many authentication failures"). This usually means the '
+        "username or password is wrong. Check your credentials, wait for the block to clear, then "
+        "try again."
+    ),
 }
 
 
@@ -390,6 +402,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "wrong. Some connection poolers (for example Supabase's transaction pooler) also "
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
+            ),
+            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials and refuses
+            # new connections with "FATAL: (ECIRCUITBREAKER) too many authentication failures, new
+            # connections are temporarily blocked". The block only clears once the failing attempts
+            # stop, so it's deterministic until the customer fixes the credentials — retrying just
+            # re-hits the block. Distinct from the transient credential-fetch variant of the same
+            # code, which postgres.py keeps retrying (see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`).
+            "too many authentication failures": (
+                "Your database connection pooler is blocking new connections after too many failed "
+                'sign-in attempts ("too many authentication failures"). This usually means the '
+                "username or password is wrong. Check your credentials, wait for the block to clear, "
+                "then re-enable the sync."
             ),
             # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
             # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's

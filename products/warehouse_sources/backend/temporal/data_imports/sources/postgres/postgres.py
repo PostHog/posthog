@@ -256,8 +256,11 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
     # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
     # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
-    # stable code, distinct from genuine credential-rejection wordings.
-    "(ecircuitbreaker)",
+    # credential-fetch reason, NOT the bare "(ecircuitbreaker)" code: the same code also carries
+    # "(ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked",
+    # a breaker tripped by repeated bad credentials that stays blocked until those attempts stop —
+    # deterministic, not transient, so `get_non_retryable_errors` handles that wording instead.
+    "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
