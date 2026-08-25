@@ -59,9 +59,19 @@ export class PersonsManagerService {
     public async getCyclotronPerson(
         teamId: number,
         id: string,
-        kind: 'distinct_id' | 'person_id'
+        kind: 'distinct_id' | 'person_id',
+        options?: { forceFresh?: boolean }
     ): Promise<CyclotronPerson | null> {
         const key = toKey({ teamId, id })
+
+        if (options?.forceFresh) {
+            // Callers that would otherwise act on a stale read in a way nothing can correct later.
+            if (kind === 'distinct_id') {
+                this.lazyLoaderByDistinctId.markForRefresh(key)
+            } else {
+                this.lazyLoaderByPersonId.markForRefresh(key)
+            }
+        }
 
         const [team, dbPerson] = await Promise.all([
             this.teamManager.getTeam(teamId),
