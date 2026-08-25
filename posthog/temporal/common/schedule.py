@@ -124,6 +124,12 @@ async def describe_schedule(temporal: Client, schedule_id: str):
     return await handle.describe()
 
 
+async def a_describe_schedule(temporal: Client, schedule_id: str):
+    """Async describe a Temporal Schedule."""
+    handle = temporal.get_schedule_handle(schedule_id)
+    return await handle.describe()
+
+
 @async_to_sync
 async def pause_schedule(temporal: Client, schedule_id: str, note: str | None = None) -> None:
     """Pause a Temporal Schedule."""
