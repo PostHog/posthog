@@ -1042,9 +1042,11 @@ def get_cache_stats() -> dict[str, Any]:
 # Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
 # _route_to_kafka, get_team_primary_flags_writer (and its config binding on
 # FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), SHADOW_COMPARE_FLAG, _publish_shadow,
-# _produce_invalidation, _enqueue_invalidation, and both the Kafka and shadow
-# branches inside it.
-# The signal handlers themselves stay; their tails simplify at cutover.
+# publish_shadow_invalidation, _produce_invalidation, _enqueue_invalidation,
+# and the Kafka branch inside it.
+# The signal handlers themselves stay; their tails simplify at cutover. The one
+# call site outside this block is the tail of update_team_service_flags_cache in
+# tasks.py, which goes with it.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
 # _enqueue_invalidation for why the two paths are mutually exclusive. The key
@@ -1180,6 +1182,32 @@ def _publish_shadow(team_id: int) -> bool:
         return False
 
 
+def publish_shadow_invalidation(team_id: int) -> None:
+    """Publish a parity-telemetry message for a team the Celery builder just rebuilt.
+
+    Called from the tail of `update_team_service_flags_cache` rather than from
+    `_enqueue_invalidation`, so the Rust builder diffs its build against a cache
+    entry Python has already written. Publishing at invalidation time races that
+    rebuild: the builder reads fresh Postgres against a pre-rebuild Redis entry
+    and reports the gap as drift. The consumer suppresses a one-off mismatch by
+    content hash, but two invalidations that both land inside one stale window
+    hash the same, which promotes pure Celery lag to a confirmed parity defect.
+
+    The Kafka-routing gate still applies, because this task also serves teams
+    Rust owns: cohort invalidation dispatches it for every team (see
+    `cohort_changed_flags_cache`), and a shadow build for a Rust-owned team would
+    diff the Rust output against itself.
+
+    Both steps swallow their own failures, so a shadow publish cannot fail the
+    build that precedes it.
+    """
+    if _route_to_kafka(team_id):
+        return
+
+    if _publish_shadow(team_id):
+        _produce_invalidation(team_id, shadow=True)
+
+
 def _produce_invalidation(team_id: int, shadow: bool = False) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
@@ -1232,12 +1260,9 @@ def _enqueue_invalidation(team_id: int) -> None:
     TTL. Celery's `.delay()` may raise when the flag is off, since it is the
     sole path then and operators want broker failures loud.
 
-    Shadow publishing is the one addition that is not exclusive. A Celery-owned
-    team also gets a `shadow: true` message when `_publish_shadow` passes. Celery
-    is dispatched first and its failure still propagates, so a shadow publish
-    never comes between a flag edit and its rebuild. Kafka-routed teams are
-    already built by Rust for real, so they skip the branch and no team
-    publishes twice.
+    Shadow parity messages are not produced here. They are produced after the
+    Celery build writes the cache, in `publish_shadow_invalidation`, which
+    explains why.
 
     Guarded on FLAGS_REDIS_URL here rather than at each call site so every
     caller gets the same no-op-when-unconfigured behavior.
@@ -1251,8 +1276,6 @@ def _enqueue_invalidation(team_id: int) -> None:
         _produce_invalidation(team_id)
     else:
         update_team_service_flags_cache.delay(team_id)
-        if _publish_shadow(team_id):
-            _produce_invalidation(team_id, shadow=True)
 
 
 def enqueue_evaluation_cache_invalidation(team_id: int) -> None:
