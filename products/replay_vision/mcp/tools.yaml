@@ -636,6 +636,9 @@ tools:
     vision-scanners-prompt-suggestions-list:
         operation: vision_scanners_prompt_suggestions_list
         enabled: false
+    vision-scanners-resolve-create:
+        operation: vision_scanners_resolve_create
+        enabled: false
     vision-scanners-scan-session:
         operation: vision_scanners_observe_create
         enabled: true
