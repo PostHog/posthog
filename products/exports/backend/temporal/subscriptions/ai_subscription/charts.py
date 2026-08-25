@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 
 AI_REPORT_CHARTS_FEATURE_FLAG_KEY = "ai-report-charts"
 
-_MAX_CONCURRENT_RENDERS = 3
+_MAX_CONCURRENT_RENDERS = 5
 _RENDER_EXECUTOR = ThreadPoolExecutor(max_workers=_MAX_CONCURRENT_RENDERS, thread_name_prefix="ai-report-chart")
 _RENDER_TIMEOUT_SECONDS = RENDER_TIMEOUT.total_seconds() + 10
 _CHART_PHASE_BUDGET_SECONDS = 210.0
