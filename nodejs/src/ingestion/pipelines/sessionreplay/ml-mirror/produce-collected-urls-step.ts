@@ -6,6 +6,7 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { CollectedUrl } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
@@ -24,6 +25,7 @@ const DEFAULT_PRODUCED_REF_CACHE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000
 const MAX_RECORD_BYTES = 512 * 1024
 const TOP_REGISTRABLE_DOMAINS = 10
 const MAX_TRACKED_REGISTRABLE_DOMAINS = 1_000
+const CRAWL_HISTORY_WARNING_INTERVAL_MS = 60_000
 
 /**
  * The URL count one record may carry. Without it the collector's cap in another crate decides the
@@ -55,6 +57,17 @@ export interface CollectedUrlsMessage {
     jobs: FrontierJob[]
 }
 
+export interface ProduceCollectedUrlsOptions {
+    producedRefCacheMax?: number
+    producedRefCacheWindowMs?: number
+    crawlHistory?: Pick<CrawlHistoryStore, 'read'>
+}
+
+interface CachedCollectedUrl {
+    entry: CollectedUrl
+    cacheKey: string
+}
+
 function producedUrlCacheKey(entry: CollectedUrl, timeBucket: number): string {
     return createHash('sha256')
         .update(entry.ref)
@@ -63,6 +76,42 @@ function producedUrlCacheKey(entry: CollectedUrl, timeBucket: number): string {
         .update('\0')
         .update(String(timeBucket))
         .digest('base64url')
+}
+
+async function excludeFreshCrawlHistory(
+    candidates: CachedCollectedUrl[],
+    crawlHistory: Pick<CrawlHistoryStore, 'read'> | undefined,
+    nowMs: number,
+    onError: (error: unknown, count: number) => void
+): Promise<CachedCollectedUrl[]> {
+    if (!crawlHistory) {
+        return candidates
+    }
+
+    const startedAt = performance.now()
+    try {
+        const refs = [...new Set(candidates.map(({ entry }) => entry.ref))]
+        const stored = await crawlHistory.read(refs)
+        const publishable = candidates.filter(({ entry }) => {
+            const history = stored.get(entry.ref)
+            return history?.kind !== 'url' || history.nextFetchAtMs <= nowMs
+        })
+        SessionRecordingIngesterMetrics.incrementMlUrlCrawlHistory('fresh', candidates.length - publishable.length)
+        SessionRecordingIngesterMetrics.incrementMlUrlCrawlHistory('miss', publishable.length)
+        SessionRecordingIngesterMetrics.observeMlUrlCrawlHistoryDuration(
+            'success',
+            (performance.now() - startedAt) / 1000
+        )
+        return publishable
+    } catch (error) {
+        SessionRecordingIngesterMetrics.incrementMlUrlCrawlHistory('error', candidates.length)
+        SessionRecordingIngesterMetrics.observeMlUrlCrawlHistoryDuration(
+            'error',
+            (performance.now() - startedAt) / 1000
+        )
+        onError(error, candidates.length)
+        return candidates
+    }
 }
 
 /**
@@ -96,9 +145,13 @@ export function createProduceCollectedUrlsStep<
 >(
     outputs: IngestionOutputs<MlImageFetchOutput>,
     topHog: TopHogRegistry,
-    producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX,
-    producedRefCacheWindowMs: number = DEFAULT_PRODUCED_REF_CACHE_WINDOW_MS
+    options: ProduceCollectedUrlsOptions = {}
 ): ProcessingStep<T, T> {
+    const {
+        producedRefCacheMax = PRODUCED_REF_CACHE_MAX,
+        producedRefCacheWindowMs = DEFAULT_PRODUCED_REF_CACHE_WINDOW_MS,
+        crawlHistory,
+    } = options
     if (!Number.isSafeInteger(producedRefCacheWindowMs) || producedRefCacheWindowMs <= 0) {
         throw new Error(`produced URL cache window must be a positive safe integer, got ${producedRefCacheWindowMs}`)
     }
@@ -108,20 +161,22 @@ export function createProduceCollectedUrlsStep<
         maxKeys: MAX_TRACKED_REGISTRABLE_DOMAINS,
     })
     const producedUrlsTotal = topHog.registerSum('ml_image_fetch_produced_urls_total', { topN: 1, maxKeys: 1 })
+    let nextCrawlHistoryWarningAtMs = 0
 
-    return function produceCollectedUrlsStep(input) {
+    return async function produceCollectedUrlsStep(input) {
         const collected = input.collectedUrls
         if (!collected?.length) {
-            return Promise.resolve(ok(input))
+            return ok(input)
         }
 
-        const timeBucket = Math.floor(Date.now() / producedRefCacheWindowMs)
+        const nowMs = Date.now()
+        const timeBucket = Math.floor(nowMs / producedRefCacheWindowMs)
         const fresh = collected
             .map((entry) => ({ entry, cacheKey: producedUrlCacheKey(entry, timeBucket) }))
             .filter(({ cacheKey }) => !producedTransportUrls.has(cacheKey))
         SessionRecordingIngesterMetrics.incrementMlUrlsCollected('deduped', collected.length - fresh.length)
         if (fresh.length === 0) {
-            return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
+            return ok({ ...input, collectedUrls: undefined })
         }
 
         // Each entry is checked, not just the first. A `bytes` ref names an image the page
@@ -156,14 +211,27 @@ export function createProduceCollectedUrlsStep<
             logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: unusable })
         }
         if (!pseudoTeam || usable.length === 0) {
-            return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
+            return ok({ ...input, collectedUrls: undefined })
+        }
+
+        for (const { cacheKey } of usable) {
+            producedTransportUrls.add(cacheKey)
+        }
+        const publishable = await excludeFreshCrawlHistory(usable, crawlHistory, nowMs, (error, count) => {
+            if (nowMs < nextCrawlHistoryWarningAtMs) {
+                return
+            }
+            nextCrawlHistoryWarningAtMs = nowMs + CRAWL_HISTORY_WARNING_INTERVAL_MS
+            logger.warn('🌐', 'ml_image_fetch_crawl_history_precheck_failed', { count, error: String(error) })
+        })
+        if (publishable.length === 0) {
+            return ok({ ...input, collectedUrls: undefined })
         }
 
         const messageTimestamp = input.message.timestamp
-        const firstSeenAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : Date.now()
+        const firstSeenAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : nowMs
         const byDomain = new Map<string, FrontierJob[]>()
-        for (const { entry, cacheKey } of usable) {
-            producedTransportUrls.add(cacheKey)
+        for (const { entry } of publishable) {
             const group = byDomain.get(entry.domain)
             const record: FrontierJob = {
                 originalRef: entry.ref,
@@ -182,7 +250,7 @@ export function createProduceCollectedUrlsStep<
                 byDomain.set(entry.domain, [record])
             }
         }
-        SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', usable.length)
+        SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', publishable.length)
 
         const messages = [...byDomain].flatMap(([domain, jobs]) =>
             packByBytes(jobs, MAX_RECORD_BYTES).map((slice) => {
@@ -199,7 +267,7 @@ export function createProduceCollectedUrlsStep<
 
         // The failure handler captures only the cache keys, so that a produce which is not yet
         // delivered does not hold the URL strings alive longer than the messages themselves.
-        const producedCacheKeys = usable.map(({ cacheKey }) => cacheKey)
+        const producedCacheKeys = publishable.map(({ cacheKey }) => cacheKey)
         const produce = outputs
             .queueMessages(ML_IMAGE_FETCH_OUTPUT, messages)
             .then(() => {
@@ -225,7 +293,7 @@ export function createProduceCollectedUrlsStep<
                 })
                 SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produce_failed', producedCacheKeys.length)
             })
-        return Promise.resolve(ok({ ...input, collectedUrls: undefined }, [produce]))
+        return ok({ ...input, collectedUrls: undefined }, [produce])
     }
 }
 
