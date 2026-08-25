@@ -643,6 +643,7 @@ class EndpointViewSet(
                 )
             )
             .annotate(endpoint_versions_count=Count("endpoint__versions", distinct=True))
+            .order_by("-version")
         )
         page = self.paginate_queryset(versions_qs)
         if page is not None:
