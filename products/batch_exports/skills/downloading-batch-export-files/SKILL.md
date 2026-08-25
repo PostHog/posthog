@@ -2,8 +2,8 @@
 name: downloading-batch-export-files
 description: >
   Export PostHog events, persons, sessions, or the results of a HogQL query on demand and download the resulting
-  files. Use when the user asks to download/export raw PostHog data, export the results of a HogQL or SQL query,
-  create a one-off file export, fetch a Parquet or JSONLines export, or use the file_download_batch_exports API.
+  files. Use when the user asks to download/export raw PostHog data, export HogQL query results, create a one-off
+  file export, fetch a Parquet or JSONLines export, or use the file_download_batch_exports API.
   Covers starting the export with MCP, polling completion, and downloading via the existing REST redirect endpoint.
 ---
 
