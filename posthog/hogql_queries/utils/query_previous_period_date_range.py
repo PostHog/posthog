@@ -76,7 +76,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
 
         previous_period_date_from, previous_period_date_to = get_compare_period_dates(
             current_period_date_from,
-            current_period_date_to,
+            self.nominal_comparison_date_to(current_period_date_to),
             self.date_from_delta_mappings(),
             self.date_to_delta_mappings(),
             self.interval_name,
