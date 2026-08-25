@@ -16,6 +16,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
+    _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
     await_agent_server_ready,
@@ -164,6 +165,7 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
 async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
     context = _context()
     sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value.stdout = ""
     sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
@@ -495,6 +497,74 @@ def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
 
     assert _launch_agent_shadow(_context(), sandbox) is False
     sandbox.execute.assert_not_called()
+
+
+def test_agent_shadow_result_is_allowlisted(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout=(
+            'run-id\n{"contractVersion":1,"bootId":"run-id","outcome":"ready",'
+            '"observedReadyMs":120,"productionReadyMs":100,"secret":"ignored"}\n'
+        ),
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {
+        "launched": True,
+        "outcome": "ready",
+        "observed_ready_ms": 120,
+        "production_ready_ms": 100,
+    }
+    command = sandbox.execute.call_args.args[0]
+    assert "head -c 128" in command
+    assert "tail -c 65536" in command
+    assert "[a]gent-shadow --boot-id run-id" in command
+
+
+def test_agent_shadow_result_rejects_another_boot(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout='run-id\n{"contractVersion":1,"bootId":"other-run","outcome":"ready"}\n',
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True}
+
+
+def test_agent_shadow_result_reports_read_timeout(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout="run-id\ntimed_out\n",
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True, "timed_out": True}
+
+
+@pytest.mark.parametrize("payload", ["null", "true", "1", "[]", '"value"'])
+def test_agent_shadow_result_ignores_non_object_json(mocker, payload) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout=f"run-id\n{payload}\n",
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {"launched": True}
+
+
+def test_agent_shadow_result_rejects_stale_launch_marker(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.return_value = ExecutionResult(
+        stdout='other-run\n{"contractVersion":1,"bootId":"run-id","outcome":"ready"}\n',
+        stderr="",
+        exit_code=0,
+    )
+
+    assert _read_agent_shadow_result(sandbox, "run-id") == {}
 
 
 @pytest.mark.django_db

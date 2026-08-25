@@ -1,3 +1,4 @@
+import json
 import shlex
 import threading
 from dataclasses import dataclass, field
@@ -181,11 +182,13 @@ def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bo
         return False
     process = f"[a]gent-shadow --boot-id {ctx.run_id}"
     command = (
-        f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then exit 0; "
+        f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then "
+        f"printf %s {shlex.quote(ctx.run_id)} > /tmp/agent-shadow-launched; "
         f"elif test -x /usr/local/bin/agent-shadow; then nohup /usr/bin/env -i /usr/local/bin/agent-shadow "
         f"--boot-id {shlex.quote(ctx.run_id)} --health-url {shlex.quote(sandbox.agent_server_health_url())} "
         "--timeout 6m "
-        "> /tmp/agent-shadow.json 2> /tmp/agent-shadow.log < /dev/null & else exit 1; fi"
+        "> /tmp/agent-shadow.json 2> /tmp/agent-shadow.log < /dev/null & "
+        f"printf %s {shlex.quote(ctx.run_id)} > /tmp/agent-shadow-launched; else exit 1; fi"
     )
     try:
         result = sandbox.execute(command, timeout_seconds=10)
@@ -201,6 +204,58 @@ def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bo
         )
         return False
     return True
+
+
+def _read_agent_shadow_result(sandbox: SandboxBase, run_id: str) -> dict[str, str | int | bool]:
+    process = f"[a]gent-shadow --boot-id {run_id}"
+    quoted_run_id = shlex.quote(run_id)
+    try:
+        result = sandbox.execute(
+            "marker=$(head -c 128 /tmp/agent-shadow-launched 2>/dev/null || true); "
+            "printf '%s\\n' \"$marker\"; "
+            f'if test "$marker" = {quoted_run_id}; then '
+            f'i=0; while pgrep -f -- {shlex.quote(process)} >/dev/null && test "$i" -lt 20; do '
+            "sleep 0.1; i=$((i + 1)); done; "
+            f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then printf 'timed_out\\n'; fi; "
+            "tail -c 65536 /tmp/agent-shadow.json 2>/dev/null || true; fi",
+            timeout_seconds=5,
+        )
+    except Exception:
+        logger.exception("agent_shadow_result_read_failed", run_id=run_id, sandbox_id=sandbox.id)
+        return {}
+    lines = result.stdout.splitlines()
+    if not lines or lines[0] != run_id:
+        return {}
+    observation: dict[str, str | int | bool] = {"launched": True}
+    if len(lines) == 1:
+        return observation
+    if lines[1] == "timed_out":
+        observation["timed_out"] = True
+        if len(lines) == 2:
+            return observation
+    try:
+        payload = json.loads(lines[-1])
+    except (TypeError, json.JSONDecodeError):
+        return observation
+    if not isinstance(payload, dict):
+        return observation
+    if payload.get("contractVersion") != 1 or payload.get("bootId") != run_id:
+        return observation
+    outcome = payload.get("outcome")
+    if outcome not in {"ready", "failed"}:
+        return observation
+    observation["outcome"] = outcome
+    for source, target in (
+        ("observedReadyMs", "observed_ready_ms"),
+        ("productionReadyMs", "production_ready_ms"),
+    ):
+        value = payload.get(source)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            observation[target] = value
+    failure_class = payload.get("failureClass")
+    if failure_class in {"timeout", "boot_id_mismatch", "unsupported_contract"}:
+        observation["failure_class"] = failure_class
+    return observation
 
 
 @dataclass
@@ -240,6 +295,7 @@ class StartAgentServerOutput:
     session_init_ms: int | None = None
     boot_phases_ms: dict[str, int] = field(default_factory=dict)
     boot_total_ms: int | None = None
+    shadow_observation: dict[str, str | int | bool] = field(default_factory=dict)
 
 
 @frozen
@@ -574,6 +630,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             )
 
         boot_total_ms = _record_boot_total(input)
+        shadow_observation = _read_agent_shadow_result(sandbox, ctx.run_id)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
 
@@ -584,6 +641,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
             boot_total_ms=boot_total_ms,
+            shadow_observation=shadow_observation,
         )
 
 
@@ -707,6 +765,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             )
 
         boot_total_ms = _record_boot_total(input)
+        shadow_observation = _read_agent_shadow_result(sandbox, ctx.run_id)
 
         _spawn_post_ready_diagnostics(ctx, sandbox, agentsh_domains)
 
@@ -717,4 +776,5 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             session_init_ms=session_init_ms,
             boot_phases_ms=boot_phases_ms,
             boot_total_ms=boot_total_ms,
+            shadow_observation=shadow_observation,
         )
