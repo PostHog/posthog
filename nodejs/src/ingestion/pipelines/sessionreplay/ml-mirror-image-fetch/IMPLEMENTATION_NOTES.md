@@ -32,9 +32,9 @@ Each registrable domain has an optional token bucket, an active-request limit, a
 
 A registrable domain remains in memory while it is active, blocked, or has a pending request grant. An origin remains in memory while it has an active or scheduled request, a reserved image-request start, or an unelapsed crawl delay. A full map defers untracked work without network access.
 
-The fetch pass deduplicates jobs by global canonical ref. It groups the remaining jobs by registrable domain and origin. Two priority-queue levels select the largest available origin in logarithmic time, with stable ordering for equal counts. One origin can fill the configured active-request slots for its registrable domain. The default has 6 slots.
+The fetch pass deduplicates jobs by global canonical ref. It groups the remaining jobs by registrable domain and origin. Two indexed priority queues select work in logarithmic time. Each queue gets a capped proportional concurrency target. The scheduler selects the queue that is furthest below its target. It uses the waiting job count and insertion order as tie-breakers.
 
-When fewer than 8 origins and more than 50 waiting URL jobs have not received a diversity deferral, the pass processes 8 more jobs. It then republishes each eligible tail job to the frontier. The mode stays active for the rest of the pass. A durable optional marker limits this fast deferral to once per job. Previously deferred jobs proceed normally until the pass deadline, which guarantees progress for both a persistent dominant origin and one long run from one origin.
+The queue tracks the remaining request slots from active and waiting jobs. It applies the configured registrable-domain and pod limits. When fewer than 48 slots remain, low-diversity mode can start. More than 50 waiting URL jobs must still be eligible for a diversity deferral. The pass processes 8 more jobs. It then republishes each eligible tail job to the frontier. The mode stays active for the rest of the pass. A durable optional marker limits this fast deferral to once per job. Previously deferred jobs proceed normally until the pass deadline.
 
 The frontier consumer uses cooperative rebalancing. Its revoke path drains active work before it releases assigned partitions.
 

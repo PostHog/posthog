@@ -126,7 +126,6 @@ export class UrlFetchConsumer {
                     notReady.map((candidate) => this.republishNotReady(republishBatch, candidate, nowMs))
                 ))
             )
-            const republishResult = await republishBatch.flush()
             const updates: CrawlHistoryItem[] = []
             for (const attempt of attempts) {
                 updates.push(...attempt.configurationUpdates)
@@ -137,6 +136,7 @@ export class UrlFetchConsumer {
             if (updates.length > 0) {
                 await this.runCrawlHistoryOperation('write', updates.length, () => this.crawlHistory.write(updates))
             }
+            const republishResult = await republishBatch.flush()
             const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
             if (lost > 0) {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
