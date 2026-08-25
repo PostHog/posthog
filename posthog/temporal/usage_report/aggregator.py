@@ -41,6 +41,14 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
 )
 
+_WORKFLOW_AI_CREDITS_QUERY_NAME = "teams_with_workflow_ai_credits_used_in_period"
+_WORKFLOW_COMPUTE_QUERY_NAME = "workflow_compute_usage"
+_WORKFLOW_COMPUTE_DESTINATION_KEYS = (
+    "teams_with_workflow_compute_credits_used_in_period",
+    "teams_with_workflow_compute_cpu_millicore_seconds_in_period",
+    "teams_with_workflow_compute_memory_mib_seconds_in_period",
+)
+
 
 def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, int]]:
     """Reconstruct the legacy `all_data` map from per-query S3 files.
@@ -68,6 +76,22 @@ def add_pre_sandbox_compute_patch_defaults(
 ) -> None:
     if not any(result.query_name == _SANDBOX_COMPUTE_QUERY_NAME for result in query_results):
         for key in _SANDBOX_COMPUTE_DESTINATION_KEYS:
+            all_data[key] = {}
+
+
+def add_pre_workflow_billing_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    """Default the workflow-billing keys to empty when their gated queries are
+    absent from a pre-patch replay, mirroring the sandbox-compute defaults.
+    `_get_team_report` reads these keys by direct subscript, so a skipped query
+    would otherwise raise KeyError during aggregation.
+    """
+    ran = {result.query_name for result in query_results}
+    if _WORKFLOW_AI_CREDITS_QUERY_NAME not in ran:
+        all_data[_WORKFLOW_AI_CREDITS_QUERY_NAME] = {}
+    if _WORKFLOW_COMPUTE_QUERY_NAME not in ran:
+        for key in _WORKFLOW_COMPUTE_DESTINATION_KEYS:
             all_data[key] = {}
 
 

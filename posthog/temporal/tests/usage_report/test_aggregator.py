@@ -17,6 +17,7 @@ from unittest.mock import patch
 from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_workflow_billing_patch_defaults,
     batched,
     build_manifest,
     filter_org_reports,
@@ -168,6 +169,27 @@ def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -
     all_data: dict[str, dict[int, int]] = {}
     results = [RunQueryToS3Result(query_name="sandbox_compute_usage", s3_key="unused", duration_ms=1)]
     add_pre_sandbox_compute_patch_defaults(all_data, results)
+
+    assert all_data == {}
+
+
+def test_load_all_data_defaults_workflow_billing_for_pre_patch_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_workflow_billing_patch_defaults(all_data, [])
+
+    assert all_data["teams_with_workflow_ai_credits_used_in_period"] == {}
+    assert all_data["teams_with_workflow_compute_credits_used_in_period"] == {}
+    assert all_data["teams_with_workflow_compute_cpu_millicore_seconds_in_period"] == {}
+    assert all_data["teams_with_workflow_compute_memory_mib_seconds_in_period"] == {}
+
+
+def test_load_all_data_does_not_default_workflow_billing_for_patched_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    results = [
+        RunQueryToS3Result(query_name="teams_with_workflow_ai_credits_used_in_period", s3_key="unused", duration_ms=1),
+        RunQueryToS3Result(query_name="workflow_compute_usage", s3_key="unused", duration_ms=1),
+    ]
+    add_pre_workflow_billing_patch_defaults(all_data, results)
 
     assert all_data == {}
 

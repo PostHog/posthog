@@ -46,11 +46,26 @@ QUERY_CONCURRENCY = 4
 SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 
+# Workflow-billing queries (token credits + compute) were added to QUERIES after
+# the workflow shipped, so they are gated behind their own version patch. On
+# deploy, in-flight executions replay their recorded history against the new
+# code; a pre-patch history must skip these queries or it schedules activities
+# it never recorded and fails replay with a non-determinism error. See
+# `.claude/rules/temporal-workflow-versioning.md`.
+WORKFLOW_BILLING_QUERY_PATCH_ID = "usage-report-workflow-billing-query-2026-08"
+WORKFLOW_BILLING_QUERY_NAMES = frozenset({"teams_with_workflow_ai_credits_used_in_period", "workflow_compute_usage"})
+
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
     if patch_applied:
         return QUERIES
     return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+
+
+def _queries_for_workflow_billing_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name not in WORKFLOW_BILLING_QUERY_NAMES]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -99,6 +114,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_workflow_billing_patch(queries, workflow.patched(WORKFLOW_BILLING_QUERY_PATCH_ID))
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={

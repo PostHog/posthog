@@ -30,8 +30,10 @@ from posthog.temporal.usage_report.types import (
 )
 from posthog.temporal.usage_report.workflow import (
     SANDBOX_COMPUTE_QUERY_NAME,
+    WORKFLOW_BILLING_QUERY_NAMES,
     RunUsageReportsWorkflow,
     _queries_for_sandbox_compute_patch,
+    _queries_for_workflow_billing_patch,
     build_context,
 )
 
@@ -39,6 +41,12 @@ from posthog.temporal.usage_report.workflow import (
 def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
     assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
     assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
+
+
+@parameterized.expand([(name,) for name in sorted(WORKFLOW_BILLING_QUERY_NAMES)])
+def test_workflow_billing_query_is_versioned_for_existing_histories(name: str) -> None:
+    assert name not in [spec.name for spec in _queries_for_workflow_billing_patch(QUERIES, False)]
+    assert name in [spec.name for spec in _queries_for_workflow_billing_patch(QUERIES, True)]
 
 
 @parameterized.expand(
