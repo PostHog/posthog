@@ -101,12 +101,6 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     team = await aretry_on_db_connection_drop(
         lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
     )
-    _capture_repo_research_event(
-        "signals_repo_research_started",
-        team,
-        team.organization,
-        input.report_id,
-    )
     try:
         async with Heartbeater():
             # Check for a previous selection from an earlier run, if any
@@ -127,6 +121,15 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     result="reused",
                 )
                 return previous
+
+            # Capture below the previous-selection short circuit so an activity retry that
+            # reuses an earlier run's repository does not re-emit the start event.
+            _capture_repo_research_event(
+                "signals_repo_research_started",
+                team,
+                team.organization,
+                input.report_id,
+            )
 
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
             if user_id is None:

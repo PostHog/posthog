@@ -203,6 +203,12 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
+    captured_events: list[str] = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._capture_repo_research_event",
+        lambda event, *args, **kwargs: captured_events.append(event),
+    )
+
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
@@ -210,6 +216,8 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     assert result.repository == "posthog/posthog"
     assert "Single repository" in result.reason
+    # A fresh research job emits the start event exactly once.
+    assert captured_events.count("signals_repo_research_started") == 1
 
 
 @pytest.mark.asyncio
@@ -234,6 +242,12 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
         fake_select_repo,
     )
 
+    captured_events: list[str] = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._capture_repo_research_event",
+        lambda event, *args, **kwargs: captured_events.append(event),
+    )
+
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
@@ -241,6 +255,8 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     assert result is previous
     assert not select_repo_called
+    # A retry that reuses an earlier run's selection must not re-emit the start event.
+    assert "signals_repo_research_started" not in captured_events
 
 
 @pytest.mark.asyncio
