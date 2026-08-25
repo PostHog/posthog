@@ -106,8 +106,16 @@ Rendering and the GitHub calls are in `community_publish_services.py`.
 
 | Setting                                   | Effect                                                                              |
 | ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` | Installation of the GitHub App that opens the PRs. Empty (the default) returns 503. |
+| `COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID`   | Client id of the publisher App, and the issuer of the App JWT that mints the token. |
+| `COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY` | PEM the App JWT is signed with. Escaped newlines are restored before signing.       |
+| `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` | Installation of that App on the publish repo. Empty (the default) returns 503.      |
 | `COMMUNITY_SKILLS_GITHUB_REPO`            | Bare repo name to publish into. The owner comes from the installation's account.    |
+
+Publishing runs as its own dedicated GitHub App, installed on the publish repo alone. It does not
+fall back to the core `GITHUB_APP_*` App, which is installed across the whole PostHog org: a
+dedicated App cannot reach another repository whatever the publish path asks it for. One App serves
+every region, so the client id and the installation id hold the same value everywhere and only the
+private key is per-region. Any of the three being empty keeps publishing off.
 
 `COMMUNITY_SKILLS_GITHUB_REPO` is publish-only. The hourly catalog sync reads `registry.json` from the
 repo pinned in `community_skill_sync.py`, so pointing this setting elsewhere sends pull requests to a
@@ -128,8 +136,9 @@ The target repo is public, so a failed publish must not leave anything behind:
   that with the user is a UI concern, and it gates enabling the flag rather than shipping this code.
 
 Errors surface as `400` (invalid payload), `404` (unknown skill), `502` (GitHub refused a step), or
-`503` when the instance has no `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` configured. The 503 is the
-fail-safe that keeps publishing off until the GitHub App is installed.
+`503` when the instance has no publisher App configured. The 503 is the fail-safe that keeps
+publishing off until the GitHub App is installed. A private key that cannot sign is a 503 too: it is
+a deployment nobody can retry their way out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the
