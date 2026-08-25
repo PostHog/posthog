@@ -19,6 +19,7 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import (
@@ -1582,3 +1583,137 @@ class TestYouTubeAnalyticsIntegrationModel(BaseTest):
     def test_oauth_config_unconfigured_raises(self):
         with pytest.raises(NotImplementedError, match="YouTube Analytics app not configured"):
             OauthIntegration.oauth_config_for_kind("youtube-analytics")
+
+
+@override_settings(
+    EBAY_APP_CLIENT_ID="ebay-app-id",
+    EBAY_APP_CLIENT_SECRET="ebay-cert-id",
+    EBAY_APP_RU_NAME="PostHog-PostHog-prod-abcdef",
+)
+class TestEbayIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("ebay")
+        assert config.authorize_url == "https://auth.ebay.com/oauth2/authorize"
+        assert config.token_url == "https://api.ebay.com/identity/v1/oauth2/token"
+        assert config.token_info_url == "https://apiz.ebay.com/commerce/identity/v1/user/"
+        assert config.client_id == "ebay-app-id"
+        assert config.client_secret == "ebay-cert-id"
+        assert config.token_revoke_url == "https://api.ebay.com/identity/v1/oauth2/revoke"
+        assert config.redirect_uri_override == "PostHog-PostHog-prod-abcdef"
+        assert config.id_path == "userId"
+        assert config.scope.split() == [
+            "https://api.ebay.com/oauth/api_scope",
+            "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.finances",
+            "https://api.ebay.com/oauth/api_scope/sell.inventory.readonly",
+        ]
+
+    def test_ebay_is_an_oauth_kind(self):
+        # Not being listed makes the authorize + callback endpoints reject the kind, drops it out
+        # of the scheduled token refresh sweep, and means disconnecting never revokes the grant.
+        assert "ebay" in OauthIntegration.supported_kinds
+
+    @parameterized.expand(
+        [
+            ("no_client_id", {"EBAY_APP_CLIENT_ID": ""}),
+            ("no_client_secret", {"EBAY_APP_CLIENT_SECRET": ""}),
+            # The RuName is as load-bearing as the keyset: without it eBay rejects the flow.
+            ("no_ru_name", {"EBAY_APP_RU_NAME": ""}),
+        ]
+    )
+    def test_oauth_config_unconfigured_raises(self, _name, missing):
+        with override_settings(**missing), pytest.raises(NotImplementedError, match="eBay app not configured"):
+            OauthIntegration.oauth_config_for_kind("ebay")
+
+    def test_authorize_url_sends_the_runame_as_the_redirect_uri(self):
+        # eBay identifies the callback by RuName and rejects the raw URL.
+        url = OauthIntegration.authorize_url("ebay", token="state_token")
+        assert parse_qs(url.split("?", 1)[1])["redirect_uri"] == ["PostHog-PostHog-prod-abcdef"]
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_names_the_seller_account(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "v^1.1#at",
+            "refresh_token": "v^1.1#rt",
+            "expires_in": 7200,
+            "token_type": "User Access Token",
+        }
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {"userId": "seller-1", "username": "acme_store"}
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "ebay", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+        )
+
+        assert integration.kind == "ebay"
+        assert integration.integration_id == "seller-1"
+        assert integration.config["username"] == "acme_store"
+        assert integration.sensitive_config["access_token"] == "v^1.1#at"
+        assert integration.sensitive_config["refresh_token"] == "v^1.1#rt"
+        # Basic auth, and the RuName rather than our callback URL.
+        assert mock_post.call_args.kwargs["auth"] == HTTPBasicAuth("ebay-app-id", "ebay-cert-id")
+        assert mock_post.call_args.kwargs["data"]["redirect_uri"] == "PostHog-PostHog-prod-abcdef"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_integration_from_oauth_response_without_identity_asks_for_a_reconnect(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at", "refresh_token": "rt", "expires_in": 7200}
+        mock_get.return_value.status_code = 403
+        mock_get.return_value.json.return_value = {}
+
+        with pytest.raises(ValidationError, match="Could not read your eBay account details"):
+            OauthIntegration.integration_from_oauth_response(
+                "ebay", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+            )
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_uses_basic_auth(self, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="ebay",
+            config={"userId": "seller-1", "expires_in": 7200, "refreshed_at": int(time.time()) - 7200},
+            sensitive_config={"refresh_token": "v^1.1#rt", "access_token": "old"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "new", "expires_in": 7200}
+
+        OauthIntegration(integration).refresh_access_token()
+
+        assert mock_post.call_args.kwargs["auth"] == HTTPBasicAuth("ebay-app-id", "ebay-cert-id")
+        assert mock_post.call_args.kwargs["data"] == {"refresh_token": "v^1.1#rt", "grant_type": "refresh_token"}
+        assert integration.sensitive_config["access_token"] == "new"
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_revoke_token_revokes_the_refresh_token_with_basic_auth(self, mock_post):
+        # Disconnecting has to reach eBay: otherwise a copy of the refresh token keeps minting
+        # access tokens for the seller's account long after the integration is deleted.
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="ebay",
+            config={"userId": "seller-1"},
+            sensitive_config={"refresh_token": "v^1.1#rt", "access_token": "v^1.1#at"},
+        )
+
+        OauthIntegration(integration).revoke_token()
+
+        assert mock_post.call_args.args[0] == "https://api.ebay.com/identity/v1/oauth2/revoke"
+        assert mock_post.call_args.kwargs["auth"] == HTTPBasicAuth("ebay-app-id", "ebay-cert-id")
+        assert mock_post.call_args.kwargs["data"] == {"token": "v^1.1#rt", "token_type_hint": "refresh_token"}
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_revoke_token_falls_back_to_the_access_token(self, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="ebay",
+            config={"userId": "seller-1"},
+            sensitive_config={"access_token": "v^1.1#at"},
+        )
+
+        OauthIntegration(integration).revoke_token()
+
+        assert mock_post.call_args.kwargs["data"] == {"token": "v^1.1#at", "token_type_hint": "access_token"}

@@ -21,6 +21,14 @@ INTERCOM_APP_CLIENT_SECRET = get_from_env("INTERCOM_APP_CLIENT_SECRET", "")
 RESEND_APP_CLIENT_ID = get_from_env("RESEND_APP_CLIENT_ID", "")
 RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 
+# eBay's application keyset: the App ID is the client ID and the Cert ID the client secret. The
+# RuName is eBay's own handle for a registered redirect URL, and it is what the OAuth flow sends as
+# `redirect_uri` — each region carries the RuName whose accept URL points at its own callback. Empty
+# defaults keep the app importable and the eBay integration dormant until the keyset is provisioned.
+EBAY_APP_CLIENT_ID = get_from_env("EBAY_APP_CLIENT_ID", "")
+EBAY_APP_CLIENT_SECRET = get_from_env("EBAY_APP_CLIENT_SECRET", "")
+EBAY_APP_RU_NAME = get_from_env("EBAY_APP_RU_NAME", "")
+
 SALESFORCE_CONSUMER_KEY = get_from_env("SALESFORCE_CONSUMER_KEY", "")
 SALESFORCE_CONSUMER_SECRET = get_from_env("SALESFORCE_CONSUMER_SECRET", "")
 

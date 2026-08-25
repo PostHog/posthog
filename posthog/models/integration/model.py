@@ -137,6 +137,7 @@ class Integration(models.Model):
         CUSTOMERIO_TRACK = "customerio-track"
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
+        EBAY = "ebay"
         EMAIL = "email"
         FIREBASE = "firebase"
         GITHUB = "github"
