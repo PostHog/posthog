@@ -26,9 +26,6 @@ from products.managed_migrations.backend.models.batch_imports import (
 
 class TestBatchImportModel(BaseTest):
     def test_batch_import_creation(self):
-        self.team.ingested_event = False
-        self.team.save(update_fields=["ingested_event"])
-
         batch_import = BatchImport.objects.create(
             team=self.team, created_by_id=self.user.id, import_config={"test": "config"}, secrets={"secret": "value"}
         )
@@ -38,8 +35,6 @@ class TestBatchImportModel(BaseTest):
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertEqual(batch_import.import_config, {"test": "config"})
         self.assertIsInstance(batch_import.config, BatchImportConfigBuilder)
-        self.team.refresh_from_db()
-        self.assertTrue(self.team.ingested_event)
 
     def test_content_type_enum(self):
         self.assertEqual(ContentType.MIXPANEL.value, "mixpanel")

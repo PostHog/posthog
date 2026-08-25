@@ -1,15 +1,18 @@
 from enum import Enum
-from typing import Any, Self
+from typing import TYPE_CHECKING, Self
 
 from django.conf import settings
-from django.db import models, router, transaction
+from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 
 from products.managed_migrations.backend.models.batch_import_utils import redact_part_key
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
 
 DEFAULT_SEND_RATE = 5_000
 
@@ -65,16 +68,6 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._config_builder = BatchImportConfigBuilder(self, initialize_empty=not self.import_config)
-
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        if not self._state.adding:
-            super().save(*args, **kwargs)
-            return
-
-        database = kwargs.get("using") or router.db_for_write(type(self), instance=self)
-        with transaction.atomic(using=database):
-            super().save(*args, **kwargs)
-            Team.objects.using(database).filter(id=self.team_id, ingested_event=False).update(ingested_event=True)
 
     @property
     def config(self) -> "BatchImportConfigBuilder":
