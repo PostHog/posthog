@@ -3,6 +3,7 @@ import pytest
 from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import default_client
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     QueryErrorCategory,
@@ -224,10 +225,16 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
 
 
 def test_per_query_memory_limit_phrasing_matches_real_clickhouse():
+    # The query reads only the built-in `numbers` table function, so it needs no tenant
+    # database. default_client connects to `system`, which always exists, so this bare
+    # test (no BaseTest, no django_db mark) does not depend on another test in the
+    # shard having created posthog_test first.
     with pytest.raises(ClickHouseQueryMemoryLimitExceeded) as ctx:
         sync_execute(
             "SELECT groupArray(number) FROM numbers(10000000)",
             settings={"max_memory_usage": 1_000_000},
+            sync_client=default_client(),
+            flush=False,
         )
     assert ctx.value.is_per_query_limit
     assert not isinstance(ctx.value, ClickHouseClusterMemoryLimitExceeded)
