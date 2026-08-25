@@ -69,6 +69,16 @@ class TestUserSpendLimit(APIBaseTest):
         self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "available": True})
         clear_user_budget.assert_called_once_with(self.team.id, self._node)
 
+    @parameterized.expand(NO_BUDGET_SUPPORT)
+    def test_clear_says_unavailable_where_the_gateway_holds_no_limits(self, _name, error):
+        # A 404 on DELETE means the gateway serves no budgets route, not that the
+        # user had a limit to clear — so clear must fail like write does, not claim
+        # a limit was removed. Read reports `available: false` for the same gateway;
+        # clear must not disagree with it.
+        with patch(f"{LOGIC}.clear_user_budget", side_effect=error):
+            response = self.client.delete(self._url("clear/"))
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
     @parameterized.expand(
         [
             ("limit_below_the_floor", {"limit_usd": "0", "window_seconds": 2592000}),

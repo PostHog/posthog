@@ -176,7 +176,6 @@ def _error_detail(response: httpx.Response) -> str:
 
 
 # Must match the X-PostHog-User node used for gateway spend attribution.
-USER_SCOPE_TYPE = "user"
 USER_ACTOR = "posthog-user"
 
 
@@ -197,44 +196,49 @@ def _user_budget(row: dict[str, Any]) -> UserBudget:
     return UserBudget(limit_usd=str(limit_usd), window_seconds=window_seconds)
 
 
-def _budgets_path(team_id: int) -> str:
-    return f"/internal/teams/{team_id}/budgets"
+# One budget lives at one per-user path, so a read never scans a team's whole
+# collection. The gateway contract this client assumes:
+#   - a 404 on any budget path means this gateway serves no budgets route at
+#     all, never "this user has none";
+#   - "this user has none" is a 2xx with no budget row ("budget": null);
+#   - deleting a budget that does not exist still succeeds (idempotent delete).
+# Keeping "no route" and "no budget" on different status codes lets every verb
+# agree on `available` for a gateway that holds no limits.
+
+
+def _user_budget_path(team_id: int, scope_value: str) -> str:
+    return f"/internal/teams/{team_id}/budgets/users/{scope_value}"
 
 
 def get_user_budget(team_id: int, scope_value: str) -> UserBudget | None:
-    # The gateway returns a team's budgets, so match the requested user node here.
-    response = _request("GET", _budgets_path(team_id), what="budget read")
+    response = _request("GET", _user_budget_path(team_id, scope_value), what="budget read")
     data = _json_body(response, "budget")
-    for row in data.get("budgets") or []:
-        if row.get("scope_type") == USER_SCOPE_TYPE and row.get("scope_value") == scope_value:
-            return _user_budget(row)
-    return None
+    row = data.get("budget")
+    return _user_budget(row) if row else None
 
 
 def set_user_budget(team_id: int, scope_value: str, limit_usd: str, window_seconds: int) -> UserBudget:
     # Replacing a budget does not move ledger funds, so it needs no idempotency key.
     response = _request(
         "PUT",
-        _budgets_path(team_id),
+        _user_budget_path(team_id, scope_value),
         what="budget write",
         extra_headers={INTERNAL_ACTOR_HEADER: USER_ACTOR},
-        json={
-            "scope_type": USER_SCOPE_TYPE,
-            "scope_value": scope_value,
-            "limit_usd": limit_usd,
-            "window_seconds": window_seconds,
-        },
+        json={"limit_usd": limit_usd, "window_seconds": window_seconds},
     )
-    return _user_budget(_json_body(response, "budget"))
+    data = _json_body(response, "budget")
+    row = data.get("budget")
+    if not row:
+        raise AIGatewayInternalError("budget response missing required fields (limit_usd/window_seconds)")
+    return _user_budget(row)
 
 
 def clear_user_budget(team_id: int, scope_value: str) -> None:
-    """Remove one person's budget. A 404 means they had none, which counts as cleared."""
+    """Remove one person's budget. A 404 means the gateway serves no budgets route,
+    not that the user had none — deleting a missing budget still succeeds."""
     _request(
         "DELETE",
-        _budgets_path(team_id),
+        _user_budget_path(team_id, scope_value),
         what="budget delete",
         extra_headers={INTERNAL_ACTOR_HEADER: USER_ACTOR},
-        params={"scope_type": USER_SCOPE_TYPE, "scope_value": scope_value},
-        tolerated_statuses=frozenset({404}),
     )
