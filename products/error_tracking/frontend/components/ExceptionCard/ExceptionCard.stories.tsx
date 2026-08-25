@@ -68,8 +68,10 @@ ExceptionCardBase.parameters = sessionTimelineParameters(asErrorEventType(TEST_E
 export function ExceptionCardWithFooter(): JSX.Element {
     const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
 
+    // Definite width, like the other card stories: `w-full` resolves against a shrink-to-fit storybook
+    // wrapper, so the card would size to its own content rather than to the story.
     return (
-        <div className="h-[700px] w-full max-w-5xl">
+        <div className="h-[700px] w-[1000px]">
             <ExceptionCard
                 issueId="issue-id"
                 issueName="Test Issue"
@@ -594,9 +596,8 @@ export function ExceptionCardAllEvents(): JSX.Element {
 //////////////////// Header layout
 
 /*
- * The header packs a label, the tab bar and an action into one 40px row. It used to overlap: the
- * label's grid track was allowed to collapse (min-w-0) while nothing clipped the text, so "Exception"
- * painted straight over "Stack Trace". These widths pin each branch of the container query.
+ * The header fits a label, the tab bar and an action into one 40px row. Each width pins a different
+ * branch of the container query: which parts are drawn, and whether the tab bar centres or scrolls.
  */
 const HEADER_WIDTHS: { width: number; caption: string }[] = [
     { width: 300, caption: '300px — tightest pane: icon only, tab bar scrolls' },
@@ -618,8 +619,8 @@ function HeaderWidthMatrix({
             {widths.map(({ width, caption }) => (
                 <div key={width} className="space-y-1">
                     <div className="text-muted text-xs">{caption}</div>
-                    {/* outline rather than border: a border eats 2px of the card's width and would shift
-                        the container-query boundary these captions are naming. */}
+                    {/* outline rather than border: a border eats 2px of the card's width and shifts the
+                        container-query boundary these captions name. */}
                     <div className="h-48 overflow-hidden outline outline-1 outline-[var(--border)]" style={{ width }}>
                         {children(width)}
                     </div>
