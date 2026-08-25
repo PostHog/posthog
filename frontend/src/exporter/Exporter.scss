@@ -36,10 +36,10 @@ body.ExporterBody {
         }
 
         @include screen($md) {
-            display: flex;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
             gap: 1rem;
             align-items: center;
-            justify-content: space-between;
 
             .SharedDashboard-header-title {
                 max-width: 50%;
