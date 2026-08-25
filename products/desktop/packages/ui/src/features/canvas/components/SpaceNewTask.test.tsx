@@ -115,12 +115,14 @@ vi.mock("@tanstack/react-router", () => ({
   }: {
     select: (s: {
       matches: { routeId: string; params: Record<string, string> }[];
+      location: { state: { tabId: string } };
     }) => unknown;
   }) =>
     select({
       matches: [
         { routeId: "/spaces/$channelId/new", params: { channelId: "chan-1" } },
       ],
+      location: { state: { tabId: "tab-1" } },
     }),
 }));
 
@@ -209,6 +211,7 @@ describe("SpaceNewTask context panel", () => {
       expect.objectContaining({
         channelId: "chan-1",
         channelContextId: "chan-1",
+        sessionId: "task-input:tab-1",
       }),
     );
   });

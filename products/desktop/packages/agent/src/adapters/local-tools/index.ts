@@ -1,6 +1,7 @@
 import type { LocalTool, LocalToolCtx, LocalToolGateMeta } from "./registry";
 import { cloneRepoTool } from "./tools/clone-repo";
 import { finishTool } from "./tools/finish";
+import { ghStackTool } from "./tools/gh-stack";
 import { listAgentsTool } from "./tools/list-agents";
 import { listReposTool } from "./tools/list-repos";
 import { reportInsightTool } from "./tools/report-insight";
@@ -26,6 +27,7 @@ export const LOCAL_TOOLS: LocalTool[] = [
   signedCommitTool,
   signedMergeTool,
   signedRewriteTool,
+  ghStackTool,
   listReposTool,
   cloneRepoTool,
   speakTool,

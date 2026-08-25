@@ -90,6 +90,17 @@ export class TaskCreationSaga extends Saga<
     super(logger);
   }
 
+  private notifyTaskReady(output: TaskCreationOutput): void {
+    try {
+      this.deps.onTaskReady?.(output);
+    } catch (error) {
+      this.log.error("Task-ready callback failed", {
+        taskId: output.task.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   protected async execute(
     input: TaskCreationInput,
   ): Promise<TaskCreationOutput> {
@@ -141,9 +152,7 @@ export class TaskCreationSaga extends Saga<
 
     if (hasProvisioning) {
       this.deps.host.setProvisioningActive(task.id);
-      if (this.deps.onTaskReady) {
-        this.deps.onTaskReady({ task, workspace });
-      }
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (repoPath) {
@@ -333,7 +342,7 @@ export class TaskCreationSaga extends Saga<
       if (!taskId && workspaceMode === "cloud") {
         await this.deps.sessionService.watchCreatedCloudTask(task);
       }
-      this.deps.onTaskReady?.({ task, workspace });
+      this.notifyTaskReady({ task, workspace });
     }
 
     if (hasProvisioning) {
@@ -487,7 +496,7 @@ export class TaskCreationSaga extends Saga<
 
       if (!hasProvisioning) {
         await this.deps.sessionService.watchCreatedCloudTask(task);
-        this.deps.onTaskReady?.({ task, workspace });
+        this.notifyTaskReady({ task, workspace });
       }
     }
 
@@ -821,10 +830,14 @@ export class TaskCreationSaga extends Saga<
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,
-          repository: input.repositories
-            ? undefined
-            : (repository ?? undefined),
-          repositories: input.repositories,
+          // Signal-report tasks are code-access-exempt, so their repository is
+          // resolved server-side from the report's own repo selection — the
+          // backend rejects a client-set repo (it would bypass that gate).
+          repository:
+            input.repositories || input.signalReportId
+              ? undefined
+              : (repository ?? undefined),
+          repositories: input.signalReportId ? undefined : input.repositories,
           github_integration:
             input.workspaceMode === "cloud" &&
             (input.cloudRunSource === "signal_report" || input.repositories)
@@ -838,8 +851,12 @@ export class TaskCreationSaga extends Saga<
           origin_product: input.signalReportId
             ? "signal_report"
             : "user_created",
-          // The server associates the task with the report and records the implementation
-          // task_run artefact — no relationship label is sent (associations are unlabelled).
+          // Labels the task↔report association so the server routes it to the
+          // right per-report cap; unlabelled defaults to implementation, which
+          // burns the report's one-live-PR gate.
+          signal_report_task_relationship: input.signalReportId
+            ? input.signalReportTaskRelationship
+            : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)
