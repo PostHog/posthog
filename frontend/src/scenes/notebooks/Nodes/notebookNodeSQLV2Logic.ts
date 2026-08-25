@@ -577,7 +577,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         timeoutId = window.setTimeout(
                             () => {
                                 actions.pollResult(runId)
-                                scheduleNext()
+                                // pollResult can stop the poller synchronously when it reaches the
+                                // budget, which disposes this entry. Re-arm only while it still
+                                // owns a live poller, or the new timer would outlive the disposable
+                                // and loop the failure forever.
+                                if (cache.disposables.registry.has('pollResult')) {
+                                    scheduleNext()
+                                }
                             },
                             pollIntervalMs(cache.pollWaitedMs ?? 0)
                         )

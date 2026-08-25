@@ -463,6 +463,35 @@ describe('notebookNodeSQLV2Logic', () => {
         other.unmount()
     })
 
+    it('gives up the poller at the wait budget without leaving a stray timer', async () => {
+        // Reaching the 21-minute client budget stops polling synchronously, which disposes the
+        // poll timer. The self-rescheduling callback must not arm a new one afterwards: an
+        // untracked timer would survive unmount and re-fire the failure every interval, aborting
+        // any run-all chain waiting on this cell until a reload.
+        jest.useFakeTimers()
+        try {
+            mount({ runId: 'r1', hasResult: false })
+            // Let the first (still-running) poll settle so its scheduled follow-up is what trips
+            // the budget next.
+            await jest.advanceTimersByTimeAsync(0)
+
+            // Jump the accumulated wait to the budget edge; the next scheduled poll trips it.
+            logic.cache.pollWaitedMs = 21 * 60 * 1000
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(logic.values.runError).toContain('Stopped checking')
+            // The poller is disposed and, crucially, not re-armed. A stray timer would re-enter
+            // the budget branch every interval, which each time accumulates the wait again — so an
+            // unchanged wait after advancing past several intervals proves nothing rescheduled.
+            expect(logic.cache.disposables.registry.has('pollResult')).toBe(false)
+            const waitedAfterGivingUp = logic.cache.pollWaitedMs
+            await jest.advanceTimersByTimeAsync(15_000)
+            expect(logic.cache.pollWaitedMs).toBe(waitedAfterGivingUp)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('unmounting a busy node releases the notebook', async () => {
         mount()
         logic.actions.runQuery('select 1')
