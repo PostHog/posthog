@@ -19,12 +19,16 @@ interface ShortcutProps extends Omit<ShortcutType, 'ref' | 'keybind' | 'interact
     children: ReactElement
     /** 'click' triggers element.click(), 'focus' triggers element.focus(), doesn't support `function` which should use `useShortcut` directly instead */
     interaction: 'click' | 'focus'
-    /** If true, the keyboard shortcut will not be registered and tooltip keyboard shortcut will not be added to the childs tooltip */
-    disabled?: boolean
+    /**
+     * If true, the keyboard shortcut is not registered and the keybind hint is not added to the child's tooltip.
+     * Named `disableShortcut` rather than `disabled` so it does not collide with the `disabled` prop that wrappers
+     * such as `AccessControlAction` set on their child — that prop must reach the wrapped element, not this component.
+     */
+    disableShortcut?: boolean
 }
 
 export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut(
-    { children, name, keybind, intent, interaction, scope = 'global', disabled = false, priority = 0 },
+    { children, name, keybind, intent, interaction, scope = 'global', disableShortcut = false, priority = 0, ...rest },
     forwardedRef
 ): ReactElement {
     const { callbackRef } = useShortcut({
@@ -33,7 +37,7 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
         intent,
         interaction,
         scope,
-        disabled,
+        disabled: disableShortcut,
         priority,
     })
 
@@ -48,7 +52,7 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
 
     // Append keyboard shortcut to tooltip if child has one
     let finalTooltip = childProps.tooltip
-    if (childProps.tooltip && !disabled) {
+    if (childProps.tooltip && !disableShortcut) {
         finalTooltip = (
             <>
                 {childProps.tooltip}{' '}
@@ -62,7 +66,10 @@ export const Shortcut = forwardRef<HTMLElement, ShortcutProps>(function Shortcut
         )
     }
 
+    // Forward props a parent injects onto this element (e.g. a wrapping LemonDropdown's onClick and
+    // aria-haspopup) down to the real child, so Shortcut can sit between a dropdown and its trigger button.
     return cloneElement(children, {
+        ...rest,
         ref: mergedRef,
         'data-shortcut-name': name,
         'data-shortcut-keybind': keybindStrings,

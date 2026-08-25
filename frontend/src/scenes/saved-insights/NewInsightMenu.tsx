@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { IconPlusSmall, IconSparkles } from '@posthog/icons'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
@@ -324,35 +324,38 @@ export function NewInsightMenuOverlay(): JSX.Element {
 }
 
 export function NewInsightButton(): JSX.Element {
-    const button = (
-        <LemonButton
-            type="primary"
-            data-attr="saved-insights-new-insight-button"
-            size="small"
-            icon={<IconPlusSmall />}
-            tooltip="New insight"
-        >
-            New
-        </LemonButton>
-    )
-
+    // LemonDropdown must wrap the real button so its click handler and reference land on the trigger.
+    // Shortcut then wraps that button so the keybind, tooltip, and ref reach the trigger too, and
+    // AccessControlAction feeds `disabledReason` straight into the button rather than an outer wrapper.
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <Shortcut
-                name="NewInsight"
-                keybind={[keyBinds.new]}
-                intent="New insight"
-                interaction="click"
-                scope={Scene.SavedInsights}
-                priority={100}
-            >
+            {({ disabledReason }: AccessControlActionChildrenProps) => (
                 <LemonDropdown overlay={<NewInsightMenuOverlay />} placement="bottom-end">
-                    {button}
+                    <Shortcut
+                        name="NewInsight"
+                        keybind={[keyBinds.new]}
+                        intent="New insight"
+                        interaction="click"
+                        scope={Scene.SavedInsights}
+                        priority={100}
+                        disableShortcut={!!disabledReason}
+                    >
+                        <LemonButton
+                            type="primary"
+                            data-attr="saved-insights-new-insight-button"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                            tooltip="New insight"
+                            disabledReason={disabledReason}
+                        >
+                            New
+                        </LemonButton>
+                    </Shortcut>
                 </LemonDropdown>
-            </Shortcut>
+            )}
         </AccessControlAction>
     )
 }
