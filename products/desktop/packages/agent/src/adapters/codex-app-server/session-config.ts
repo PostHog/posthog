@@ -300,6 +300,7 @@ export class SessionConfigState {
         (!this.gatewayModels || this.allowedModelIds?.has(value))
       ) {
         this._model = value;
+        this.reconcileEffortForModel();
       } else if (configId === "effort") this._effort = value;
       else if (configId === "mode") {
         this._mode = resolveCodexMode(value);
@@ -308,6 +309,20 @@ export class SessionConfigState {
     }
     this.rebuild();
     return { modeChanged };
+  }
+
+  /**
+   * Re-derive the effort selectors for the current model after a model switch.
+   * Effort tiers differ by family (`max` is gpt-5.6 only, `xhigh` is
+   * gpt-5.5/5.6), so a pin that the new model does not support is dropped —
+   * codex then reasons at the model default instead of receiving an unsupported
+   * effort on every turn.
+   */
+  private reconcileEffortForModel(): void {
+    this.efforts = getReasoningEffortOptions(this._model).map((o) => o.value);
+    if (this._effort && !this.efforts.includes(this._effort)) {
+      this._effort = undefined;
+    }
   }
 
   /**
