@@ -97,9 +97,19 @@ class TestReduceByUniformSampling:
         result, _ = reduce_by_uniform_sampling(text, max_length=1000)
         assert len(result) <= 1000
 
-    def test_text_with_only_header_lines_unchanged(self):
-        text = _create_numbered_text(PRESERVE_HEADER_LINES, line_content_length=20)
+    @pytest.mark.parametrize(
+        "num_lines",
+        [1, PRESERVE_HEADER_LINES - 1, PRESERVE_HEADER_LINES],
+    )
+    def test_oversized_text_with_too_few_lines_to_sample_is_truncated(self, num_lines: int):
+        text = _create_numbered_text(num_lines, line_content_length=200)
         result, was_sampled = reduce_by_uniform_sampling(text, max_length=100)
+        assert len(result) == 100
+        assert was_sampled is True
+
+    def test_text_with_only_header_lines_within_max_length_unchanged(self):
+        text = _create_numbered_text(PRESERVE_HEADER_LINES, line_content_length=20)
+        result, was_sampled = reduce_by_uniform_sampling(text, max_length=10000)
         assert result == text
         assert was_sampled is False
 

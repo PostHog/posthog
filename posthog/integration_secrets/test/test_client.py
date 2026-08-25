@@ -102,12 +102,15 @@ class TestIntegrationSecretsClient(SimpleTestCase):
             with pytest.raises(SecretInRecoveryError):
                 self.secrets.get(KEY, CALLER)
 
-    def test_get_with_previous_exposes_the_outgoing_value_during_a_rotation(self) -> None:
-        rotating = {"state": "rotating", "value": "new", "previous": "old", "version_id": "v1", "fetched_at": "now"}
+    def test_get_with_incoming_exposes_the_staged_value_during_a_rotation(self) -> None:
+        # The wire still calls it `previous`; it carries the value a rotation has STAGED, which the
+        # service accepts but has not made live. A caller retries with it when the provider has
+        # already been rotated — not to reach an older value, which is not served at all.
+        rotating = {"state": "rotating", "value": "live", "previous": "staged", "version_id": "v1", "fetched_at": "now"}
         with patch(POST, return_value=FakeResponse(body({KEY: rotating}))):
-            secret = self.secrets.get_with_previous(KEY, CALLER)
-        assert secret.current == "new"
-        assert secret.previous == "old"
+            secret = self.secrets.get_with_incoming(KEY, CALLER)
+        assert secret.current == "live"
+        assert secret.incoming == "staged"
 
     # The 503 contract: the service answers 503 rather than all-missing on a cold start,
     # and only raise_for_status keeps that from surfacing as SecretMissingError, which

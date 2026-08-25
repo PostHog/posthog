@@ -30,7 +30,11 @@ parentPort.on('message', async (job) => {
         return
     }
     if (kind === 'undecodable') {
-        parentPort.postMessage({ id: job.id, failure: { message: 'bad bytes', undecodable: true } })
+        parentPort.postMessage({ id: job.id, failure: { message: 'bad bytes', kind: 'undecodable' } })
+        return
+    }
+    if (kind === 'opt-out') {
+        parentPort.postMessage({ id: job.id, failure: { message: 'training prohibited', kind: 'opt-out' } })
         return
     }
     // Reports its own interval so the test can assert overlap directly rather than inferring

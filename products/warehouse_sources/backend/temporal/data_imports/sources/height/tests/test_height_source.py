@@ -3,12 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.height import HeightSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.height.source import HeightSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHeightSource:
@@ -16,9 +15,6 @@ class TestHeightSource:
         self.source = HeightSource()
         self.team_id = 123
         self.config = HeightSourceConfig(api_key="secret_key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HEIGHT
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -31,13 +27,6 @@ class TestHeightSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret

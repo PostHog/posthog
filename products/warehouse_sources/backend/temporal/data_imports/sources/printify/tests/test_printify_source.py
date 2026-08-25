@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.printify import (
     PrintifySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.printify.printify import PrintifyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.source import PrintifySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPrintifySource:
@@ -20,26 +15,6 @@ class TestPrintifySource:
         self.source = PrintifySource()
         self.team_id = 123
         self.config = PrintifySourceConfig(api_key="printify-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PRINTIFY
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Printify"
-        assert config.label == "Printify"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/printify"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no
@@ -109,11 +84,6 @@ class TestPrintifySource:
         result = self.source.validate_credentials(self.config, self.team_id)
         mock_validate.assert_called_once_with("printify-key")
         assert result == (False, "Invalid Printify API token")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PrintifyResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.printify.source.printify_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

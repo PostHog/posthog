@@ -5143,7 +5143,10 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == 400
-        assert response.json()["message"] == "Source type 'AmazonS3' does not support schema discovery."
+        assert response.json()["message"] == (
+            "The AmazonS3 source isn't available to connect yet. "
+            "Choose a different source, or contact support if you were expecting it."
+        )
         mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
@@ -11744,7 +11747,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
             data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "does not support one-shot setup" in response.json()["message"]
+        assert "isn't available to connect yet" in response.json()["message"]
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
@@ -11785,7 +11788,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
             data={"source_type": "AmazonS3", "prefix": "s3_create_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "does not support schema discovery" in response.json()["message"]
+        assert "isn't available to connect yet" in response.json()["message"]
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):

@@ -11,15 +11,14 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useChannelWikiContext } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { TaskInput } from "@posthog/ui/features/task-detail/components/TaskInput";
-import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 
 // A space's "New task" view. Reuses the shared TaskInput, but routes the
@@ -30,7 +29,10 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const view = useAppView();
-  const queryClient = useQueryClient();
+  const tabId = useRouterState({
+    select: (state) => state.location.state.tabId,
+  });
+  const taskInputSessionId = getTaskInputSessionId(tabId);
   const { fileTask } = useChannelTaskMutations();
   // The raw channel row also carries the space's repository defaults.
   const { channels } = useTaskChannels();
@@ -79,11 +81,8 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     }
   }, [channelId, contextPanelOpen]);
 
-  const onTaskCreated = useCallback(
+  const onTaskCreatedEffect = useCallback(
     (task: Task) => {
-      // Seed the detail cache so the destination route resolves instantly
-      // (mirrors openTask), then file to the channel + navigate.
-      queryClient.setQueryData(taskDetailQuery(task.id).queryKey, task);
       void fileTask(channelId, task.id)
         .then(() => {
           track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -106,17 +105,13 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
             description: error instanceof Error ? error.message : String(error),
           });
         });
-      void navigate({
-        to: "/spaces/$channelId/tasks/$taskId",
-        params: { channelId, taskId: task.id },
-      });
     },
-    [channelId, fileTask, navigate, queryClient],
+    [channelId, fileTask],
   );
 
-  // Retargeting navigates to that space's own new-task route; the composer's
-  // draft lives in the shared "task-input" draft store, so text typed before
-  // switching survives the navigation.
+  // Retargeting navigates to that space's own new-task route. The draft is
+  // scoped to the browser tab, so it survives this route change without
+  // leaking into another new-task tab.
   const handleSpaceChange = useCallback(
     (nextChannelId: string) => {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -136,6 +131,8 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
     <Flex className="h-full min-w-0 flex-1">
       <div className="min-w-0 flex-1">
         <TaskInput
+          key={taskInputSessionId}
+          sessionId={taskInputSessionId}
           // Beside the Cloud/Local chip: which space the task files into.
           // Arriving from a space's own "+" this is pre-filled; the global
           // new-task entry points land on #me.
@@ -146,7 +143,7 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
               disabled={disabled}
             />
           )}
-          onTaskCreated={onTaskCreated}
+          onTaskCreatedEffect={onTaskCreatedEffect}
           channelContext={channelContext}
           channelContextPath={wiki.path}
           channelContextBlocked={wiki.blocked}
