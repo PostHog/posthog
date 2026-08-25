@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from posthog.models.team.team import Team
+
 from products.signals.backend.facade.api import recent_inbox_reports
 from products.signals.backend.models import SignalReport
 
@@ -17,7 +19,7 @@ class TestRecentInboxReports(BaseTest):
             "first_visible_at": timezone.now(),
         }
         defaults.update(kwargs)
-        return SignalReport.objects.create(**defaults)  # type: ignore[arg-type]
+        return SignalReport.objects.create(**defaults)
 
     def test_the_newest_reports_come_back_first_and_within_the_limit(self) -> None:
         older = self._report(title="Older", first_visible_at=timezone.now() - timedelta(hours=2))
@@ -39,7 +41,7 @@ class TestRecentInboxReports(BaseTest):
         assert recent_inbox_reports(self.team.id) == []
 
     def test_another_team_s_reports_stay_out_of_this_one_s(self) -> None:
-        other_team = self.create_team_with_organization(self.organization)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
         self._report(team_id=other_team.id, title="Someone else's problem")
 
         assert recent_inbox_reports(self.team.id) == []

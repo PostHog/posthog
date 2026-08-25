@@ -59,7 +59,7 @@ LLMs pad. Every one of these is a failure, not a nicety:
 
 These are the target register and length. The companies are invented; do not reuse their wording.
 
-**Brief:** read northwind.example; Northwind Freight schedules and tracks shipments for regional trucking companies; ask if right; now watching this project for errors, failing health checks, support tickets, AI evals and metric swings; anything found is written up in Self-driving; nothing has come up yet; ask what they want to dig into.
+**Brief:** read northwind.example; Northwind Freight schedules and tracks shipments for regional trucking companies; ask if right; now watching this project for errors, failing health checks, support tickets, AI evals and metric swings; anything found is written up in Self-driving, their inbox in the sidebar; nothing has come up yet; ask what they want to dig into.
 
 **Message:**
 
@@ -67,17 +67,17 @@ These are the target register and length. The companies are invented; do not reu
 >
 > Northwind Freight schedules and tracks shipments for regional trucking companies. Is that right?
 >
-> PostHog is now watching this project for errors, failing health checks, support tickets, AI evals and metric swings. Anything it finds gets written up in Self-driving.
+> PostHog is now watching this project for errors, failing health checks, support tickets, AI evals and metric swings. Anything it finds gets written up in Self-driving, your inbox in the sidebar.
 >
 > Nothing has come up yet, so tell me what you want to dig into. Your data is already here, so I can go after most things.
 
-**Brief:** joining an existing workspace at Blue Harbor; Dana and 4 others already here; 3 findings waiting in Self-driving, 1 pull request open; offer to walk through one; ask what's top of mind; no summary.
+**Brief:** joining an existing workspace at Blue Harbor; Dana and 4 others already here; 3 findings waiting in Self-driving, their inbox in the sidebar; 1 pull request open; offer to walk through one; ask what's top of mind; no summary.
 
 **Message:**
 
 > Welcome to Blue Harbor's workspace. Dana and 4 others are already here.
 >
-> Three findings are waiting in Self-driving, and one already has a pull request open.
+> Three findings are waiting in Self-driving, your inbox in the sidebar. One already has a pull request open.
 >
 > I can walk you through one of them now. What's top of mind?
 

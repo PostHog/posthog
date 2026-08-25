@@ -83,8 +83,13 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
     return brief
 
 
+# The product name on its own means nothing on first read, and this message is the first read there
+# is. Whichever status line runs says the name once and says what it is, so the reader can find it.
+_WHERE = "Self-driving, their inbox in the sidebar"
+
+
 def _findings_line(facts: OnboardingFacts) -> str:
-    return f"Say that {facts.signal_reports_waiting} findings are waiting in Self-driving."
+    return f"Say that {facts.signal_reports_waiting} findings are waiting in {_WHERE}."
 
 
 def _status_line(facts: OnboardingFacts) -> str | None:
@@ -101,12 +106,12 @@ def _status_line(facts: OnboardingFacts) -> str | None:
             return None
         return (
             f"Tell them PostHog is now watching this project for {watching}. Name every one of "
-            "those. Say anything it finds gets written up in Self-driving."
+            f"those. Then say anything it finds gets written up in {_WHERE}."
         )
     enabled = prose_list(facts.sources_enabled, limit=_NAMED_SOURCE_LIMIT)
     if not enabled:
         return None
-    return f"Tell them PostHog is already watching {enabled}, and writes up anything it finds in Self-driving."
+    return f"Tell them PostHog is already watching {enabled}. Then say the write-ups land in {_WHERE}."
 
 
 def _offer_line(facts: OnboardingFacts) -> str | None:
@@ -167,10 +172,10 @@ def self_driving_line(reports: Sequence[InboxReportSummary]) -> str:
     archived or resolved before the agent gets around to offering it.
     """
     line = (
-        "Findings do not land in this space's feed. They land in Self-driving, the inbox in the "
-        "left sidebar. Never tell them to look for a finding in a space. When findings come up, "
-        "offer a `show_actions` `open_inbox` button instead of describing where to look. That "
-        "button opens Self-driving on its own, or one report when you pass `report_id`."
+        "Findings do not land in this space's feed. They land in Self-driving, their inbox in the "
+        "sidebar. Never tell them to look for a finding in a space. When findings come up, offer a "
+        "`show_actions` `open_inbox` button instead of describing where to look. That button opens "
+        "Self-driving on its own, or one report when you pass `report_id`."
     )
     if not reports:
         return line

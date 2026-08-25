@@ -290,6 +290,24 @@ class TestWhereFindingsLive(SimpleTestCase):
             if "finds" in line or "findings" in line:
                 assert "#general" not in line
 
+    @parameterized.expand(
+        [
+            ("findings waiting", {"signal_reports_waiting": 3}),
+            ("sources newly switched on", {"sources_newly_enabled": True}),
+            ("sources already running", {"sources_newly_enabled": False}),
+        ]
+    )
+    def test_the_product_name_is_never_used_without_saying_what_it_is(
+        self, _name: str, overrides: dict[str, object]
+    ) -> None:
+        # This message is the reader's first, so "Self-driving" alone names something they have no
+        # way to find. Whichever status line runs has to say where it is.
+        facts = _setup_facts(**overrides)
+
+        (status,) = [line for line in build_opening_brief(facts) if "Self-driving" in line]
+
+        assert "their inbox in the sidebar" in status
+
 
 class TestBundledPromptRendering(SimpleTestCase):
     def test_the_managed_prompt_requires_every_runtime_value(self) -> None:
