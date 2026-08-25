@@ -957,7 +957,6 @@ describe('Hog Executor', () => {
         let server: any
         let baseUrl: string
         const mockRequest = jest.fn()
-        let timeoutHandle: NodeJS.Timeout | undefined
         let hogFunction: HogFunctionType
 
         beforeAll(async () => {
@@ -980,10 +979,6 @@ describe('Hog Executor', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-        })
-
-        afterEach(() => {
-            clearTimeout(timeoutHandle)
         })
 
         afterAll(async () => {
@@ -1396,11 +1391,7 @@ describe('Hog Executor', () => {
         })
 
         it('handles timeouts', async () => {
-            mockRequest.mockImplementation((_req: any, res: any) => {
-                // Never send response
-                clearTimeout(timeoutHandle)
-                timeoutHandle = setTimeout(() => res.end(), 10000)
-            })
+            jest.mocked(fetch).mockRejectedValueOnce(new Error('The operation was aborted due to timeout'))
 
             const invocation = await createFetchInvocation({
                 url: `${baseUrl}/test`,
