@@ -1,11 +1,11 @@
 """The org-wide MCP read-only policy.
 
 `Organization.mcp_access_read_only` caps what any member can do through the PostHog MCP
-server: reads work, writes are denied. The cap applies to every member, including admins.
+server. Reads work. Writes are denied. The cap applies to every member, including admins.
 Access through the app and direct API use are not affected.
 
-The class `MCPAccessPermission` in facade/permissions.py is the first consumer. The
-access-control facade's `decide()` can read this module later to apply the same cap to
+The class `MCPAccessPermission` in presentation/permissions.py is the first consumer. The
+access-control facade's `decide()` can read this module later, to apply the same cap to
 object-level decisions.
 """
 
@@ -15,16 +15,17 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 
-# The outbound identity of services/mcp (see its oauth-constants.ts). The user agent
-# governs the sanctioned pathway. It is not a defense against a hostile key holder:
-# the same credential keeps its full scopes under a different user agent. A future
-# change can reduce the credential's scopes when the token is created.
+# services/mcp sends this user agent on its API calls (USER_AGENT in its
+# oauth-constants.ts). Keep the two in sync. A client controls its own user agent, so
+# this match applies the policy to the normal MCP pathway only. It does not stop a
+# hostile key holder. The same credential keeps its full scopes under a different user
+# agent. A future change can reduce the credential's scopes when the token is created.
 MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
 
 class RequestLike(Protocol):
-    """The slice of a Django or DRF request this module reads. A structural type, because the
-    facade layer must not import DRF."""
+    """This protocol lists the request attributes this module reads. It is structural
+    because the facade layer must not import DRF."""
 
     headers: Any
 

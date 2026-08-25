@@ -158,9 +158,9 @@ def _forward_through_connection(
 ) -> ForwardResult:
     """Replay one request against the connected project, injecting the connection's token.
 
-    `mcp_origin` marks the outbound request with the MCP user agent, so the target
-    organization's MCP read-only policy applies to writes that an MCP client initiated
-    through this connection."""
+    `mcp_origin` marks the outbound request with the MCP user agent. The target
+    organization then applies its MCP read-only policy to writes that an MCP client
+    started through this connection."""
     token = _connection_access_token(integration)
     base = posthog_connect_base_url(integration.config.get("region"))
     headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}

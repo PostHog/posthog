@@ -25,8 +25,8 @@ class MCPAccessPermission(ScopeBasePermission):
     disagree about what counts as a write."""
 
     def has_permission(self, request: HttpRequest | Request, view: APIView) -> bool:
-        # Cheap exit first: almost every request is not MCP, and the check is two
-        # isinstance checks and a header read, with no query.
+        # Cheap exit first. Almost every request is not MCP. The check is two isinstance
+        # checks and one header read, with no query.
         if not is_mcp_request(request):
             return True
 
