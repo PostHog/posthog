@@ -95,9 +95,15 @@ class TestFormatProjectedSelectClause:
     def test_quoter_applied_per_dialect(self, _name: str, quoter: AnsiIdentifierQuoter, expected: str) -> None:
         assert format_projected_select_clause(["id", "email"], quoter) == expected
 
-    def test_invalid_identifier_raises(self) -> None:
+    def test_injection_in_identifier_is_escaped(self) -> None:
+        # A backtick in the column name is doubled, so the payload stays inside
+        # the quoted identifier and no SQL breaks out.
+        clause = format_projected_select_clause(["id", "email`; DROP TABLE users"], BacktickIdentifierQuoter())
+        assert clause == "`id`, `email``; DROP TABLE users`"
+
+    def test_control_character_identifier_raises(self) -> None:
         with pytest.raises(InvalidIdentifierError):
-            format_projected_select_clause(["id", "email; DROP TABLE users"], BacktickIdentifierQuoter())
+            format_projected_select_clause(["id", "email\ncol"], BacktickIdentifierQuoter())
 
 
 class TestFilterColumnsByEnabledColumns:

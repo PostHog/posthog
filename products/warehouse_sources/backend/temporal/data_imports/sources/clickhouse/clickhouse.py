@@ -73,9 +73,9 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
 
-# Quoter for user-supplied row-filter column names — the allowlist-validated
-# safety rail the shared predicate renderer expects. Trusted internal
-# identifiers (table/incremental columns) keep using `_quote_identifier`.
+# Quoter for user-supplied row-filter column names — the escaping safety rail
+# the shared predicate renderer expects. Trusted internal identifiers
+# (table/incremental columns) keep using `_quote_identifier`.
 _ROW_FILTER_IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
 
 

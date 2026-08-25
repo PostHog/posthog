@@ -487,16 +487,13 @@ class TestInjectionGuards:
                 _metadata([("id", "integer")]),
             )
 
-    def test_malicious_column_rejected_by_quoter_at_render(self) -> None:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
-            InvalidIdentifierError,
-        )
-
-        # Even if a bad identifier somehow reaches render, the quoter rejects it.
+    def test_malicious_column_neutralized_by_quoter_at_render(self) -> None:
+        # Even if a bad identifier somehow reaches render, the quoter escapes it
+        # inside backticks, so no SQL keyword breaks out of the identifier.
         filters = [
             ValidatedRowFilter(
-                column='id"; DROP TABLE x; --', operator=">", value=1, category=ColumnTypeCategory.INTEGER
+                column="id`; DROP TABLE x; --", operator=">", value=1, category=ColumnTypeCategory.INTEGER
             )
         ]
-        with pytest.raises(InvalidIdentifierError):
-            render_named_conditions(filters, BacktickIdentifierQuoter())
+        conditions, _ = render_named_conditions(filters, BacktickIdentifierQuoter())
+        assert conditions == ["`id``; DROP TABLE x; --` > %(row_filter_0)s"]

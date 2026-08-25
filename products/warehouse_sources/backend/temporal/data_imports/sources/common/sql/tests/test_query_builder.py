@@ -7,7 +7,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     AnsiIdentifierQuoter,
     BacktickIdentifierQuoter,
-    InvalidIdentifierError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -37,9 +36,13 @@ class TestSelectAllFullRefresh:
         assert "FORCE INDEX (`idx_created_at`)" in result.sql
         assert result.sql.startswith("SELECT * FROM `mydb`.`messages` FORCE INDEX")
 
-    def test_injection_in_identifier_raises(self) -> None:
-        with pytest.raises(InvalidIdentifierError):
-            self.builder.select_all(schema="mydb", table_name="messages; DROP TABLE x")
+    def test_injection_in_identifier_is_escaped(self) -> None:
+        # A backtick in the name is doubled, so the payload stays inside the
+        # quoted identifier and no SQL breaks out.
+        result = self.builder.select_all(schema="mydb", table_name="messages`; DROP TABLE x")
+        assert "`messages``; DROP TABLE x`" in result.sql
+        assert "DROP TABLE x`" in result.sql  # still inside the quotes
+        assert result.sql.startswith("SELECT * FROM `mydb`.`messages``; DROP TABLE x`")
 
 
 class TestSelectAllIncremental:
@@ -300,10 +303,13 @@ class TestSelectAllRowFilters:
         result = self.builder.select_all(schema="db", table_name="t", row_filters=None)
         assert "WHERE" not in result.sql
 
-    def test_malicious_column_rejected(self) -> None:
-        with pytest.raises(InvalidIdentifierError):
-            self.builder.select_all(
-                schema="db",
-                table_name="t",
-                row_filters=[self._filter("age`; DROP TABLE x; --", ">", 21)],
-            )
+    def test_malicious_column_is_escaped(self) -> None:
+        # A backtick in the column name is doubled, so the payload stays inside
+        # the quoted identifier and no SQL breaks out.
+        result = self.builder.select_all(
+            schema="db",
+            table_name="t",
+            row_filters=[self._filter("age`; DROP TABLE x; --", ">", 21)],
+        )
+        assert "WHERE `age``; DROP TABLE x; --` > %(row_filter_0)s" in result.sql
+        assert result.params == {"row_filter_0": 21}

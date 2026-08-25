@@ -659,13 +659,17 @@ def test_bigquery_get_query_date_column_with_datetime_cursor(field_type, last_va
         "id; DROP TABLE customers",
         "email`, `secret",
         "name with space",
-        "col\x00null",
     ],
 )
-def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
-    """`enabled_columns` flows from user config — must be allowlisted before backtick quoting."""
+def test_bigquery_select_clause_escapes_injection_attempts(malicious_column):
+    """`enabled_columns` flows from user config — a backtick is doubled so the payload stays inside the quotes."""
+    clause = _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)
+    assert clause == f"`{malicious_column.replace('`', '``')}`"
+
+
+def test_bigquery_select_clause_rejects_control_characters():
     with pytest.raises(InvalidIdentifierError):
-        _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)
+        _bq_select_clause(["col\x00null"], primary_keys=None, incremental_field=None)
 
 
 @pytest.mark.parametrize(

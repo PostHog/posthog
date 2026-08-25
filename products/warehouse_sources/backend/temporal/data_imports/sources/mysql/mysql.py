@@ -245,8 +245,8 @@ def filter_mysql_incremental_fields(
 def _sanitize_identifier(identifier: str) -> str:
     """Back-compat shim for callers that still expect a plain `ValueError`.
 
-    New code should use `BacktickIdentifierQuoter` directly — same allowlist,
-    same quoting, exposed through the shared `IdentifierQuoter` interface.
+    New code should use `BacktickIdentifierQuoter` directly — same quoting,
+    exposed through the shared `IdentifierQuoter` interface.
     """
     try:
         return _IDENTIFIER_QUOTER.quote(identifier)
@@ -1263,12 +1263,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 return None
 
             columns = [row[0] for row in rows]
-            # Column names come from the DB catalog and can legitimately contain
-            # characters the identifier allowlist rejects (e.g. `:` or spaces in
-            # `Ach:CompanyId`). Row-size estimation is best-effort, so skip any
-            # column we can't safely quote rather than abandoning the whole
-            # estimate. The allowlist stays the hard boundary for user-supplied
-            # identifiers elsewhere.
+            # Row-size estimation is best-effort, so skip any column we can't
+            # safely quote (a control character in the name) rather than
+            # abandoning the whole estimate.
             quoted_columns = []
             skipped_columns = []
             for col in columns:

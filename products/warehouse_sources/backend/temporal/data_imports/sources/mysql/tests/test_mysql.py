@@ -110,6 +110,11 @@ def _connection_for_cursor(cursor: MagicMock) -> MagicMock:
         ("851", "`851`"),
         ("$col", "`$col`"),
         ("db@prod", "`db@prod`"),
+        # Names the old allowlist rejected now quote safely; a literal
+        # backtick is escaped by doubling.
+        ("bad;id", "`bad;id`"),
+        ("applicant profile", "`applicant profile`"),
+        ("a`b", "`a``b`"),
     ],
 )
 def test_sanitize_identifier_valid(identifier, expected):
@@ -119,8 +124,8 @@ def test_sanitize_identifier_valid(identifier, expected):
 @pytest.mark.parametrize(
     "identifier",
     [
-        "bad;id",
-        "$bad!",
+        "bad\nid",
+        "",
     ],
 )
 def test_sanitize_identifier_invalid(identifier):
@@ -497,17 +502,16 @@ class TestFetchAverageRowSize:
         # A column name we can't safely quote is never spliced into SQL. When
         # it's the only column there's nothing left to estimate from, so we
         # return None rather than raising.
-        cursor.fetchall.return_value = [("bad;col",)]
+        cursor.fetchall.return_value = [("bad\ncol",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
 
     def test_skips_unquotable_columns_and_estimates_from_rest(self, impl, cursor, logger):
-        # Real MySQL columns can contain characters the identifier allowlist
-        # rejects (e.g. `:` in `Ach:CompanyId`). Row-size estimation is
-        # best-effort: skip the columns we can't quote and estimate from the
+        # A column name with a control character can't be quoted. Row-size
+        # estimation is best-effort: skip that column and estimate from the
         # rest instead of abandoning the whole query.
-        cursor.fetchall.return_value = [("id",), ("Ach:CompanyId",), ("email",)]
+        cursor.fetchall.return_value = [("id",), ("bad\ncol",), ("email",)]
         cursor.fetchone.return_value = (100,)
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT * FROM x", {}, logger)
         assert result == 100
@@ -516,7 +520,7 @@ class TestFetchAverageRowSize:
         assert "`id`" in sql
         assert "`email`" in sql
         # The unquotable column is neither quoted nor spliced in raw.
-        assert "Ach:CompanyId" not in sql
+        assert "bad\ncol" not in sql
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
@@ -664,7 +668,7 @@ class TestSafetyContract:
         # _sanitize_identifier wraps InvalidIdentifierError → ValueError for
         # back-compat with semgrep rules keyed on the legacy message shape.
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _sanitize_identifier("bad;id")
+            _sanitize_identifier("bad\nid")
 
     @pytest.mark.parametrize("ident", ["users", "my_table", "$col", "851", "db@prod"])
     def test_quoter_accepts_common_identifier_shapes(self, ident):
@@ -1767,17 +1771,18 @@ class TestBuildQueryForceIndex:
         assert "FORCE INDEX (`PRIMARY`)" in query
 
     def test_force_index_identifier_is_sanitized(self):
-        # Rejects invalid SQL identifiers to prevent injection via index name.
-        with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _build_query(
-                schema="mydb",
-                table_name="message",
-                should_use_incremental_field=True,
-                incremental_field="created_at",
-                incremental_field_type=IncrementalFieldType.DateTime,
-                db_incremental_field_last_value="2025-01-01",
-                force_index_name="bad;injection",
-            )
+        # Injection via the index name is neutralized by backtick quoting: the
+        # payload stays inside the quoted identifier and no SQL breaks out.
+        query, _ = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            force_index_name="bad`; DROP TABLE x; --",
+        )
+        assert "FORCE INDEX (`bad``; DROP TABLE x; --`)" in query
 
 
 class TestBuildQueryEnabledColumns:
