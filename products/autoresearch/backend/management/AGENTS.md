@@ -51,7 +51,7 @@ The env var is needed because flox only sources `.env` on first activation, so t
 - `autoresearch_validate` → `../dataset/validation.py`
 - `autoresearch_validate_online` → `../evaluation/online_validation.py`
 
-The same functions are reached on the scheduled path via `../temporal/workflows.py`, and on the HTTP path via `../api/views.py`.
+The same functions are reached on the scheduled path via `../temporal/workflows.py`, and on the HTTP path via `../presentation/views/views.py`.
 
 ## When editing this flow
 
