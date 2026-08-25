@@ -13,6 +13,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
@@ -21,8 +22,6 @@ from products.data_quality.backend.presentation.serializers import DataQualitySu
 from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"

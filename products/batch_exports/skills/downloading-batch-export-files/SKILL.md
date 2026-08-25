@@ -1,10 +1,10 @@
 ---
 name: downloading-batch-export-files
 description: >
-  Export PostHog events, persons, or sessions on demand and download the resulting files. Use when the user asks to
-  download/export raw PostHog data, create a one-off file export, fetch a Parquet or JSONLines export, or use the
-  file_download_batch_exports API. Covers starting the export with MCP, polling completion, and downloading via the
-  existing REST redirect endpoint.
+  Export PostHog events, persons, sessions, or the results of a HogQL query on demand and download the resulting
+  files. Use when the user asks to download/export raw PostHog data, export HogQL query results, create a one-off
+  file export, fetch a Parquet or JSONLines export, or use the file_download_batch_exports API.
+  Covers starting the export with MCP, polling completion, and downloading via the existing REST redirect endpoint.
 ---
 
 # Downloading batch export files
@@ -28,14 +28,22 @@ That endpoint is a redirecting file download endpoint, so raw HTTP/download hand
 
 Ask a short clarifying question if the user did not specify the required inputs:
 
-- `model`: one of `events`, `persons`, or `sessions`
-- `data_interval_start` and `data_interval_end`: ISO 8601 datetimes; the range must be at most one week
+- `model`: one of `events`, `persons`, `sessions`, or `hogql`
+- `data_interval_start` and `data_interval_end`: ISO 8601 datetimes; the range must be at most one week.
+  Required for `events`, `persons`, and `sessions`, and not supported for `hogql`
 - `file.format`: `Parquet` or `JSONLines`; prefer `Parquet` for compact analytics exports and `JSONLines` for line-oriented text processing
 - `file.compression`: optional, one of `zstd`, `gzip`, `brotli`, `lz4`, or `snappy`. If `JSONLines` was chosen as format, only `gzip` and `brotli` are supported.
 - `file.max_size_mb`: optional maximum part size in MB; set this when the user wants multiple smaller files instead of a single (potentially large) file.
 
 For `events`, `include` and `exclude` are optional event-name filters.
 Use them only when the user asks for specific events or wants to omit specific events.
+
+For `hogql`, pass the query as `hogql_query` and leave out `data_interval_start`, `data_interval_end`, `include`, and `exclude`.
+The query runs as of the time the export starts, so there is no interval to choose.
+You may prompt the user to export a slice of data by including a WHERE clause in the HogQL query, for example limiting results from the `events` table by bounding `timestamp`.
+Always prefer limiting the data exported to the minimum necessary to solve the user's request.
+Every column in the SELECT clause must be a field or have an alias, and placeholders are not supported.
+This model is in closed beta and is enabled per team.
 
 ### 2. Start the export
 
@@ -54,6 +62,18 @@ Example request:
   "include": ["$pageview"],
   "data_interval_start": "2026-05-25T00:00:00Z",
   "data_interval_end": "2026-05-26T00:00:00Z"
+}
+```
+
+Example request for the `hogql` model:
+
+```json
+{
+  "model": "hogql",
+  "file": {
+    "format": "Parquet"
+  },
+  "hogql_query": "SELECT event, timestamp, properties.$current_url AS url FROM events WHERE timestamp > now() - INTERVAL 1 HOUR"
 }
 ```
 
@@ -117,9 +137,11 @@ posthog-events-<run_id>-<part>.jsonl.gz
 posthog-persons-<run_id>-<part>.parquet
 ```
 
-## Watch-outs
+## Important notes
 
 - The maximum export interval is one week. Split longer user requests into separate export runs or ask which week to export.
+- The `hogql` model is in closed beta and is enabled per team. A permission error that says HogQL batch exports are not enabled means the team does not have the beta. Report that instead of retrying with a different query, and tell the user they can contact PostHog support to request access.
+- The `hogql` model runs under stricter resource limits than the other models, because user queries are less predictable. If an export fails on memory, execution time, or bytes read, suggest narrowing the query with a WHERE clause instead of retrying it unchanged.
 - A run can briefly report `Running` after completion while file records are being created. Poll again instead of failing immediately.
 - Download URLs are temporary. If a URL expires, call the REST download endpoint again for a fresh redirect.
 - Do not send the signed URL to unrelated services unless the user explicitly asks; it grants temporary access to the exported file.

@@ -30,6 +30,7 @@ import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { PathCleaningToggle } from '../PathCleaningToggle'
 import { LIVE_STREAM_OPERATORS, isLiveStreamFilter, webAnalyticsFilterLogic } from '../webAnalyticsFilterLogic'
 import { WebAnalyticsDomainSelector, WebAnalyticsLiveDeviceToggle } from '../WebAnalyticsFilters'
 import { webAnalyticsLogic } from '../webAnalyticsLogic'
@@ -94,8 +95,9 @@ const LiveDashboardFilterRow = ({
     setEditing: (isEditing: boolean) => void
 }): JSX.Element => {
     const [displayFilters, setDisplayFilters] = useState(false)
-    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter } = useValues(webAnalyticsLogic)
-    const { setDeviceTypeFilter, setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters, deviceTypeFilter, validatedDomainFilter, isPathCleaningEnabled } =
+        useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter, setWebAnalyticsFilters, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { clearFilters } = useActions(webAnalyticsFilterLogic)
     const { isRefreshing } = useValues(liveWebAnalyticsMetricsLogic)
 
@@ -213,6 +215,7 @@ const LiveDashboardFilterRow = ({
                             Filters
                         </LemonButton>
                     </Popover>
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
                     <WebAnalyticsDomainSelector />
                 </>
             }
