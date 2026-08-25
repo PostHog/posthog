@@ -31,6 +31,12 @@ from products.notebooks.backend.temporal import frame_materialize
 _DISPATCH_TARGET = "products.notebooks.backend.temporal.client.start_frame_materialize_workflow"
 
 
+def _printed_sql(sql: str = "SELECT 1") -> frame_materialize._PrintedFrameSQL:
+    return frame_materialize._PrintedFrameSQL(
+        sql=sql, values={}, passes=1, print_seconds=0.0, describe_seconds=0.0, resolve_seconds=0.0
+    )
+
+
 def _per_query_memory_error() -> ClickHouseQueryMemoryLimitExceeded:
     # wrap_clickhouse_query_error sets this out of band, and it defaults to False — the
     # cluster-pressure reading. Only the query's own budget overrun is terminal.
@@ -126,7 +132,7 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         inputs, manager = self._registered_inputs()
 
         with (
-            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=_printed_sql()),
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize.ClickHouseClient, "post_query", side_effect=clickhouse_error),
         ):
@@ -148,7 +154,7 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
 
         with self.settings(OBJECT_STORAGE_ENABLED=True):
             with (
-                patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+                patch.object(frame_materialize, "_print_clickhouse_sql", return_value=_printed_sql()),
                 patch.object(frame_materialize, "_materialize_slots"),
                 patch.object(frame_materialize.ClickHouseClient, "post_query") as post_query,
                 patch.object(
@@ -184,7 +190,7 @@ class TestFrameMaterializeEnqueue(APIBaseTest):
         inputs, manager = self._registered_inputs()
 
         with (
-            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=_printed_sql()),
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize.ClickHouseClient, "post_query") as post_query,
             patch.object(frame_materialize.frame_store, "write_stream", side_effect=ObjectStorageError("torn")),
@@ -352,7 +358,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         inputs, manager = _registered_inputs(self.team.id, self.notebook.short_id, self.user.id, ch_writes=True)
 
         with (
-            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=_printed_sql()),
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize, "sync_execute", side_effect=error),
         ):
@@ -375,7 +381,7 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         key = frame_store.build_frame_key(inputs.team_id, inputs.notebook_short_id, inputs.query_hash)
 
         with (
-            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=("SELECT 1", {})),
+            patch.object(frame_materialize, "_print_clickhouse_sql", return_value=_printed_sql()),
             patch.object(frame_materialize, "_materialize_slots"),
             patch.object(frame_materialize, "sync_execute", return_value=None),
             patch.object(
@@ -457,7 +463,7 @@ class TestFrameMaterializeKillSwitchCaps(APIBaseTest):
     )
     def test_printed_sql_carries_kill_switch_ceilings(self, _name: str, overrides: dict[str, int]):
         with patch.object(frame_materialize, "kill_switch_overrides", return_value=overrides):
-            sql, _values = frame_materialize._generate_sql(self.team, self.user, "select 1", output_format=None)
+            sql = frame_materialize._generate_sql(self.team, self.user, "select 1", output_format=None).sql
 
         memory_ceiling = overrides.get("max_memory_usage")
         if memory_ceiling is None:
@@ -468,3 +474,34 @@ class TestFrameMaterializeKillSwitchCaps(APIBaseTest):
         # rather than widen them to the kill switch's looser numbers.
         assert f"max_threads={frame_materialize._MAX_THREADS}" in sql
         assert f"max_bytes_to_read={frame_materialize._MAX_BYTES_TO_READ}" in sql
+
+
+class TestFrameMaterializePrintPasses(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("arrow_safe_column", "select 1 as n", [("n", "UInt8")], 1),
+            ("arrow_binary_column", "select 1 as uuid", [("uuid", "UUID")], 2),
+        ]
+    )
+    def test_pass_count_tracks_whether_a_column_needs_stringifying(
+        self, _name: str, query: str, described: list[tuple[str, str]], expected_passes: int
+    ):
+        # The second pass re-prints the whole query through a wrapper and is the dominant
+        # cost of a materialization, so the reported count has to reflect what actually ran.
+        printed = frame_materialize._print_clickhouse_sql(
+            lambda _sql, _values: described, self.team, self.user, query, output_format=None
+        )
+
+        assert printed.passes == expected_passes
+        assert ("toString" in printed.sql) is (expected_passes == 2)
+
+    def test_resolve_time_is_actually_recorded(self):
+        # The reported split reads leaf keys out of HogQLQueryExecutor's own timings, so a
+        # renamed or relocated span downgrades the field to a silent zero rather than an
+        # error — which is exactly how the first version of this shipped, reporting
+        # `create_hogql_database` that the executor never records on this path.
+        printed = frame_materialize._print_clickhouse_sql(
+            lambda _sql, _values: [("n", "UInt8")], self.team, self.user, "select 1 as n", output_format=None
+        )
+
+        assert printed.resolve_seconds > 0

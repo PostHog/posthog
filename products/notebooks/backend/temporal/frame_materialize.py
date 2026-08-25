@@ -218,6 +218,25 @@ FRAME_UPLOAD_SECONDS_HISTOGRAM = Histogram(
     "Time a successful materialize spent blocked on the object-store side of the relay (part handoff and S3 backpressure).",
     buckets=[0.5, 1, 5, 15, 30, 60, 120, 300, 600],
 )
+# The pre-query window, which dominates a materialization's wall clock and which
+# clickhouse_seconds/upload_seconds do not cover: those start once the query is issued.
+# Buckets run finer at the bottom than the transport histograms — these phases are expected
+# to be sub-second, and the interesting signal is one of them quietly not being.
+FRAME_PHASE_SECONDS_HISTOGRAM = Histogram(
+    "posthog_notebooks_frame_phase_seconds",
+    "Wall-clock of one phase of a successful materialize. setup: activity start to the write "
+    "branch (team/user reads, status round-trip, slot acquisition). print: every HogQL print "
+    "pass. describe: the DESCRIBE round-trip. stat: the post-write object HEAD.",
+    labelnames=["phase"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60],
+)
+FRAME_PRINT_PASSES_COUNTER = Counter(
+    "posthog_notebooks_frame_print_passes",
+    "Materializations by how many HogQL print passes they needed. A frame selecting a column "
+    "ClickHouse emits as Arrow binary (UUID, Enum, IP, FixedString) needs a second pass, so "
+    "this is how often the expensive shape is hit.",
+    labelnames=["passes"],
+)
 
 
 @dataclass
@@ -352,13 +371,26 @@ def _capped_settings(team_id: int) -> HogQLGlobalSettings:
     return settings
 
 
+@frozen
+class _GeneratedSQL:
+    sql: str
+    values: dict[str, object]
+    seconds: float
+    # The executor's own split of that wall clock. Resolving is the step expected to dominate
+    # and the one a wrapper pass repeats in full, so it is worth separating from parsing and
+    # from emitting the string.
+    parse_seconds: float
+    resolve_seconds: float
+    print_ast_seconds: float
+
+
 def _generate_sql(
     team: Team,
     user: User | None,
     query: "str | ast.SelectQuery | ast.SelectSetQuery",
     *,
     output_format: str | None,
-) -> tuple[str, dict[str, object]]:
+) -> _GeneratedSQL:
     """Print HogQL to guarded ClickHouse SQL with the standing caps applied."""
     executor = HogQLQueryExecutor(
         query=query,
@@ -371,8 +403,29 @@ def _generate_sql(
     )
     if output_format:
         executor.context.output_format = output_format
+    started = time.perf_counter()
     sql, context = executor.generate_clickhouse_sql()
-    return sql, context.values
+    seconds = time.perf_counter() - started
+    recorded = executor.timings.to_dict()
+    return _GeneratedSQL(
+        sql=sql,
+        values=context.values,
+        seconds=seconds,
+        parse_seconds=_hogql_leaf_seconds(recorded, "query"),
+        resolve_seconds=_hogql_leaf_seconds(recorded, "prepare_ast_for_printing"),
+        print_ast_seconds=_hogql_leaf_seconds(recorded, "print_prepared_ast"),
+    )
+
+
+def _hogql_leaf_seconds(recorded: dict[str, float], leaf: str) -> float:
+    """Sum every span the executor recorded under `leaf`.
+
+    Keys are hierarchical (`./a/b/prepare_ast_for_printing`) and one print records the step
+    once per dialect, plus once more per subquery, so match the leaf rather than a fixed path.
+    Deliberately not `create_hogql_database`: the executor builds the schema itself before the
+    printer's guarded span, so that key is never recorded on this path and would read as 0.
+    """
+    return sum(seconds for key, seconds in recorded.items() if key.rsplit("/", 1)[-1] == leaf)
 
 
 _DescribeFn = Callable[[str, dict[str, object]], list[tuple[str, str]]]
@@ -439,9 +492,22 @@ def _stringify_function_for(ch_type: str) -> str | None:
     return None
 
 
+@frozen
+class _PrintedFrameSQL:
+    sql: str
+    values: dict[str, object]
+    # 2 whenever the query is re-printed through a stringifying wrapper. Reported rather than
+    # kept internal: the second pass is its own full parse/resolve/print, so it is the largest
+    # controllable slice of the pre-query window and worth watching per-run.
+    passes: int
+    print_seconds: float
+    describe_seconds: float
+    resolve_seconds: float
+
+
 def _print_clickhouse_sql(
     describe: _DescribeFn, team: Team, user: User | None, query: str, *, output_format: str | None
-) -> tuple[str, dict[str, object]]:
+) -> _PrintedFrameSQL:
     """Print the HogQL to guarded ClickHouse SQL with the standing caps.
 
     Two passes when needed (the data-modeling recipe): print once, DESCRIBE the printed
@@ -452,13 +518,27 @@ def _print_clickhouse_sql(
     where the s3() function argument defines the object format and a FORMAT clause would
     be invalid inside the INSERT.
     """
-    plain_sql, plain_values = _generate_sql(team, user, query, output_format=None)
-    described = describe(plain_sql, plain_values)
+    plain = _generate_sql(team, user, query, output_format=None)
+    describe_started = time.perf_counter()
+    described = describe(plain.sql, plain.values)
+    describe_seconds = time.perf_counter() - describe_started
     conversions = [(name, _stringify_function_for(ch_type)) for name, ch_type in described]
+
+    def printed(second: _GeneratedSQL | None) -> _PrintedFrameSQL:
+        last = second or plain
+        return _PrintedFrameSQL(
+            sql=last.sql,
+            values=last.values,
+            passes=2 if second else 1,
+            print_seconds=plain.seconds + (second.seconds if second else 0.0),
+            describe_seconds=describe_seconds,
+            resolve_seconds=plain.resolve_seconds + (second.resolve_seconds if second else 0.0),
+        )
+
     if not any(function for _name, function in conversions):
         if output_format is None:
-            return plain_sql, plain_values
-        return _generate_sql(team, user, query, output_format=output_format)
+            return printed(None)
+        return printed(_generate_sql(team, user, query, output_format=output_format))
     select_fields: list[ast.Expr] = [
         ast.Alias(expr=ast.Call(name=function, args=[ast.Field(chain=[name])]), alias=name)
         if function
@@ -466,7 +546,7 @@ def _print_clickhouse_sql(
         for name, function in conversions
     ]
     stringified = ast.SelectQuery(select=select_fields, select_from=ast.JoinExpr(table=parse_select(query)))
-    return _generate_sql(team, user, stringified, output_format=output_format)
+    return printed(_generate_sql(team, user, stringified, output_format=output_format))
 
 
 class FrameTooLargeError(Exception):
@@ -538,23 +618,31 @@ def _bounded_offline_client(team_id: int) -> AbstractContextManager:
     return pool.get_client()
 
 
-def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -> tuple[int, float]:
-    """Materialize by having ClickHouse write the object itself; return (bytes, CH seconds).
+@frozen
+class _WrittenFrame:
+    object_bytes: int
+    clickhouse_seconds: float
+    stat_seconds: float
+    printed: _PrintedFrameSQL
+
+
+def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -> _WrittenFrame:
+    """Materialize by having ClickHouse write the object itself.
 
     Runs through the pooled native clients (sync_execute) with a bounded socket timeout:
     offline workload and hedging hygiene come from the workload routing, errors arrive
     in-band and typed, and no result bytes transit the worker — so the streaming path's
     EOS-marker check and query_log recovery have no equivalent here.
     """
-    printed_sql, values = _print_clickhouse_sql(
+    printed = _print_clickhouse_sql(
         lambda sql, sql_values: _describe_columns_pooled(sql, sql_values, team.pk),
         team,
         user,
         query,
         output_format=None,
     )
-    insert_sql, s3_params = _insert_into_s3_sql(printed_sql, key)
-    insert_values = {**values, **s3_params}
+    insert_sql, s3_params = _insert_into_s3_sql(printed.sql, key)
+    insert_values = {**printed.values, **s3_params}
     ch_settings = {
         # Idempotent retries: a re-attempt overwrites the object, never appends.
         "s3_truncate_on_insert": 1,
@@ -577,7 +665,9 @@ def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -
     clickhouse_seconds = time.perf_counter() - query_started
     # Freshness margin covers worker↔object-store clock skew without admitting a
     # hours-stale prior-run object (see stat_frame).
+    stat_started = time.perf_counter()
     object_bytes = frame_store.stat_frame(key, written_after=write_started_at - dt.timedelta(minutes=5))
+    stat_seconds = time.perf_counter() - stat_started
     if object_bytes > _MAX_RESULT_BYTES:
         # max_result_bytes bounds result sets returned to a client, not an INSERT's sink —
         # the output cap has to be enforced after the fact on this path. The bytes are
@@ -585,7 +675,12 @@ def _execute_insert_to_s3(team: Team, user: User | None, query: str, key: str) -
         with suppress(ObjectStorageError):
             frame_store.delete_frame(key)
         raise FrameTooLargeError(f"Frame object is {object_bytes} bytes, over the {_MAX_RESULT_BYTES} budget")
-    return object_bytes, clickhouse_seconds
+    return _WrittenFrame(
+        object_bytes=object_bytes,
+        clickhouse_seconds=clickhouse_seconds,
+        stat_seconds=stat_seconds,
+        printed=printed,
+    )
 
 
 def _finalize_status(
@@ -726,6 +821,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
 
     attempt = activity.info().attempt if activity.in_activity() else 1
     started_at = dt.datetime.now(dt.UTC)
+    activity_started = time.perf_counter()
 
     try:
         status = manager.get_query_status()
@@ -757,8 +853,17 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                 # limiter is saturated. A blocked attempt now costs one Redis eval and
                 # nothing else; the extra slot-hold (~100-300ms of print/describe) is noise
                 # against the stream duration.
+                # Everything before the write branch: team/user reads, the status round-trip,
+                # and slot acquisition. Measured because the pre-query window dominates a
+                # materialization's wall clock and was previously indivisible.
+                setup_seconds = time.perf_counter() - activity_started
+                stat_seconds = 0.0
                 if ch_writes:
-                    object_bytes, clickhouse_seconds = _execute_insert_to_s3(team, user, inputs.query, key)
+                    written = _execute_insert_to_s3(team, user, inputs.query, key)
+                    object_bytes = written.object_bytes
+                    clickhouse_seconds = written.clickhouse_seconds
+                    stat_seconds = written.stat_seconds
+                    printed = written.printed
                     upload_seconds = None  # CH performs the upload; the relay split doesn't exist
                 else:
                     client = ClickHouseClient(
@@ -783,7 +888,7 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                         # as a kwarg so the online path sends no such setting at all, exactly
                         # as it did before this flag existed.
                         client.params["use_hedged_requests"] = "0"
-                    printed_sql, context_values = _print_clickhouse_sql(
+                    printed = _print_clickhouse_sql(
                         lambda sql, sql_values: _describe_columns(client, sql, sql_values, ch_query_id),
                         team,
                         user,
@@ -792,8 +897,8 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
                     )
                     query_started = time.perf_counter()
                     with client.post_query(
-                        printed_sql,
-                        query_parameters=context_values,
+                        printed.sql,
+                        query_parameters=printed.values,
                         query_id=ch_query_id,
                         timeout=(_STREAM_CONNECT_TIMEOUT_SECONDS, _STREAM_READ_TIMEOUT_SECONDS),
                     ) as response:
@@ -986,6 +1091,11 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         # Only the worker-relay path has an observable upload half; a stream of zeros from
         # the CH-writes path would poison the histogram this split exists to interpret.
         FRAME_UPLOAD_SECONDS_HISTOGRAM.observe(upload_seconds)
+    FRAME_PHASE_SECONDS_HISTOGRAM.labels(phase="setup").observe(setup_seconds)
+    FRAME_PHASE_SECONDS_HISTOGRAM.labels(phase="print").observe(printed.print_seconds)
+    FRAME_PHASE_SECONDS_HISTOGRAM.labels(phase="describe").observe(printed.describe_seconds)
+    FRAME_PHASE_SECONDS_HISTOGRAM.labels(phase="stat").observe(stat_seconds)
+    FRAME_PRINT_PASSES_COUNTER.labels(passes=str(printed.passes)).inc()
     logger.info(
         "notebook_frame_materialized",
         team_id=inputs.team_id,
@@ -995,6 +1105,12 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
         ch_writes=ch_writes,
         clickhouse_seconds=round(clickhouse_seconds, 3),
         upload_seconds=round(upload_seconds, 3) if upload_seconds is not None else None,
+        setup_seconds=round(setup_seconds, 3),
+        print_seconds=round(printed.print_seconds, 3),
+        print_passes=printed.passes,
+        describe_seconds=round(printed.describe_seconds, 3),
+        resolve_seconds=round(printed.resolve_seconds, 3),
+        stat_seconds=round(stat_seconds, 3),
     )
     return key
 
