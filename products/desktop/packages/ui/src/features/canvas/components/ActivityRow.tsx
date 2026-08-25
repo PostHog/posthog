@@ -1,6 +1,7 @@
 import {
   ChatCircleIcon,
   CheckIcon,
+  ChecksIcon,
   LinkIcon,
   QuestionIcon,
 } from "@phosphor-icons/react";
@@ -28,7 +29,7 @@ function AgentActivityIcon({
 }): ReactElement {
   switch (kind) {
     case "check":
-      return <CheckIcon size={13} weight="bold" className={className} />;
+      return <ChecksIcon size={13} weight="bold" className={className} />;
     case "question":
       return <QuestionIcon size={12} weight="bold" className={className} />;
     case "chat":
@@ -103,7 +104,10 @@ export function ActivityRow({
       >
         <span className="mt-0.5 shrink-0">
           {presentation.agentIcon ? (
-            <Avatar size="xs" className={agentIconWrapperClassName}>
+            <Avatar
+              size="xs"
+              className={cn(agentIconWrapperClassName, compact && "size-4")}
+            >
               <AvatarFallback>
                 <AgentActivityIcon
                   kind={presentation.agentIcon}
@@ -113,7 +117,11 @@ export function ActivityRow({
             </Avatar>
           ) : (
             <span className="mt-1 flex shrink-0">
-              <UserAvatar user={item.author ?? currentUser} size="xs" />
+              <UserAvatar
+                user={item.author ?? currentUser}
+                size="xs"
+                className={compact ? "size-4" : undefined}
+              />
             </span>
           )}
         </span>
