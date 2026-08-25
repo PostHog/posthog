@@ -585,7 +585,7 @@ async fn process_team(
 }
 
 /// Outcome of a single shadow compare, mapped 1:1 onto a `SHADOW_BUILDS` outcome
-/// label by `process_shadow_team`.
+/// label via `as_label`.
 enum ShadowOutcome {
     Match,
     Mismatch(ShadowObservation),
@@ -595,10 +595,23 @@ enum ShadowOutcome {
     /// The shadow build or the live-entry read failed. Dropped and counted on
     /// the shadow-only failure counter — never the real-build failure metric
     /// (which pages) and never the DLQ (which is the real path's triage queue).
-    Failed {
-        category: &'static str,
-        message: String,
-    },
+    Failed(BuildFailure),
+}
+
+impl ShadowOutcome {
+    /// The `SHADOW_BUILDS{outcome}` label. Every outcome maps to exactly one
+    /// label, so the counter's unlabelled sum is the processed count.
+    fn as_label(&self) -> &'static str {
+        match self {
+            Self::Match => "match",
+            Self::LiveEntryMissing => "live_entry_missing",
+            Self::Failed(_) => "error",
+            Self::Mismatch(observation) if observation.confirmed.is_empty() => {
+                "mismatch_suppressed"
+            }
+            Self::Mismatch(_) => "mismatch_confirmed",
+        }
+    }
 }
 
 /// Run one team's shadow compare and emit its telemetry. Never writes to the
@@ -616,25 +629,14 @@ async fn process_shadow_team(
     // Recorded for every outcome: the per-team wall time delays the next batch
     // whether the compare matched, mismatched, or failed.
     metrics::histogram!(SHADOW_BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
+    metrics::counter!(SHADOW_BUILDS, "outcome" => outcome.as_label()).increment(1);
     match outcome {
-        ShadowOutcome::Match => {
-            metrics::counter!(SHADOW_BUILDS, "outcome" => "match").increment(1);
-        }
-        ShadowOutcome::LiveEntryMissing => {
-            metrics::counter!(SHADOW_BUILDS, "outcome" => "live_entry_missing").increment(1);
-        }
-        ShadowOutcome::Failed { category, message } => {
-            metrics::counter!(SHADOW_BUILDS, "outcome" => "error").increment(1);
-            metrics::counter!(SHADOW_FAILURES, "category" => category).increment(1);
-            tracing::warn!(team_id, category, error = %message, "Shadow build failed; dropping (not DLQ'd)");
+        ShadowOutcome::Match | ShadowOutcome::LiveEntryMissing => {}
+        ShadowOutcome::Failed(failure) => {
+            metrics::counter!(SHADOW_FAILURES, "category" => failure.category).increment(1);
+            tracing::warn!(team_id, category = failure.category, error = %failure.message, "Shadow build failed; dropping (not DLQ'd)");
         }
         ShadowOutcome::Mismatch(observation) => {
-            let outcome = if observation.confirmed.is_empty() {
-                "mismatch_suppressed"
-            } else {
-                "mismatch_confirmed"
-            };
-            metrics::counter!(SHADOW_BUILDS, "outcome" => outcome).increment(1);
             for diff in &observation.confirmed {
                 metrics::counter!(SHADOW_MISMATCH, "issue_type" => diff.issue_type.as_label())
                     .increment(1);
@@ -660,6 +662,12 @@ async fn process_shadow_team(
 /// against the live Redis entry instead of persisting it. Redis-only read: the
 /// point is what the serve path's cache tier holds right now, and an S3 cascade
 /// would blur "Python hasn't built this team yet" into a comparison.
+///
+/// The read shares the hypercache reader's miss-reason counter
+/// (`hypercache_redis_miss_reason{reason="not_found"}`), so shadow builds of
+/// teams Python hasn't built yet count there too. The builder is its own scrape
+/// job, so dashboards scoped to the flags service are unaffected — but
+/// aggregations of that counter across jobs should filter the builder out.
 async fn shadow_compare(
     pg_reader: &PostgresReader,
     live_reader: &HyperCacheReader,
@@ -668,12 +676,7 @@ async fn shadow_compare(
 ) -> ShadowOutcome {
     let built = match build_flags_cache(pg_reader.clone(), team_id).await {
         Ok(built) => built,
-        Err(e) => {
-            return ShadowOutcome::Failed {
-                category: "database",
-                message: e.to_string(),
-            }
-        }
+        Err(e) => return ShadowOutcome::Failed(BuildFailure::database(e)),
     };
 
     let live = match live_reader
@@ -684,18 +687,7 @@ async fn shadow_compare(
         // The `__missing__` sentinel and an absent key both mean "nothing to
         // compare against", not drift.
         Ok(None) | Err(HyperCacheError::CacheMiss) => return ShadowOutcome::LiveEntryMissing,
-        Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
-            return ShadowOutcome::Failed {
-                category: "cache_parse",
-                message: e.to_string(),
-            }
-        }
-        Err(e) => {
-            return ShadowOutcome::Failed {
-                category: "redis",
-                message: e.to_string(),
-            }
-        }
+        Err(e) => return ShadowOutcome::Failed(BuildFailure::from_live_read(e)),
     };
 
     let diffs = diff_live_entry(&built, &live);
@@ -722,6 +714,22 @@ impl BuildFailure {
     fn database(err: impl std::fmt::Display) -> Self {
         Self {
             category: "database",
+            message: err.to_string(),
+        }
+    }
+
+    /// A failure reading the live entry during a shadow compare. `Json`/`Pickle`
+    /// mean the cached bytes didn't parse into the typed model (`cache_parse` —
+    /// distinct from the write path's `serialize`); everything else is the Redis
+    /// tier, including timeouts. `CacheMiss` never reaches here — the caller
+    /// maps it to `LiveEntryMissing` first.
+    fn from_live_read(err: HyperCacheError) -> Self {
+        let category = match err {
+            HyperCacheError::Json(_) | HyperCacheError::Pickle(_) => "cache_parse",
+            _ => "redis",
+        };
+        Self {
+            category,
             message: err.to_string(),
         }
     }
@@ -1008,7 +1016,7 @@ mod tests {
 
     use super::{
         fold_message, max_per_partition, retry_backoff, truncate_for_header, BuildFailure,
-        TeamBatch, DLQ_ERROR_HEADER_MAX,
+        ShadowOutcome, TeamBatch, DLQ_ERROR_HEADER_MAX,
     };
 
     // (partition, offset) pairs; keyed and valued by the two fields.
@@ -1170,6 +1178,103 @@ mod tests {
             BuildFailure::database("pg unreachable").category,
             "database"
         );
+    }
+
+    #[test]
+    fn build_failure_attributes_live_read_errors_to_their_tier() {
+        use common_hypercache::HyperCacheError;
+        use common_redis::CustomRedisError;
+
+        // Shadow live-read categories: parse failures mean the cached bytes
+        // don't fit the typed model (persistent, worth triaging apart), while
+        // Redis/timeout errors are the transport tier.
+        let cases = [
+            (
+                HyperCacheError::Json(serde_json::from_str::<i32>("x").unwrap_err()),
+                "cache_parse",
+            ),
+            (HyperCacheError::Pickle("bad pickle".into()), "cache_parse"),
+            (HyperCacheError::Redis(CustomRedisError::Timeout), "redis"),
+            (HyperCacheError::Timeout("redis timeout".into()), "redis"),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(BuildFailure::from_live_read(err).category, expected);
+        }
+    }
+
+    /// Build a real `ShadowObservation` through the public diff + tracker API:
+    /// one observation is a first sighting (suppressed), two consecutive ones
+    /// confirm.
+    fn shadow_observation(
+        confirmed: bool,
+    ) -> feature_flags::flags::cache_shadow::ShadowObservation {
+        use feature_flags::flags::cache_shadow::{
+            diff_live_entry, MismatchTracker, ShadowLiveEntry,
+        };
+        use feature_flags::flags::flag_models::{
+            EvaluationMetadata, FeatureFlag, HypercacheFlagsWrapper,
+        };
+        use std::time::{Duration as StdDuration, Instant};
+
+        let flag = |has_experiment: bool| -> FeatureFlag {
+            serde_json::from_value(serde_json::json!({
+                "id": 1,
+                "team_id": 1,
+                "key": "flag-1",
+                "filters": {"groups": []},
+                "active": true,
+                "deleted": false,
+                "has_experiment": has_experiment,
+            }))
+            .expect("flag json must parse")
+        };
+        let built = HypercacheFlagsWrapper {
+            flags: vec![flag(false)],
+            evaluation_metadata: EvaluationMetadata::default(),
+            cohorts: Some(Vec::new()),
+        };
+        let live = ShadowLiveEntry {
+            flags: vec![flag(true)],
+            evaluation_metadata: Some(EvaluationMetadata::default()),
+            cohorts: Some(Vec::new()),
+        };
+
+        let mut tracker = MismatchTracker::new(StdDuration::from_secs(3600));
+        let now = Instant::now();
+        let first = tracker.observe(1, diff_live_entry(&built, &live), now);
+        if !confirmed {
+            return first;
+        }
+        tracker.observe(
+            1,
+            diff_live_entry(&built, &live),
+            now + StdDuration::from_secs(1),
+        )
+    }
+
+    #[test]
+    fn shadow_outcome_maps_to_exactly_the_documented_labels() {
+        // The outcome label is the shadow window's primary telemetry; a wrong
+        // label here misreads the ramp with no other test catching it.
+        let cases = [
+            (ShadowOutcome::Match, "match"),
+            (ShadowOutcome::LiveEntryMissing, "live_entry_missing"),
+            (
+                ShadowOutcome::Failed(BuildFailure::database("pg unreachable")),
+                "error",
+            ),
+            (
+                ShadowOutcome::Mismatch(shadow_observation(false)),
+                "mismatch_suppressed",
+            ),
+            (
+                ShadowOutcome::Mismatch(shadow_observation(true)),
+                "mismatch_confirmed",
+            ),
+        ];
+        for (outcome, expected) in cases {
+            assert_eq!(outcome.as_label(), expected);
+        }
     }
 
     #[test]

@@ -1912,6 +1912,17 @@ mod tests {
         let payload = serde_json::to_string(&make_test_flags()).unwrap();
         let fixture = redis_miss_s3_hit_fixture(create_test_config(), &payload);
 
+        // First prove S3 really holds the value — the cascading read returns it —
+        // so the Redis-only miss below is a refusal to fall back, not a vacuous
+        // pass against an empty fixture.
+        let (cascaded, source) = fixture
+            .reader
+            .get_typed_with_source::<TestFlags>(&fixture.team_key)
+            .await
+            .unwrap();
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(cascaded, Some(make_test_flags()));
+
         let result = fixture
             .reader
             .get_typed_from_redis::<TestFlags>(&fixture.team_key)
