@@ -91,6 +91,7 @@ from posthog.schema import (
     TrendsQuery,
     UsageMetricsQuery,
     VectorSearchQuery,
+    WebAgentAnalyticsQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
@@ -869,6 +870,18 @@ def get_query_runner(
 
         return WebBotsTableQueryRunner(
             query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "WebAgentAnalyticsQuery":
+        from products.web_analytics.backend.hogql_queries.web_agent_analytics import WebAgentAnalyticsQueryRunner
+
+        return WebAgentAnalyticsQueryRunner(
+            query=cast(WebAgentAnalyticsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             modifiers=modifiers,
