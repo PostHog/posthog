@@ -291,24 +291,30 @@ export function LemonInputSelect<T = string>({
         [optionMaps]
     )
 
-    const fuseRef = useRef<Fuse<LemonInputSelectOption<T>>>(
-        createFuse(options, {
+    // Build the Fuse index once, not on every render. setCollection below keeps it current.
+    const fuseRef = useRef<Fuse<LemonInputSelectOption<T>> | null>(null)
+    if (fuseRef.current === null) {
+        fuseRef.current = createFuse(options, {
             keys: ['label', 'key'],
         })
-    )
+    }
 
     const separateOnComma = allowCustomValues && mode === 'multiple' && !disableCommaSplitting
 
     // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent and non-string tooltips are not serializable
-    const optionsKey = JSON.stringify(options, (key, value) => {
-        if (key === 'labelComponent') {
-            return value?.name
-        }
-        if (key === 'tooltip' && typeof value !== 'string') {
-            return value?.type?.name
-        }
-        return value
-    })
+    const optionsKey = useMemo(
+        () =>
+            JSON.stringify(options, (key, value) => {
+                if (key === 'labelComponent') {
+                    return value?.name
+                }
+                if (key === 'tooltip' && typeof value !== 'string') {
+                    return value?.type?.name
+                }
+                return value
+            }),
+        [options]
+    )
     const stringKeys = values.map(getStringKey)
     const valuesKey = JSON.stringify(stringKeys)
     const allOptionsMap: Map<string, LemonInputSelectOption<T>> = useMemo(() => {
@@ -325,7 +331,7 @@ export function LemonInputSelect<T = string>({
             allOptionsMap.set(option.key, option)
         }
         // The below is a side effect (boo!) - but it's fine, since it's idempotent
-        fuseRef.current.setCollection(Array.from(allOptionsMap.values()))
+        fuseRef.current!.setCollection(Array.from(allOptionsMap.values()))
         return allOptionsMap
     }, [optionsKey, valuesKey, optionMaps, options, stringKeys])
 
@@ -346,7 +352,7 @@ export function LemonInputSelect<T = string>({
         let relevantOptions: LemonInputSelectOption<T>[]
         if (!disableFiltering && inputValue) {
             // If filtering is enabled and there's input, perform fuzzy search…
-            const results = fuseRef.current.search(inputValue)
+            const results = fuseRef.current!.search(inputValue)
             relevantOptions = results.map((result) => result.item)
         } else {
             // …otherwise show all options
