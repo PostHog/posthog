@@ -761,6 +761,22 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Supavisor reports ENETUNREACH (no route to the upstream backend's network) with its
+            # erlang-tuple wording, which never contains libpq's "Network is unreachable". Distinct
+            # from the sibling ":etimedout"/":econnrefused" tuples, which are transient and retryable.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  Failed to connect to database: {:error, :enetunreach}',
+            'connection failed: connection to server at "203.0.113.20", port 6543 failed: FATAL:  Failed to connect to database: {:error, :enetunreach}',
+        ],
+    )
+    def test_supavisor_enetunreach_pooler_routing_failure_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, f"Supavisor enetunreach routing failure should surface an actionable message: {error_msg}"
+        assert "IPv4" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Supabase Supavisor rejects a connection with no tenant identifier when the pooler
             # username omits the project ref. The host/IP and port are volatile; the message is stable.
             'connection failed: connection to server at "54.255.219.82", port 5432 failed: FATAL:  (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname required)',
