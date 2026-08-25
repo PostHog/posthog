@@ -484,6 +484,7 @@ export function createCdpCoreServices(
         hogFlowFunctionsService,
         recipientPreferencesService,
         emailValidationService,
+        cohortMembershipRepository,
         hogFlowDuplicateObserver
     )
 
