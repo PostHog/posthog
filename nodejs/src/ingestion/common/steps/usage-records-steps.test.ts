@@ -95,6 +95,16 @@ describe('usage-records-steps', () => {
         expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(2)
     })
 
+    it('bills two events apart when only the position of a newline differs', async () => {
+        const acknowledged = (): Promise<IngestedEventInfo> => Promise.resolve({ topic: 'events', partition: 0 })
+        await queueEventUsage([acknowledged()], { event: 'a\nb', distinctId: 'c' })
+        await queueEventUsage([acknowledged()], { event: 'a', distinctId: 'b\nc' })
+
+        await eventUsageBatch.flush()
+
+        expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(2)
+    })
+
     it('reports the event usage payload only after Kafka acknowledges the write', async () => {
         let acknowledgeKafka!: (info: IngestedEventInfo) => void
         const kafkaAcknowledgement = new Promise<IngestedEventInfo>((resolve) => {
