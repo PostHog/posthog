@@ -278,14 +278,20 @@ def scan_existing_scanner(
     *, scanner: ReplayScanner, session_ids: list[str], user: User
 ) -> tuple[int, list[dict[str, str]]]:
     """Point a saved scanner at named sessions."""
-    ineligible = sessions_without_replay_data(team=scanner.team, session_ids=session_ids)
+    # Resolve settled sessions first: a terminal observation keeps its answer even after the recording
+    # expires from ClickHouse, so `already_scanned` outranks `no_replay_data`. Only sessions a scan
+    # could still start on are worth a replay-data lookup.
+    finished = finished_sessions(scanner, session_ids)
+    ineligible = sessions_without_replay_data(
+        team=scanner.team, session_ids=[s for s in session_ids if s not in finished]
+    )
     eligible = [session_id for session_id in session_ids if session_id not in ineligible]
     started, results = start_observations(
         scanner=scanner,
         session_ids=eligible,
         user=user,
         headroom=scan_headroom(team=scanner.team, model=scanner.model, scanner=scanner),
-        finished=finished_sessions(scanner, eligible),
+        finished=finished,
     )
     return started, _merge_ineligible(session_ids=session_ids, ineligible=ineligible, eligible_results=results)
 
@@ -310,10 +316,14 @@ def run_inline_scan(
     config_error = scanner_config_error(scanner_type, scanner_config)
     if config_error is not None:
         raise ValueError(config_error)
-    ineligible = sessions_without_replay_data(team=team, session_ids=session_ids)
-    eligible = [session_id for session_id in session_ids if session_id not in ineligible]
     key = inline_scan_key(scanner_type=scanner_type, scanner_config=scanner_config, model=model)
     scanner = find_inline_scanner(team=team, key=key)
+    # Resolve settled sessions first: a terminal observation keeps its answer even after the recording
+    # expires from ClickHouse, so `already_scanned` outranks `no_replay_data`. A scanner that does not
+    # exist yet has settled nothing; only sessions a scan could still start on are worth the lookup.
+    finished: frozenset[str] = finished_sessions(scanner, session_ids) if scanner is not None else frozenset()
+    ineligible = sessions_without_replay_data(team=team, session_ids=[s for s in session_ids if s not in finished])
+    eligible = [session_id for session_id in session_ids if session_id not in ineligible]
     headroom = scan_headroom(team=team, model=model, scanner=scanner)
     if scanner is None:
         # Mint only once something can actually start. Otherwise an org with no headroom, or a batch
@@ -335,10 +345,6 @@ def run_inline_scan(
             scanner_config=scanner_config,
             model=model,
         )
-        # A scanner that did not exist a statement ago has no observations to have settled.
-        finished: frozenset[str] = frozenset()
-    else:
-        finished = finished_sessions(scanner, eligible)
 
     started, results = start_observations(
         scanner=scanner, session_ids=eligible, user=user, headroom=headroom, finished=finished

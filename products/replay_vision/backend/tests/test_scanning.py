@@ -4,11 +4,15 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome
+from products.replay_vision.backend.inline_scan import create_inline_scanner, inline_scan_key
+from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
 
@@ -69,6 +73,28 @@ class TestScanEligibility(BaseTest):
             model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
+    def _existing_scanner(self, entry_point: str) -> ReplayScanner:
+        # Match `_start_inline`'s config so `run_inline_scan` resolves to this scanner via its inline key.
+        config = {"prompt": "did the user check out?"}
+        if entry_point == "inline":
+            key = inline_scan_key(
+                scanner_type=ScannerType.MONITOR, scanner_config=config, model=ScannerModel.GEMINI_3_7_FLASH
+            )
+            return create_inline_scanner(
+                team=self.team,
+                key=key,
+                scanner_type=ScannerType.MONITOR,
+                scanner_config=config,
+                model=ScannerModel.GEMINI_3_7_FLASH,
+            )
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="my-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config=config,
+            model=ScannerModel.GEMINI_3_7_FLASH,
+        )
+
     @parameterized.expand(["inline", "saved"])
     @pytest.mark.django_db
     def test_a_session_with_no_replay_data_never_starts_a_workflow(self, entry_point: str):
@@ -94,6 +120,38 @@ class TestScanEligibility(BaseTest):
         # Order matters: the caller reads outcomes back positionally against the batch it sent.
         assert [r["session_id"] for r in results] == ["watchable", "gone"]
         assert results[1]["scan_outcome"] == "no_replay_data"
+        assert [call.args[1] for call in mock_start.call_args_list] == ["watchable"]
+
+    @parameterized.expand(["inline", "saved"])
+    @pytest.mark.django_db
+    def test_a_settled_session_reports_already_scanned_even_after_its_recording_expires(self, entry_point: str):
+        # A recording drops out of ClickHouse at retention while its terminal observation lives on in
+        # Postgres. The answer is still readable, so the session must keep reporting `already_scanned`
+        # rather than being relabeled `no_replay_data`, and no fresh workflow may start for it.
+        scanner = self._existing_scanner(entry_point)
+        ReplayObservation.objects.create(
+            team=self.team,
+            scanner=scanner,
+            session_id="settled",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        with (
+            self._with_replay_data({"watchable"}),
+            patch("products.replay_vision.backend.api.trigger.start_apply_scanner_workflow") as mock_start,
+        ):
+            mock_start.return_value = (None, WorkflowStartOutcome.STARTED)
+            if entry_point == "inline":
+                results = self._start_inline(["settled", "watchable"]).results
+            else:
+                _, results = scan_existing_scanner(
+                    scanner=scanner, session_ids=["settled", "watchable"], user=self.user
+                )
+
+        outcomes = {r["session_id"]: r["scan_outcome"] for r in results}
+        assert outcomes["settled"] == "already_scanned"
+        assert outcomes["watchable"] == "started"
+        # Only the watchable session reaches the workflow starter; the settled one is served from Postgres.
         assert [call.args[1] for call in mock_start.call_args_list] == ["watchable"]
 
     @pytest.mark.django_db
