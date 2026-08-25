@@ -12,11 +12,12 @@ from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 
 from django.apps import apps
+from django.core.cache import cache as django_cache
 from django.core.exceptions import (
     FieldDoesNotExist,
     ValidationError as DjangoValidationError,
 )
-from django.db.models import Model, Q
+from django.db.models import Count, Max, Model, Q
 from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
@@ -47,6 +48,7 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
+from products.access_control.backend.resolution_preview import build_resolution_preview
 
 from .access_control import (
     AccessControlSerializer,
@@ -276,12 +278,44 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_role_objects",
             "access_control_role_properties",
             "access_control_object_search",
+            "access_control_resolution_preview",
         ]:
             return ["access_control:read"]
         if request.method == "PUT" and self.action == "access_control_object_rules":
             return ["access_control:write"]
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_resolution_preview")
+    def access_control_resolution_preview(self, request: Request, *args, **kwargs):
+        """Every access rule on this project that resolves differently under most-specific-wins
+        (RFC 557). Admin only: the records describe other subjects' access. Cached per rule set,
+        so the answer updates the moment any rule changes and repeat opens cost nothing."""
+        team = cast(Team, self.team)  # type: ignore
+        user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+        if not user_access_control.check_can_modify_access_levels_for_object(team):
+            raise exceptions.PermissionDenied("Only administrators can view the resolution preview.")
+
+        fingerprint = AccessControl.objects.filter(team=team).aggregate(count=Count("id"), latest=Max("updated_at"))
+        cache_key = f"access_control_resolution_preview/{team.pk}/{fingerprint['count']}/{fingerprint['latest']}"
+        cached = django_cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        changes = build_resolution_preview(team, user_access_control)
+        payload = {
+            "changes": [asdict(change) for change in changes],
+            "summary": {
+                "total": len(changes),
+                "gains": sum(1 for change in changes if change.direction == "gains"),
+                "loses": sum(1 for change in changes if change.direction == "loses"),
+                "resources": len({change.resource for change in changes if change.scope == "resource"}),
+                "objects": len({(change.resource, change.object_id) for change in changes if change.scope == "object"}),
+            },
+        }
+        django_cache.set(cache_key, payload, timeout=300)
+        return Response(payload)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_defaults")
