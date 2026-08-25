@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DatabaseError, transaction
 
 import requests
 import posthoganalytics
@@ -293,37 +294,55 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     def partial_update(self, request, *args, pk=None, **kwargs):
         try:
-            record = self.organization.proxy_records.get(id=pk)
+            with transaction.atomic():
+                record = self.organization.proxy_records.select_for_update().get(id=pk)
+
+                if not is_cloudflare_proxy_by_cname(record.target_cname):
+                    return Response(
+                        {"detail": "Root redirects are only available for Cloudflare-managed proxies."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
+                serializer.is_valid(raise_exception=True)
+                root_redirect_url = serializer.validated_data["root_redirect_url"]
+                previous_root_redirect_url = record.root_redirect_url
+
+                try:
+                    hostname = get_custom_hostname_by_domain(record.domain)
+                    if hostname is None:
+                        return Response(
+                            {"detail": "Cloudflare could not find this managed proxy hostname."},
+                            status=status.HTTP_502_BAD_GATEWAY,
+                        )
+                    update_custom_hostname_metadata(hostname, {"root_redirect_url": root_redirect_url or ""})
+                except (CloudflareAPIError, requests.RequestException) as error:
+                    capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
+                    return Response(
+                        {"detail": "Cloudflare could not update the root redirect. Please try again."},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
+
+                record.root_redirect_url = root_redirect_url
+                try:
+                    record.save(update_fields=["root_redirect_url", "updated_at"])
+                except DatabaseError:
+                    try:
+                        update_custom_hostname_metadata(
+                            hostname, {"root_redirect_url": previous_root_redirect_url or ""}
+                        )
+                    except (CloudflareAPIError, requests.RequestException) as rollback_error:
+                        capture_exception(rollback_error, {"domain": record.domain, "proxy_record_id": str(record.id)})
+                    raise
         except ProxyRecord.DoesNotExist:
             raise NotFound()
-
-        if not is_cloudflare_proxy_by_cname(record.target_cname):
+        except DatabaseError as error:
+            capture_exception(error, {"organization_id": str(self.organization.id), "proxy_record_id": str(pk)})
             return Response(
-                {"detail": "Root redirects are only available for Cloudflare-managed proxies."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
-        serializer.is_valid(raise_exception=True)
-        root_redirect_url = serializer.validated_data["root_redirect_url"]
-
-        try:
-            hostname = get_custom_hostname_by_domain(record.domain)
-            if hostname is None:
-                return Response(
-                    {"detail": "Cloudflare could not find this managed proxy hostname."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-            update_custom_hostname_metadata(hostname, {"root_redirect_url": root_redirect_url or ""})
-        except (CloudflareAPIError, requests.RequestException) as error:
-            capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
-            return Response(
-                {"detail": "Cloudflare could not update the root redirect. Please try again."},
+                {"detail": "Could not save the root redirect. Please try again."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        record.root_redirect_url = root_redirect_url
-        record.save(update_fields=["root_redirect_url", "updated_at"])
         _capture_proxy_event(request, record, "root redirect updated")
         return Response(ProxyRecordSerializer(record).data)
 

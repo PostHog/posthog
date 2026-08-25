@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -175,6 +176,42 @@ class TestProxyRecordAPI(APIBaseTest):
         record.refresh_from_db()
         assert record.root_redirect_url == "https://www.example.com/welcome"
         update_metadata.assert_called_once_with(hostname, {"root_redirect_url": "https://www.example.com/welcome"})
+
+    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
+    def test_restores_root_redirect_metadata_when_database_write_fails(self, get_hostname, update_metadata):
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="proxy.example.com",
+            target_cname="abc.cf-prod-us-proxy.proxyhog.com",
+            root_redirect_url="https://old.example.com/",
+            status=ProxyRecord.Status.VALID,
+        )
+        hostname = CustomHostname(
+            id="hostname-id",
+            hostname=record.domain,
+            status=CustomHostnameStatus.ACTIVE,
+            ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
+        )
+        get_hostname.return_value = hostname
+
+        with (
+            self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"),
+            patch("posthog.models.ProxyRecord.save", side_effect=DatabaseError("write failed")),
+        ):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+                {"root_redirect_url": "https://new.example.com/"},
+            )
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        update_metadata.assert_has_calls(
+            [
+                call(hostname, {"root_redirect_url": "https://new.example.com/"}),
+                call(hostname, {"root_redirect_url": "https://old.example.com/"}),
+            ]
+        )
 
     @parameterized.expand(
         [
