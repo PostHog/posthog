@@ -60,9 +60,6 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
         assert ErrorTrackingIssue.objects.count() == 1
 
     def test_merge_keeps_state_watermark_monotonic(self):
-        # The watermark is derived as the maximum state_updated_at over live issue rows. A merge
-        # deletes the source rows, so a deleted source that held the maximum must not drag the
-        # watermark backward and re-validate a pre-merge cache entry. Merging stamps the target.
         target = self.create_issue(["fingerprint_target"])
         source = self.create_issue(["fingerprint_source"])
 

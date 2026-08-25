@@ -133,9 +133,7 @@ class ErrorTrackingIssue(UUIDTModel):
             )
             ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=existing_source_issue_ids).delete()
 
-            # A merge changes the target's composition and deletes the source rows. Stamp the target
-            # so the team state watermark stays monotonic: a deleted source that held the previous
-            # maximum can no longer move the watermark backward and re-validate a pre-merge cache entry.
+            # Stamp the surviving row so deleting the latest source cannot move the cache watermark backward.
             ErrorTrackingIssue.objects.filter(team_id=team_id, id=target_issue_id).update(
                 state_updated_at=timezone.now()
             )

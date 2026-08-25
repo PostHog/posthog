@@ -74,10 +74,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
-        # This read runs on the cache-key path, before any cache lookup, and hits primary Postgres.
-        # Under connection-pool saturation it can time out (OperationalError); degrade to a stable
-        # "unavailable" marker instead of 500-ing a request whose result may already be cached.
-        # Mirrors AnalyticsQueryRunner._products_modifiers_for_cache.
+        # Use a stable marker when the primary read fails so an existing cached result can still load.
         try:
             watermark = latest_issue_state_watermark(self.team.pk)
         except OperationalError:
@@ -126,8 +123,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     def _calculate(self):
         with self.timings.measure("error_tracking_query_recent_issue_state"):
-            # The overlay layers fresh Postgres state onto ClickHouse results. If the primary read
-            # fails, run without the overlay rather than failing the whole query.
+            # Keep ClickHouse available when the primary read fails.
             try:
                 recent_issue_states = load_recent_issue_states(self.team.pk)
             except OperationalError:

@@ -12,16 +12,14 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 
 RECENT_ISSUE_STATE_WINDOW = datetime.timedelta(seconds=60)
 
-# The bulk mutation endpoint does not cap how many issues one request changes, and every changed
-# issue is loaded and sent as an external-table row on each forced refresh for the whole window.
-# Bound that payload. When a mutation touches more issues than this, skip the overlay and fall back
-# to ClickHouse state rather than materialize and ship an unbounded row list.
+# The bulk endpoint has no issue count limit, so skip the overlay instead of sending an unbounded
+# external table when many issues change within one window.
 MAX_RECENT_ISSUE_STATES = 100
 
 RECENT_ISSUE_STATE_ROW_COUNT = Histogram(
     "error_tracking_recent_issue_state_row_count",
-    "Number of recent Postgres issue-state rows sent with an error tracking query",
-    buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000, float("inf")),
+    "Number of recent Postgres issue-state rows loaded before applying the external-table limit",
+    buckets=(0, 1, 5, 10, 25, 50, 100, 101, float("inf")),
 )
 
 # These reads pin to the primary (read-after-write freshness), so they cannot fall back to a replica.
@@ -43,7 +41,6 @@ class RecentIssueState:
     issue_description: str | None
     assigned_user_id: int | None
     assigned_role_id: UUID | None
-    state_updated_at: datetime.datetime
 
     def as_external_table_row(self) -> dict[str, object]:
         return {
@@ -55,7 +52,6 @@ class RecentIssueState:
             "issue_description": self.issue_description,
             "assigned_user_id": self.assigned_user_id,
             "assigned_role_id": self.assigned_role_id,
-            "state_updated_at": self.state_updated_at,
             "is_present": True,
         }
 
@@ -83,7 +79,6 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
             "severity",
             "name",
             "description",
-            "state_updated_at",
             "assignment__user_id",
             "assignment__role_id",
         )[: MAX_RECENT_ISSUE_STATES + 1]
@@ -100,8 +95,6 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
             assigned_user_id = assignment.user_id
             assigned_role_id = assignment.role_id
 
-        if issue.state_updated_at is None:
-            continue
         recent_states.append(
             RecentIssueState(
                 team_id=issue.team_id,
@@ -112,7 +105,6 @@ def load_recent_issue_states(team_id: int, *, current_time: datetime.datetime | 
                 issue_description=issue.description,
                 assigned_user_id=assigned_user_id,
                 assigned_role_id=assigned_role_id,
-                state_updated_at=issue.state_updated_at,
             )
         )
 

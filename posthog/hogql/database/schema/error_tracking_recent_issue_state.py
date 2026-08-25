@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Any
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
-    DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
     LazyTable,
@@ -45,11 +44,6 @@ RECENT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
     "assigned_role_id": UUIDDatabaseField(
         name="assigned_role_id", nullable=True, description="Currently assigned role, if any."
     ),
-    "state_updated_at": DateTimeDatabaseField(
-        name="state_updated_at",
-        nullable=False,
-        description="Server timestamp for the authoritative state change.",
-    ),
     "is_present": BooleanDatabaseField(
         name="is_present",
         nullable=False,
@@ -66,7 +60,6 @@ RECENT_ISSUE_STATE_EXTERNAL_STRUCTURE: list[tuple[str, str]] = [
     ("issue_description", "Nullable(String)"),
     ("assigned_user_id", "Nullable(Int64)"),
     ("assigned_role_id", "Nullable(UUID)"),
-    ("state_updated_at", "DateTime64(6, 'UTC')"),
     ("is_present", "UInt8"),
 ]
 
