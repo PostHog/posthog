@@ -19,16 +19,26 @@ from products.replay_vision.backend.session_limits import (
 # One week is enough to describe a product's surfaces and short enough to partition-prune.
 _PATH_WINDOW_DAYS = 7
 # The list goes into a model prompt, so it has to stay small enough to fit alongside everything else.
+# On a large project the floor below leaves a few thousand paths; this keeps the busiest of them.
 _MAX_PATHS = 300
 # Below this a path is one person's visit, not a surface of the product.
 _MIN_SESSIONS_PER_PATH = 5
+# Visitors control their own URLs, so a fabricated path must not be able to blow up the prompt.
+_MAX_PATHNAME_CHARS = 256
 _PATH_QUERY_MAX_EXECUTION_SECONDS = 5
 
-# Identifiers in a path make one surface look like thousands. A UUID first, so its digit runs are not
-# eaten by the numeric rule, then bare numeric segments.
-_UUID_SEGMENT = r"/[0-9a-fA-F]{8}-[0-9a-fA-F-]{20,}"
-_NUMERIC_SEGMENT = r"/[0-9]+"
-_ID_PLACEHOLDER = "/:id"
+# Identifiers in a path make one surface look like thousands. Each rule matches a WHOLE segment
+# between slashes — a partial match would eat the digits off a real page name and emit garbage
+# ("/2fa" must never become "/:idfa"). Every rule except the numeric one also demands a digit, so a
+# long real word is never mistaken for a token.
+_SEGMENT_NUMERIC = r"^[0-9]+$"
+_SEGMENT_DASHED_UUID = r"^[0-9a-fA-F-]{20,}$"
+_SEGMENT_HEX = r"^[0-9a-fA-F]{12,}$"
+_SEGMENT_TOKEN = r"^[a-zA-Z0-9]{16,}$"
+_ANY_DIGIT = r"[0-9]"
+# A path that is one all-digit segment is a page, not an ID: /404, /500.
+_TOPLEVEL_NUMERIC_PATH = r"^/[0-9]+$"
+_ID_PLACEHOLDER = ":id"
 
 
 @frozen
@@ -51,9 +61,15 @@ def fetch_visited_paths(
     Someone asks about "money" and the product calls it "billing". Only a model bridges that, and only
     if it can see the real pages, so this returns a list short enough to put in a prompt.
 
-    Collapsing identifiers is what makes that list short. Measured on a project with a million sessions
-    a week: 991,985 distinct paths fall to 122,507 once identifier segments collapse, and to about
-    1,800 at a five-session floor. Without the collapse, a thousand invoice pages crowd out the rest.
+    Collapsing identifier segments is what makes the list short. A segment collapses to ":id" only
+    when the whole segment is an identifier: all digits, a dashed UUID, a hex run, or a long token
+    holding a digit. Measured on a project with a million sessions a week: 991,985 distinct paths fall
+    to 117,569 collapsed, and the five-session floor leaves about 8,400; the limit then keeps the
+    busiest of those. Known limit: short mixed identifiers ("/insights/AbC123xY") stay uncollapsed.
+
+    The pathnames are visitor-controlled content — anyone can put any string in their own URL. Each is
+    capped at a fixed length here, and the consumer must still fence the list as untrusted data, the
+    way `scanner_draft.py` fences its briefing.
 
     Reads `all_urls` because that is the column a `visited_page` recording filter compiles against, so
     every path here matches a non-zero number of sessions. Counts only sessions long and active enough
@@ -69,17 +85,30 @@ def fetch_visited_paths(
         FROM (
             SELECT
                 session_id,
-                replaceRegexpAll(
-                    replaceRegexpAll(
-                        arrayJoin(arrayDistinct(arrayMap(url -> path(url), urls))),
-                        {uuid_segment},
-                        {id_placeholder}
+                substring(
+                    if(
+                        match(raw_path, {toplevel_numeric}),
+                        raw_path,
+                        arrayStringConcat(
+                            arrayMap(
+                                s -> multiIf(
+                                    match(s, {segment_numeric}), {id_placeholder},
+                                    match(s, {segment_dashed_uuid}) and match(s, {any_digit}), {id_placeholder},
+                                    match(s, {segment_hex}) and match(s, {any_digit}), {id_placeholder},
+                                    match(s, {segment_token}) and match(s, {any_digit}), {id_placeholder},
+                                    s
+                                ),
+                                splitByChar('/', raw_path)
+                            ),
+                            '/'
+                        )
                     ),
-                    {numeric_segment},
-                    {id_placeholder}
+                    1, {max_pathname_chars}
                 ) AS pathname
             FROM (
-                SELECT session_id, groupUniqArrayArray(all_urls) AS urls
+                SELECT
+                    session_id,
+                    arrayJoin(arrayDistinct(arrayMap(url -> path(url), groupUniqArrayArray(all_urls)))) AS raw_path
                 FROM raw_session_replay_events
                 WHERE min_first_timestamp >= {window_start}
                 GROUP BY session_id
@@ -96,9 +125,14 @@ def fetch_visited_paths(
         """,
         placeholders={
             "window_start": ast.Constant(value=window_start),
-            "uuid_segment": ast.Constant(value=_UUID_SEGMENT),
-            "numeric_segment": ast.Constant(value=_NUMERIC_SEGMENT),
+            "toplevel_numeric": ast.Constant(value=_TOPLEVEL_NUMERIC_PATH),
+            "segment_numeric": ast.Constant(value=_SEGMENT_NUMERIC),
+            "segment_dashed_uuid": ast.Constant(value=_SEGMENT_DASHED_UUID),
+            "segment_hex": ast.Constant(value=_SEGMENT_HEX),
+            "segment_token": ast.Constant(value=_SEGMENT_TOKEN),
+            "any_digit": ast.Constant(value=_ANY_DIGIT),
             "id_placeholder": ast.Constant(value=_ID_PLACEHOLDER),
+            "max_pathname_chars": ast.Constant(value=_MAX_PATHNAME_CHARS),
             "min_duration": ast.Constant(value=MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S),
             "min_active": ast.Constant(value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
             "max_active": ast.Constant(value=MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),

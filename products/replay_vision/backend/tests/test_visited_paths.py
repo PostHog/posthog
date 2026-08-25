@@ -52,7 +52,7 @@ class TestVisitedPaths(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_identifier_segments_collapse_into_one_surface(self, team) -> None:
         # The reason the list fits in a prompt at all. On a real project this is the difference
-        # between 991,985 paths and about 1,800: without it, invoice pages crowd out everything else.
+        # between 991,985 paths and about 117,000: without it, invoice pages crowd out everything else.
         for i in range(6):
             _produce(team.id, f"invoice-{i}", [f"https://ex.test/invoice/{i}"])
         _produce(team.id, "uuid-visit", ["https://ex.test/org/0198f4a1-8c2b-7d3e-9f10-2a3b4c5d6e7f/settings"])
@@ -65,6 +65,57 @@ class TestVisitedPaths(ClickhouseTestMixin):
         assert by_path["/invoice/:id"] == 6
         assert by_path["/org/:id/settings"] == 1
         assert by_path["/settings"] == 5
+
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            # An ID is a WHOLE segment. A partial match ate the digits off real page names and fed
+            # the model paths that exist nowhere: "/2fa" became "/:idfa", "/404" vanished into "/:id".
+            ("/2fa", "/2fa"),
+            ("/404", "/404"),
+            ("/123abc", "/123abc"),
+            ("/step1", "/step1"),
+            ("/v2/api", "/v2/api"),
+            ("/invoice/123/edit", "/invoice/:id/edit"),
+            # The shapes the collapse exists for: each would otherwise be one surface per ID.
+            ("/project/5f3a9c2e1b4d/settings", "/project/:id/settings"),
+            ("/user/01J8ZQ8G3R2Y4W5X6V7T8S9A0B", "/user/:id"),
+            ("/replay/0198f4a1-8c2b-7d3e-9f10-2a3b4c5d6e7f", "/replay/:id"),
+            # Known limit: short mixed identifiers stay. A rule loose enough to catch 8 characters
+            # would also collapse real page names.
+            ("/insights/AbC123xY", "/insights/AbC123xY"),
+            # A long real word is not a token: every token rule demands a digit.
+            ("/internationalization-settings", "/internationalization-settings"),
+        ],
+    )
+    @pytest.mark.django_db
+    def test_a_segment_collapses_only_when_it_is_entirely_an_identifier(self, team, path, expected) -> None:
+        _produce(team.id, "s", [f"https://ex.test{path}"])
+
+        results = fetch_visited_paths(team=team, min_sessions=1)
+
+        assert [r.pathname for r in results] == [expected]
+
+    @pytest.mark.django_db
+    def test_a_fabricated_path_cannot_blow_up_the_prompt(self, team) -> None:
+        # Visitors control their own URLs, so one crafted path must not inflate what reaches the model.
+        _produce(team.id, "s", ["https://ex.test/" + "a" * 2000])
+
+        results = fetch_visited_paths(team=team, min_sessions=1)
+
+        assert len(results) == 1
+        assert len(results[0].pathname) == 256
+
+    @pytest.mark.django_db
+    def test_the_list_keeps_the_busiest_paths_up_to_the_limit(self, team) -> None:
+        for i in range(4):
+            _produce(team.id, f"busy-{i}", ["https://ex.test/busy"])
+        for name in ("alpha", "beta", "gamma"):
+            _produce(team.id, f"one-{name}", [f"https://ex.test/{name}"])
+
+        results = fetch_visited_paths(team=team, min_sessions=1, limit=2)
+
+        assert [(r.pathname, r.sessions) for r in results] == [("/busy", 4), ("/alpha", 1)]
 
     @pytest.mark.django_db
     def test_one_person_visit_is_not_a_product_surface(self, team) -> None:
