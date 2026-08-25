@@ -28,10 +28,12 @@ def update_team_remote_config(team_id: int, bypass_recordings_quota_cache: bool 
         logger.exception("Team does not exist", team_id=team_id)
         return
 
-    try:
-        remote_config = RemoteConfig.objects.get(team=team)
-    except RemoteConfig.DoesNotExist:
-        remote_config = RemoteConfig(team=team)
+    # get_or_create instead of get/except-construct: for a new team, this task races the
+    # team-creation path (both saw DoesNotExist and both INSERTed), producing ~200
+    # duplicate-key errors per hour on posthog_remoteconfig_team_id_key in prod — each a
+    # wasted INSERT holding FK KEY SHARE pins on the hot team/org rows before rolling
+    # back. get_or_create resolves the race inside the database.
+    remote_config, _ = RemoteConfig.objects.get_or_create(team=team)
 
     remote_config.sync(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
 
