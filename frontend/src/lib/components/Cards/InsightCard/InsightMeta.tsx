@@ -172,6 +172,7 @@ export function InsightMeta({
     const { insightFeedback } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query, savingDisplayOptions } = useValues(insightDataLogic(insightLogicProps))
+    const { persistVisualizationType } = useActions(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
     const { loadAlerts: loadDeferredInsightAlerts } = useActions(
         insightAlertsLogic({
@@ -248,7 +249,8 @@ export function InsightMeta({
         variablesOverride,
         loading: loading || loadingQueued,
         saving: savingDisplayOptions,
-        persistDisplayOptions,
+        // Only offered where the card could already persist a display change.
+        persistVisualizationType: persistDisplayOptions ? persistVisualizationType : undefined,
     })
     const displayMenuItems = [...visualizationItems, ...displayOptionItems]
 

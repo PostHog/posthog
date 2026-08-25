@@ -93,6 +93,21 @@ export function applyVisualizationType(
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
     const chartSettings: ChartSettings = { ...query.chartSettings }
 
+    // The editor's columns subscription drops the axes when one names a column the result no longer
+    // has, or a y series that is not numeric, and re-seeds from scratch. A card is handed the saved
+    // query rather than that repaired one, so it has to do the same before deciding anything.
+    const columnNames = new Set(columns.map((column) => column.name))
+    const invalidX = chartSettings.xAxis !== undefined && !columnNames.has(chartSettings.xAxis.column)
+    const invalidY =
+        chartSettings.yAxis?.some(
+            (series) => !columns.find((column) => column.name === series.column)?.type.isNumerical
+        ) ?? false
+
+    if (invalidX || invalidY) {
+        chartSettings.xAxis = undefined
+        chartSettings.yAxis = undefined
+    }
+
     // Matches the editor, which seeds only when neither axis has been set. An empty yAxis is a user
     // who deleted every series, not an unset one, so it is left alone.
     if (chartSettings.xAxis === undefined && chartSettings.yAxis === undefined) {
@@ -142,9 +157,9 @@ export function applyVisualizationType(
         }
     }
 
-    if (yAxis.length > 0 || chartSettings.yAxis) {
-        chartSettings.yAxis = yAxis
-    }
+    // Always written, matching the editor: a query carrying `yAxis: []` means the series were
+    // cleared, while an absent key means they were never set and get seeded on the next load.
+    chartSettings.yAxis = yAxis
 
     return { ...query, display: visualizationType, chartSettings }
 }

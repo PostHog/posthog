@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
-import { HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { ChartSettings, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { SqlVisualizationPicker } from './SqlVisualizationPicker'
 
@@ -23,7 +24,7 @@ export function useDashboardVisualizationOptions({
     variablesOverride,
     loading,
     saving,
-    persistDisplayOptions,
+    persistVisualizationType,
 }: {
     query: Node | null
     insightData: Record<string, any>
@@ -31,9 +32,10 @@ export function useDashboardVisualizationOptions({
     /** So a tile that has not produced results yet is not reported as having none. */
     loading?: boolean
     saving?: boolean
-    persistDisplayOptions?: (node: Node) => void
+    /** Present only when the viewer can save; also the gate for showing the picker at all. */
+    persistVisualizationType?: (display: ChartDisplayType, chartSettings: ChartSettings) => void
 }): LemonMenuItems {
-    const show = shouldShowSqlVisualizationPicker(query, !!persistDisplayOptions)
+    const show = shouldShowSqlVisualizationPicker(query, !!persistVisualizationType)
 
     // Dashboard date and property filters reach a HogQL query only through a {filters} placeholder,
     // which substitutes into a WHERE clause, so they change rows and never the columns the axes name.
@@ -49,7 +51,7 @@ export function useDashboardVisualizationOptions({
     const rowCount = Array.isArray(insightData?.result) ? insightData.result.length : 0
 
     return useMemo<LemonMenuItems>(() => {
-        if (!show || !persistDisplayOptions || !query || !isDataVisualizationNode(query)) {
+        if (!show || !persistVisualizationType || !query || !isDataVisualizationNode(query)) {
             return []
         }
         return [
@@ -70,12 +72,12 @@ export function useDashboardVisualizationOptions({
                                         ? 'This dashboard overrides a variable this insight uses. Open the insight to change its chart type.'
                                         : undefined
                                 }
-                                persistDisplayOptions={persistDisplayOptions}
+                                persistVisualizationType={persistVisualizationType}
                             />
                         ),
                     },
                 ],
             },
         ]
-    }, [show, query, columns, types, rowCount, loading, saving, overriddenVariable, persistDisplayOptions])
+    }, [show, query, columns, types, rowCount, loading, saving, overriddenVariable, persistVisualizationType])
 }

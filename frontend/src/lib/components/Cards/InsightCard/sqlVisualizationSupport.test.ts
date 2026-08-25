@@ -145,33 +145,28 @@ describe('SqlVisualizationPicker support rules', () => {
         expect(saved.chartSettings?.yAxis?.map((series) => series.column)).toEqual(['events'])
     })
 
-    it('offers a chart type the insight already has axes for, even when the columns alone would not', () => {
+    // Saved axes only count when they still name plottable columns. A y series that is no longer
+    // numeric is repaired away, the same as the editor does, so the type stays refused.
+    it('does not treat stale saved axes as making a chart type available', () => {
         const response = responses['all string, so nothing is left to plot']
         const columns = columnsFromResponse(response)
         const autoVisualizationType = getAutoVisualizationType(columns, response.result.length)
-        const alreadyAxed = {
+        const staleAxes = {
             ...baseQuery,
             chartSettings: { xAxis: { column: 'country' }, yAxis: [{ column: 'browser' }] },
         } as DataVisualizationNode
 
-        expect(
-            cardVisualizationDisabledReason(
-                ChartDisplayType.ActionsBar,
-                baseQuery,
-                columns,
-                response.result.length,
-                autoVisualizationType
-            )
-        ).toEqual('This insight has no numeric column to plot')
-        expect(
-            cardVisualizationDisabledReason(
-                ChartDisplayType.ActionsBar,
-                alreadyAxed,
-                columns,
-                response.result.length,
-                autoVisualizationType
-            )
-        ).toBeUndefined()
+        for (const candidate of [baseQuery, staleAxes]) {
+            expect(
+                cardVisualizationDisabledReason(
+                    ChartDisplayType.ActionsBar,
+                    candidate,
+                    columns,
+                    response.result.length,
+                    autoVisualizationType
+                )
+            ).toEqual('This insight has no numeric column to plot')
+        }
     })
 
     it('leaves the table and the big number available whatever the columns are', () => {

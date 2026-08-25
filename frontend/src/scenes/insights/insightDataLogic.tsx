@@ -34,7 +34,14 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { DataVisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ChartSettings,
+    DataVisualizationNode,
+    HogQLVariable,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isDataVisualizationNode,
@@ -45,7 +52,7 @@ import {
     isWebAnalyticsInsightQuery,
     shouldQueryBeAsync,
 } from '~/queries/utils'
-import { ExportContext, InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
 
@@ -385,6 +392,13 @@ export interface insightDataLogicActions {
     persistDisplayOptionsSettled: () => {
         value: true
     }
+    persistVisualizationType: (
+        display: ChartDisplayType,
+        chartSettings: ChartSettings
+    ) => {
+        chartSettings: ChartSettings
+        display: ChartDisplayType
+    }
     setQuery: (
         query: Node | null,
         fromUrl?: boolean
@@ -504,6 +518,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
         cancelChanges: true,
         persistDisplayOptions: (query: Node) => ({ query }),
         persistDisplayOptionsSettled: true,
+        persistVisualizationType: (display: ChartDisplayType, chartSettings: ChartSettings) => ({
+            display,
+            chartSettings,
+        }),
     }),
 
     reducers({
@@ -513,6 +531,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             false,
             {
                 persistDisplayOptions: () => true,
+                persistVisualizationType: () => true,
                 persistDisplayOptionsSettled: () => false,
             },
         ],
@@ -763,6 +782,48 @@ export const insightDataLogic = kea<insightDataLogicType>([
             try {
                 const updatedItem = await insightsApi.update(insightId, { query })
                 // Drop the response if a newer save started while this request was in flight.
+                await breakpoint(0)
+                actions.renameInsightSuccess(updatedItem)
+                actions.persistDisplayOptionsSettled()
+                lemonToast.success('Insight updated')
+            } catch (e) {
+                // A breakpoint means a newer save superseded this one, and that save owns the state.
+                if (!isBreakpoint(e as Error)) {
+                    actions.persistDisplayOptionsSettled()
+                    lemonToast.error('Failed to update insight')
+                }
+            }
+        },
+
+        // Saves only the chart type and its settings, re-read from the insight's own query first.
+        // A dashboard tile is served a query with the dashboard's filters already applied by
+        // InsightSerializer, so writing that back would save one dashboard's date range and
+        // properties onto the insight for everyone looking at it.
+        persistVisualizationType: async ({ display, chartSettings }, breakpoint) => {
+            if (isInsightSceneInstance(props)) {
+                actions.persistDisplayOptionsSettled()
+                return
+            }
+            await breakpoint(700)
+            const insightId = values.insight.id
+            const shortId = values.insight.short_id
+            if (!insightId || !shortId) {
+                actions.persistDisplayOptionsSettled()
+                return
+            }
+            try {
+                const saved = await insightsApi.getByShortId(shortId)
+                const savedQuery = saved?.query
+                if (!savedQuery || !isDataVisualizationNode(savedQuery)) {
+                    actions.persistDisplayOptionsSettled()
+                    return
+                }
+                const nextQuery: DataVisualizationNode = { ...savedQuery, display, chartSettings }
+                if (objectsEqual(nextQuery, savedQuery)) {
+                    actions.persistDisplayOptionsSettled()
+                    return
+                }
+                const updatedItem = await insightsApi.update(insightId, { query: nextQuery })
                 await breakpoint(0)
                 actions.renameInsightSuccess(updatedItem)
                 actions.persistDisplayOptionsSettled()

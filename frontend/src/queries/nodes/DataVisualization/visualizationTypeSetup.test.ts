@@ -105,14 +105,14 @@ describe('applyVisualizationType matches what the editor produces', () => {
         const response = responses[responseKey as keyof typeof responses]
         await mountWith(response)
 
-        // What the editor arrives at, as the query it would save.
-        const before = logic.values.query
         logic.actions.setVisualizationType(type)
         await expectLogic(logic).toFinishAllListeners()
         const fromEditor = logic.values.query
 
-        // What a card would save for the same pick, starting from the same query.
-        const fromCard = applyVisualizationType(before, type, columnsFromResponse(response), response.results.length)
+        // A card is handed the saved query, not the one the editor has already repaired and seeded,
+        // so that is what goes in here. Feeding it logic.values.query would compare the shared
+        // function against an input it never sees.
+        const fromCard = applyVisualizationType(baseQuery, type, columnsFromResponse(response), response.results.length)
 
         expect(fromCard.display).toEqual(fromEditor.display)
         expect(fromCard.chartSettings?.xAxis).toEqual(fromEditor.chartSettings?.xAxis)
@@ -138,6 +138,20 @@ describe('applyVisualizationType matches what the editor produces', () => {
             type: ChartDisplayType.ActionsLineGraph,
         },
         {
+            // Write `select day, total`, pick a line chart so the axes persist, then edit the SQL to
+            // return different columns. The saved axes now name columns that are gone.
+            label: 'a query whose saved axes name columns the result no longer has',
+            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'total' }] },
+            response: 'two strings and a numeric',
+            type: ChartDisplayType.ActionsBar,
+        },
+        {
+            label: 'a query whose y series is no longer a numeric column',
+            chartSettings: { xAxis: { column: 'country' }, yAxis: [{ column: 'browser' }] },
+            response: 'two strings and a numeric',
+            type: ChartDisplayType.ActionsBar,
+        },
+        {
             label: 'a query with only an x axis set',
             chartSettings: { xAxis: { column: 'day' } },
             response: 'date and numeric',
@@ -157,12 +171,11 @@ describe('applyVisualizationType matches what the editor produces', () => {
         dataNodeLogic({ key: testKey, query: baseQuery.source, dataNodeCollectionId }).actions.setResponse(response)
         await expectLogic(logic).toFinishAllListeners()
 
-        const before = logic.values.query
         logic.actions.setVisualizationType(type)
         await expectLogic(logic).toFinishAllListeners()
         const fromEditor = logic.values.query
 
-        const fromCard = applyVisualizationType(before, type, columnsFromResponse(response), response.results.length)
+        const fromCard = applyVisualizationType(seeded, type, columnsFromResponse(response), response.results.length)
 
         expect(fromCard.chartSettings?.xAxis).toEqual(fromEditor.chartSettings?.xAxis)
         expect(fromCard.chartSettings?.yAxis).toEqual(fromEditor.chartSettings?.yAxis)

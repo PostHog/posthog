@@ -40,63 +40,94 @@ describe('SqlVisualizationPicker', () => {
     // Picking "Line chart" only succeeds when the columns were parsed out of insightData, since the
     // option is disabled without two columns and one numeric. So this covers the parsing too.
     it('saves the picked chart type with axes, so a table saved without them still draws', async () => {
-        const persistDisplayOptions = jest.fn()
-        const { container } = render(
-            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={persistDisplayOptions} />
-        )
-
-        await openPicker(container)
-        await pick('Line chart')
-
-        const saved = persistDisplayOptions.mock.calls[0][0]
-        expect(saved.display).toEqual(ChartDisplayType.ActionsLineGraph)
-        expect(saved.chartSettings.xAxis).toEqual({ column: 'day' })
-        expect(saved.chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
-    })
-
-    // Auto is the first option and resolves to a real chart, so it needs axes like the type it
-    // resolves to. Without them the chart draws with blank x labels.
-    it('gives Auto the axes of the chart it resolves to', async () => {
-        const persistDisplayOptions = jest.fn()
-        const { container } = render(
-            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={persistDisplayOptions} />
-        )
-
-        await openPicker(container)
-        await pick('Auto (Line chart)')
-
-        const saved = persistDisplayOptions.mock.calls[0][0]
-        expect(saved.display).toEqual(ChartDisplayType.Auto)
-        expect(saved.chartSettings.xAxis).toEqual({ column: 'day' })
-        expect(saved.chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
-    })
-
-    it('keeps axes the insight already has', async () => {
-        const persistDisplayOptions = jest.fn()
-        const alreadyAxed = {
-            ...query,
-            chartSettings: { xAxis: { column: 'total' }, yAxis: [{ column: 'day' }] },
-        } as DataVisualizationNode
+        const persistVisualizationType = jest.fn()
         const { container } = render(
             <SqlVisualizationPicker
-                query={alreadyAxed}
+                query={query}
                 {...twoColumnData}
-                persistDisplayOptions={persistDisplayOptions}
+                persistVisualizationType={persistVisualizationType}
             />
         )
 
         await openPicker(container)
         await pick('Line chart')
 
-        expect(persistDisplayOptions).toHaveBeenCalledWith({
-            ...alreadyAxed,
-            display: ChartDisplayType.ActionsLineGraph,
-        })
+        const [display, chartSettings] = persistVisualizationType.mock.calls[0]
+        expect(display).toEqual(ChartDisplayType.ActionsLineGraph)
+        expect(chartSettings.xAxis).toEqual({ column: 'day' })
+        expect(chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
+    })
+
+    // Auto is the first option and resolves to a real chart, so it needs axes like the type it
+    // resolves to. Without them the chart draws with blank x labels.
+    it('gives Auto the axes of the chart it resolves to', async () => {
+        const persistVisualizationType = jest.fn()
+        const { container } = render(
+            <SqlVisualizationPicker
+                query={query}
+                {...twoColumnData}
+                persistVisualizationType={persistVisualizationType}
+            />
+        )
+
+        await openPicker(container)
+        await pick('Auto (Line chart)')
+
+        const [display, chartSettings] = persistVisualizationType.mock.calls[0]
+        expect(display).toEqual(ChartDisplayType.Auto)
+        expect(chartSettings.xAxis).toEqual({ column: 'day' })
+        expect(chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
+    })
+
+    it('keeps axes the insight already has, when they still name plottable columns', async () => {
+        const persistVisualizationType = jest.fn()
+        const alreadyAxed = {
+            ...query,
+            chartSettings: { xAxis: { column: 'day' }, yAxis: [{ column: 'total' }] },
+        } as DataVisualizationNode
+        const { container } = render(
+            <SqlVisualizationPicker
+                query={alreadyAxed}
+                {...twoColumnData}
+                persistVisualizationType={persistVisualizationType}
+            />
+        )
+
+        await openPicker(container)
+        await pick('Line chart')
+
+        const [, chartSettings] = persistVisualizationType.mock.calls[0]
+        expect(chartSettings.xAxis).toEqual({ column: 'day' })
+        expect(chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
+    })
+
+    // The editor drops axes whose y series is not a numeric column and re-seeds. Keeping them would
+    // save a chart the tile cannot draw.
+    it('repairs axes whose y series is no longer a numeric column', async () => {
+        const persistVisualizationType = jest.fn()
+        const stale = {
+            ...query,
+            chartSettings: { xAxis: { column: 'total' }, yAxis: [{ column: 'day' }] },
+        } as DataVisualizationNode
+        const { container } = render(
+            <SqlVisualizationPicker
+                query={stale}
+                {...twoColumnData}
+                persistVisualizationType={persistVisualizationType}
+            />
+        )
+
+        await openPicker(container)
+        await pick('Line chart')
+
+        const [, chartSettings] = persistVisualizationType.mock.calls[0]
+        expect(chartSettings.xAxis).toEqual({ column: 'day' })
+        expect(chartSettings.yAxis.map((series: any) => series.column)).toEqual(['total'])
     })
 
     it('shows the pick immediately rather than waiting for the save to land', async () => {
         const { container } = render(
-            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={jest.fn()} />
+            <SqlVisualizationPicker query={query} {...twoColumnData} persistVisualizationType={jest.fn()} />
         )
 
         await openPicker(container)
@@ -111,9 +142,13 @@ describe('SqlVisualizationPicker', () => {
     // not have, and because LemonSelect suppresses onChange for an unchanged value, re-picking that
     // same type does nothing. The user cannot recover without a reload.
     it('falls back to the saved type when a save settles without landing, so the pick can be retried', async () => {
-        const persistDisplayOptions = jest.fn()
+        const persistVisualizationType = jest.fn()
         const { container, rerender } = render(
-            <SqlVisualizationPicker query={query} {...twoColumnData} persistDisplayOptions={persistDisplayOptions} />
+            <SqlVisualizationPicker
+                query={query}
+                {...twoColumnData}
+                persistVisualizationType={persistVisualizationType}
+            />
         )
 
         await openPicker(container)
@@ -126,7 +161,7 @@ describe('SqlVisualizationPicker', () => {
                 query={query}
                 {...twoColumnData}
                 saving
-                persistDisplayOptions={persistDisplayOptions}
+                persistVisualizationType={persistVisualizationType}
             />
         )
         rerender(
@@ -134,7 +169,7 @@ describe('SqlVisualizationPicker', () => {
                 query={query}
                 {...twoColumnData}
                 saving={false}
-                persistDisplayOptions={persistDisplayOptions}
+                persistVisualizationType={persistVisualizationType}
             />
         )
 

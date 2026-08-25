@@ -9,7 +9,7 @@ import {
 } from '~/queries/nodes/DataVisualization/Components/tableDisplayOptions'
 import { Column } from '~/queries/nodes/DataVisualization/types'
 import { applyVisualizationType } from '~/queries/nodes/DataVisualization/visualizationTypeSetup'
-import { DataVisualizationNode, Node } from '~/queries/schema/schema-general'
+import { ChartSettings, DataVisualizationNode } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 export interface SqlVisualizationPickerProps {
@@ -25,7 +25,9 @@ export interface SqlVisualizationPickerProps {
     /** True while a pick is being saved. The held pick is dropped once it settles either way. */
     saving?: boolean
     disabledReason?: string | null
-    persistDisplayOptions: (node: Node) => void
+    /** Takes only the chart type and its settings, so the insight's own filters are never written
+     * back from a tile that was served them pre-applied. */
+    persistVisualizationType: (display: ChartDisplayType, chartSettings: ChartSettings) => void
 }
 
 /** `axes` needs columns on an x and a y. `manual` needs columns assigned to named roles that no rule
@@ -101,7 +103,7 @@ export function SqlVisualizationPicker({
     loading,
     saving,
     disabledReason,
-    persistDisplayOptions,
+    persistVisualizationType,
 }: SqlVisualizationPickerProps): JSX.Element {
     const columns = useMemo(
         () => columnsFromResponse({ columns: responseColumns ?? [], types: types ?? [] }),
@@ -153,7 +155,8 @@ export function SqlVisualizationPicker({
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             onChange={(value) => {
                 setPending(value)
-                persistDisplayOptions(applyVisualizationType(query, value, columns, rows))
+                const next = applyVisualizationType(query, value, columns, rows)
+                persistVisualizationType(value, next.chartSettings ?? {})
             }}
             options={options}
             dropdownMatchSelectWidth={false}
