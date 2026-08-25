@@ -247,7 +247,7 @@ describe('TeamManager()', () => {
     })
 
     describe('setTeamIngestedEvent()', () => {
-        it('updates and notifies once across managers, then latches the team', async () => {
+        it('does not create row versions for stale-team retries', async () => {
             await postgres.query(
                 PostgresUse.COMMON_WRITE,
                 'UPDATE posthog_team SET ingested_event = false WHERE id = $1',
@@ -272,22 +272,33 @@ describe('TeamManager()', () => {
             ])
 
             expect(querySpy.mock.calls.filter((call) => call[3] === 'setTeamIngestedEvent')).toHaveLength(2)
-            expect(querySpy.mock.calls.filter((call) => call[3] === 'posthog_organizationmembership')).toHaveLength(1)
-            expect(captureTeamEvent).toHaveBeenCalledTimes(organizationMembers.rows.length)
+            expect(querySpy.mock.calls.filter((call) => call[3] === 'posthog_organizationmembership')).toHaveLength(2)
+            expect(captureTeamEvent).toHaveBeenCalledTimes(organizationMembers.rows.length * 2)
+
+            const transitionedTeam = await postgres.query<{ ingested_event: boolean; xmin: string }>(
+                PostgresUse.COMMON_READ,
+                'SELECT ingested_event, xmin::text AS xmin FROM posthog_team WHERE id = $1',
+                [teamId],
+                'test-get-transitioned-team'
+            )
 
             await Promise.all([
                 teamManager.setTeamIngestedEvent(team!, { $lib: 'posthog-js' }),
                 secondTeamManager.setTeamIngestedEvent(team!, { $lib: 'posthog-js' }),
             ])
 
-            expect(querySpy.mock.calls.filter((call) => call[3] === 'setTeamIngestedEvent')).toHaveLength(2)
-            const updatedTeam = await postgres.query<{ ingested_event: boolean }>(
+            expect(querySpy.mock.calls.filter((call) => call[3] === 'setTeamIngestedEvent')).toHaveLength(4)
+            expect(querySpy.mock.calls.filter((call) => call[3] === 'posthog_organizationmembership')).toHaveLength(4)
+            expect(captureTeamEvent).toHaveBeenCalledTimes(organizationMembers.rows.length * 4)
+
+            const retriedTeam = await postgres.query<{ ingested_event: boolean; xmin: string }>(
                 PostgresUse.COMMON_READ,
-                'SELECT ingested_event FROM posthog_team WHERE id = $1',
+                'SELECT ingested_event, xmin::text AS xmin FROM posthog_team WHERE id = $1',
                 [teamId],
-                'test-get-ingested-event'
+                'test-get-retried-team'
             )
-            expect(updatedTeam.rows[0].ingested_event).toBe(true)
+            expect(retriedTeam.rows[0]).toEqual(transitionedTeam.rows[0])
+            expect(retriedTeam.rows[0].ingested_event).toBe(true)
         })
     })
 

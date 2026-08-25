@@ -21,7 +21,6 @@ export interface TeamManagerOptions {
  */
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
-    private teamsWithIngestedEvent = new Set<number>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -60,23 +59,16 @@ export class TeamManager {
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
-        if (team.ingested_event || this.teamsWithIngestedEvent.has(team.id)) {
+        if (team.ingested_event) {
             return
         }
 
-        const result = await this.postgres.query(
+        await this.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET ingested_event = true WHERE id = $1 AND NOT ingested_event`,
             [team.id],
             'setTeamIngestedEvent'
         )
-        this.teamsWithIngestedEvent.add(team.id)
-
-        if (result.rowCount !== 1) {
-            return
-        }
-
-        this.lazyLoader.markForRefresh(String(team.id))
 
         const organizationMembers = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -98,6 +90,8 @@ export class TeamManager {
                 distinct_id
             )
         }
+
+        this.lazyLoader.markForRefresh(String(team.id))
     }
 
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
