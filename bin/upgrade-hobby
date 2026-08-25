@@ -164,6 +164,28 @@ if [ -t 0 ] && ! grep -qE "^OPENAI_API_KEY=.+" .env; then
     fi
 fi
 
+# Surface the auxiliary image tag knobs on installs whose .env predates them.
+# The lines are commented, so the stack keeps tracking master/latest until the
+# operator opts in by uncommenting and setting a tag.
+if ! grep -q "POSTHOG_RUST_TAG" .env; then
+    cat >> .env <<'EOF'
+# Auxiliary service image tags.
+# These pin the PostHog-built services that run next to the app.
+# Set them to run a reproducible stack that matches a pinned app version.
+# When unset, each service tracks its master or latest image.
+# Pin a service to the tag that the registry published for your commit:
+#   POSTHOG_NODE_TAG        full commit sha  (node services)
+#   POSTHOG_LIVESTREAM_TAG  full commit sha  (livestream)
+#   POSTHOG_RUST_TAG        sha-<short sha>  (capture, feature-flags, personhog, cymbal, ...)
+# The build publishes a tag for a commit only when that commit changes the service.
+# Not every app commit has a matching tag, so pick a tag that exists in the registry.
+# POSTHOG_NODE_TAG=
+# POSTHOG_LIVESTREAM_TAG=
+# POSTHOG_RUST_TAG=
+EOF
+    echo "Added auxiliary image tag guidance to .env file"
+fi
+
 # Check if session recording storage migration marker exists
 if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
   echo ""

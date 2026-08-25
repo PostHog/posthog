@@ -642,7 +642,7 @@ services:
                 condition: service_healthy
 
     cymbal:
-        image: ghcr.io/posthog/posthog/cymbal:master
+        image: ghcr.io/posthog/posthog/cymbal:${POSTHOG_RUST_TAG:-master}
         build:
             context: ./posthog/rust
             args:
@@ -686,7 +686,7 @@ services:
     # processing mode calls. Needs only Postgres and object storage — no Kafka or Redis — hence
     # the narrower env than cymbal above.
     cymbal-resolution:
-        image: ghcr.io/posthog/posthog/cymbal:master
+        image: ghcr.io/posthog/posthog/cymbal:${POSTHOG_RUST_TAG:-master}
         build:
             context: ./posthog/rust
             args:

@@ -168,6 +168,19 @@ REGISTRY_URL=$REGISTRY_URL
 CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
+# Auxiliary service image tags.
+# These pin the PostHog-built services that run next to the app.
+# Set them to run a reproducible stack that matches a pinned app version.
+# When unset, each service tracks its master or latest image.
+# Pin a service to the tag that the registry published for your commit:
+#   POSTHOG_NODE_TAG        full commit sha  (node services)
+#   POSTHOG_LIVESTREAM_TAG  full commit sha  (livestream)
+#   POSTHOG_RUST_TAG        sha-<short sha>  (capture, feature-flags, personhog, cymbal, ...)
+# The build publishes a tag for a commit only when that commit changes the service.
+# Not every app commit has a matching tag, so pick a tag that exists in the registry.
+# POSTHOG_NODE_TAG=
+# POSTHOG_LIVESTREAM_TAG=
+# POSTHOG_RUST_TAG=
 EOF
     # Only persist AI keys that were actually provided — skip writing a blank
     # ANTHROPIC_API_KEY= line that would just clutter .env with an empty assignment.
