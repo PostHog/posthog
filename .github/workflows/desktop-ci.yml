@@ -9,6 +9,14 @@ name: Desktop CI
 # short detector jobs and skips everything else. A trigger-level `paths:`
 # filter would stop the `Desktop * Pass` checks from ever reporting, leaving
 # any PR that requires them stuck waiting for status.
+#
+# On trunk-merge/** heads (Trunk's merge queue PRs) the suites skip entirely,
+# like merge_group: every constituent PR already ran the full desktop suite,
+# desktop is an isolated workspace, and master pushes rerun the suite on any
+# desktop path change as the post-merge backstop. Skipping keeps a flaky
+# desktop job (or a rate-limited change detector) from kicking a queue batch
+# no desktop author is in. The skip is scoped to same-repo heads so a fork
+# cannot opt out by naming its branch trunk-merge/**.
 
 on:
     pull_request:
@@ -29,24 +37,48 @@ permissions:
 
 jobs:
     build:
+        if: |
+            !(
+                github.event_name == 'pull_request' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/desktop-build.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     quality:
+        if: |
+            !(
+                github.event_name == 'pull_request' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/desktop-quality.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     typecheck:
+        if: |
+            !(
+                github.event_name == 'pull_request' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/desktop-typecheck.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     test:
+        if: |
+            !(
+                github.event_name == 'pull_request' &&
+                github.event.pull_request.head.repo.full_name == github.repository &&
+                startsWith(github.head_ref, 'trunk-merge/')
+            )
         uses: ./.github/workflows/desktop-test.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
