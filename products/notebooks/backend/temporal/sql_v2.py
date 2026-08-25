@@ -138,9 +138,14 @@ class NotebookSQLV2RunWorkflow(PostHogWorkflow):
         # worker slot, and this workflow already exists one-per-kernel-run, so the cost is a
         # longer-lived execution rather than a new one.
         await workflow.sleep(timedelta(seconds=KERNEL_RUN_RESULT_GRACE_SECONDS + _EXPIRY_MARGIN_SECONDS))
+        # The watchdog is the run's last resort. A brief database outage while it fires must
+        # not burn a three-attempt budget and leave the row RUNNING with nothing left to move
+        # it. The activity is idempotent (guarded on status and elapsed time), so retry until
+        # it lands, bounded by schedule_to_close rather than a fixed attempt count.
         await workflow.execute_activity(
             expire_sql_v2_run_activity,
             input,
             start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=common.RetryPolicy(maximum_attempts=3),
+            schedule_to_close_timeout=timedelta(hours=1),
+            retry_policy=common.RetryPolicy(maximum_attempts=0),
         )
