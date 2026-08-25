@@ -69,6 +69,15 @@ export type MlMirrorConfig = {
      * the anonymizer collects no URLs until then.
      */
     SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
+    /**
+     * Read crawl history before the mirror sends URLs to Kafka.
+     *
+     * The disabled default permits a separate workload-identity and DynamoDB-capacity rollout.
+     * Read failures publish every candidate, so the lookup cannot lose fetch work.
+     */
+    SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: boolean
+    /** Bounds one producer-side crawl-history read. */
+    SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: number
 
     // US-only, PEM, multiple keys allowed (comma-separated)
     WEB_BOT_AUTH_PRIVATE_KEYS: string
@@ -218,6 +227,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: false,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
