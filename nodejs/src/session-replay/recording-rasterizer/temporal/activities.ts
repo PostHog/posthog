@@ -202,8 +202,12 @@ async function rasterizeRecordingActivity(
         // Classification collapses the raw rejection into a stable ApplicationFailure message that
         // drops the CDP method and stack. Log the original here, the last point that still holds it,
         // so a setup-phase death (browser-pool logs nothing at error level) stays diagnosable.
-        log.error({ err, code: rasterizationError?.code ?? 'UNKNOWN' }, 'rasterization failed')
-        throw toActivityError(err)
+        // Non-retryable codes are the recording's own fault (NO_SNAPSHOTS, INVALID_INPUT) and are
+        // routine, so they stay off the error level that infra alerts on.
+        const logAtErrorLevel = !rasterizationError || rasterizationError.retryable
+        const logFailure = logAtErrorLevel ? log.error.bind(log) : log.warn.bind(log)
+        logFailure({ err, code: rasterizationError?.code ?? 'UNKNOWN' }, 'rasterization failed')
+        throw toActivityError(rasterizationError ?? err)
     } finally {
         clearInterval(heartbeatInterval)
         ctx.cancellationSignal.removeEventListener('abort', onCancel)

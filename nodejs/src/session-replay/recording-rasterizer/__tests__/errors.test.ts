@@ -51,14 +51,20 @@ describe('RasterizationError', () => {
             expect(asRasterizationError(err)).toBe(err)
         })
 
-        // Puppeteer names the in-flight CDP method in the message; every method must map to one
-        // retryable code with a stable message so error tracking sees a single fingerprint.
+        // One case per way puppeteer words a dead target, because that is what varies. The CDP
+        // method name in the message does not: the classifier never reads it, so a case per method
+        // would be the same assertion three times.
         it.each([
-            'Protocol error (Page.captureScreenshot): Target closed',
-            'Protocol error (Runtime.callFunctionOn): Target closed',
-            'Protocol error (Target.attachToTarget): Target closed',
-        ])('classifies "%s" as a retryable TARGET_CLOSED', (message) => {
+            ['bare rejection from the in-flight callback', 'Target closed', 'Error'],
+            [
+                'CDP session already closed',
+                'Protocol error (Page.captureScreenshot): Session closed. Most likely the page has been closed.',
+                'Error',
+            ],
+            ['a wording only the error name catches', 'Page closed!', 'TargetCloseError'],
+        ])('classifies %s as a retryable TARGET_CLOSED', (_label, message, name) => {
             const raw = new Error(message)
+            raw.name = name
             const classified = asRasterizationError(raw)
             expect(classified).toMatchObject({
                 code: 'TARGET_CLOSED',
