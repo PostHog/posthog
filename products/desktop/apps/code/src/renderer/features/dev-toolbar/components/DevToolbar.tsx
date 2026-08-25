@@ -467,23 +467,30 @@ function DevGadgets({
       >
         {isDarkMode ? <Sun size={14} /> : <Moon size={14} />}
       </GadgetButton>
-      <GadgetButton
-        label={reactScanEnabled ? "Disable react-scan" : "Enable react-scan"}
-        onClick={onToggleReactScan}
-        active={reactScanEnabled}
-      >
-        <Radar size={14} />
-      </GadgetButton>
-      {/* Router devtools are DEV-only — the overlay's code is stripped from
-          prod builds, so the trigger must be too. */}
+      {/* react-scan and router devtools are DEV-only. Dev mode is a runtime
+          flag, so this toolbar also shows in packaged builds — but react-scan
+          must load before React runs, which never happens there, and the
+          router devtools overlay is stripped from prod. Gate both triggers so
+          they cannot appear (and fail) in a packaged build. */}
       {import.meta.env.DEV && (
-        <GadgetButton
-          label="Toggle router devtools"
-          onClick={onToggleRouterDevtools}
-          active={false}
-        >
-          <Route size={14} />
-        </GadgetButton>
+        <>
+          <GadgetButton
+            label={
+              reactScanEnabled ? "Disable react-scan" : "Enable react-scan"
+            }
+            onClick={onToggleReactScan}
+            active={reactScanEnabled}
+          >
+            <Radar size={14} />
+          </GadgetButton>
+          <GadgetButton
+            label="Toggle router devtools"
+            onClick={onToggleRouterDevtools}
+            active={false}
+          >
+            <Route size={14} />
+          </GadgetButton>
+        </>
       )}
     </Flex>
   );
