@@ -747,6 +747,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "RightAIChoiceBot": BotDefinition(
         "Right AI Choice", "ai_crawler", "AI Agent", "Right AI Choice", documentation_url="https://rightaichoice.com"
     ),
+    "akwlabs-doc-mirror": BotDefinition(
+        "AKW Labs document mirror", "ai_crawler", "AI Agent", "AKW Labs", documentation_url="https://akwlabs.com"
+    ),
+    "Reflectionbot": BotDefinition(
+        "Reflectionbot", "ai_crawler", "AI Agent", "Reflection AI", documentation_url="https://reflection.ai/bot"
+    ),
     # Search / index crawlers
     "redCactiBot": BotDefinition(
         "redCactiBot", "search_crawler", "Bot", "redCacti", documentation_url="https://redcacti.com/bot"
@@ -879,6 +885,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Bot",
         "swissaitalent.ch",
         documentation_url="https://swissaitalent.ch/bot",
+    ),
+    "QuarryBot": BotDefinition(
+        "QuarryBot", "search_crawler", "Bot", "Quarry", documentation_url="https://quarry.design/bot"
     ),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
