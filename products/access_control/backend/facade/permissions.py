@@ -1,10 +1,10 @@
 """DRF enforcement point for the access-control policies this product owns.
 
-`TeamAndOrgViewSetMixin.get_permissions` puts `SurfaceAccessLimitPermission` into every viewset's stack.
-A new endpoint gets surface-limit enforcement automatically. DRF combines
-permission classes with AND semantics, so this class is an independent vote. Another class's
-internal early return cannot bypass it: a `*`-scoped token that passes `APIScopePermission` is
-still limited here.
+`TeamAndOrgViewSetMixin.get_permissions` puts `MCPAccessPermission` into every viewset's stack.
+A new endpoint gets MCP read-only enforcement automatically. DRF combines permission classes
+with AND semantics, so this class is an independent vote. Another class's internal early
+return cannot bypass it: a `*`-scoped token that passes `APIScopePermission` is still capped
+here.
 """
 
 from django.http import HttpRequest
@@ -14,25 +14,23 @@ from rest_framework.views import APIView
 
 from posthog.permissions import ScopeBasePermission, get_organization_from_view
 
-from products.access_control.backend.facade.surface_limits import classify_surface, limit_denial_for_request
-from products.access_control.backend.models import SurfaceAccessLimit
+from products.access_control.backend.facade.mcp_access import is_mcp_request, mcp_access_denial_for_request
 
 
-class SurfaceAccessLimitPermission(ScopeBasePermission):
-    """Denies actions that exceed the organization's limit for the request's access surface.
+class MCPAccessPermission(ScopeBasePermission):
+    """Denies write actions through the MCP server when the organization restricts it.
 
     This class subclasses ScopeBasePermission only for `_get_required_scopes`. It derives an
     action's read or write nature the same way `APIScopePermission` does, so the two cannot
     disagree about what counts as a write."""
 
     def has_permission(self, request: HttpRequest | Request, view: APIView) -> bool:
-        # Cheap exit first: almost every request has no classified surface. Classification
-        # is two isinstance checks and no query.
-        if classify_surface(request) is None:
+        # Cheap exit first: almost every request is not MCP, and the check is two
+        # isinstance checks and a header read, with no query.
+        if not is_mcp_request(request):
             return True
 
-        scope_object = getattr(view, "scope_object", None)
-        if scope_object is None:
+        if getattr(view, "scope_object", None) is None:
             return True
         try:
             organization = get_organization_from_view(view)
@@ -40,10 +38,9 @@ class SurfaceAccessLimitPermission(ScopeBasePermission):
             return True
 
         required_scopes = self._get_required_scopes(request, view) or []
-        denial = limit_denial_for_request(
+        denial = mcp_access_denial_for_request(
             request,
             organization,
-            resource=scope_object if scope_object != "INTERNAL" else SurfaceAccessLimit.ALL_RESOURCES,
             writes=any(scope.endswith(":write") for scope in required_scopes),
         )
         if denial is not None:

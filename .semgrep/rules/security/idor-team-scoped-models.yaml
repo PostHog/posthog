@@ -838,7 +838,6 @@ rules:
                               |Role
                               |RoleExternalReference
                               |RoleMembership
-                              |SurfaceAccessLimit
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -911,7 +910,6 @@ rules:
                         |Role
                         |RoleExternalReference
                         |RoleMembership
-                        |SurfaceAccessLimit
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)

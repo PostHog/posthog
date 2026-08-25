@@ -42,7 +42,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.permissions import SurfaceAccessLimitPermission
+from products.access_control.backend.facade.permissions import MCPAccessPermission
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -254,9 +254,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
-            # Domain enforcement and surface limits are tenant boundaries, not authorization
+            # Domain enforcement and the MCP cap are tenant boundaries, not authorization
             # levels. Views that shape their own permission chain cannot remove them.
-            return [*dangerously_defined, SurfaceAccessLimitPermission(), VerifiedDomainEnforcementPermission()]
+            return [*dangerously_defined, MCPAccessPermission(), VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -272,7 +272,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes: list = [
             IsAuthenticated,
             APIScopePermission,
-            SurfaceAccessLimitPermission,
+            MCPAccessPermission,
             AccessControlPermission,
         ]
 
