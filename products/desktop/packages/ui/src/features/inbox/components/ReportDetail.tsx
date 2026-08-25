@@ -80,7 +80,7 @@ function ReportDetailContent({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: each report should start in its assigned default state rather than inherit the previous report's panel state.
   useEffect(() => {
-    setChatOpen(defaultOpenVariant === "test");
+    setChatOpen(defaultOpenVariant !== "control");
   }, [defaultOpenVariant, report.id, setChatOpen]);
 
   const handleAsk = useCallback(
