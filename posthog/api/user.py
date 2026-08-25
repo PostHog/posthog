@@ -198,19 +198,37 @@ class PendingInviteSerializer(serializers.Serializer):
 
 
 class VerifyEmailRequestSerializer(serializers.Serializer):
-    """Request body for POST /api/users/verify_email/. Documentation only. The action validates
-    manually because serializer fields cannot express the token-or-code rule."""
+    """Request body for POST /api/users/verify_email/. Exactly one of token or code is required."""
 
-    uuid = serializers.UUIDField(help_text="UUID of the user whose email is being verified.")
+    # A string, not a UUIDField: the E2E test sentinel is not a UUID, and an unknown uuid must
+    # answer the same way as a wrong credential rather than as a shape error.
+    uuid = serializers.CharField(help_text="UUID of the user whose email is being verified.")
     token = serializers.CharField(
         required=False,
+        allow_blank=True,
         help_text="Verification token from the emailed link. Required unless a code is provided.",
     )
     code = serializers.CharField(
         required=False,
+        allow_blank=True,
         help_text="The 6-digit verification code emailed at signup. Whitespace, invisible characters, "
         "and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.",
     )
+
+    def validate_code(self, value: str) -> str:
+        if not value:
+            return value
+        # Same rule as the login code: exactly 6 digits after normalization, so malformed input is
+        # rejected here and never reaches the attempt budget.
+        cleaned = normalize_verification_code(value)
+        if not re.fullmatch(r"\d{6}", cleaned):
+            raise serializers.ValidationError("Enter the 6-digit code from your email.")
+        return cleaned
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs.get("token") and not attrs.get("code"):
+            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+        return attrs
 
 
 class OnboardingSkipRequestSerializer(serializers.Serializer):
@@ -1161,12 +1179,11 @@ class UserViewSet(
     @extend_schema(request=VerifyEmailRequestSerializer)
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny], throttle_classes=[UserVerifyEmailThrottle])
     def verify_email(self, request, **kwargs):
-        token = request.data.get("token") or None
-        code = request.data.get("code") or None
-        user_uuid = request.data["uuid"]
-
-        if not token and not code:
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+        body = VerifyEmailRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
+        body.is_valid(raise_exception=True)
+        token = body.validated_data.get("token") or None
+        code = body.validated_data.get("code") or None
+        user_uuid = body.validated_data["uuid"]
 
         # Special handling for E2E tests
         if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
@@ -1190,15 +1207,13 @@ class UserViewSet(
                 )
             attempts = email_verification_code_verifier.reserve_attempt(user)
             if email_verification_code_verifier.attempts_exceeded(attempts):
-                email_verification_code_verifier.invalidate(user)
+                # Refuse until the budget expires, but keep the code: anyone with the uuid can
+                # reach this endpoint, and deleting the code here would let them block the user.
                 raise serializers.ValidationError(
-                    {"code": ["Too many incorrect attempts. Request a new code."]},
+                    {"code": ["Too many incorrect attempts. Try again later."]},
                     code="too_many_attempts",
                 )
-            normalized_code = normalize_verification_code(code)
-            if not re.fullmatch(r"\d{6}", normalized_code) or not email_verification_code_verifier.check_code(
-                user, normalized_code
-            ):
+            if not email_verification_code_verifier.check_code(user, code):
                 raise serializers.ValidationError(
                     {"code": ["This verification code is invalid or has expired."]},
                     code="invalid_code",

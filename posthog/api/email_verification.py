@@ -60,6 +60,11 @@ class EmailVerificationCodeVerifier:
     The stored target address does for codes what the `pending_email` hash input does for link
     tokens: a code verifies only the address it was issued for. One Redis slot per user means
     a new code always invalidates the previous one.
+
+    The attempt budget is separate from the code. It is not reset by issuing a new code, because
+    the resend endpoint is public: a reset there would let a caller alternate resends and guesses
+    to brute-force the code. Exceeding the budget refuses checks until it expires, but keeps the
+    code alive, so a stranger who knows the user's uuid cannot destroy a live verification.
     """
 
     @staticmethod
@@ -80,9 +85,7 @@ class EmailVerificationCodeVerifier:
             issued_at = int(time.time())
             code = code_based_verification_token_generator.make_code(user, issued_at)
             # Write the state before the send, so a delivered code can always verify.
-            client = get_client()
-            client.set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
-            client.delete(self._attempts_key(user.pk))
+            get_client().set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
             send_email_verification_code(user.pk, code, target)
             return True
         except Exception as e:
@@ -111,7 +114,9 @@ class EmailVerificationCodeVerifier:
         try:
             client = get_client()
             count = int(client.incr(self._attempts_key(user.pk)))
-            client.expire(self._attempts_key(user.pk), CODE_TTL_SECONDS)
+            if count == 1:
+                # Only the first attempt starts the window, so further guesses cannot extend a lockout.
+                client.expire(self._attempts_key(user.pk), CODE_TTL_SECONDS)
             return count
         except Exception:
             logger.exception("Failed to reserve email verification code attempt", user_id=user.pk)
@@ -136,6 +141,9 @@ class EmailVerificationCodeVerifier:
 
     def attempts_exceeded(self, attempts: int) -> bool:
         return attempts > CODE_MAX_ATTEMPTS
+
+    def _clear_attempts_for_test(self, user: User) -> None:
+        get_client().delete(self._attempts_key(user.pk))
 
 
 email_verification_code_verifier = EmailVerificationCodeVerifier()

@@ -3176,22 +3176,64 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_attempt_cap_invalidates_the_code(self):
+    def test_attempt_cap_refuses_checks_but_keeps_the_code_alive(self):
         code = self._request_code()
         wrong = "000000" if code != "000000" else "000001"
 
         for _ in range(5):
             self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
 
+        # A stranger who knows the uuid can exhaust the budget, but must not be able to destroy
+        # the real user's code: once the budget expires, the same code still verifies.
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "too_many_attempts")
 
-        # The correct code is dead after lockout even once the throttle window is out of the way.
+        email_verification_code_verifier._clear_attempts_for_test(self.user)
         cache.clear()
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_resend_does_not_restore_guesses(self):
+        code = self._request_code()
+        wrong = "000000" if code != "000000" else "000001"
+        for _ in range(4):
+            self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
+
+        # A public resend must not hand the guesser a fresh budget.
+        new_code = self._request_code()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": wrong})
         self.assertEqual(response.json()["code"], "invalid_code")
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": new_code})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "too_many_attempts")
+
+    @parameterized.expand([("letters", "aaaaaa"), ("short", "12345"), ("list", ["1"]), ("object", {"a": 1})])
+    def test_malformed_code_is_rejected_without_spending_an_attempt(self, _name, bad_code):
+        code = self._request_code()
+
+        for _ in range(6):
+            response = self.client.post(
+                "/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": bad_code}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Six junk submissions later, the budget is untouched and the real code still works.
+        cache.clear()
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_numeric_json_code_is_a_normal_guess(self):
+        # A client that sends the six digits as a JSON number must get a 400, not a 500, and the
+        # coerced string counts as an ordinary attempt.
+        code = self._request_code()
+        if code.startswith("0"):
+            # A JSON number cannot carry a leading zero; the real client sends a string in that case.
+            self.skipTest("code has a leading zero")
+        response = self.client.post(
+            "/api/users/verify_email/", {"uuid": str(self.user.uuid), "code": int(code)}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_expired_code_is_rejected(self):
         code = self._request_code()
