@@ -367,10 +367,13 @@ SELECT
     argMax(bucket_dismissal_reason, last_timestamp) AS dismissal_reason,
     -- Cumulative, unlike dismissal_reason above: a restore or a later dismissal with another reason
     -- overwrites the latest-wins reason, and a label that can revert to 0 breaks the training
-    -- builder's assumption that labels only grow. The dismiss_wrong head reads this column.
-    countIf(outcome = 'dismissed' AND bucket_dismissal_reason IN ("""
-    + _WRONG_DISMISSAL_REASONS_SQL
-    + """)) AS wrong_dismissal_count,
+    -- builder's assumption that labels only grow. Counted per bucket (a bucket that saw any wrong
+    -- reason counts once, so a same-bucket re-dismissal cannot erase it) and only for events that
+    -- name the same tenant as the latest transition, which is the event the provenance
+    -- cross-check validates against Postgres. The dismiss_wrong head reads this column.
+    countIf(
+        outcome = 'dismissed' AND bucket_wrong_dismissal = 1 AND event_team_id = latest_event_team_id
+    ) AS wrong_dismissal_count,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -384,6 +387,12 @@ SELECT
     -- nothing on the event says which region emitted it.
     toInt(argMax(coalesce(event_team_id, ''), last_timestamp)) AS status_event_team_id
 FROM (
+    SELECT
+        *,
+        -- The team the latest transition reported, on every bucket row, so an aggregate above can
+        -- filter on it (ClickHouse does not allow an aggregate inside another aggregate).
+        argMax(coalesce(event_team_id, ''), last_timestamp) OVER (PARTITION BY report_id) AS latest_event_team_id
+    FROM (
     SELECT
         min(events.timestamp) AS first_timestamp,
         max(events.timestamp) AS last_timestamp,
@@ -402,6 +411,9 @@ FROM (
         -- Named apart from the outer alias: ClickHouse resolves a bare `dismissal_reason` in the outer
         -- aggregates to the outer alias, which is itself an aggregate.
         nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS bucket_dismissal_reason,
+        max(toString(properties.dismissal_reason) IN ("""
+    + _WRONG_DISMISSAL_REASONS_SQL
+    + """)) AS bucket_wrong_dismissal,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(argMax(toString(properties.team_id), events.timestamp), '') AS event_team_id
@@ -414,6 +426,7 @@ FROM (
         previous_status,
         status,
         toStartOfInterval(events.timestamp, INTERVAL 10 MINUTE)
+    )
 )
 GROUP BY report_id
 """

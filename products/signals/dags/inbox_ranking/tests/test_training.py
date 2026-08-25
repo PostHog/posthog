@@ -128,35 +128,36 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
 def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untrusted_status_rows():
     head = HEADS_BY_NAME["pr_created"]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    ids = ["a", "b", "c"]
+    ids = ["a", "b", "c", "gone"]
     # a: status telemetry names another tenant -> provenance fails; b: no label row at all;
-    # c: trusted, dismissed as wrong by the horizon.
+    # c: trusted, dismissed as wrong by the horizon; gone: hard-deleted before the horizon, so the
+    # later snapshot has its label row but no state row.
     state = _state(
         ids,
-        report_team_id=[1, 1, 1],
-        status=["ready", "ready", "ready"],
-        pg_updated_at=[pd.Timestamp("2026-08-09T12:00:00Z")] * 3,
+        report_team_id=[1, 1, 1, 1],
+        status=["ready"] * 4,
+        pg_updated_at=[pd.Timestamp("2026-08-09T12:00:00Z")] * 4,
     )
     labels_now = _labels(["a", "c"], latest_status_event=["suppressed", None], status_event_team_id=[99, None])
     labels_later = _labels(
-        ["a", "c"],
-        latest_status_event=["suppressed", "suppressed"],
-        status_event_team_id=[99, 1],
-        wrong_dismissal_count=[1, 1],
-        pr_created_count=[0, 1],
+        ["a", "c", "gone"],
+        latest_status_event=["suppressed", "suppressed", None],
+        status_event_team_id=[99, 1, None],
+        wrong_dismissal_count=[1, 1, 0],
+        pr_created_count=[0, 1, 1],
     )
-    state_later = state.assign(status=["ready", "ready", "suppressed"])
+    state_later = state.drop("gone").assign(status=["ready", "ready", "suppressed"])
     snapshots = {
         D0: assemble_snapshot(D0, state, labels_now),
         later: assemble_snapshot(later, state_later, labels_later),
     }
 
     assert snapshots[D0].labels.loc["b", "impression_unit_count"] == 0
-    assert snapshots[D0].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True}
-    assert snapshots[later].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True}
+    assert snapshots[D0].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": True}
+    assert snapshots[later].labels["label_provenance_ok"].to_dict() == {"a": False, "b": True, "c": True, "gone": False}
     # pr_created reads the tasks webhook, so a's untrusted status telemetry does not exclude it there.
     pr = build_examples(snapshots, head).set_index("report_id")["label"].to_dict()
-    assert pr == {"a": 0, "b": 0, "c": 1}
+    assert pr == {"a": 0, "b": 0, "c": 1, "gone": 1}
     # dismiss_wrong reads the status stream: a is dropped, b was never impressed, c is a positive.
     wrong = build_examples(snapshots, HEADS_BY_NAME["dismiss_wrong"]).set_index("report_id")["label"].to_dict()
     assert wrong == {"c": 1}
@@ -250,6 +251,11 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert trained.holdout_booster_ubj is not None
     paired = booster_holdout_auc(trained.holdout_booster_ubj, examples, head, holdout_days=7)
     assert paired == pytest.approx(trained.metrics.holdout_auc, abs=1e-6)
+    # A booster from another feature schema is not scorable on these examples: the gate must fall
+    # back to the stored AUC instead of failing the champion asset every day.
+    other_schema = xgb.XGBClassifier(n_estimators=2).fit(pd.DataFrame({"not_a_feature": [0, 1, 0, 1]}), [0, 1, 0, 1])
+    other_ubj = bytes(other_schema.get_booster().save_raw("ubj"))
+    assert booster_holdout_auc(other_ubj, examples, head, holdout_days=7) is None
 
 
 def test_train_head_returns_none_without_both_classes():

@@ -146,6 +146,12 @@ def booster_holdout_auc(booster_ubj: bytes, examples: pd.DataFrame, head: Head, 
         return None
     booster = xgb.Booster()
     booster.load_model(bytearray(booster_ubj))
-    x = rows.loc[test, list(FEATURE_NAMES)].astype(float)
+    # The booster's own names, not the current contract: a champion trained before an additive
+    # schema bump is still scorable on its subset. A name the examples lack means the schemas are
+    # incompatible, and the caller falls back to the stored AUC.
+    names = list(booster.feature_names or FEATURE_NAMES)
+    if any(name not in rows for name in names):
+        return None
+    x = rows.loc[test, names].astype(float)
     y = rows.loc[test, "label"].to_numpy(dtype=int)
-    return _auc(y, booster.predict(xgb.DMatrix(x, feature_names=list(FEATURE_NAMES))))
+    return _auc(y, booster.predict(xgb.DMatrix(x, feature_names=names)))

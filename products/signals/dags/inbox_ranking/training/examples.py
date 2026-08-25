@@ -66,8 +66,11 @@ def _none_if_missing(value: object) -> object:
 def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataFrame) -> Snapshot:
     """Align `labels` to the state spine: every state report gets a label row (LABEL_DEFAULTS for
     reports that had no event) and a `label_provenance_ok` column from the dataset dag's
-    cross-check when the provenance inputs are present. Label-only rows are dropped."""
-    aligned = labels.reindex(state.index)
+    cross-check when the provenance inputs are present. Label-only rows stay: a report deleted
+    before a later snapshot keeps its horizon label there, while `build_examples` skips them as
+    scoring moments because they carry no state."""
+    aligned = labels.reindex(state.index.union(labels.index))
+    state = state.reindex(aligned.index)
     for column, default in LABEL_DEFAULTS.items():
         if column in aligned and default is not None:
             aligned[column] = aligned[column].fillna(default)
