@@ -30,7 +30,12 @@ from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_
 # Default and hard cap on how many observations a search returns.
 DEFAULT_SEARCH_LIMIT = 20
 MAX_SEARCH_LIMIT = 50
-# Cut in ClickHouse so full facet paragraphs never travel over the wire.
+# Postgres-side hydration re-checks status and access and can drop ranked ids, so a caller that ranks
+# exactly `limit` ids can come back short. Callers rank this many times their limit and slice the
+# hydrated rows back down, so drops only shorten the response once they exceed the margin.
+RANK_OVERFETCH_FACTOR = 3
+# Cut inside the candidate subquery so full facet paragraphs are neither carried through the sort nor
+# sent over the wire.
 _MATCHED_CONTENT_MAX_CHARS = 300
 # The cosine-distance scan is exact (brute-force), so cap how many of a team's most-recent embedding rows it
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
@@ -157,22 +162,27 @@ def rank_observations(
         "limit": ast.Constant(value=limit),
         "snippet_chars": ast.Constant(value=_MATCHED_CONTENT_MAX_CHARS),
     }
-    filter_clause = "".join(f"\n              AND {clause}" for clause in filters.where_clauses(placeholders))
+    filter_clause = "".join(f"\n                  AND {clause}" for clause in filters.where_clauses(placeholders))
+    # The distance layer wraps the capped candidate subquery so the 3072-dim dot product runs once per
+    # candidate row (min and argMin share the alias) and never on rows the cap already discarded.
     hogql_query = f"""
         SELECT
             document_id,
-            min(cosineDistance(embedding, {{embedding}})) AS distance,
-            argMin(substring(content, 1, {{snippet_chars}}), cosineDistance(embedding, {{embedding}})) AS matched_content
+            min(row_distance) AS distance,
+            argMin(snippet, row_distance) AS matched_content
         FROM (
-            SELECT document_id, embedding, content
-            FROM document_embeddings
-            WHERE model_name = {{model_name}}
-              AND product = {{product}}
-              AND document_type = {{document_type}}
-              AND team_id = {{team_id}}
-              AND JSONExtractString(metadata, 'scanner_id') IN {{scanner_ids}}{filter_clause}
-            ORDER BY timestamp DESC
-            LIMIT {{candidate_cap}}
+            SELECT document_id, cosineDistance(embedding, {{embedding}}) AS row_distance, snippet
+            FROM (
+                SELECT document_id, embedding, substring(content, 1, {{snippet_chars}}) AS snippet
+                FROM document_embeddings
+                WHERE model_name = {{model_name}}
+                  AND product = {{product}}
+                  AND document_type = {{document_type}}
+                  AND team_id = {{team_id}}
+                  AND JSONExtractString(metadata, 'scanner_id') IN {{scanner_ids}}{filter_clause}
+                ORDER BY timestamp DESC
+                LIMIT {{candidate_cap}}
+            )
         )
         GROUP BY document_id
         ORDER BY distance ASC

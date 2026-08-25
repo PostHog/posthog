@@ -99,3 +99,45 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(matches[0].matched_content, "user wanted to check out")
         self.assertAlmostEqual(matches[0].distance, 0.0, places=5)
         self.assertEqual(len(matches[1].matched_content), 300)
+
+    def test_every_filter_clause_compiles_and_applies_inside_the_candidate_subquery(self) -> None:
+        scanner_id = str(uuid.uuid4())
+        kept = str(uuid.uuid4())
+        dropped = str(uuid.uuid4())
+        now = timezone.now()
+        embedding = [1.0, *([0.0] * 3071)]
+
+        def row(document_id: str, metadata: dict) -> tuple:
+            return (
+                self.team.pk,
+                EMBEDDING_PRODUCT,
+                EMBEDDING_DOCUMENT_TYPE,
+                "reasoning",
+                document_id,
+                now,
+                now,
+                "some content",
+                json.dumps({"scanner_id": scanner_id, **metadata}),
+                embedding,
+                now,
+                0,
+                0,
+            )
+
+        self._insert_embedding_rows(
+            [
+                row(kept, {"verdict": "yes", "score": 2.0, "tags": ["Abandoned Cart"]}),
+                row(dropped, {"verdict": "no", "score": 0.5, "tags": ["other"]}),
+            ]
+        )
+
+        matches = rank_observations(
+            self.team,
+            self.user,
+            [scanner_id],
+            embedding,
+            10,
+            ObservationSearchFilters.from_raw(verdict=["yes"], tags=["abandoned cart"], min_score=1.0, max_score=3.0),
+        )
+
+        self.assertEqual([m.observation_id for m in matches], [kept])

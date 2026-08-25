@@ -4,12 +4,13 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-import httpx
+import requests
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -3065,6 +3066,9 @@ class TestObservationSearchAction(_VisionAPITestCase):
             ("missing_q", ""),
             ("limit_above_cap", "?q=checkout&limit=51"),
             ("unknown_verdict", "?q=checkout&verdict=yes,maybe"),
+            ("min_score_above_max_score", "?q=checkout&min_score=5&max_score=1"),
+            ("nan_score", "?q=checkout&min_score=nan"),
+            ("infinite_score", "?q=checkout&max_score=inf"),
         ]
     )
     def test_search_rejects_bad_params(self, _name: str, query_string: str) -> None:
@@ -3091,6 +3095,30 @@ class TestObservationSearchAction(_VisionAPITestCase):
             [(r["observation"]["id"], r["distance"], r["matched_content"]) for r in resp.json()["results"]],
             [(str(second.id), 0.1, "user rage-clicked"), (str(first.id), 0.3, "")],
         )
+        self.assertFalse(resp.json()["truncated"])
+
+    @patch("products.replay_vision.backend.api.observations.rank_observations")
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_overfetches_then_slices_to_limit_and_flags_truncation(
+        self, mock_embed: MagicMock, mock_rank: MagicMock
+    ) -> None:
+        first = self._create_succeeded_observation("sess-1")
+        second = self._create_succeeded_observation("sess-2")
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        # The best-ranked id hydrates to nothing readable; the over-fetched tail must fill the response
+        # up to `limit`, and the extra readable row must be cut, not returned.
+        mock_rank.return_value = [
+            ObservationMatch(observation_id=str(uuid7()), distance=0.1, matched_content=""),
+            ObservationMatch(observation_id=str(first.id), distance=0.2, matched_content=""),
+            ObservationMatch(observation_id=str(second.id), distance=0.3, matched_content=""),
+        ]
+
+        resp = self.client.get(f"{self.search_url}?q=confused users&limit=1")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertGreater(mock_rank.call_args[0][4], 1)
+        self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(first.id)])
+        self.assertTrue(resp.json()["truncated"])
 
     @patch("products.replay_vision.backend.api.observations.rank_observations")
     @patch("products.replay_vision.backend.api.observations.generate_embedding")
@@ -3146,12 +3174,20 @@ class TestObservationSearchAction(_VisionAPITestCase):
         self.assertNotIn(str(denied.id), searched_scanner_ids)
         self.assertIn(str(self.scanner.id), searched_scanner_ids)
 
-    @patch(
-        "products.replay_vision.backend.api.observations.generate_embedding",
-        side_effect=httpx.ConnectError("embedding service down"),
+    # `generate_embedding` posts through a `requests` session, so its transport failures are the
+    # `requests` exceptions — an `httpx` mock here would exercise a handler that can never fire.
+    @parameterized.expand(
+        [
+            ("unreachable", requests.ConnectionError),
+            ("slow", requests.Timeout),
+        ]
     )
-    def test_search_returns_503_when_embedding_unavailable(self, _mock_embed: MagicMock) -> None:
-        resp = self.client.get(f"{self.search_url}?q=anything")
+    def test_search_returns_503_when_embedding_unavailable(self, _name: str, exception_class: type) -> None:
+        with patch(
+            "products.replay_vision.backend.api.observations.generate_embedding",
+            side_effect=exception_class("embedding service down"),
+        ):
+            resp = self.client.get(f"{self.search_url}?q=anything")
         self.assertEqual(resp.status_code, 503)
 
     @patch("products.replay_vision.backend.api.observations.is_ai_data_processing_approved", return_value=False)
@@ -3163,6 +3199,22 @@ class TestObservationSearchAction(_VisionAPITestCase):
     def test_search_with_unknown_scanner_returns_404(self) -> None:
         resp = self.client.get(f"{self.search_url}?q=anything&scanner_id={uuid7()}")
         self.assertEqual(resp.status_code, 404)
+
+    # Guards the wiring, not the rate: the action-level `throttle_classes` must actually reach
+    # `get_throttles()`, or the endpoint ships with no throttle at all.
+    @patch("posthog.rate_limit.ReplayVisionSearchBurstRateThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.replay_vision.backend.api.observations.rank_observations", return_value=[])
+    @patch("products.replay_vision.backend.api.observations.generate_embedding")
+    def test_search_is_rate_limited(
+        self, mock_embed: MagicMock, _mock_rank: MagicMock, _mock_enabled: MagicMock
+    ) -> None:
+        cache.clear()
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        for _ in range(2):
+            self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 200)
+
+        self.assertEqual(self.client.get(f"{self.search_url}?q=anything").status_code, 429)
 
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):

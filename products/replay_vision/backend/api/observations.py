@@ -1,4 +1,5 @@
 import json
+import math
 import uuid
 from dataclasses import dataclass
 from typing import Any, cast, get_args
@@ -11,7 +12,7 @@ from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
 
-import httpx
+import requests
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -67,6 +68,7 @@ from products.replay_vision.backend.scanning import RetryOutcome, retry_observat
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
+    RANK_OVERFETCH_FACTOR,
     ObservationSearchFilters,
     fetch_ranked_observations,
     rank_observations,
@@ -1099,7 +1101,8 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     )
     tags = serializers.CharField(
         required=False,
-        help_text="Comma-separated classifier tags to keep. Matching is case- and format-insensitive.",
+        help_text="Comma-separated classifier tags to keep. Matching is case- and format-insensitive. "
+        "Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.",
     )
     min_score = serializers.FloatField(
         required=False, help_text="Keep only scorer observations with a score at or above this value."
@@ -1122,6 +1125,27 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Invalid value(s) {invalid}; allowed: {sorted(_MONITOR_VERDICTS)}.")
         return value
 
+    def validate_min_score(self, value: float) -> float:
+        return self._finite_score(value)
+
+    def validate_max_score(self, value: float) -> float:
+        return self._finite_score(value)
+
+    @staticmethod
+    def _finite_score(value: float) -> float:
+        # FloatField accepts `nan` and `inf`, which would reach the ClickHouse parameter binding.
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Must be a finite number.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        min_score, max_score = attrs.get("min_score"), attrs.get("max_score")
+        # An empty-by-construction range is a caller mistake; a 400 here is cheaper than an embedding
+        # call plus a ClickHouse scan that can only return nothing.
+        if min_score is not None and max_score is not None and min_score > max_score:
+            raise serializers.ValidationError("`min_score` cannot be greater than `max_score`.")
+        return attrs
+
 
 class ObservationSearchResultSerializer(serializers.Serializer):
     observation = ReplayObservationSerializer(help_text="The matching observation.")
@@ -1138,6 +1162,10 @@ class ObservationSearchResultSerializer(serializers.Serializer):
 
 class ObservationSearchResponseSerializer(serializers.Serializer):
     results = ObservationSearchResultSerializer(many=True, help_text="Matching observations, most relevant first.")
+    truncated = serializers.BooleanField(
+        help_text="True when more matches may exist beyond `results`, so the response is a top slice "
+        "rather than everything that matched."
+    )
 
 
 def _csv_values(raw: str | None) -> list[str] | None:
@@ -1229,8 +1257,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             embedding_response = generate_embedding(
                 self.team, validated["q"], model=OBSERVATION_EMBEDDING_MODEL.value, timeout=10.0
             )
-        except httpx.HTTPError:
-            # Only transport failures are retryable. Anything else is a bug and should surface as a 500.
+        except (requests.ConnectionError, requests.Timeout):
+            # The embedding worker is unreachable or slow, so the caller can retry. A rejected request
+            # (requests.HTTPError) is a bug, not retryable, and should surface as a 500.
             logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
             raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(
@@ -1239,18 +1268,23 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             min_score=validated.get("min_score"),
             max_score=validated.get("max_score"),
         )
+        limit = validated["limit"]
+        # Over-fetch, then slice back down after hydration drops rows (see RANK_OVERFETCH_FACTOR).
+        rank_limit = limit * RANK_OVERFETCH_FACTOR
         matches = rank_observations(
             self.team,
             cast(User, request.user),
             scanner_ids,
             embedding_response.embedding,
-            validated["limit"],
+            rank_limit,
             filters,
         )
         match_by_id = {match.observation_id: match for match in matches}
         observations = fetch_ranked_observations(
             self.team_id, scanner_ids, [match.observation_id for match in matches], self.user_access_control
         )
+        # ClickHouse filling its limit means it may hold further matches it never ranked.
+        truncated = len(matches) >= rank_limit or len(observations) > limit
         return self._search_response(
             [
                 {
@@ -1258,12 +1292,15 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                     "distance": match_by_id[str(obs.id)].distance,
                     "matched_content": match_by_id[str(obs.id)].matched_content,
                 }
-                for obs in observations
-            ]
+                for obs in observations[:limit]
+            ],
+            truncated=truncated,
         )
 
-    def _search_response(self, results: list[dict[str, Any]]) -> Response:
-        serializer = ObservationSearchResponseSerializer({"results": results}, context=self.get_serializer_context())
+    def _search_response(self, results: list[dict[str, Any]], truncated: bool = False) -> Response:
+        serializer = ObservationSearchResponseSerializer(
+            {"results": results, "truncated": truncated}, context=self.get_serializer_context()
+        )
         return Response(serializer.data)
 
     def _searchable_scanner_ids(self, scanner_id: uuid.UUID | None) -> list[str]:

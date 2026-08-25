@@ -650,7 +650,9 @@ export const VisionObservationsSearchRetrieveQueryParams = /* @__PURE__ */ zod.o
         .string()
         .min(1)
         .optional()
-        .describe('Comma-separated classifier tags to keep. Matching is case- and format-insensitive.'),
+        .describe(
+            'Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.'
+        ),
     verdict: zod
         .string()
         .min(1)

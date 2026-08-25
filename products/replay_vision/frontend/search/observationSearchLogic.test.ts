@@ -55,7 +55,7 @@ describe('observationSearchLogic', () => {
     ])('%s', (_name, distances, expectedCutoff) => {
         const logic = observationSearchLogic({ scannerId: null })
         logic.mount()
-        logic.actions.searchSuccess(searchResults(distances), 'query')
+        logic.actions.searchSuccess(searchResults(distances), 'query', false)
 
         expect(logic.values.strongMatchDistanceCutoff).toEqual(expectedCutoff)
         logic.unmount()
@@ -80,6 +80,31 @@ describe('observationSearchLogic', () => {
         expect(searchSpy).toHaveBeenCalledTimes(1)
 
         router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(1)
+        logic.unmount()
+    })
+
+    it('a query with trailing whitespace searches once, despite the trimmed actionToUrl echo', async () => {
+        const logic = observationSearchLogic({ scannerId: null })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search' })
+        logic.actions.setQuery('rage clicks ')
+        await expectLogic(logic, () => logic.actions.search()).toFinishAllListeners()
+
+        expect(searchSpy).toHaveBeenCalledTimes(1)
+        logic.unmount()
+    })
+
+    it('a failed deep-linked search does not re-fire on unrelated URL changes', async () => {
+        searchSpy.mockImplementation(() => [500, { detail: 'embedding service down' }])
+        const logic = observationSearchLogic({ scannerId: null })
+        logic.mount()
+        router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(searchSpy).toHaveBeenCalledTimes(1)
+
+        router.actions.push(urls.replayVision(), { tab: 'search', q: 'rage clicks', unrelated: '1' })
         await expectLogic(logic).toFinishAllListeners()
         expect(searchSpy).toHaveBeenCalledTimes(1)
         logic.unmount()

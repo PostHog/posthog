@@ -11,14 +11,14 @@ import { urls } from 'scenes/urls'
 import { ObservationResultSummary } from '../components/ObservationCard'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import type { ObservationSearchResultApi } from '../generated/api.schemas'
-import { SEARCH_RESULT_LIMIT, observationSearchLogic } from './observationSearchLogic'
+import { observationSearchLogic } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
 
 const EXAMPLE_QUERIES = ['users who got stuck and gave up', 'rage clicking out of frustration']
 
-function countLabel(count: number): string {
-    if (count >= SEARCH_RESULT_LIMIT) {
-        return `Showing the top ${SEARCH_RESULT_LIMIT} matches, best first`
+function countLabel(count: number, truncated: boolean): string {
+    if (truncated) {
+        return `Showing the top ${count === 1 ? 'match' : `${count} matches`}, best first`
     }
     return `${count === 1 ? '1 match' : `${count} matches`}, best first`
 }
@@ -82,7 +82,7 @@ function SearchResultCard({
 
 export function ObservationSearchTab({ scannerId }: { scannerId: string | null }): JSX.Element {
     const logic = observationSearchLogic({ scannerId })
-    const { query, results, searching, searchedQuery, strongMatchDistanceCutoff } = useValues(logic)
+    const { query, results, searching, searchedQuery, strongMatchDistanceCutoff, truncated } = useValues(logic)
     const { setQuery, search } = useActions(logic)
     const crossScanner = scannerId === null
 
@@ -150,7 +150,7 @@ export function ObservationSearchTab({ scannerId }: { scannerId: string | null }
                         </div>
                     ) : (
                         <>
-                            <div className="text-muted text-sm">{countLabel(results.length)}</div>
+                            <div className="text-muted text-sm">{countLabel(results.length, truncated)}</div>
                             <div className="flex flex-col gap-2">
                                 {results.map((result) => (
                                     <SearchResultCard

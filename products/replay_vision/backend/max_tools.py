@@ -58,6 +58,7 @@ from products.replay_vision.backend.scanning import (
 from products.replay_vision.backend.search import (
     DEFAULT_SEARCH_LIMIT,
     MAX_SEARCH_LIMIT,
+    RANK_OVERFETCH_FACTOR,
     ObservationSearchFilters,
     rank_observations,
 )
@@ -513,9 +514,12 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 
         # Filter + rank in one ClickHouse query: the structured outcome filters run against the embedding
         # metadata, so the semantic ranking only ever sees recordings that already match the exact outcome.
+        # Over-fetch, then cut back down after the loop below drops rows (see RANK_OVERFETCH_FACTOR).
         ordered_ids = [
             match.observation_id
-            for match in rank_observations(self._team, self._user, scanner_ids, query_vector, capped_limit, filters)
+            for match in rank_observations(
+                self._team, self._user, scanner_ids, query_vector, capped_limit * RANK_OVERFETCH_FACTOR, filters
+            )
         ]
         if not ordered_ids:
             return empty
@@ -539,6 +543,8 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         lines: list[str] = []
         matched_ids: list[str] = []
         for observation_id in ordered_ids:
+            if len(matched_ids) >= capped_limit:
+                break
             obs = observations.get(observation_id)
             if obs is None:
                 continue

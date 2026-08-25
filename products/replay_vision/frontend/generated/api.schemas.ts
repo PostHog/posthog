@@ -709,6 +709,8 @@ export interface ObservationSearchResultApi {
 export interface ObservationSearchResponseApi {
     /** Matching observations, most relevant first. */
     results: ObservationSearchResultApi[]
+    /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
+    truncated: boolean
 }
 
 export interface VisionQuotaApi {
@@ -2313,7 +2315,7 @@ export type VisionObservationsSearchRetrieveParams = {
      */
     scanner_id?: string
     /**
-     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive.
+     * Comma-separated classifier tags to keep. Matching is case- and format-insensitive. Unlike `verdict`, tags are not validated against a fixed list, so an unknown tag matches nothing.
      * @minLength 1
      */
     tags?: string

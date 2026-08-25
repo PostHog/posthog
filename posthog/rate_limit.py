@@ -536,6 +536,23 @@ class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """One bucket per credential (personal API key hash, else user) even on team-scoped views, for
+    endpoints where one user must not be able to drain the whole team's budget.
+
+    The parent's cache key idents a session-authenticated request on a team view by team id, which
+    would collapse every member of the team into one bucket.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if request.user.is_authenticated:
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
+            ident = hash_key_value(api_key[0]) if api_key is not None else request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -669,8 +686,10 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
 
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
 # the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
-# the default Burst/Sustained throttles bypass.
-class ReplayVisionSearchBurstRateThrottle(_TeamBucketRateThrottle):
+# the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user
+# iterating on queries can't lock the Search tab for the rest of the team; the sustained bucket is
+# per team so the total spend stays capped regardless of how many users or keys share it.
+class ReplayVisionSearchBurstRateThrottle(_UserBucketRateThrottle):
     scope = "replay_vision_search_burst"
     rate = "30/minute"
 
