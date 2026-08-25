@@ -218,8 +218,8 @@ from products.logs.backend.temporal.retention_entitlements import (
     WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
 )
 from products.managed_warehouse.backend.facade.temporal import (
-    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
-    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+    ACTIVITIES as MANAGED_WAREHOUSE_ACTIVITIES,
+    WORKFLOWS as MANAGED_WAREHOUSE_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
@@ -377,8 +377,8 @@ _task_queue_specs = [
     ),
     (
         settings.DUCKLAKE_TASK_QUEUE,
-        DUCKLAKE_COPY_WORKFLOWS,
-        DUCKLAKE_COPY_ACTIVITIES,
+        MANAGED_WAREHOUSE_WORKFLOWS,
+        MANAGED_WAREHOUSE_ACTIVITIES,
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,

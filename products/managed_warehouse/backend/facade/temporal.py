@@ -11,10 +11,6 @@ temporal activity modules.
 
 from products.managed_warehouse.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.managed_warehouse.backend.temporal.compaction_types import DucklakeCompactionInput
-from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
 from products.managed_warehouse.backend.temporal.ducklake_copy_data_modeling_workflow import (
     DuckLakeCopyDataModelingWorkflow,
 )
@@ -28,9 +24,7 @@ from products.managed_warehouse.backend.temporal.types import DataModelingDuckLa
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
-    "DataImportsDuckLakeCopyInputs",
     "DataModelingDuckLakeCopyInputs",
-    "DuckLakeCopyDataImportsWorkflow",
     "DuckLakeCopyDataModelingWorkflow",
     "DuckLakeCopyModelInput",
     "DuckLakeRegisterDataImportsInputs",

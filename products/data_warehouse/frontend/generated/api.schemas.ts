@@ -203,10 +203,10 @@ export interface ManagedWarehouseSourceSummaryApi {
     detail: string
     /** Number of this source's schemas visible to the warehouse. */
     total_schemas: number
-    /** Number of schemas applied by a completed copy or register workflow. */
+    /** Number of schemas applied by a completed registration workflow. */
     applied_schemas: number
     /**
-     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
+     * Most recent completed registration workflow across this source's schemas, or null if none completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -229,7 +229,7 @@ export interface ManagedWarehouseSourcesStatusApi {
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of imported source readiness. */
     detail: string
-    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
+    /** Per-source rollup of registration workflow statuses for configured warehouse source imports. */
     sources: ManagedWarehouseSourceSummaryApi[]
 }
 
@@ -470,13 +470,11 @@ export interface ManagedWarehouseMonitoringSeriesResponseApi {
 }
 
 /**
- * * `copy` - copy
  * * `register` - register
  */
 export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
 
 export const WorkflowTypeEnumApi = {
-    Copy: 'copy',
     Register: 'register',
 } as const
 
@@ -521,10 +519,9 @@ export interface ManagedWarehouseSourceTableStatusApi {
     detail: string
     /** Workflow applying the latest source import, or null if no workflow has run.
      *
-     * * `copy` - copy
      * * `register` - register */
     workflow_type: WorkflowTypeEnumApi | null
-    /** State of the latest copy or register workflow, or null if no workflow has run.
+    /** State of the latest registration workflow, or null if no workflow has run.
      *
      * * `running` - running
      * * `completed` - completed
@@ -533,14 +530,14 @@ export interface ManagedWarehouseSourceTableStatusApi {
      * * `stale` - stale */
     workflow_status: WorkflowStatusEnumApi | null
     /**
-     * When the latest copy or register workflow started, or null if no workflow has run.
+     * When the latest registration workflow started, or null if no workflow has run.
      * @nullable
      */
     workflow_started_at: string | null
-    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    /** Whether a registration workflow applied this table to the warehouse. */
     applied: boolean
     /**
-     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
+     * When a registration workflow most recently applied this table, or null if no workflow completed.
      * @nullable
      */
     last_applied_at: string | null
@@ -552,7 +549,7 @@ export interface ManagedWarehouseSourceTableStatusApi {
 }
 
 export interface ManagedWarehouseSourceSchemasResponseApi {
-    /** Per-schema copy or register workflow status for the requested source. */
+    /** Per-schema registration workflow status for the requested source. */
     schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 

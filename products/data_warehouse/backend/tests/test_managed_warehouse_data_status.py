@@ -68,7 +68,7 @@ class TestSourceTableReadiness(SimpleTestCase):
             schema_id=uuid4(),
             source_job_id="job-1",
             attempt_id="attempt-1",
-            workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+            workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
             status=workflow_status,
             started_at=datetime(2026, 8, 1, tzinfo=UTC),
             finished_at=None,
@@ -198,7 +198,7 @@ def _table(
         "table_name": table_name,
         "readiness_state": readiness_state,
         "detail": "",
-        "workflow_type": ManagedWarehouseSourceJobWorkflow.COPY,
+        "workflow_type": ManagedWarehouseSourceJobWorkflow.REGISTER,
         "workflow_status": ManagedWarehouseSourceJobStatus.COMPLETED,
         "workflow_started_at": datetime(2026, 8, 1, tzinfo=UTC),
         "applied": applied,
@@ -378,7 +378,7 @@ def _record_source_workflow(
     team: Team,
     schema: ExternalDataSchema,
     status: ManagedWarehouseSourceJobStatus = ManagedWarehouseSourceJobStatus.COMPLETED,
-    workflow_type: ManagedWarehouseSourceJobWorkflow = ManagedWarehouseSourceJobWorkflow.COPY,
+    workflow_type: ManagedWarehouseSourceJobWorkflow = ManagedWarehouseSourceJobWorkflow.REGISTER,
     started_at: datetime | None = None,
     attempt_id: str | None = None,
 ) -> datetime:
@@ -491,6 +491,7 @@ class TestGetSourceSchemaStatuses(TestCase):
             status=ManagedWarehouseSourceJobStatus.FAILED,
             workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
             started_at=applied_at + timedelta(minutes=1),
+            attempt_id="register-attempt-2",
         )
 
         [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)

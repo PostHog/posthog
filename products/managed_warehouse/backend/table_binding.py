@@ -17,7 +17,7 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
 
     On the warehouse HogQL database, both materialized data-modeling models and
     imported source tables resolve to the ClickHouse S3 table function (``s3(...)``),
-    which DuckDB/duckgres cannot execute. The duckgres materialization / copy
+    which DuckDB/duckgres cannot execute. The duckgres materialization and registration
     workflows write these into DuckLake schemas, so rebind each table node to a
     ``DirectPostgresTable`` that prints as the schema-qualified DuckLake name.
 
@@ -58,11 +58,11 @@ def _bind_materialized_models(database: Any, team_id: int) -> None:
 
 
 def _bind_source_tables(database: Any, team_id: int) -> None:
-    """Bind imported source tables to their DuckLake-copied counterparts.
+    """Bind imported source tables to their registered DuckLake counterparts.
 
     Each queryable, S3-backed warehouse table that has a linked ``ExternalDataSchema`` was
-    copied into the team's data-imports schema by the copy workflow. Model backing tables
-    have no schema, so they are naturally skipped; direct-query tables already render
+    registered in the team's data-imports schema by the registration workflow. Model
+    backing tables have no schema, so they are naturally skipped; direct-query tables already render
     schema-qualified and are not S3-backed, so they are skipped too. The binding is blind —
     if a table hasn't been synced yet, duckgres errors at query time, which is intended.
     """

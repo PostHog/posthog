@@ -104,7 +104,6 @@ def _observe_duckgres_server_delete(**kwargs: object) -> None:
 
 class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     class WorkflowType(models.TextChoices):
-        COPY = "copy", "Copy"
         REGISTER = "register", "Register"
 
     class Status(models.TextChoices):

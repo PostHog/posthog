@@ -516,66 +516,10 @@ def get_deltalake_storage_options(
 STAGING_PREFIX = "__posthog_staging"
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class DeltaTableSnapshotWorkload:
-    file_count: int
-    row_count: int | None
-    byte_count: int | None
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class StagedDeltaTable:
-    staging_uri: str
-    workload: DeltaTableSnapshotWorkload
-
-
 def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
     """Place source key path under __posthog_staging/ in the catalog bucket."""
     key_path = urlparse(source_uri).path.lstrip("/")
     return f"s3://{catalog_bucket}/{STAGING_PREFIX}/{key_path}"
-
-
-def _get_delta_snapshot(
-    source_uri: str,
-    *,
-    storage_config: DuckLakeStorageConfig | None = None,
-    team_id: int | None = None,
-    organization_id: str | None = None,
-) -> tuple[int, list[str], DeltaTableSnapshotWorkload]:
-    import deltalake
-
-    delta_table = deltalake.DeltaTable(
-        table_uri=source_uri,
-        storage_options=get_deltalake_storage_options(
-            storage_config=storage_config,
-            team_id=team_id,
-            organization_id=organization_id,
-        ),
-    )
-    version = delta_table.version()
-    data_keys = [urlparse(uri).path.lstrip("/") for uri in delta_table.file_uris()]
-
-    add_actions = delta_table.get_add_actions(flatten=True)
-    column_names = add_actions.schema.names
-
-    byte_count: int | None = None
-    if "size_bytes" in column_names:
-        sizes = add_actions.column("size_bytes").to_pylist()
-        if all(size is not None for size in sizes):
-            byte_count = sum(sizes)
-
-    row_count: int | None = None
-    if "num_records" in column_names:
-        record_counts = add_actions.column("num_records").to_pylist()
-        if all(record_count is not None for record_count in record_counts):
-            row_count = sum(record_counts)
-
-    workload = DeltaTableSnapshotWorkload(
-        file_count=len(data_keys),
-        row_count=row_count,
-        byte_count=byte_count,
-    )
-    return version, data_keys, workload
 
 
 def _get_delta_snapshot_files(
@@ -599,22 +543,6 @@ def _get_delta_snapshot_files(
     version = delta_table.version()
     data_keys = [urlparse(uri).path.lstrip("/") for uri in delta_table.file_uris()]
     return version, data_keys
-
-
-def get_delta_table_snapshot_workload(
-    source_uri: str,
-    *,
-    storage_config: DuckLakeStorageConfig | None = None,
-    team_id: int | None = None,
-    organization_id: str | None = None,
-) -> DeltaTableSnapshotWorkload:
-    _, _, workload = _get_delta_snapshot(
-        source_uri,
-        storage_config=storage_config,
-        team_id=team_id,
-        organization_id=organization_id,
-    )
-    return workload
 
 
 _DELTA_LOG_VERSION_RE = re.compile(r"^(\d{20})\.")
@@ -670,25 +598,6 @@ def stage_delta_table(
         organization_id=organization_id,
     )
     return _copy_delta_snapshot_to_staging(source_uri, catalog_bucket, version, data_keys)
-
-
-def stage_delta_table_with_workload(
-    source_uri: str,
-    catalog_bucket: str,
-    *,
-    storage_config: DuckLakeStorageConfig | None = None,
-    team_id: int | None = None,
-    organization_id: str | None = None,
-) -> StagedDeltaTable:
-    """Stage a version-pinned Delta table and return its transaction-log workload."""
-    version, data_keys, workload = _get_delta_snapshot(
-        source_uri,
-        storage_config=storage_config,
-        team_id=team_id,
-        organization_id=organization_id,
-    )
-    staging_uri = _copy_delta_snapshot_to_staging(source_uri, catalog_bucket, version, data_keys)
-    return StagedDeltaTable(staging_uri=staging_uri, workload=workload)
 
 
 def _copy_delta_snapshot_to_staging(source_uri: str, catalog_bucket: str, version: int, data_keys: list[str]) -> str:

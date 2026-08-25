@@ -186,7 +186,6 @@ LOAD_DEPENDENT_CHILD_PREFIXES = (
     "emit-data-import-signals-",
     "enrich-warehouse-table-semantics-",
     "compute-warehouse-table-statistics-",
-    "ducklake-copy-data-imports-",
 )
 
 
@@ -246,8 +245,7 @@ async def test_post_import_fork(
     [
         # New runs dispatch from the step list the resolve activity recorded.
         pytest.param("activity", id="activity_step_list"),
-        # In-flight pre-deploy runs have a context without `steps`; the legacy fallback
-        # must reproduce the old command sequence or their replay breaks on deploy.
+        # Contexts without `steps` derive supported gates from the legacy boolean fields.
         pytest.param("legacy", id="legacy_fallback"),
     ],
 )
@@ -263,7 +261,6 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     # other place it runs); if the gates are ignored, disabled products run. Both
     # dispatch paths must issue the same commands for the same gating.
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
-        DUCKLAKE_COPY_STEP,
         EMIT_SIGNALS_STEP,
         SEMANTIC_ENRICHMENT_STEP,
         TABLE_SIZE_STEP,
@@ -276,7 +273,11 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     executed: list[str] = []
 
     gated_steps = [EMIT_SIGNALS_STEP, SEMANTIC_ENRICHMENT_STEP, TABLE_STATISTICS_STEP] if gates_on else []
-    steps = None if steps_mode == "legacy" else [*gated_steps, TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
+    steps: list[str] | None
+    if steps_mode == "legacy":
+        steps = None
+    else:
+        steps = [*gated_steps, TABLE_SIZE_STEP]
 
     @activity.defn(name="resolve_post_import_context_activity")
     async def resolve_context(inputs: PostImportWorkflowInputs) -> PostImportContext:
@@ -329,9 +330,7 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     started = {prefix for prefix in gated_prefixes if any(c.startswith(prefix) for c in child_ids)}
     assert started == (set(gated_prefixes) if gates_on else set())
 
-    # Table size and the DuckLake copy run for every completed V3 import.
     assert executed == ["calculate_table_size_activity"]
-    assert any(c.startswith("ducklake-copy-data-imports-") for c in child_ids)
 
 
 async def test_each_completed_sync_gets_its_own_data_quality_suite():
@@ -396,7 +395,6 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
 
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
-        DUCKLAKE_COPY_STEP,
         TABLE_SIZE_STEP,
         PostImportWorkflowInputs,
         resolve_post_import_context_activity,
@@ -419,10 +417,10 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
     assert ctx.source_type == "Stripe"
     assert ctx.schema_name == "Customer"
     assert ctx.last_synced_at == pre_sync
-    # The always-on steps must be recorded for a completed job (feature-gated steps are
-    # off in the test environment); a None here would send new runs down the legacy path.
+    # A completed job with written rows records the table-size step. A None here would
+    # send new runs down the legacy path.
     assert ctx.steps is not None
-    assert ctx.steps[-2:] == [TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
+    assert ctx.steps[-1:] == [TABLE_SIZE_STEP]
 
 
 @pytest.mark.django_db
@@ -434,12 +432,9 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
         pytest.param(None, True, id="row_count_unknown"),
     ],
 )
-def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
-    team, rows_synced, expect_steps, _no_close_old_connections
-):
+def test_table_size_tracks_rows_written(team, rows_synced, expect_steps, _no_close_old_connections):
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
-        DUCKLAKE_COPY_STEP,
         TABLE_SIZE_STEP,
         PostImportWorkflowInputs,
         resolve_post_import_context_activity,
@@ -461,16 +456,13 @@ def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
 
     assert ctx.steps is not None
     assert (TABLE_SIZE_STEP in ctx.steps) is expect_steps
-    # The sync path is the only retry for a failed DuckLake copy, so it runs even at zero rows.
-    assert DUCKLAKE_COPY_STEP in ctx.steps
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("case", ["job_deleted", "job_not_completed"])
 def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team, case, _no_close_old_connections):
     # A cancelled job (Completed write suppressed after the final batch) or a deleted job
-    # must not fan out any step — steps=[] rather than None, or the workflow's legacy
-    # fallback would still run table size and the DuckLake copy for it.
+    # must return steps=[] because the None fallback still runs table size.
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
         PostImportContext,

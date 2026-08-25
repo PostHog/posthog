@@ -1,7 +1,7 @@
 """Post-import Temporal workflow for data imports.
 
 The single home for the post-import steps that read the loaded table (signal emission,
-semantic enrichment, column statistics, table size, DuckLake copy). On V3 the
+semantic enrichment, column statistics, table size). On V3 the
 `external-data-job` workflow ends at extraction: batches land on S3 and a separate load
 consumer writes them into Delta Lake, so these steps can't run from that workflow
 without racing the load — the load consumer starts this workflow after the final batch
@@ -33,10 +33,6 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
-from products.managed_warehouse.backend.facade.temporal import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -95,10 +91,8 @@ class PostImportContext:
     """Gating context resolved from the DB once the load has finished.
 
     `steps` is the ordered list of POST_IMPORT_STEPS keys to run, computed by the resolve
-    activity so the workflow's command sequence derives from recorded history only. None
-    means the context predates the step list (an in-flight pre-deploy run) — the workflow
-    then falls back to deriving the same sequence from the legacy boolean fields, which
-    stay populated for that reason.
+    activity. None means the context predates the step list, so the workflow derives the
+    supported steps from the legacy boolean fields.
     """
 
     source_type: str | None = None
@@ -163,10 +157,6 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
     return bool(
         gate.team is not None and statistics_enabled(gate.team) and _statistics_stale(gate.team_id, gate.schema.table)
     )
-
-
-def _always(gate: PostImportGateContext) -> bool:
-    return True
 
 
 def _wrote_rows_gate(gate: PostImportGateContext) -> bool:
@@ -258,26 +248,6 @@ async def _start_table_size(inputs: PostImportWorkflowInputs, ctx: PostImportCon
     )
 
 
-async def _start_ducklake_copy(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
-    try:
-        await workflow.start_child_workflow(
-            DuckLakeCopyDataImportsWorkflow.run,
-            DataImportsDuckLakeCopyInputs(
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                schema_ids=[uuid.UUID(inputs.schema_id)],
-            ),
-            id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.schema_id}",
-            task_queue=settings.DUCKLAKE_TASK_QUEUE,
-            parent_close_policy=ParentClosePolicy.ABANDON,
-        )
-    except WorkflowAlreadyStartedError:
-        workflow.logger.warning(
-            "DuckLake copy already running, skipping",
-            extra={"schema_id": inputs.schema_id},
-        )
-
-
 async def _start_data_quality_checks(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
     if ctx.table_id is None:
         return
@@ -305,18 +275,16 @@ EMIT_SIGNALS_STEP = "emit-signals"
 SEMANTIC_ENRICHMENT_STEP = "semantic-enrichment"
 TABLE_STATISTICS_STEP = "table-statistics"
 TABLE_SIZE_STEP = "table-size"
-DUCKLAKE_COPY_STEP = "ducklake-copy"
 DATA_QUALITY_CHECKS_STEP = "data-quality-checks"
 
 # Ordered registry of every post-import step. This is the future registration point for
 # product-owned steps (external_product_hooks-style), so entries stay self-contained:
-# gate on the activity side, commands on the workflow side, nothing in the workflow body.
+# gate on the activity side and commands on the workflow side.
 POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=EMIT_SIGNALS_STEP, enabled=_emit_signals_gate, start=_start_emit_signals),
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
     PostImportStep(key=TABLE_SIZE_STEP, enabled=_wrote_rows_gate, start=_start_table_size),
-    PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
 )
 
@@ -324,10 +292,7 @@ _STEP_BY_KEY = {step.key: step for step in POST_IMPORT_STEPS}
 
 
 def _legacy_step_keys(ctx: PostImportContext) -> list[str]:
-    """The step sequence the pre-step-list workflow issued, derived from the legacy
-    boolean fields. Replay fidelity: an in-flight run whose recorded context predates
-    `steps` must produce exactly the commands the old code produced, in the same order —
-    including the unconditional table-size and DuckLake steps on skip-all contexts."""
+    """Derive supported steps for contexts serialized before the step list existed."""
     keys = []
     if ctx.source_type is not None and ctx.schema_name is not None and ctx.emit_signals_enabled:
         keys.append(EMIT_SIGNALS_STEP)
@@ -336,7 +301,6 @@ def _legacy_step_keys(ctx: PostImportContext) -> list[str]:
     if ctx.statistics_needed:
         keys.append(TABLE_STATISTICS_STEP)
     keys.append(TABLE_SIZE_STEP)
-    keys.append(DUCKLAKE_COPY_STEP)
     return keys
 
 

@@ -148,7 +148,7 @@ class TestDuckLakeModelRedirect:
         query = HogQLQuery(query="SELECT id FROM myprefix_stripe_customers")
         compiled = compile_hogql_to_ducklake_sql(team.pk, query)
 
-        # The duckgres path must read the DuckLake-copied source table, not the
+        # The duckgres path must read the registered DuckLake source table, not the
         # ClickHouse s3() table function, which DuckDB cannot execute.
         assert "s3(" not in compiled.sql.lower()
         assert duckgres_data_imports_schema(team.pk) in compiled.sql

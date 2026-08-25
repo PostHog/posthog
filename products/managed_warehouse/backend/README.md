@@ -1,4 +1,4 @@
-# DuckLake copy workflow configuration
+# DuckLake workflow configuration
 
 ## DuckgresServer retirement telemetry
 
@@ -51,13 +51,12 @@ repeat the query. An empty result cannot prove that the model is unused: a final
 static search for the model, its table, and reverse relation is mandatory before
 removal because telemetry cannot discover dormant or uninstrumented code paths.
 
-The DuckLake copy and registration workflows write data into a DuckLake-managed S3 bucket. There are three workflows:
+The DuckLake workflows write data into a DuckLake-managed S3 bucket. There are two workflows:
 
-1. **Data Modeling** (`ducklake-copy.data-modeling`) - copies materialized saved query outputs
-2. **Data Imports** (`ducklake-copy.data-imports`) - copies external data source imports (Stripe, Hubspot, etc.)
-3. **Data Import Registration** (`ducklake-register.data-imports`) - copies and registers prepared Parquet files from completed imports
+1. **Data modeling** (`ducklake-copy.data-modeling`) - copies materialized saved query outputs
+2. **Data import registration** (`ducklake-register.data-imports`) - copies and registers prepared Parquet files from completed imports
 
-The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise copies will fail before they even reach the first activity.
+The workflows share the same infrastructure and configuration. Workers running these workflows must be configured explicitly; otherwise they fail before reaching the first activity.
 
 ## Environment variables
 
@@ -73,7 +72,7 @@ The workflow obtains its DuckLake configuration from the following environment v
 - `DUCKLAKE_S3_ACCESS_KEY` - S3 access key (optional, for local dev; production uses IRSA)
 - `DUCKLAKE_S3_SECRET_KEY` - S3 secret key (optional, for local dev; production uses IRSA)
 
-`bin/start` exports sensible defaults for local development, so you usually get a working DuckLake setup just by running the dev script. Temporal workers in staging/production must set these variables directly in their process environment (or via Helm/k8s secrets). If you need to run the workflow against a bespoke DuckLake deployment, override the environment variables before starting the worker—no code changes are required.
+`bin/start` exports sensible defaults for local development, so you usually get a working DuckLake setup by running the dev script. Temporal workers in staging and production must set these variables directly in their process environment or through Helm or Kubernetes secrets. To run the workflow against another DuckLake deployment, override the environment variables before starting the worker.
 
 For local dev the defaults are:
 
@@ -102,25 +101,22 @@ This path currently supports Parquet only. Support for Azure Blob Storage, CSV, 
 
 ## Feature flag gating
 
-Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The copy flags target the project, while `data-warehouse-scene` targets the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
+Each workflow evaluates a feature flag through `feature_enabled`. Create or update the appropriate flag locally. The data modeling flag targets the project, while `data-warehouse-scene` targets the organization. Otherwise, the workflow will be skipped even if the rest of the configuration is correct.
 
-| Workflow                 | Feature Flag                           |
+| Workflow                 | Feature flag                           |
 | ------------------------ | -------------------------------------- |
-| Data Modeling            | `ducklake-data-modeling-copy-workflow` |
-| Data Imports             | `ducklake-data-imports-copy-workflow`  |
-| Data Import Registration | `data-warehouse-scene`                 |
-
-The data-import copy and registration paths target the same stable DuckLake table. An organization with `data-warehouse-scene` enabled runs registration. Disable `ducklake-data-imports-copy-workflow` for its projects to avoid both paths applying the same import. If both run, the last atomic table swap wins.
+| Data modeling            | `ducklake-data-modeling-copy-workflow` |
+| Data import registration | `data-warehouse-scene`                 |
 
 ## Data Ops workflow status
 
-The copy and registration workflows both write their lifecycle to `ManagedWarehouseSourceJob`. Each row identifies the project, source schema, external data job, workflow type, and workflow attempt. The supported states are running, completed, failed, skipped, and stale.
+The data import registration workflow writes its lifecycle to `ManagedWarehouseSourceJob`. Each row identifies the project, source schema, external data job, workflow type, and workflow attempt. The supported states are running, completed, failed, skipped, and stale.
 
 The Data Ops overview reads the latest workflow attempt for each source schema from this shared model. It also reads the most recent completed attempt separately, so a later failed or stale attempt does not erase when data was last applied successfully. The Duckgres consumer sink state is not used for source readiness.
 
 ## Target bucket layout
 
-Every copy is written to a deterministic schema inside DuckLake. Each workflow namespaces its data under a workflow-specific schema:
+Each workflow writes to a deterministic schema inside DuckLake:
 
 ### Data Modeling
 
@@ -128,14 +124,14 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 - **Table**: `<model_label>` (derived from saved query name)
 - **Example**: `ducklake.posthog_data_modeling_team_123.my_saved_query`
 
-### Data Imports and Data Import Registration
+### Data imports
 
 - **Schema**: `posthog_data_imports_team_<team_id>`
 - **Table**: a physical name derived from the organization's naming version
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
 - **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<generation-token>/<prepared-relative-path>`
 
-Duckgres stores a table-naming version on the organization. Organizations that existed when versioning was introduced keep the batch sink's snake-case format, such as `tik_tok_ads_ad_report`. New organizations use the copy workflow format, such as `tiktokads_ad_report`. Copy, registration, the batch sink, and query binding derive the same physical name from that organization-level policy. Do not change the policy after an organization has written data unless the underlying tables are migrated at the same time.
+Duckgres stores a table-naming version on the organization. Organizations that existed when versioning was introduced keep the snake-case format, such as `tik_tok_ads_ad_report`. New organizations use the compact format, such as `tiktokads_ad_report`. Registration and query binding derive the same physical name from that organization-level policy. Do not change the policy after an organization has written data unless the underlying tables are migrated at the same time.
 
 Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories. Schema creation still uses one recursive Parquet glob. File registration calls `ducklake_add_data_files` in batches of copied object paths so each catalog transaction stays short. The workflow verifies the shadow table's row count, then swaps it into the stable table name through the Duckgres PostgreSQL connection. Publication uses one short transaction that renames the current table to an attempt-owned backup and the verified shadow to the stable name. A mismatch never enters the publication transaction, so the previous table remains live. The backup is dropped after publication. Each prepared generation gets its own object prefix. The workflow id is one per schema, so a later start is skipped while a run is in flight. The next import after that run finishes can start.
 
@@ -154,9 +150,9 @@ For AWS S3, grant the worker role at least `s3:ListBucket`, `s3:GetObject`, `s3:
 
 ## Local testing (dev)
 
-Follow these checklists to exercise the DuckLake copy workflows on a local checkout.
+Follow these checklists to exercise the DuckLake workflows on a local checkout.
 
-### Testing Data Modeling workflow
+### Testing the data modeling workflow
 
 1. **Start the dev stack**
    Run `hogli start` (or `bin/start`) so Postgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
@@ -197,22 +193,22 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
    "
    ```
 
-### Testing Data Imports workflows
+### Testing the data import registration workflow
 
 1. **Start the dev stack**
-   Run `hogli start` (or `bin/start`) so Postgres, Duckgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Enable `data-warehouse-scene` for the prepared-Parquet path. Enable `ducklake-data-imports-copy-workflow` only when testing the existing Delta-copy path; both paths run when both flags are enabled.
+   Run `hogli start` (or `bin/start`) so Postgres, Duckgres, SeaweedFS, Temporal, and all DuckLake defaults are up. Enable `data-warehouse-scene` for the organization you plan to use.
 
 2. **Trigger a data import sync from the app**
-   In the PostHog UI, open Data Warehouse → Sources, connect a source (e.g., Stripe, Hubspot), select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.
+   In the PostHog UI, open Data Warehouse → Sources, connect a source such as Stripe or HubSpot, select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.
 
 3. **Observe the external-data-job workflow**
    Visit the Temporal UI at `http://localhost:8081/namespaces/default/workflows` and confirm an `external-data-job` execution appears. Wait for it to finish successfully.
 
-4. **Verify the selected DuckLake workflow runs**
-   Once the import workflow completes it starts both independently gated child workflows. The enabled path appears as either `ducklake-copy.data-imports` or `ducklake-register.data-imports`; the disabled path exits after its gate activity.
+4. **Verify the DuckLake registration workflow runs**
+   Once the import workflow prepares its queryable Parquet snapshot, it starts `ducklake-register.data-imports`. Wait for the registration workflow to finish.
 
 5. **Query the new DuckLake table**
-   The copy activity creates a table at `ducklake.posthog_data_imports_team_<team_id>.<source_type>_<prefix>_<table_name>`. From any DuckDB shell you can inspect it:
+   The registration workflow publishes a table at `ducklake.posthog_data_imports_team_<team_id>.<source_type>_<prefix>_<table_name>`. From any DuckDB shell you can inspect it:
 
    ```sql
    duckdb -c "

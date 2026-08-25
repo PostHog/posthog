@@ -508,8 +508,7 @@ class TestRedeliveredFinalBatchPostLoad:
 
 class TestPostImportTrigger:
     """The V3 hand-off to `data-import-post-import`: without it the load-dependent
-    post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
-    never run for V3 syncs."""
+    post-import steps (signals, enrichment, statistics, table size) never run for V3 syncs."""
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.mark_batch_as_processed")

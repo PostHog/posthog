@@ -137,7 +137,7 @@ def _s3_secrets_for_database(database: Database) -> tuple[DuckLakeS3Secret, ...]
             table = database.get_table(table_name)
         except Exception:
             continue
-        # Connector-synced tables are rebound to their DuckLake copy and read no object storage.
+        # Connector-synced tables are rebound to their DuckLake table and read no object storage.
         if not isinstance(table, S3Table) or table.external_data_source_id or table.table_id is None:
             continue
         if table.format != "Parquet" or not table.access_key or not table.access_secret:

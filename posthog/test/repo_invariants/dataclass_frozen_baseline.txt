@@ -1605,7 +1605,6 @@
 6 posthog/temporal/salesforce_enrichment/stripe_workflow.py
 6 products/batch_exports/backend/temporal/destinations/redshift_batch_export.py
 6 products/conversations/backend/temporal/zendesk_import/activities.py
-6 products/managed_warehouse/backend/temporal/ducklake_copy_data_imports_workflow.py
 6 products/marketing_analytics/backend/services/attribution_health.py
 6 products/marketing_analytics/backend/services/mapping_suggester.py
 6 products/tasks/backend/temporal/task_management/workflow.py
