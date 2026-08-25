@@ -59,39 +59,38 @@ export class TeamManager {
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
-        if (team.ingested_event) {
-            return
-        }
-
-        await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_team SET ingested_event = true WHERE id = $1 AND NOT ingested_event`,
-            [team.id],
-            'setTeamIngestedEvent'
-        )
-
-        const organizationMembers = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-            [team.organization_id],
-            'posthog_organizationmembership'
-        )
-
-        const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-        for (const { distinct_id } of distinctIds) {
-            captureTeamEvent(
-                team,
-                'first team event ingested',
-                {
-                    sdk: properties.$lib,
-                    realm: properties.realm,
-                    host: properties.$host,
-                },
-                distinct_id
+        if (!team.ingested_event) {
+            await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET ingested_event = true WHERE id = $1 AND NOT ingested_event`,
+                [team.id],
+                'setTeamIngestedEvent'
             )
-        }
 
-        this.lazyLoader.markForRefresh(String(team.id))
+            // Invalidate the cache for this team
+            this.lazyLoader.markForRefresh(String(team.id))
+
+            const organizationMembers = await this.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                [team.organization_id],
+                'posthog_organizationmembership'
+            )
+
+            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+            for (const { distinct_id } of distinctIds) {
+                captureTeamEvent(
+                    team,
+                    'first team event ingested',
+                    {
+                        sdk: properties.$lib,
+                        realm: properties.realm,
+                        host: properties.$host,
+                    },
+                    distinct_id
+                )
+            }
+        }
     }
 
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
