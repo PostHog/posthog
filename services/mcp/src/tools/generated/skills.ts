@@ -245,6 +245,7 @@ const skillList = (): ToolBase<typeof SkillListSchema, Schemas.PaginatedLLMSkill
                 created_by_id: params.created_by_id,
                 limit: params.limit,
                 offset: params.offset,
+                owner_id: params.owner_id,
                 search: params.search,
             },
         })
